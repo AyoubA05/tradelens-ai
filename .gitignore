@@ -216,3 +216,22 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Virtual environments
+venv/
+.venv/
+env/
+#/
+a/
+don't/
+have/
+if/
+yet/
+you/
+
+# Local data (SQLite + screenshots)
+data/
+*.db
+
+# Streamlit secrets
+.streamlit/secrets.toml
