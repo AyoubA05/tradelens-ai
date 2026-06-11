@@ -6,7 +6,7 @@ TradeLens AI is an AI-powered post-trade journaling and performance analysis das
 
 ## Live Demo
 
-> Link coming after deploy.
+[https://tradelens-app.streamlit.app/](https://tradelens-app.streamlit.app/)
 
 Seeded with 60 sample trades. Add your `OPENAI_API_KEY` in Settings to enable AI features (analysis, journaling, grading).
 
