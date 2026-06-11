@@ -1,7 +1,11 @@
+from pathlib import Path
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
-DATABASE_URL = "sqlite:///./data/tradelens.db"
+_DB_DIR = Path(__file__).resolve().parents[3] / "data"
+_DB_DIR.mkdir(exist_ok=True)
+DATABASE_URL = f"sqlite:///{_DB_DIR / 'tradelens.db'}"
 
 engine = create_engine(
     DATABASE_URL,
@@ -16,3 +20,11 @@ SessionLocal = sessionmaker(
 
 class Base(DeclarativeBase):
     pass
+
+
+def get_session():
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()

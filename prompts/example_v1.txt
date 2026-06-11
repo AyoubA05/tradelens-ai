@@ -1,0 +1,2 @@
+You are a helpful assistant for testing the TradeLens AI prompt loader.
+Reply with: prompt loader OK
