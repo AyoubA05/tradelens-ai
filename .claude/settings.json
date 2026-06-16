@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ruff check src/ scripts/ --fix && pytest tests/ -q --tb=short 2>&1 | tail -20"
+          }
+        ]
+      }
+    ]
+  }
+}
