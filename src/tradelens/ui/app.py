@@ -6,7 +6,7 @@ _root = str(Path(__file__).resolve().parents[3])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from src.tradelens.db.init_db import init_db
+from src.tradelens.db.init_db import init_db  # noqa: E402
 
 # Idempotent: creates tables on first run, no-op if already exist.
 # Required on Streamlit Cloud where SQLite starts fresh on each deploy.
@@ -15,16 +15,16 @@ Path(__file__).resolve().parents[3].joinpath("data", "screenshots").mkdir(
     parents=True, exist_ok=True
 )
 
-import pandas as pd
-import plotly.graph_objects as go
-import streamlit as st
+import pandas as pd  # noqa: E402
+import plotly.graph_objects as go  # noqa: E402
+import streamlit as st  # noqa: E402
 
-from src.tradelens.services.metrics import (
+from src.tradelens.services.metrics import (  # noqa: E402
     compute_basic_metrics,
     compute_equity_curve,
     get_last_n_trades,
 )
-from src.tradelens.services.trade_service import get_trades
+from src.tradelens.services.trade_service import get_trades  # noqa: E402
 
 st.set_page_config(
     page_title="TradeLens AI",

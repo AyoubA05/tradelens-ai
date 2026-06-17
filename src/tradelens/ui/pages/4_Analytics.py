@@ -9,12 +9,12 @@ _root = str(Path(__file__).resolve().parents[4])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-import pandas as pd
-import streamlit as st
+import pandas as pd  # noqa: E402
+import streamlit as st  # noqa: E402
 
-from src.tradelens.services.metrics_store import get_computed_at
-from src.tradelens.services.trade_service import get_trades
-from src.tradelens.services.metrics import (
+from src.tradelens.services.metrics_store import get_computed_at  # noqa: E402
+from src.tradelens.services.trade_service import get_trades  # noqa: E402
+from src.tradelens.services.metrics import (  # noqa: E402
     by_day_of_week,
     by_setup_type,
     by_strategy,
@@ -27,7 +27,7 @@ from src.tradelens.services.metrics import (
     equity_curve_series,
     r_multiple_distribution,
 )
-from src.tradelens.ui.components.charts import (
+from src.tradelens.ui.components.charts import (  # noqa: E402
     drawdown_chart,
     emotion_vs_rr_chart,
     equity_curve_chart,

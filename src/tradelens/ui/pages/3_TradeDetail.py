@@ -5,11 +5,11 @@ _root = str(Path(__file__).resolve().parents[4])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-import json
+import json  # noqa: E402
 
-import streamlit as st
+import streamlit as st  # noqa: E402
 
-from src.tradelens.services.ai_analysis_service import (
+from src.tradelens.services.ai_analysis_service import (  # noqa: E402
     create_or_update_analysis,
     get_analysis_for_trade,
     save_grade,
@@ -17,12 +17,12 @@ from src.tradelens.services.ai_analysis_service import (
     save_user_grade,
     update_analysis_fields,
 )
-from src.tradelens.services.corrections import record_correction
-from src.tradelens.services.grading import GradingError, build_grading_context, grade_trade
-from src.tradelens.services.journal import JournalStructureError, build_journal_context, generate_journal
-from src.tradelens.services.strategy import get_active_strategy
-from src.tradelens.services.trade_service import get_trades
-from src.tradelens.services.vision import ScreenshotAnalysisError, analyze_screenshot
+from src.tradelens.services.corrections import record_correction  # noqa: E402
+from src.tradelens.services.grading import GradingError, build_grading_context, grade_trade  # noqa: E402
+from src.tradelens.services.journal import JournalStructureError, build_journal_context, generate_journal  # noqa: E402
+from src.tradelens.services.strategy import get_active_strategy  # noqa: E402
+from src.tradelens.services.trade_service import get_trades  # noqa: E402
+from src.tradelens.services.vision import ScreenshotAnalysisError, analyze_screenshot  # noqa: E402
 
 st.set_page_config(page_title="Trade Detail", page_icon="🔍")
 st.title("🔍 Trade Detail")

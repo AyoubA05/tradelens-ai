@@ -6,12 +6,12 @@ _root = str(Path(__file__).resolve().parents[4])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-import datetime
+import datetime  # noqa: E402
 
-import streamlit as st
+import streamlit as st  # noqa: E402
 
-from src.tradelens.services.screenshot_service import save_screenshot
-from src.tradelens.services.trade_service import create_trade
+from src.tradelens.services.screenshot_service import save_screenshot  # noqa: E402
+from src.tradelens.services.trade_service import create_trade  # noqa: E402
 
 st.set_page_config(page_title="New Trade", page_icon="📝")
 st.title("📝 New Trade")

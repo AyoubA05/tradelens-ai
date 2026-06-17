@@ -5,9 +5,9 @@ _root = str(Path(__file__).resolve().parents[4])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-import streamlit as st
+import streamlit as st  # noqa: E402
 
-from src.tradelens.services.strategy import get_active_strategy, upsert_strategy_profile
+from src.tradelens.services.strategy import get_active_strategy, upsert_strategy_profile  # noqa: E402
 
 st.set_page_config(page_title="Strategy Profile", page_icon="🎯")
 st.title("🎯 Strategy Profile")

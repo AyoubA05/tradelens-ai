@@ -6,12 +6,12 @@ _root = str(Path(__file__).resolve().parents[4])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-import datetime
+import datetime  # noqa: E402
 
-import pandas as pd
-import streamlit as st
+import pandas as pd  # noqa: E402
+import streamlit as st  # noqa: E402
 
-from src.tradelens.services.trade_service import get_trades
+from src.tradelens.services.trade_service import get_trades  # noqa: E402
 
 st.set_page_config(page_title="Trade Journal", page_icon="📒")
 

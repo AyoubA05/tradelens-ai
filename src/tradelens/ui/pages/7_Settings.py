@@ -6,13 +6,13 @@ _root = str(Path(__file__).resolve().parents[4])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-import pandas as pd
-import streamlit as st
+import pandas as pd  # noqa: E402
+import streamlit as st  # noqa: E402
 
-from src.tradelens.db.models import Trade
-from src.tradelens.db.session import SessionLocal
-from src.tradelens.services.csvio import CSV_COLUMNS, export_trades_csv, import_trades_csv
-from src.tradelens.services.trade_service import get_trades
+from src.tradelens.db.models import Trade  # noqa: E402
+from src.tradelens.db.session import SessionLocal  # noqa: E402
+from src.tradelens.services.csvio import CSV_COLUMNS, export_trades_csv, import_trades_csv  # noqa: E402
+from src.tradelens.services.trade_service import get_trades  # noqa: E402
 
 st.set_page_config(page_title="Settings", page_icon="⚙️")
 st.title("⚙️ Settings")

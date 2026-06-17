@@ -27,8 +27,6 @@ _root = str(Path(__file__).resolve().parents[1])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-import os
-
 # Load .env if present
 try:
     from dotenv import load_dotenv
@@ -36,14 +34,14 @@ try:
 except ImportError:
     pass
 
-from src.tradelens.config import settings
-from src.tradelens.db.session import SessionLocal
-from src.tradelens.db.models import Trade, Screenshot
-from src.tradelens.services.strategy import get_active_strategy
-from src.tradelens.services.vision import analyze_screenshot, ScreenshotAnalysisError
-from src.tradelens.services.journal import generate_journal, build_journal_context
-from src.tradelens.services.grading import grade_trade, build_grading_context
-from src.tradelens.db.models import AIAnalysis
+from src.tradelens.config import settings  # noqa: E402
+from src.tradelens.db.session import SessionLocal  # noqa: E402
+from src.tradelens.db.models import Trade  # noqa: E402
+from src.tradelens.services.strategy import get_active_strategy  # noqa: E402
+from src.tradelens.services.vision import analyze_screenshot, ScreenshotAnalysisError  # noqa: E402
+from src.tradelens.services.journal import build_journal_context  # noqa: E402
+from src.tradelens.services.grading import build_grading_context  # noqa: E402
+from src.tradelens.db.models import AIAnalysis  # noqa: E402
 
 
 def _find_eligible_trade():
@@ -203,7 +201,7 @@ def main():
     print(f"  {'-'*75}")
     print(f"  {'TOTAL':<50} ${total_cost:>8.5f}")
 
-    print(f"\nSmoke test complete. No changes written to DB.\n")
+    print("\nSmoke test complete. No changes written to DB.\n")
 
 
 if __name__ == "__main__":

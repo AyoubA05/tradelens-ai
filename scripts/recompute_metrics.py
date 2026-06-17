@@ -17,18 +17,18 @@ _root = str(Path(__file__).resolve().parents[1])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-import pandas as pd
+import pandas as pd  # noqa: E402
 
-from src.tradelens.db.models import PerformanceMetrics
-from src.tradelens.db.session import SessionLocal
-from src.tradelens.services.metrics import (
+from src.tradelens.db.models import PerformanceMetrics  # noqa: E402
+from src.tradelens.db.session import SessionLocal  # noqa: E402
+from src.tradelens.services.metrics import (  # noqa: E402
     by_day_of_week,
     by_strategy,
     by_timeframe,
     compute_basic_metrics,
     compute_profit_factor_raw,
 )
-from src.tradelens.services.trade_service import get_trades
+from src.tradelens.services.trade_service import get_trades  # noqa: E402
 
 
 def _build_df(trades) -> pd.DataFrame:
