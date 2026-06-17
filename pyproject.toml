@@ -1,0 +1,28 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# E402: module-level import not at top of file
+# Intentionally suppressed — all Streamlit pages and scripts use a sys.path.insert
+# block before imports so the package resolves correctly when run directly.
+# F401: unused imports suppressed in db/init_db.py only (models imported for
+# SQLAlchemy metadata side-effects, not direct use).
+ignore = ["E402"]
+
+# F401 unused imports: auto-fixable, keep as warning in most files
+# but suppress in init_db.py where models are imported for side-effects
+per-file-ignores = {
+    "src/tradelens/db/init_db.py" = ["F401"],
+    "scripts/ai_smoke.py" = ["F401", "F811", "F541"],
+}
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
