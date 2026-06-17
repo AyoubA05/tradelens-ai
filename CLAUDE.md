@@ -1,18 +1,31 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file is automatically injected into every Claude Code session.
+Read it fully before touching any file.
+
+---
+
+## Project Identity
+
+TradeLens AI is a **post-trade reflection journal and analytics dashboard** for SMC/ICT day traders.
+
+- ✅ Journaling, trade review, self-analysis, performance tracking, educational reflection
+- ❌ NOT a signal app. NOT a bot. NOT a financial advice tool.
+- ❌ Nothing in this repo may generate trade ideas, predictions, or live trading signals — including UI copy.
+
+---
 
 ## Commands
 
 ```bash
 # Setup
 pip install -r requirements.txt
-cp .env.example .env          # then fill in OPENAI_API_KEY
+cp .env.example .env  # fill in ANTHROPIC_API_KEY
 
-# Initialize DB (creates tables from models via SQLAlchemy metadata)
+# Initialize DB
 python -m src.tradelens.db.init_db
 
-# Seed sample data (60 trades across 3 weeks, skips if trades already exist)
+# Seed sample data (60 trades across 3 weeks, skips if trades exist)
 python scripts/seed.py
 
 # Run the app
@@ -20,6 +33,7 @@ streamlit run src/tradelens/ui/app.py
 
 # Lint
 ruff check src/ scripts/
+black --check src/ scripts/
 
 # Test
 pytest tests/ -v --tb=short
@@ -29,39 +43,47 @@ pytest tests/test_foo.py -v
 
 # Alembic migrations
 alembic upgrade head
+alembic downgrade -1
 alembic revision --autogenerate -m "description"
 ```
 
-## Architecture
+---
 
-The app is a single-user Streamlit trading journal backed by SQLite. The database URL is hardcoded in [src/tradelens/db/session.py](src/tradelens/db/session.py) (`sqlite:///./data/tradelens.db`) — the `.env` `DATABASE_URL` variable is not yet wired in.
+## Tech Stack
 
-**Data layer** (`src/tradelens/db/`):
-- `session.py` — SQLAlchemy engine, `SessionLocal` factory, and `Base` (DeclarativeBase)
-- `models.py` — ORM models: `Strategy`, `Trade`, `Screenshot`
-- `init_db.py` — `Base.metadata.create_all()` entrypoint; use for initial setup
+| Layer | Technology |
+|---|---|
+| Language | Python 3.11 |
+| UI | Streamlit (multi-page) |
+| ORM | SQLAlchemy 2.x |
+| Database | SQLite (dev) → PostgreSQL (prod) |
+| Migrations | Alembic (every schema change; downgrade always implemented) |
+| AI | Anthropic API — `claude-fable-5` primary, `claude-haiku-4-5` grading pre-pass only |
+| Visualization | Plotly |
+| Data | Pandas, NumPy |
+| Testing | pytest |
+| Linting | ruff, black |
+| Secrets | `st.secrets` / environment — never hardcoded |
 
-**Schema discrepancy to be aware of**: `scripts/seed.py` references a richer `Trade` schema (`user_id`, `trade_date`, `day_of_week`, `session`, `asset_class`, `stop_price`, `tp_price`, `position_size`, `risk_amount`, `reward_amount`, `rr_planned`, `strategy_used`, `bias`, `emotions_during`, `emotions_after`, `notes`, `ai_grade`, `user_grade`, `created_at`, `updated_at`) that is **not yet defined** in `models.py`. The Alembic initial migration is also a no-op (`pass`). The models and migration need to be updated to match the seed before the seed script will work.
+---
 
-**UI layer** (`src/tradelens/ui/`):
-- `app.py` — single Streamlit entry point; sidebar nav and KPI metrics are stubs
-- `pages/` — empty, intended for multi-page Streamlit pages
+## TradeLens AI — Week 5 Rules
 
-**Services layer** (`src/tradelens/services/`): empty stub directory — AI integration (OpenAI) and business logic go here.
+**Project identity:** TradeLens AI is a post-trade reflection journal. NOT a signal app, NOT a bot, NOT financial advice.
 
-**Prompts** (`prompts/`): empty stub — LLM prompt templates will live here.
+**Current week goal:** Week 5 — SMC/ICT schema, killzone engine, pattern detection, weekly AI review, correction memory, AI partner mode, hardening. Target: 85+ passing tests.
 
-**Data** (`data/`):
-- `tradelens.db` — SQLite database file (committed; gitignored pattern excludes `*.sqlite3` but not this path)
-- `data/screenshots/` — uploaded chart images, stored by file path reference in `Screenshot` model
+**AI model routing:**
+- claude-fable-5 → vision analysis, journal generation, weekly review, patterns, AI partner
+- claude-haiku-4-5 → grading pre-pass only (cheap fast call)
+- All AI calls go through services/ai_client.py ONLY — never call the API directly from a page
 
-Alembic is configured to import `Base` from `src/tradelens/db/models` for autogenerate support (`alembic/env.py:23`).
+**Hard rules:**
+- NO streamlit imports inside services/ or db/
+- prompts/ files are LOCKED — extend contracts only, never rewrite them
+- All business logic lives in services/ — pages only render and call services
+- Use Alembic for every schema change — migrations must have downgrade() implemented
+- DEMO_MODE=true returns cached/mock output — zero API spend in tests
+- Read API keys from st.secrets or environment only — never hardcode
 
-## TradeLens AI — Week 2 rules
-
-- Follow the TradeLens AI Blueprint (6‑week roadmap).
-- CURRENT PHASE: Week 2 — Core App only.
-- Do NOT add OpenAI calls, vision analysis, grading, or journal generation yet.
-- Keep strict separation: no `streamlit` imports in `src/tradelens/services/` or `src/tradelens/db/`.
-- All DB access goes through `src/tradelens/db/session.py`.
-- Pages live in `src/tradelens/ui/pages/` and are numbered.
+**Baseline:** 136 tests passing, 0 ruff violations as of Week 5 Day 0.
