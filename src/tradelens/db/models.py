@@ -65,6 +65,20 @@ class Trade(Base):
 
     ai_grade: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     user_grade: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    # SMC/ICT fields — Phase 1
+    htf_bias: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    killzone: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    liquidity_sweep: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    fvg_used: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    order_block_used: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    bos: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    choch: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    confirmation_model: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    entry_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    mistake_tags: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    followed_rules: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
     created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 

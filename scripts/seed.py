@@ -1,3 +1,4 @@
+import json
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -46,6 +47,23 @@ STRATEGIES = ["ICT 5m", "Supply & Demand", "S/R Breakout", "Scalp", "Swing"]
 
 GRADES = ["A", "A-", "B+", "B", "B-", "C+", "C", "D"]
 
+KILLZONES = ["asia", "london_open", "ny_am", "ny_lunch", "ny_pm"]
+
+HTF_BIAS_OPTIONS = ["bullish", "bearish", "neutral"]
+
+CONFIRMATION_MODELS = [
+    "Liquidity Sweep", "BOS", "CHoCH", "MSS", "FVG Fill",
+    "OB Reaction", "S/R Rejection", "Candle Close",
+]
+
+ENTRY_TYPES = ["limit", "market", "stop_limit"]
+
+MISTAKE_OPTIONS = [
+    "Early Entry", "Late Entry", "Bad Stop Placement", "Moved Stop",
+    "Closed Too Early", "FOMO", "Revenge Trade", "Against HTF Bias",
+]
+
+
 def random_trade(trade_date):
     asset_row  = random.choice(ASSETS)
     asset, asset_class, timeframe, session = asset_row
@@ -75,7 +93,6 @@ def random_trade(trade_date):
     )
 
     return Trade(
-        user_id          = 1,
         strategy_id      = None,
         trade_date       = trade_date.strftime("%Y-%m-%d"),
         day_of_week      = trade_date.strftime("%a"),
@@ -104,6 +121,18 @@ def random_trade(trade_date):
         notes            = "Seeded trade.",
         ai_grade         = random.choice(GRADES),
         user_grade       = None,
+        # SMC/ICT fields — Phase 1
+        htf_bias         = random.choice(HTF_BIAS_OPTIONS),
+        killzone         = random.choice(KILLZONES),
+        liquidity_sweep  = random.choice([0, 1]),
+        fvg_used         = random.choice([0, 1]),
+        order_block_used = random.choice([0, 1]),
+        bos              = random.choice([0, 1]),
+        choch            = random.choice([0, 1]),
+        confirmation_model = random.choice(CONFIRMATION_MODELS),
+        entry_type       = random.choice(ENTRY_TYPES),
+        mistake_tags     = json.dumps(random.choices(MISTAKE_OPTIONS, k=random.randint(0, 2))),
+        followed_rules   = random.choice([0, 1]),
         created_at       = datetime.utcnow().isoformat(),
         updated_at       = datetime.utcnow().isoformat(),
     )
