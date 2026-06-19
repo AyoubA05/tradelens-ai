@@ -17,6 +17,9 @@ from sqlalchemy import create_engine, inspect
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "alembic" / "versions" / "g7h8i9j0k1l2_add_smc_ict_fields.py"
+WEEKLY_MIGRATION = (
+    ROOT / "alembic" / "versions" / "h8i9j0k1l2m3_add_weekly_reviews.py"
+)
 
 SMC_COLS = {
     "htf_bias",
@@ -38,6 +41,17 @@ def _load_migration():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def _load_weekly_migration():
+    spec = importlib.util.spec_from_file_location("weekly_migration", WEEKLY_MIGRATION)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _tables(conn) -> set:
+    return set(inspect(conn).get_table_names())
 
 
 def _columns(conn) -> set:
@@ -84,3 +98,53 @@ def test_smc_upgrade_is_idempotent(tmp_path):
 
         mig.upgrade()  # must not error despite `killzone` pre-existing
         assert SMC_COLS <= _columns(conn)
+
+
+WEEKLY_COLS = {
+    "id",
+    "week_start",
+    "content_md",
+    "thinking_summary",
+    "stats_json",
+    "cost_usd",
+    "created_at",
+}
+
+
+def test_weekly_reviews_migration_round_trip(tmp_path):
+    url = f"sqlite:///{tmp_path / 'weekly.db'}"
+    engine = create_engine(url)
+    mig = _load_weekly_migration()
+
+    with engine.connect() as conn:
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()
+        assert "weekly_reviews" in _tables(conn), "upgrade() did not create the table"
+        assert WEEKLY_COLS <= _columns_of(conn, "weekly_reviews")
+
+        mig.downgrade()
+        assert "weekly_reviews" not in _tables(conn), "downgrade() left the table behind"
+
+        mig.upgrade()
+        assert "weekly_reviews" in _tables(conn), "re-upgrade() did not recreate it"
+
+
+def test_weekly_reviews_upgrade_is_idempotent(tmp_path):
+    """upgrade() is safe to re-run when the table already exists."""
+    url = f"sqlite:///{tmp_path / 'weekly_idem.db'}"
+    engine = create_engine(url)
+    mig = _load_weekly_migration()
+
+    with engine.connect() as conn:
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()
+        mig.upgrade()  # must not error on second run
+        assert "weekly_reviews" in _tables(conn)
+
+
+def _columns_of(conn, table: str) -> set:
+    return {c["name"] for c in inspect(conn).get_columns(table)}

@@ -163,3 +163,15 @@ class PerformanceMetrics(Base):
     best_timeframe:  Mapped[Optional[str]]  = mapped_column(String, nullable=True)
     worst_timeframe: Mapped[Optional[str]]  = mapped_column(String, nullable=True)
     computed_at:     Mapped[Optional[str]]  = mapped_column(String, nullable=True)
+
+
+class WeeklyReview(Base):
+    __tablename__ = "weekly_reviews"
+
+    id:               Mapped[int]            = mapped_column(Integer, primary_key=True, index=True)
+    week_start:       Mapped[str]            = mapped_column(String, nullable=False, index=True)  # ISO Monday (YYYY-MM-DD)
+    content_md:       Mapped[Optional[str]]  = mapped_column(Text, nullable=True)
+    thinking_summary: Mapped[Optional[str]]  = mapped_column(Text, nullable=True)
+    stats_json:       Mapped[Optional[str]]  = mapped_column(Text, nullable=True)
+    cost_usd:         Mapped[Optional[float]]= mapped_column(Float, nullable=True)
+    created_at:       Mapped[Optional[str]]  = mapped_column(String, nullable=True)

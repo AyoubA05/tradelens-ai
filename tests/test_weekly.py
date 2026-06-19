@@ -1,0 +1,289 @@
+"""
+Tests for weekly.py — AI calls are mocked (no network/cost); the DEMO_MODE test
+exercises the real ai_client short-circuit. DB tests use in-memory SQLite.
+"""
+
+import datetime as dt
+import json
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from src.tradelens.db.models import Base
+from src.tradelens.services.ai_client import AIUnavailable, Usage
+
+
+# ---------------------------------------------------------------------------
+# Fixtures / helpers
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def in_memory_db(monkeypatch):
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
+    Base.metadata.create_all(engine)
+    TestSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr("src.tradelens.services.weekly.SessionLocal", TestSession)
+    return TestSession
+
+
+def _fake_trades():
+    return [
+        SimpleNamespace(
+            trade_date="2026-06-15",
+            day_of_week="Monday",
+            result="Win",
+            pnl=200.0,
+            rr_realized=2.0,
+            killzone="ny_am",
+            confirmation_model="BOS",
+            mistake_tags="[]",
+            htf_bias="bullish",
+            setup_type="FVG",
+            followed_rules=1,
+        ),
+        SimpleNamespace(
+            trade_date="2026-06-17",
+            day_of_week="Wednesday",
+            result="Loss",
+            pnl=-100.0,
+            rr_realized=-1.0,
+            killzone="ny_am",
+            confirmation_model="BOS",
+            mistake_tags='["FOMO"]',
+            htf_bias="bullish",
+            setup_type="FVG",
+            followed_rules=0,
+        ),
+    ]
+
+
+_REQUIRED_SECTIONS = [
+    "### What Worked",
+    "### What Didn't",
+    "### Killzone Review",
+    "### Rule Adherence",
+    "### Focus for Next Week",
+]
+
+
+def _full_review() -> str:
+    return "\n\n".join(f"{h}\n\nSample content." for h in _REQUIRED_SECTIONS)
+
+
+def _make_usage(cost=0.012, thinking="I weighed killzone win rates.") -> Usage:
+    return Usage(
+        model="claude-fable-5",
+        tokens_in=2000,
+        tokens_out=1200,
+        total_tokens=3200,
+        estimated_cost_usd=cost,
+        latency_s=8.0,
+        thinking_summary=thinking,
+    )
+
+
+# ---------------------------------------------------------------------------
+# week_bounds — Monday→Sunday window selection
+# ---------------------------------------------------------------------------
+
+
+def test_week_bounds_from_midweek_date():
+    from src.tradelens.services.weekly import week_bounds
+
+    assert week_bounds(dt.date(2026, 6, 17)) == ("2026-06-15", "2026-06-21")
+
+
+def test_week_bounds_on_monday_and_sunday_edges():
+    from src.tradelens.services.weekly import week_bounds
+
+    assert week_bounds(dt.date(2026, 6, 15)) == ("2026-06-15", "2026-06-21")
+    assert week_bounds(dt.date(2026, 6, 21)) == ("2026-06-15", "2026-06-21")
+
+
+def test_week_bounds_accepts_iso_string():
+    from src.tradelens.services.weekly import week_bounds
+
+    assert week_bounds("2026-06-19") == ("2026-06-15", "2026-06-21")
+
+
+# ---------------------------------------------------------------------------
+# generate_weekly_review
+# ---------------------------------------------------------------------------
+
+
+def test_zero_trade_week_makes_no_api_call():
+    from src.tradelens.services.weekly import generate_weekly_review
+
+    with patch("src.tradelens.services.weekly.get_trades", return_value=[]), patch(
+        "src.tradelens.services.weekly.chat"
+    ) as mock_chat, patch(
+        "src.tradelens.services.weekly.get_recent_corrections", return_value=[]
+    ):
+        review, usage = generate_weekly_review("2026-06-17")
+
+    mock_chat.assert_not_called()
+    assert review["empty"] is True
+    assert review["content_md"] is None
+    assert review["week_start"] == "2026-06-15"
+    assert usage.estimated_cost_usd == 0.0
+
+
+def test_generate_uses_high_effort_and_returns_sections():
+    from src.tradelens.services.weekly import generate_weekly_review
+
+    captured = {}
+
+    def fake_chat(user_message, system_message="", **kwargs):
+        captured.update(kwargs)
+        captured["user"] = user_message
+        return _full_review(), _make_usage()
+
+    with patch(
+        "src.tradelens.services.weekly.get_trades", return_value=_fake_trades()
+    ), patch("src.tradelens.services.weekly.chat", side_effect=fake_chat), patch(
+        "src.tradelens.services.weekly.load_prompt", return_value="mock"
+    ), patch(
+        "src.tradelens.services.weekly.get_recent_corrections", return_value=[]
+    ):
+        review, usage = generate_weekly_review("2026-06-17")
+
+    assert captured["effort"] == "high"
+    assert review["empty"] is False
+    for section in _REQUIRED_SECTIONS:
+        assert section in review["content_md"]
+    assert review["thinking_summary"] == "I weighed killzone win rates."
+    assert review["stats"]["trades"] == 2
+
+
+def test_generate_missing_section_raises():
+    from src.tradelens.services.weekly import WeeklyReviewError, generate_weekly_review
+
+    incomplete = "### What Worked\n\nOK\n\n### What Didn't\n\nOK"  # only 2 of 5
+    with patch(
+        "src.tradelens.services.weekly.get_trades", return_value=_fake_trades()
+    ), patch(
+        "src.tradelens.services.weekly.chat", return_value=(incomplete, _make_usage())
+    ), patch(
+        "src.tradelens.services.weekly.load_prompt", return_value="mock"
+    ), patch(
+        "src.tradelens.services.weekly.get_recent_corrections", return_value=[]
+    ):
+        with pytest.raises(WeeklyReviewError, match="missing required section"):
+            generate_weekly_review("2026-06-17")
+
+
+def test_generate_ai_unavailable_raises():
+    from src.tradelens.services.weekly import WeeklyReviewError, generate_weekly_review
+
+    with patch(
+        "src.tradelens.services.weekly.get_trades", return_value=_fake_trades()
+    ), patch(
+        "src.tradelens.services.weekly.chat",
+        return_value=(AIUnavailable("AI declined"), _make_usage()),
+    ), patch(
+        "src.tradelens.services.weekly.load_prompt", return_value="mock"
+    ), patch(
+        "src.tradelens.services.weekly.get_recent_corrections", return_value=[]
+    ):
+        with pytest.raises(WeeklyReviewError, match="AI declined"):
+            generate_weekly_review("2026-06-17")
+
+
+def test_generate_demo_mode_returns_mock_review(monkeypatch):
+    """DEMO_MODE returns the canned 5-section review via the real ai_client path."""
+    import src.tradelens.services.ai_client as ai_client
+    from src.tradelens.services.weekly import generate_weekly_review
+
+    monkeypatch.setattr(ai_client.settings, "demo_mode", True)
+
+    with patch(
+        "src.tradelens.services.weekly.get_trades", return_value=_fake_trades()
+    ), patch("src.tradelens.services.weekly.get_recent_corrections", return_value=[]):
+        review, usage = generate_weekly_review("2026-06-17")
+
+    assert review["empty"] is False
+    for section in _REQUIRED_SECTIONS:
+        assert section in review["content_md"]
+    assert usage.estimated_cost_usd == 0.0  # no spend
+
+
+# ---------------------------------------------------------------------------
+# persistence: save / get / list + overwrite-confirm
+# ---------------------------------------------------------------------------
+
+
+def _review(week_start="2026-06-15", content="### What Worked\n\nv1") -> dict:
+    return {
+        "week_start": week_start,
+        "empty": False,
+        "content_md": content,
+        "thinking_summary": "reasoning",
+        "stats": {
+            "trades": 2,
+            "win_rate": 0.5,
+            "total_pnl": 100.0,
+            "profit_factor": 2.0,
+            "total_edge_leak": -100.0,
+        },
+        "cost_usd": 0.012,
+    }
+
+
+def test_save_and_get_round_trip(in_memory_db):
+    from src.tradelens.services.weekly import get_weekly_review, save_weekly_review
+
+    save_weekly_review(_review())
+    got = get_weekly_review("2026-06-15")
+
+    assert got is not None
+    assert got["content_md"] == "### What Worked\n\nv1"
+    assert got["stats"]["total_pnl"] == pytest.approx(100.0)
+    assert got["cost_usd"] == pytest.approx(0.012)
+
+
+def test_get_weekly_review_missing_returns_none(in_memory_db):
+    from src.tradelens.services.weekly import get_weekly_review
+
+    assert get_weekly_review("2099-01-04") is None
+
+
+def test_overwrite_requires_confirm(in_memory_db):
+    from src.tradelens.services.weekly import (
+        WeeklyReviewExistsError,
+        get_weekly_review,
+        save_weekly_review,
+    )
+
+    save_weekly_review(_review(content="### What Worked\n\nv1"))
+
+    # second save without overwrite must refuse
+    with pytest.raises(WeeklyReviewExistsError):
+        save_weekly_review(_review(content="### What Worked\n\nv2"))
+
+    # overwrite=True replaces in place (still one row)
+    save_weekly_review(_review(content="### What Worked\n\nv2"), overwrite=True)
+    got = get_weekly_review("2026-06-15")
+    assert got["content_md"] == "### What Worked\n\nv2"
+
+    from src.tradelens.services.weekly import list_weekly_reviews
+
+    assert len(list_weekly_reviews()) == 1
+
+
+def test_list_weekly_reviews_orders_recent_first(in_memory_db):
+    from src.tradelens.services.weekly import list_weekly_reviews, save_weekly_review
+
+    save_weekly_review(_review(week_start="2026-06-08"))
+    save_weekly_review(_review(week_start="2026-06-15"))
+
+    rows = list_weekly_reviews()
+    assert [r["week_start"] for r in rows] == ["2026-06-15", "2026-06-08"]
+    # stats survive the round-trip as a dict
+    assert isinstance(rows[0]["stats"], dict)
+    assert json.dumps(rows[0]["stats"])  # serialisable
