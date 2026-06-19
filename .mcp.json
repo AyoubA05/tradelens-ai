@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "tradelens-db": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-sqlite",
+        "--db-path",
+        "/Users/ayoub/tradelens-ai/data/tradelens.db"
+      ]
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/ayoub/tradelens-ai"
+      ]
+    }
+  }
+}

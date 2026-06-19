@@ -235,3 +235,6 @@ data/
 
 # Streamlit secrets
 .streamlit/secrets.toml
+
+# Installed skills (npx skills)
+.agents/
