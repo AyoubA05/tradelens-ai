@@ -186,6 +186,51 @@ def test_fill_defaults_handles_missing_keys(tmp_path):
     assert result["notes_to_user"] is None
 
 
+def test_analyze_screenshot_uses_v2_and_returns_smc_keys(tmp_path):
+    """vision.py must load screenshot_v2 and return the 4 new SMC proposal keys."""
+    image = _make_jpeg(tmp_path)
+    analysis = {
+        **_VALID_ANALYSIS,
+        "htf_bias": "bullish",
+        "liquidity_sweep": True,
+        "fvg_used": False,
+        "order_block_used": True,
+    }
+    captured = {}
+
+    def fake_load_prompt(name):
+        captured["name"] = name
+        return "mock system prompt"
+
+    with patch(
+        "src.tradelens.services.vision.vision",
+        return_value=_mock_vision_response(analysis),
+    ), patch("src.tradelens.services.vision.load_prompt", side_effect=fake_load_prompt):
+        result, _ = analyze_screenshot(image, {"asset": "NQ"})
+
+    assert captured["name"] == "screenshot_v2"
+    assert {"htf_bias", "liquidity_sweep", "fvg_used", "order_block_used"} <= set(result.keys())
+    assert result["htf_bias"] == "bullish"
+    assert result["liquidity_sweep"] is True
+    assert result["fvg_used"] is False
+    assert result["order_block_used"] is True
+
+
+def test_analyze_screenshot_smc_keys_default_when_absent(tmp_path):
+    """When the AI omits SMC keys, they are filled with safe None defaults."""
+    image = _make_jpeg(tmp_path)
+    with patch(
+        "src.tradelens.services.vision.vision",
+        return_value=_mock_vision_response(_VALID_ANALYSIS),  # no SMC keys
+    ), patch("src.tradelens.services.vision.load_prompt", return_value="mock"):
+        result, _ = analyze_screenshot(image, {"asset": "NQ"})
+
+    assert result["htf_bias"] is None
+    assert result["liquidity_sweep"] is None
+    assert result["fvg_used"] is None
+    assert result["order_block_used"] is None
+
+
 def test_analyze_screenshot_ai_unavailable_raises(tmp_path):
     """A refusal/outage (AIUnavailable) is surfaced as a typed ScreenshotAnalysisError."""
     from src.tradelens.services.ai_client import AIUnavailable, Usage

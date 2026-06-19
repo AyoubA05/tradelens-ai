@@ -91,7 +91,7 @@ def test_create_analysis_persists_all_fields(sample_trade, in_memory_db):
     assert row.id is not None
     assert row.trade_id == sample_trade.id
     assert row.model == "claude-fable-5"
-    assert row.prompt_version == "screenshot_v1"
+    assert row.prompt_version == "screenshot_v2"
     assert row.bias == "bullish"
     assert row.detected_setup is None  # not set by Day 2 vision
     assert row.trade_quality == 7
@@ -283,3 +283,76 @@ def test_update_analysis_fields_denormalizes_to_trade(sample_trade, in_memory_db
     assert analysis.bias == "bearish"
     assert analysis.detected_setup == "FVG"
     assert analysis.trade_quality == 6
+
+
+# ---------------------------------------------------------------------------
+# SMC pre-fill (week5-d1.6): vision proposes SMC values; user value wins
+# ---------------------------------------------------------------------------
+
+_SMC_VISION = {
+    **_VISION_RESULT,
+    "htf_bias": "bearish",
+    "liquidity_sweep": True,
+    "fvg_used": False,
+    "order_block_used": True,
+}
+
+
+def test_get_smc_prefill_uses_ai_proposal_when_user_value_absent(sample_trade, in_memory_db):
+    from src.tradelens.services.ai_analysis_service import (
+        create_or_update_analysis,
+        get_smc_prefill,
+    )
+
+    create_or_update_analysis(sample_trade.id, _SMC_VISION, _make_usage())
+    db = in_memory_db()
+    trade = db.query(Trade).filter(Trade.id == sample_trade.id).first()
+    analysis = db.query(AIAnalysis).filter(AIAnalysis.trade_id == sample_trade.id).first()
+    prefill = get_smc_prefill(trade, analysis)
+    db.close()
+
+    assert prefill["htf_bias"] == "bearish"
+    assert prefill["liquidity_sweep"] == 1
+    assert prefill["fvg_used"] == 0
+    assert prefill["order_block_used"] == 1
+
+
+def test_get_smc_prefill_prefers_user_value_over_ai(sample_trade, in_memory_db):
+    from src.tradelens.services.ai_analysis_service import (
+        create_or_update_analysis,
+        get_smc_prefill,
+        save_trade_smc,
+    )
+
+    create_or_update_analysis(sample_trade.id, _SMC_VISION, _make_usage())
+    save_trade_smc(sample_trade.id, htf_bias="bullish")  # user override
+
+    db = in_memory_db()
+    trade = db.query(Trade).filter(Trade.id == sample_trade.id).first()
+    analysis = db.query(AIAnalysis).filter(AIAnalysis.trade_id == sample_trade.id).first()
+    prefill = get_smc_prefill(trade, analysis)
+    db.close()
+
+    # user value 'bullish' must win over AI proposal 'bearish'
+    assert prefill["htf_bias"] == "bullish"
+
+
+def test_save_trade_smc_persists_to_trade(sample_trade, in_memory_db):
+    from src.tradelens.services.ai_analysis_service import save_trade_smc
+
+    save_trade_smc(
+        sample_trade.id,
+        htf_bias="bullish",
+        liquidity_sweep=1,
+        fvg_used=0,
+        order_block_used=1,
+    )
+
+    db = in_memory_db()
+    trade = db.query(Trade).filter(Trade.id == sample_trade.id).first()
+    db.close()
+
+    assert trade.htf_bias == "bullish"
+    assert trade.liquidity_sweep == 1
+    assert trade.fvg_used == 0
+    assert trade.order_block_used == 1

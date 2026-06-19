@@ -27,6 +27,11 @@ _EXPECTED_KEYS = {
     "missed_opportunities",
     "trade_quality",
     "notes_to_user",
+    # SMC/ICT proposals (screenshot_v2) — editable pre-fills, never auto-applied
+    "htf_bias",
+    "liquidity_sweep",
+    "fvg_used",
+    "order_block_used",
 }
 
 
@@ -50,6 +55,10 @@ def _fill_defaults(data: dict) -> dict:
         "missed_opportunities": [],
         "trade_quality": None,
         "notes_to_user": None,
+        "htf_bias": None,
+        "liquidity_sweep": None,
+        "fvg_used": None,
+        "order_block_used": None,
     }
     return {**defaults, **{k: v for k, v in data.items() if k in _EXPECTED_KEYS}}
 
@@ -90,7 +99,7 @@ def analyze_screenshot(
     if path.stat().st_size == 0:
         raise ScreenshotAnalysisError(f"Image file is empty: {path}")
 
-    system_message = load_prompt("screenshot_v1")
+    system_message = load_prompt("screenshot_v2")
 
     if strategy_profile:
         strategy_block = json.dumps(strategy_profile, indent=2)

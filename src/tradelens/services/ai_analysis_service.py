@@ -25,7 +25,7 @@ def create_or_update_analysis(
     trade_id: int,
     vision_result: dict,
     usage: Usage,
-    prompt_version: str = "screenshot_v1",
+    prompt_version: str = "screenshot_v2",
 ) -> AIAnalysis:
     """
     Persist an AI screenshot analysis result.
@@ -140,6 +140,68 @@ def save_user_grade(trade_id: int, grade: Optional[str]) -> Trade:
         if trade is None:
             raise ValueError(f"Trade {trade_id} not found")
         trade.user_grade = grade  # None clears the override
+        db.commit()
+        db.refresh(trade)
+        return trade
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# SMC/ICT pre-fill (week5-d1.6)
+# ---------------------------------------------------------------------------
+
+# Bool-typed SMC trade columns (stored as 0/1); htf_bias is a free string.
+_SMC_BOOL_KEYS = ("liquidity_sweep", "fvg_used", "order_block_used")
+_SMC_PREFILL_KEYS = ("htf_bias",) + _SMC_BOOL_KEYS
+
+
+def get_smc_prefill(trade: Trade, analysis: Optional[AIAnalysis]) -> dict:
+    """Return SMC/ICT pre-fill values for the Trade Detail form.
+
+    The user's existing trade value always takes priority; only when it is unset
+    do we fall back to the AI's proposal from the stored vision analysis. This
+    guarantees AI suggestions never silently overwrite values the user entered.
+
+    Bool fields are returned as 0/1 (matching the trade columns); htf_bias as a
+    string. Returns None for a field with neither a user value nor a proposal.
+    """
+    proposals: dict = {}
+    if analysis is not None and analysis.raw_response_json:
+        try:
+            proposals = json.loads(analysis.raw_response_json)
+        except (json.JSONDecodeError, TypeError):
+            proposals = {}
+
+    out: dict = {}
+    for key in _SMC_PREFILL_KEYS:
+        user_val = getattr(trade, key, None)
+        if user_val is not None:
+            out[key] = user_val
+            continue
+        ai_val = proposals.get(key)
+        if key in _SMC_BOOL_KEYS:
+            out[key] = None if ai_val is None else (1 if ai_val else 0)
+        else:
+            out[key] = ai_val
+    return out
+
+
+def save_trade_smc(trade_id: int, **fields) -> Trade:
+    """Persist user-confirmed SMC/ICT values to the trade row.
+
+    Only known SMC columns are written; unknown keys are ignored. Does not touch
+    any AI analysis row — these are the trader's confirmed values.
+    """
+    allowed = set(_SMC_PREFILL_KEYS)
+    db = SessionLocal()
+    try:
+        trade = db.query(Trade).filter(Trade.id == trade_id).first()
+        if trade is None:
+            raise ValueError(f"Trade {trade_id} not found")
+        for key, val in fields.items():
+            if key in allowed:
+                setattr(trade, key, val)
         db.commit()
         db.refresh(trade)
         return trade

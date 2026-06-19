@@ -12,8 +12,10 @@ import streamlit as st  # noqa: E402
 from src.tradelens.services.ai_analysis_service import (  # noqa: E402
     create_or_update_analysis,
     get_analysis_for_trade,
+    get_smc_prefill,
     save_grade,
     save_journal,
+    save_trade_smc,
     save_user_grade,
     update_analysis_fields,
 )
@@ -222,6 +224,30 @@ if analysis is not None:
             key="chip_quality",
         )
 
+    # SMC/ICT setup — AI proposals pre-fill editable widgets; a value the user
+    # already set on the trade always takes priority (never silently overwritten).
+    smc = get_smc_prefill(trade, analysis)
+    st.markdown("**SMC/ICT Setup** — editable; AI proposals shown only where you haven't set a value")
+    HTF_OPTIONS = ["(none)", "bullish", "bearish", "neutral"]
+    htf_default = smc.get("htf_bias") or "(none)"
+    if htf_default not in HTF_OPTIONS:
+        htf_default = "(none)"
+    s_col1, s_col2, s_col3, s_col4 = st.columns(4)
+    with s_col1:
+        new_htf = st.selectbox(
+            "HTF Bias", HTF_OPTIONS, index=HTF_OPTIONS.index(htf_default), key="smc_htf"
+        )
+    with s_col2:
+        new_liqsweep = st.checkbox(
+            "Liquidity Sweep", value=bool(smc.get("liquidity_sweep")), key="smc_liqsweep"
+        )
+    with s_col3:
+        new_fvg = st.checkbox("FVG Used", value=bool(smc.get("fvg_used")), key="smc_fvg")
+    with s_col4:
+        new_ob = st.checkbox(
+            "Order Block", value=bool(smc.get("order_block_used")), key="smc_ob"
+        )
+
     # Key zones (read-only structured view — editing is Day 7)
     try:
         zones = json.loads(analysis.zones_json or "[]")
@@ -261,6 +287,13 @@ if analysis is not None:
             bias=new_bias,
             detected_setup=new_setup or None,
             trade_quality=new_quality,
+        )
+        save_trade_smc(
+            selected_id,
+            htf_bias=None if new_htf == "(none)" else new_htf,
+            liquidity_sweep=1 if new_liqsweep else 0,
+            fvg_used=1 if new_fvg else 0,
+            order_block_used=1 if new_ob else 0,
         )
         st.success("Labels saved!")
         st.rerun()
