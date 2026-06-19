@@ -22,9 +22,12 @@ from src.tradelens.services.metrics import (  # noqa: E402
     compute_expectancy,
     compute_max_drawdown,
     compute_profit_factor_raw,
+    confirmation_model_performance,
     drawdown_series,
     emotion_vs_rr,
     equity_curve_series,
+    killzone_performance,
+    mistake_frequency,
     r_multiple_distribution,
 )
 from src.tradelens.ui.components.charts import (  # noqa: E402
@@ -85,6 +88,9 @@ def _load_df(start: str, end: str) -> pd.DataFrame:
             "rr_realized":     t.rr_realized,
             "pnl":             t.pnl,
             "result":          t.result,
+            "killzone":           t.killzone,
+            "confirmation_model": t.confirmation_model,
+            "mistake_tags":       t.mistake_tags,
         }
         for t in trades
     ])
@@ -205,3 +211,62 @@ with b2:
     st.plotly_chart(setup_breakdown_chart(setup_df), use_container_width=True)
     if setup_df.empty:
         st.caption("Assign setup types to trades to see this chart.")
+
+
+def _fmt_pf(v: float) -> str:
+    return "∞" if math.isinf(v) else f"{v:.2f}"
+
+
+# --- Killzone Performance (Week 5 Phase 2) ---
+st.markdown("---")
+st.subheader("🎯 Killzone Performance")
+
+kz_df = killzone_performance(df)
+if kz_df.empty:
+    st.caption("No killzone data yet. Tag trades with a killzone to see this breakdown.")
+else:
+    kc1, kc2 = st.columns([3, 2])
+    with kc1:
+        st.bar_chart(kz_df.set_index("killzone")["total_pnl"], height=300)
+    with kc2:
+        kz_disp = kz_df.copy()
+        kz_disp["win_rate"] = (kz_disp["win_rate"] * 100).round(1).astype(str) + "%"
+        kz_disp["avg_rr_realized"] = kz_disp["avg_rr_realized"].round(2)
+        kz_disp["profit_factor"] = kz_disp["profit_factor"].apply(_fmt_pf)
+        kz_disp["total_pnl"] = kz_disp["total_pnl"].round(2)
+        st.dataframe(
+            kz_disp[
+                ["killzone", "trades", "win_rate", "avg_rr_realized", "profit_factor", "total_pnl"]
+            ],
+            hide_index=True,
+            use_container_width=True,
+        )
+
+# --- Confirmation model + mistake frequency ---
+cm_col, mk_col = st.columns(2)
+with cm_col:
+    st.subheader("By Confirmation Model")
+    cm_df = confirmation_model_performance(df)
+    if cm_df.empty:
+        st.caption("Tag trades with a confirmation model to see this breakdown.")
+    else:
+        cm_disp = cm_df.copy()
+        cm_disp["win_rate"] = (cm_disp["win_rate"] * 100).round(1).astype(str) + "%"
+        cm_disp["profit_factor"] = cm_disp["profit_factor"].apply(_fmt_pf)
+        cm_disp["total_pnl"] = cm_disp["total_pnl"].round(2)
+        st.dataframe(
+            cm_disp[["confirmation_model", "trades", "win_rate", "profit_factor", "total_pnl"]],
+            hide_index=True,
+            use_container_width=True,
+        )
+with mk_col:
+    st.subheader("Mistake Frequency")
+    mk_df = mistake_frequency(df)
+    if mk_df.empty:
+        st.caption("No mistake tags logged yet.")
+    else:
+        st.bar_chart(mk_df.set_index("mistake_tag")["count"], height=240)
+        mk_disp = mk_df.copy()
+        mk_disp["total_pnl"] = mk_disp["total_pnl"].round(2)
+        mk_disp["avg_pnl"] = mk_disp["avg_pnl"].round(2)
+        st.dataframe(mk_disp, hide_index=True, use_container_width=True)

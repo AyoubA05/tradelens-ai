@@ -11,6 +11,7 @@
 #   day_of_week  str    nullable
 #   bias         str    nullable  (user-confirmed via Save Labels)
 
+import json
 import math
 from typing import Optional, Tuple
 
@@ -833,3 +834,195 @@ def by_hour_of_day(trades: pd.DataFrame) -> pd.DataFrame:
         .sort_values("hour_of_day", ascending=True)
         .reset_index(drop=True)
     )
+
+
+# ---------------------------------------------------------------------------
+# Week 5 Phase 2 — SMC/ICT killzone analytics + calendar
+# ---------------------------------------------------------------------------
+
+# Chronological display order for killzones (matches services/sessions.py).
+KILLZONE_ORDER = ["asia", "london_open", "ny_am", "ny_lunch", "ny_pm", "off_session"]
+
+_KILLZONE_COLS = [
+    "killzone",
+    "trades",
+    "wins",
+    "losses",
+    "breakevens",
+    "win_rate",
+    "avg_rr_realized",
+    "profit_factor",
+    "total_pnl",
+]
+
+
+def killzone_performance(trades: pd.DataFrame) -> pd.DataFrame:
+    """
+    Per-killzone performance: trades, win_rate, avg_rr_realized, profit_factor, total_pnl.
+
+    Combines the avg-R engine (_group_with_rr) with per-group profit_factor
+    (_group_with_profit_factor) so a single row carries both. profit_factor may
+    be float("inf") for a killzone with wins but no losses — callers must handle it.
+
+    Rows with null killzone are excluded. Sorted in chronological killzone order
+    (asia → london_open → ny_am → ny_lunch → ny_pm → off_session); any unknown
+    killzone sorts last by total_pnl descending. Empty input → empty frame with
+    the correct columns.
+    """
+    empty = pd.DataFrame(columns=_KILLZONE_COLS)
+
+    rr = _group_with_rr(trades, by="killzone", sort_by=None)
+    if rr.empty:
+        return empty
+
+    pf = _group_with_profit_factor(trades, "killzone")[["killzone", "profit_factor"]]
+    merged = rr.merge(pf, on="killzone", how="left")
+    merged["profit_factor"] = merged["profit_factor"].fillna(0.0)
+
+    order_map = {kz: i for i, kz in enumerate(KILLZONE_ORDER)}
+    merged["_ord"] = merged["killzone"].map(
+        lambda kz: order_map.get(kz, len(KILLZONE_ORDER))
+    )
+    merged = (
+        merged.sort_values(["_ord", "total_pnl"], ascending=[True, False])
+        .drop(columns="_ord")
+        .reset_index(drop=True)
+    )
+    return merged[_KILLZONE_COLS]
+
+
+def confirmation_model_performance(trades: pd.DataFrame) -> pd.DataFrame:
+    """
+    Performance breakdown by confirmation_model (e.g., "BOS", "FVG Fill").
+
+    Rows with null confirmation_model are excluded. profit_factor may be
+    float("inf"); callers must handle it. Sorted by total_pnl descending.
+
+    Returns columns: confirmation_model, trades, wins, losses, breakevens,
+    win_rate, total_pnl, profit_factor. Empty input → empty frame.
+    """
+    return _group_with_profit_factor(trades, "confirmation_model")
+
+
+def _parse_mistake_tags(raw) -> list:
+    """Parse a mistake_tags cell (JSON list string, list, or null) into a list of strings."""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(t) for t in raw if t]
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return []
+        try:
+            val = json.loads(s)
+        except (json.JSONDecodeError, ValueError):
+            return []
+        if isinstance(val, list):
+            return [str(t) for t in val if t]
+    return []
+
+
+_MISTAKE_COLS = ["mistake_tag", "count", "total_pnl", "avg_pnl"]
+
+
+def mistake_frequency(trades: pd.DataFrame) -> pd.DataFrame:
+    """
+    Frequency and P&L impact of each mistake tag.
+
+    mistake_tags is a JSON list column (e.g. '["FOMO", "Late Entry"]'). Each tag
+    on a trade is attributed that trade's full pnl, so total_pnl per tag is the
+    summed pnl of every trade carrying it (tags on the same trade share its pnl).
+
+    Returns columns: mistake_tag, count, total_pnl, avg_pnl — sorted by count
+    descending. Empty / all-empty / malformed input → empty frame.
+    """
+    empty = pd.DataFrame(columns=_MISTAKE_COLS)
+
+    if trades is None or trades.empty or "mistake_tags" not in trades.columns:
+        return empty
+
+    pnl_series = (
+        pd.to_numeric(trades["pnl"], errors="coerce")
+        if "pnl" in trades.columns
+        else None
+    )
+
+    rows = []
+    for idx, raw in trades["mistake_tags"].items():
+        tags = _parse_mistake_tags(raw)
+        if not tags:
+            continue
+        pnl = _safe_float(pnl_series[idx]) if pnl_series is not None else 0.0
+        for tag in tags:
+            rows.append((tag, pnl))
+
+    if not rows:
+        return empty
+
+    exploded = pd.DataFrame(rows, columns=["mistake_tag", "_pnl"])
+    grouped = (
+        exploded.groupby("mistake_tag")
+        .agg(count=("_pnl", "size"), total_pnl=("_pnl", "sum"), avg_pnl=("_pnl", "mean"))
+        .reset_index()
+    )
+    grouped["total_pnl"] = grouped["total_pnl"].apply(_safe_float)
+    grouped["avg_pnl"] = grouped["avg_pnl"].apply(_safe_float)
+
+    return (
+        grouped[_MISTAKE_COLS]
+        .sort_values(["count", "total_pnl"], ascending=[False, True])
+        .reset_index(drop=True)
+    )
+
+
+_CALENDAR_COLS = ["trade_date", "day", "net_pnl", "trades", "wins", "losses"]
+
+
+def calendar_daily_pnl(trades: pd.DataFrame, year: int, month: int) -> pd.DataFrame:
+    """
+    Per-day net P&L for a single calendar month — powers the calendar heatmap.
+
+    Filters to trades whose ISO trade_date falls in the given year/month, then
+    aggregates per day. Days with no trades are simply absent (the page maps the
+    present days onto a month grid).
+
+    Returns columns: trade_date, day (int 1–31), net_pnl, trades, wins, losses —
+    sorted by day ascending. Empty / no-trades-this-month input → empty frame.
+    """
+    empty = pd.DataFrame(columns=_CALENDAR_COLS)
+
+    if (
+        trades is None
+        or trades.empty
+        or "trade_date" not in trades.columns
+        or "pnl" not in trades.columns
+    ):
+        return empty
+
+    prefix = f"{year:04d}-{month:02d}"
+    work = trades.dropna(subset=["trade_date"]).copy()
+    work = work[work["trade_date"].astype(str).str.startswith(prefix)]
+    if work.empty:
+        return empty
+
+    work["_pnl"] = pd.to_numeric(work["pnl"], errors="coerce").fillna(0.0)
+    win_mask, loss_mask, _ = _outcome_masks(work)
+    work["_win"] = win_mask.astype(int)
+    work["_loss"] = loss_mask.astype(int)
+    work["_count"] = 1
+
+    grouped = (
+        work.groupby("trade_date")
+        .agg(
+            net_pnl=("_pnl", "sum"),
+            trades=("_count", "sum"),
+            wins=("_win", "sum"),
+            losses=("_loss", "sum"),
+        )
+        .reset_index()
+    )
+    grouped["net_pnl"] = grouped["net_pnl"].apply(_safe_float)
+    grouped["day"] = grouped["trade_date"].astype(str).str.slice(8, 10).astype(int)
+
+    return grouped[_CALENDAR_COLS].sort_values("day").reset_index(drop=True)

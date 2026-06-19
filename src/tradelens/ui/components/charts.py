@@ -1,3 +1,4 @@
+import calendar as _calendar
 import math
 from typing import Optional
 
@@ -365,5 +366,65 @@ def setup_breakdown_chart(df: pd.DataFrame) -> go.Figure:
         xaxis=dict(title="Trades"),
         yaxis=dict(title=None, autorange="reversed"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return fig
+
+
+def calendar_heatmap_chart(daily: pd.DataFrame, year: int, month: int) -> go.Figure:
+    """Month-grid heatmap of net daily P&L.
+
+    `daily` is the output of metrics.calendar_daily_pnl (columns: day, net_pnl,
+    trades). Cells are colored on a red→green diverging scale centered at $0;
+    days with no trades render blank. Day number + net $ + trade count are shown
+    in-cell.
+    """
+    pnl_by_day: dict = {}
+    if daily is not None and not daily.empty:
+        for _, row in daily.iterrows():
+            pnl_by_day[int(row["day"])] = (float(row["net_pnl"]), int(row["trades"]))
+
+    weeks = _calendar.monthcalendar(year, month)  # 0 marks days outside the month
+    z, text = [], []
+    for week in weeks:
+        zr, tr = [], []
+        for day in week:
+            if day == 0:
+                zr.append(None)
+                tr.append("")
+            elif day in pnl_by_day:
+                pnl, trades = pnl_by_day[day]
+                zr.append(pnl)
+                tr.append(f"<b>{day}</b><br>${pnl:,.0f}<br>{trades}t")
+            else:
+                zr.append(None)
+                tr.append(f"<b>{day}</b>")
+        z.append(zr)
+        text.append(tr)
+
+    cmax = max([abs(v) for row in z for v in row if v is not None] or [1.0])
+
+    fig = go.Figure(
+        go.Heatmap(
+            z=z,
+            x=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            y=[f"Wk {i + 1}" for i in range(len(weeks))],
+            text=text,
+            texttemplate="%{text}",
+            textfont=dict(size=11),
+            colorscale=[[0.0, _RED], [0.5, "#2b2b2b"], [1.0, _TEAL]],
+            zmid=0,
+            zmin=-cmax,
+            zmax=cmax,
+            hoverinfo="text",
+            xgap=3,
+            ygap=3,
+            colorbar=dict(title="Net $"),
+        )
+    )
+    fig.update_yaxes(autorange="reversed")
+    fig.update_layout(
+        **_BASE_LAYOUT,
+        height=380,
+        title=f"{_calendar.month_name[month]} {year}",
     )
     return fig

@@ -12,6 +12,7 @@ from src.tradelens.services.metrics import (
     by_session,
     by_setup_type,
     by_strategy,
+    calendar_daily_pnl,
     compute_basic_metrics,
     compute_breakdown,
     compute_equity_curve,
@@ -19,10 +20,13 @@ from src.tradelens.services.metrics import (
     compute_max_drawdown,
     compute_profit_factor_raw,
     compute_streaks,
+    confirmation_model_performance,
     daily_pnl,
     drawdown_series,
     emotion_vs_rr,
     equity_curve_series,
+    killzone_performance,
+    mistake_frequency,
     r_multiple_distribution,
 )
 
@@ -659,3 +663,125 @@ def test_by_asset_empty():
         "asset", "trades", "wins", "losses", "breakevens",
         "win_rate", "total_pnl", "profit_factor",
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — killzone analytics + calendar
+# ---------------------------------------------------------------------------
+
+_KZ_DF = pd.DataFrame({
+    "killzone":    ["ny_am", "ny_am", "london_open", "asia"],
+    "result":      ["Win", "Loss", "Win", "Loss"],
+    "pnl":         [300.0, -100.0, 200.0, -50.0],
+    "rr_realized": [3.0, -1.0, 2.0, -1.0],
+})
+
+
+def test_killzone_performance_known_values():
+    res = killzone_performance(_KZ_DF)
+    by_kz = {row["killzone"]: row for _, row in res.iterrows()}
+
+    ny = by_kz["ny_am"]
+    assert ny["trades"] == 2
+    assert ny["win_rate"] == pytest.approx(0.5)
+    assert ny["avg_rr_realized"] == pytest.approx(1.0)   # (3 + -1)/2
+    assert ny["total_pnl"] == pytest.approx(200.0)
+    assert ny["profit_factor"] == pytest.approx(3.0)     # 300/100
+
+    lo = by_kz["london_open"]
+    assert lo["profit_factor"] == float("inf")           # win, no losses
+    assert lo["avg_rr_realized"] == pytest.approx(2.0)
+
+    asia = by_kz["asia"]
+    assert asia["total_pnl"] == pytest.approx(-50.0)
+    assert asia["profit_factor"] == 0.0                  # only losses
+
+
+def test_killzone_performance_chronological_order():
+    res = killzone_performance(_KZ_DF)
+    # asia < london_open < ny_am regardless of input/pnl order
+    assert list(res["killzone"]) == ["asia", "london_open", "ny_am"]
+
+
+def test_killzone_performance_empty():
+    res = killzone_performance(pd.DataFrame())
+    assert res.empty
+    assert "killzone" in res.columns and "profit_factor" in res.columns
+
+
+def test_killzone_performance_excludes_null_killzone():
+    df = pd.DataFrame({"killzone": [None, "ny_am"], "result": ["Win", "Win"], "pnl": [10.0, 20.0]})
+    res = killzone_performance(df)
+    assert list(res["killzone"]) == ["ny_am"]
+
+
+def test_confirmation_model_performance_known_values():
+    df = pd.DataFrame({
+        "confirmation_model": ["BOS", "BOS", "FVG Fill"],
+        "result": ["Win", "Loss", "Win"],
+        "pnl":    [100.0, -50.0, 80.0],
+    })
+    res = confirmation_model_performance(df)
+    by_cm = {row["confirmation_model"]: row for _, row in res.iterrows()}
+    assert by_cm["BOS"]["trades"] == 2
+    assert by_cm["BOS"]["profit_factor"] == pytest.approx(2.0)   # 100/50
+    assert by_cm["FVG Fill"]["profit_factor"] == float("inf")
+    # sorted by total_pnl desc → FVG Fill (80) before BOS (50)
+    assert list(res["confirmation_model"]) == ["FVG Fill", "BOS"]
+
+
+def test_mistake_frequency_counts_and_pnl():
+    df = pd.DataFrame({
+        "mistake_tags": ['["FOMO", "Late Entry"]', '["FOMO"]', None, "[]"],
+        "pnl":          [-100.0, -50.0, 200.0, 10.0],
+    })
+    res = mistake_frequency(df)
+    by_tag = {row["mistake_tag"]: row for _, row in res.iterrows()}
+    assert by_tag["FOMO"]["count"] == 2
+    assert by_tag["FOMO"]["total_pnl"] == pytest.approx(-150.0)
+    assert by_tag["FOMO"]["avg_pnl"] == pytest.approx(-75.0)
+    assert by_tag["Late Entry"]["count"] == 1
+    # sorted by count desc → FOMO first
+    assert res.iloc[0]["mistake_tag"] == "FOMO"
+
+
+def test_mistake_frequency_handles_malformed_and_empty():
+    df = pd.DataFrame({"mistake_tags": ["not json", None, ""], "pnl": [1.0, 2.0, 3.0]})
+    res = mistake_frequency(df)
+    assert res.empty
+    assert set(res.columns) == {"mistake_tag", "count", "total_pnl", "avg_pnl"}
+
+
+def test_calendar_daily_pnl_known_values():
+    df = pd.DataFrame({
+        "trade_date": ["2025-01-15", "2025-01-15", "2025-01-20", "2025-02-01"],
+        "result":     ["Win", "Loss", "Win", "Win"],
+        "pnl":        [300.0, -100.0, 50.0, 999.0],
+    })
+    res = calendar_daily_pnl(df, 2025, 1)
+    by_day = {int(row["day"]): row for _, row in res.iterrows()}
+    assert set(by_day.keys()) == {15, 20}            # Feb trade excluded
+    assert by_day[15]["net_pnl"] == pytest.approx(200.0)
+    assert by_day[15]["trades"] == 2
+    assert by_day[15]["wins"] == 1
+    assert by_day[15]["losses"] == 1
+    assert by_day[20]["net_pnl"] == pytest.approx(50.0)
+
+
+def test_calendar_daily_pnl_empty_month():
+    df = pd.DataFrame({
+        "trade_date": ["2025-03-01"],
+        "result": ["Win"],
+        "pnl": [100.0],
+    })
+    res = calendar_daily_pnl(df, 2025, 1)   # January has no trades
+    assert res.empty
+    assert set(res.columns) == {"trade_date", "day", "net_pnl", "trades", "wins", "losses"}
+
+
+def test_calendar_daily_pnl_single_trade():
+    df = pd.DataFrame({"trade_date": ["2025-01-07"], "result": ["Loss"], "pnl": [-25.0]})
+    res = calendar_daily_pnl(df, 2025, 1)
+    assert len(res) == 1
+    assert int(res.iloc[0]["day"]) == 7
+    assert res.iloc[0]["net_pnl"] == pytest.approx(-25.0)
