@@ -3,15 +3,13 @@ Tests for Day 3 AI analysis persistence layer.
 All DB operations use in-memory SQLite; no network calls.
 """
 import json
-from datetime import datetime, timezone
-from unittest.mock import patch
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from src.tradelens.db.models import AIAnalysis, Base, Trade
-from src.tradelens.services.openai_client import Usage
+from src.tradelens.services.ai_client import Usage
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +42,7 @@ def sample_trade(in_memory_db):
     return trade
 
 
-def _make_usage(model: str = "gpt-4o") -> Usage:
+def _make_usage(model: str = "claude-fable-5") -> Usage:
     return Usage(
         model=model,
         tokens_in=300,
@@ -92,7 +90,7 @@ def test_create_analysis_persists_all_fields(sample_trade, in_memory_db):
 
     assert row.id is not None
     assert row.trade_id == sample_trade.id
-    assert row.model == "gpt-4o"
+    assert row.model == "claude-fable-5"
     assert row.prompt_version == "screenshot_v1"
     assert row.bias == "bullish"
     assert row.detected_setup is None  # not set by Day 2 vision
@@ -128,7 +126,6 @@ def test_get_analysis_returns_none_for_unknown_trade(in_memory_db):
 def test_create_or_update_overwrites_on_rerun(sample_trade, in_memory_db):
     from src.tradelens.services.ai_analysis_service import (
         create_or_update_analysis,
-        get_analysis_for_trade,
     )
 
     create_or_update_analysis(sample_trade.id, _VISION_RESULT, _make_usage())

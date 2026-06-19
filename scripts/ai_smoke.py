@@ -16,7 +16,7 @@ This script is READ-ONLY — it does NOT persist anything to the DB.
 It is intended for manual verification only and is excluded from CI.
 
 Requirements:
-  - OPENAI_API_KEY must be set in .env or environment
+  - ANTHROPIC_API_KEY must be set in .env or environment
   - At least one trade with a screenshot that exists on disk
 """
 import sys
@@ -70,8 +70,8 @@ def _print_banner(title: str):
 
 def main():
     # Guard: API key
-    if not settings.openai_api_key:
-        print("ERROR: OPENAI_API_KEY is not set. Add it to your .env file.")
+    if not settings.anthropic_api_key:
+        print("ERROR: ANTHROPIC_API_KEY is not set. Add it to your .env file.")
         sys.exit(1)
 
     _print_banner("TradeLens AI Smoke Test")
@@ -100,7 +100,7 @@ def main():
         vision_result, v_usage = analyze_screenshot(
             screenshot_path, trade_ctx, strategy_profile=active_strategy
         )
-        usages.append(("Vision (gpt-4o)", v_usage))
+        usages.append(("Vision (claude-fable-5)", v_usage))
         print(f"  Bias:          {vision_result.get('bias')} ({vision_result.get('bias_confidence')})")
         print(f"  Setup:         {vision_result.get('detected_timeframe')} / {vision_result.get('detected_asset')}")
         print(f"  Trade Quality: {vision_result.get('trade_quality')}/10")
@@ -152,7 +152,7 @@ def main():
     from src.tradelens.services.journal import generate_journal, JournalStructureError
     try:
         markdown, j_usage = generate_journal(trade_dict, ai_dict, strategy_profile=active_strategy)
-        usages.append(("Journal (gpt-4o-mini)", j_usage))
+        usages.append(("Journal (claude-fable-5)", j_usage))
         # Print section headings found
         headings = [line for line in markdown.splitlines() if line.startswith("### ")]
         print(f"  Sections found ({len(headings)}):")
@@ -178,7 +178,7 @@ def main():
     from src.tradelens.services.grading import grade_trade, GradingError
     try:
         grading_result, g_usage = grade_trade(grade_trade_dict, active_strategy, vision_dict)
-        usages.append(("Grading (gpt-4o-mini)", g_usage))
+        usages.append(("Grading (claude-haiku-4-5)", g_usage))
         print(f"  Grade:   {grading_result.get('grade')}  Score: {grading_result.get('score')}/10")
         print(f"  Verdict: {grading_result.get('one_line_verdict')}")
         rubric = grading_result.get("rubric", {})

@@ -19,6 +19,21 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+_SMC_COLS = [
+    "htf_bias",
+    "killzone",
+    "liquidity_sweep",
+    "fvg_used",
+    "order_block_used",
+    "bos",
+    "choch",
+    "confirmation_model",
+    "entry_type",
+    "mistake_tags",
+    "followed_rules",
+]
+
+
 def _existing_columns(table_name: str) -> set:
     bind = op.get_bind()
     return {c["name"] for c in inspect(bind).get_columns(table_name)}
@@ -45,15 +60,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # SQLite <3.35 does not support DROP COLUMN; use recreate pattern.
-    # For dev/SQLite we implement a best-effort pass; Postgres prod would need column drops.
-    bind = op.get_bind()
-    if bind.dialect.name == "sqlite":
+    # Reversible on SQLite and Postgres alike: batch_alter_table uses the
+    # table-recreate pattern on SQLite (which lacks native DROP COLUMN < 3.35).
+    existing = _existing_columns("trades")
+    to_drop = [c for c in _SMC_COLS if c in existing]
+    if not to_drop:
         return
-
-    smc_cols = [
-        "htf_bias", "killzone", "liquidity_sweep", "fvg_used", "order_block_used",
-        "bos", "choch", "confirmation_model", "entry_type", "mistake_tags", "followed_rules",
-    ]
-    for col in smc_cols:
-        op.drop_column("trades", col)
+    with op.batch_alter_table("trades") as batch:
+        for col in to_drop:
+            batch.drop_column(col)

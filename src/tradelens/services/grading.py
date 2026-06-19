@@ -1,14 +1,14 @@
 """
 Post-trade grading service.
 
-Scores a trade on PROCESS (not outcome) across 5 dimensions using gpt-4o-mini.
+Scores a trade on PROCESS (not outcome) across 5 dimensions using claude-haiku-4-5.
 This is educational review only — not live trading advice.
 """
 import json
 from typing import Optional
 
 from src.tradelens.config import settings
-from src.tradelens.services.openai_client import Usage, chat, load_prompt
+from src.tradelens.services.ai_client import AIUnavailable, Usage, chat, load_prompt
 
 _REQUIRED_TOP_KEYS = {"grade", "score", "rubric", "one_line_verdict"}
 _REQUIRED_RUBRIC_DIMS = {
@@ -117,7 +117,7 @@ def grade_trade(
     vision_analysis: dict,
 ) -> tuple[dict, Usage]:
     """
-    Grade a closed trade on PROCESS using gpt-4o-mini.
+    Grade a closed trade on PROCESS using claude-haiku-4-5.
 
     Args:
         trade: Trade fields (asset, direction, result, prices, emotions, notes, etc.).
@@ -149,9 +149,12 @@ def grade_trade(
     content, usage = chat(
         user_message=user_message,
         system_message=system_message,
-        model=settings.model_text,
+        model=settings.model_grading,
         response_format={"type": "json_object"},
     )
+
+    if isinstance(content, AIUnavailable):
+        raise GradingError(content.reason)
 
     try:
         data = json.loads(content)

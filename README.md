@@ -2,18 +2,18 @@
 
 ## What it is
 
-TradeLens AI is an AI-powered post-trade journaling and performance analysis dashboard for active traders. It combines structured trade logging, GPT-4o chart analysis, strategy-aware grading, and rich analytics to help traders understand their patterns and improve their discipline over time. **It is not a live trading signal tool — all analysis is post-trade only.**
+TradeLens AI is an AI-powered post-trade journaling and performance analysis dashboard for active traders. It combines structured trade logging, Claude (Fable 5) chart analysis, strategy-aware grading, and rich analytics to help traders understand their patterns and improve their discipline over time. **It is not a live trading signal tool — all analysis is post-trade only.**
 
 ## Live Demo
 
 [https://tradelens-app.streamlit.app/](https://tradelens-app.streamlit.app/)
 
-Seeded with 60 sample trades. Add your `OPENAI_API_KEY` in Settings to enable AI features such as analysis, journaling, and grading.
+Seeded with 60 sample trades. Add your `ANTHROPIC_API_KEY` in Settings to enable AI features such as analysis, journaling, and grading.
 
 ## Features
 
 - Log trades with asset, session, timeframe, direction, bias, setup type, R-multiple, emotion tags, and notes
-- Upload chart screenshots analyzed by GPT-4o vision, returning bias, key zones, detected setup, and quality score
+- Upload chart screenshots analyzed by Claude (claude-fable-5) vision, returning bias, key zones, detected setup, and quality score
 - Auto-generate strategy-aware 8-section trade journals in Markdown, including context, bias, entry rationale, risk, mistakes, lessons, psychology, and verdict
 - Grade trades A-F by process quality with a rubric-based score and user override
 - Track corrections so every AI label change is logged for RLHF-style feedback loops
@@ -30,7 +30,7 @@ Services layer  (src/tradelens/services/)  — pure Python, Streamlit-free
       │
 SQLAlchemy ORM + SQLite  (src/tradelens/db/)
       │
-OpenAI API  (GPT-4o vision + GPT-4o-mini text)
+Anthropic API  (claude-fable-5 vision/journal + claude-haiku-4-5 grading)
 ```
 
 All business logic lives in `services/`. Pages are thin glue only — no metric math, no chart layout code, and no direct DB queries. AI is strictly post-trade only; there are no live signals.
@@ -44,7 +44,7 @@ All business logic lives in `services/`. Pages are thin glue only — no metric 
 | Charts | Plotly (`graph_objects`) |
 | ORM / Migrations | SQLAlchemy 2.x + Alembic |
 | DB | SQLite (local) |
-| AI | OpenAI GPT-4o / GPT-4o-mini |
+| AI | Anthropic Claude (claude-fable-5 / claude-haiku-4-5) |
 | Config | `pydantic-settings`, `python-dotenv` |
 | Tests | `pytest` — 136 passing |
 
@@ -64,7 +64,7 @@ pip install -r requirements.txt
 
 # 4. Configure environment
 cp .env.example .env
-# Edit .env and add your OPENAI_API_KEY
+# Edit .env and add your ANTHROPIC_API_KEY
 
 # 5. Run database migrations
 alembic upgrade head
@@ -84,7 +84,7 @@ streamlit run src/tradelens/ui/app.py
 4. In **Secrets**, add:
 
 ```toml
-OPENAI_API_KEY="sk-..."
+ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
 5. Deploy. The app auto-creates all tables on first load.
@@ -95,5 +95,5 @@ See `.streamlit/secrets.toml.example` for the expected secrets format.
 
 - **SQLite is ephemeral on Streamlit Community Cloud** — the database can reset on redeploy, so use PostgreSQL for persistent storage in production.[web:118]
 - For persistent storage, replace the SQLite connection string with a PostgreSQL URL in `src/tradelens/db/session.py`, then run `alembic upgrade head`.
-- **AI features require a valid `OPENAI_API_KEY`**. Without it, the app still works in journal-only mode with trade logging, analytics, strategy profile, and CSV import/export.
+- **AI features require a valid `ANTHROPIC_API_KEY`**. Without it, the app still works in journal-only mode with trade logging, analytics, strategy profile, and CSV import/export.
 - **Alembic** is used for local schema evolution. On a fresh Streamlit Cloud deploy, `Base.metadata.create_all()` can create tables directly from the ORM models if your startup flow is set up that way.

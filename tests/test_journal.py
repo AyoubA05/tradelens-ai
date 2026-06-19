@@ -1,5 +1,5 @@
 """
-Tests for journal.py — all OpenAI calls are mocked; no network traffic, no cost.
+Tests for journal.py — all AI calls are mocked; no network traffic, no cost.
 DB tests use in-memory SQLite.
 """
 import json
@@ -16,7 +16,7 @@ from src.tradelens.services.journal import (
     build_journal_context,
     generate_journal,
 )
-from src.tradelens.services.openai_client import Usage
+from src.tradelens.services.ai_client import Usage
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ def _full_journal() -> str:
 
 def _make_usage() -> Usage:
     return Usage(
-        model="gpt-4o-mini",
+        model="claude-fable-5",
         tokens_in=400,
         tokens_out=600,
         total_tokens=1000,
@@ -112,7 +112,7 @@ def test_generate_journal_returns_markdown_and_usage():
 
     assert isinstance(result, str)
     assert "### Trade Summary" in result
-    assert usage.model == "gpt-4o-mini"
+    assert usage.model == "claude-fable-5"
 
 
 def test_generate_journal_contains_all_eight_sections():
@@ -169,6 +169,18 @@ def test_generate_journal_no_strategy_fallback():
         generate_journal(trade, ai_analysis, strategy_profile=None)
 
     assert "No strategy profile provided" in captured_messages["user"]
+
+
+def test_generate_journal_ai_unavailable_raises():
+    """A refusal/outage (AIUnavailable) is surfaced as a typed JournalStructureError."""
+    from src.tradelens.services.ai_client import AIUnavailable
+
+    with patch(
+        "src.tradelens.services.journal.chat",
+        return_value=(AIUnavailable("AI declined"), _make_usage()),
+    ), patch("src.tradelens.services.journal.load_prompt", return_value="mock"):
+        with pytest.raises(JournalStructureError, match="AI declined"):
+            generate_journal({"asset": "NQ"}, {})
 
 
 def test_generate_journal_missing_prompt_raises():

@@ -4,9 +4,11 @@ numpy==2.0.2
 plotly==6.7.0
 sqlalchemy==2.0.49
 python-dotenv==1.2.1
-openai==2.38.0
+anthropic==0.69.0
 pillow==11.3.0
 pydantic-settings==2.11.0
 alembic==1.16.5
 faker==37.12.0
 pytest==8.4.2
+black==25.1.0
+ruff==0.15.16

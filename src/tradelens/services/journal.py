@@ -7,8 +7,7 @@ and trade data. This is educational reflection only — not live trading advice.
 import json
 from typing import Optional
 
-from src.tradelens.config import settings
-from src.tradelens.services.openai_client import Usage, chat, load_prompt
+from src.tradelens.services.ai_client import AIUnavailable, Usage, chat, load_prompt
 
 _REQUIRED_SECTIONS = [
     "### Trade Summary",
@@ -148,8 +147,10 @@ def generate_journal(
     content, usage = chat(
         user_message=user_message,
         system_message=system_message,
-        model=settings.model_text,
     )
+
+    if isinstance(content, AIUnavailable):
+        raise JournalStructureError(content.reason)
 
     _validate_journal_sections(content)
     return content, usage

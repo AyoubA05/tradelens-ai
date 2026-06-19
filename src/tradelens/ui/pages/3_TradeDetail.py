@@ -100,12 +100,12 @@ st.subheader("AI Screenshot Analysis")
 # Check API key
 try:
     from src.tradelens.config import settings
-    api_key_ok = bool(settings.openai_api_key)
+    api_key_ok = bool(settings.anthropic_api_key) or settings.demo_mode
 except Exception:
     api_key_ok = False
 
 if not api_key_ok:
-    st.warning("OPENAI_API_KEY is not set. Add it to your .env file to enable AI analysis.")
+    st.warning("ANTHROPIC_API_KEY is not set. Add it to your secrets/.env to enable AI analysis.")
 
 # Load existing analysis (if any)
 analysis = get_analysis_for_trade(selected_id)

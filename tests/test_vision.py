@@ -1,5 +1,5 @@
 """
-Tests for vision.py — all OpenAI calls are mocked; no network traffic, no cost.
+Tests for vision.py — all AI calls are mocked; no network traffic, no cost.
 """
 import io
 import json
@@ -30,11 +30,11 @@ def _make_jpeg(tmp_path: Path, name: str = "chart.jpg") -> Path:
 
 
 def _mock_vision_response(analysis: dict):
-    """Return (json_string, mock_Usage) matching the openai_client.vision signature."""
-    from src.tradelens.services.openai_client import Usage
+    """Return (json_string, mock_Usage) matching the ai_client.vision signature."""
+    from src.tradelens.services.ai_client import Usage
 
     usage = Usage(
-        model="gpt-4o",
+        model="claude-fable-5",
         tokens_in=300,
         tokens_out=150,
         total_tokens=450,
@@ -90,7 +90,7 @@ def test_analyze_screenshot_success(tmp_path):
     assert result["bias"] == "bullish"
     assert result["trade_quality"] == 7
     assert isinstance(result["key_zones"], list)
-    assert usage.model == "gpt-4o"
+    assert usage.model == "claude-fable-5"
     assert usage.tokens_in == 300
 
 
@@ -146,9 +146,9 @@ def test_analyze_screenshot_missing_prompt(tmp_path):
 
 def test_analyze_screenshot_malformed_json(tmp_path):
     image = _make_jpeg(tmp_path)
-    from src.tradelens.services.openai_client import Usage
+    from src.tradelens.services.ai_client import Usage
 
-    bad_usage = Usage("gpt-4o", 10, 5, 15, 0.0001, 0.5)
+    bad_usage = Usage("claude-fable-5", 10, 5, 15, 0.0001, 0.5)
 
     with patch(
         "src.tradelens.services.vision.vision",
@@ -166,9 +166,9 @@ def test_fill_defaults_handles_missing_keys(tmp_path):
     image = _make_jpeg(tmp_path)
     partial = {"bias": "bearish", "trade_quality": 5}
 
-    from src.tradelens.services.openai_client import Usage
+    from src.tradelens.services.ai_client import Usage
 
-    usage = Usage("gpt-4o", 10, 5, 15, 0.0001, 0.5)
+    usage = Usage("claude-fable-5", 10, 5, 15, 0.0001, 0.5)
 
     with patch(
         "src.tradelens.services.vision.vision",
@@ -184,3 +184,20 @@ def test_fill_defaults_handles_missing_keys(tmp_path):
     assert result["key_zones"] == []
     assert result["possible_mistakes"] == []
     assert result["notes_to_user"] is None
+
+
+def test_analyze_screenshot_ai_unavailable_raises(tmp_path):
+    """A refusal/outage (AIUnavailable) is surfaced as a typed ScreenshotAnalysisError."""
+    from src.tradelens.services.ai_client import AIUnavailable, Usage
+
+    image = _make_jpeg(tmp_path)
+    usage = Usage("claude-fable-5", 0, 0, 0, 0.0, 0.0, refused=True)
+    with patch(
+        "src.tradelens.services.vision.vision",
+        return_value=(AIUnavailable("AI declined", category="refusal"), usage),
+    ), patch(
+        "src.tradelens.services.vision.load_prompt",
+        return_value="mock system prompt",
+    ):
+        with pytest.raises(ScreenshotAnalysisError, match="AI declined"):
+            analyze_screenshot(image, {"asset": "NQ"})

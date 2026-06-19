@@ -9,7 +9,7 @@ from typing import Optional
 
 from src.tradelens.db.models import AIAnalysis, Trade
 from src.tradelens.db.session import SessionLocal
-from src.tradelens.services.openai_client import Usage
+from src.tradelens.services.ai_client import Usage
 
 
 def get_analysis_for_trade(trade_id: int) -> Optional[AIAnalysis]:

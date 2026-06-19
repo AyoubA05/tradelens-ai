@@ -16,7 +16,7 @@ from src.tradelens.services.grading import (
     build_grading_context,
     grade_trade,
 )
-from src.tradelens.services.openai_client import Usage
+from src.tradelens.services.ai_client import Usage
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +63,7 @@ def sample_analysis(in_memory_db):
 
 
 def _make_usage() -> Usage:
-    return Usage("gpt-4o-mini", 300, 200, 500, 0.000165, 1.8)
+    return Usage("claude-haiku-4-5", 300, 200, 500, 0.000165, 1.8)
 
 
 def _make_grading(grade: str = "B", score: int = 7) -> dict:
@@ -112,7 +112,7 @@ def test_grade_trade_returns_dict_and_usage():
     assert result["grade"] == "A"
     assert result["score"] == 9
     assert set(result["rubric"].keys()) == _REQUIRED_RUBRIC_DIMS
-    assert usage.model == "gpt-4o-mini"
+    assert usage.model == "claude-haiku-4-5"
 
 
 def test_grade_winning_reckless_trade():
@@ -203,6 +203,18 @@ def test_grade_rubric_missing_note_raises():
                return_value=(json.dumps(bad), _make_usage())), \
          patch("src.tradelens.services.grading.load_prompt", return_value="mock"):
         with pytest.raises(GradingError, match="entry_quality"):
+            grade_trade({}, None, {})
+
+
+def test_grade_trade_ai_unavailable_raises():
+    """A refusal/outage (AIUnavailable) is surfaced as a typed GradingError."""
+    from src.tradelens.services.ai_client import AIUnavailable
+
+    with patch(
+        "src.tradelens.services.grading.chat",
+        return_value=(AIUnavailable("AI declined"), _make_usage()),
+    ), patch("src.tradelens.services.grading.load_prompt", return_value="mock"):
+        with pytest.raises(GradingError, match="AI declined"):
             grade_trade({}, None, {})
 
 

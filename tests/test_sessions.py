@@ -9,8 +9,7 @@ Coverage:
 - Seed integrity: all 60 seeded trades have non-null SMC/ICT values
 """
 import json
-import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -162,24 +161,10 @@ def test_migration_columns_present():
     assert not missing, f"Missing columns after migration: {missing}"
 
 
-def test_migration_idempotent():
-    """Running alembic upgrade head a second time must not raise."""
-    result = subprocess.run(
-        ["alembic", "upgrade", "head"],
-        capture_output=True, text=True,
-    )
-    assert result.returncode == 0, result.stderr
-
-
-def test_migration_downgrade_is_noop_on_sqlite():
-    """Downgrade on SQLite is a deliberate no-op (DROP COLUMN unsupported <3.35)."""
-    result = subprocess.run(
-        ["alembic", "downgrade", "-1"],
-        capture_output=True, text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    # Re-upgrade so the DB is back at head for subsequent tests
-    subprocess.run(["alembic", "upgrade", "head"], capture_output=True)
+# Migration idempotency + downgrade reversibility are covered in isolation by
+# tests/test_migrations.py (throwaway temp DB, no alembic-CLI dependency, no
+# mutation of the real dev DB). The previous subprocess-based variants relied on
+# `alembic` being on PATH and asserted the now-removed SQLite no-op downgrade.
 
 
 # ---------------------------------------------------------------------------

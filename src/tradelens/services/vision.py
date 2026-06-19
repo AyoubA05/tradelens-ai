@@ -1,14 +1,14 @@
 """
 Post-trade screenshot analysis service.
 
-Calls gpt-4o vision to review a chart image AFTER a trade has closed.
+Calls claude-fable-5 vision to review a chart image AFTER a trade has closed.
 This is educational journaling only — not live trading advice.
 """
 import json
 from pathlib import Path
 from typing import Optional, Union
 
-from src.tradelens.services.openai_client import Usage, load_prompt, vision
+from src.tradelens.services.ai_client import AIUnavailable, Usage, load_prompt, vision
 
 _SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
@@ -60,7 +60,7 @@ def analyze_screenshot(
     strategy_profile: Optional[dict] = None,
 ) -> tuple[dict, Usage]:
     """
-    Analyze a post-trade chart screenshot using gpt-4o vision.
+    Analyze a post-trade chart screenshot using claude-fable-5 vision.
 
     Args:
         image_path: Path to the local chart image.
@@ -110,6 +110,9 @@ def analyze_screenshot(
         system_message=system_message,
         response_format={"type": "json_object"},
     )
+
+    if isinstance(raw, AIUnavailable):
+        raise ScreenshotAnalysisError(raw.reason)
 
     try:
         data = json.loads(raw)

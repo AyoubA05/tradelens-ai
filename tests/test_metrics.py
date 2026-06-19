@@ -12,7 +12,6 @@ from src.tradelens.services.metrics import (
     by_session,
     by_setup_type,
     by_strategy,
-    by_timeframe,
     compute_basic_metrics,
     compute_breakdown,
     compute_equity_curve,
