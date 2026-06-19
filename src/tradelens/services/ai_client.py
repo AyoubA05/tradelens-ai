@@ -344,3 +344,31 @@ def vision(
         demo_response=demo_response,
         max_tokens=max_tokens,
     )
+
+
+def converse(
+    messages: list,
+    system_message: str = "",
+    *,
+    model: Optional[str] = None,
+    effort: Optional[str] = None,
+    cache_system: bool = False,
+    few_shot: Optional[str] = None,
+    demo_response: Optional[str] = None,
+    max_tokens: int = 8192,
+) -> tuple[Union[str, AIUnavailable], Usage]:
+    """Multi-turn chat: caller supplies the full role-tagged `messages` list.
+
+    Routes through the same core path as chat()/vision(), so correction memory is
+    injected centrally and DEMO_MODE / refusal handling apply uniformly. The
+    caller is responsible for the message list shape (image blocks, ordering)."""
+    return _complete(
+        messages,
+        system_message=system_message,
+        model=model,
+        effort=effort,
+        cache_system=cache_system,
+        few_shot=few_shot,
+        demo_response=demo_response,
+        max_tokens=max_tokens,
+    )
