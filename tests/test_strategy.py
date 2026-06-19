@@ -128,3 +128,67 @@ def test_upsert_sets_timestamps_properly(in_memory_db):
     assert result["created_at"] is not None
     assert result["updated_at"] is not None
     assert result["created_at"] <= result["updated_at"]
+
+
+# ---------------------------------------------------------------------------
+# append_insight (Week 5 Phase 3) — add a pattern's suggested rule to the profile
+# ---------------------------------------------------------------------------
+
+def test_append_insight_creates_profile_when_none(in_memory_db):
+    from src.tradelens.services.strategy import append_insight
+
+    result = append_insight("Wait 15 minutes after a loss before re-entering.")
+
+    assert result["is_active"] == 1
+    assert "Wait 15 minutes after a loss" in result["risk_rules"]
+
+    db = in_memory_db()
+    rows = db.query(Strategy).filter(Strategy.is_active == 1).all()
+    db.close()
+    assert len(rows) == 1
+
+
+def test_append_insight_preserves_existing_content(in_memory_db):
+    from src.tradelens.services.strategy import append_insight, upsert_strategy_profile
+
+    upsert_strategy_profile(name="ICT", risk_rules="Max 1% risk per trade")
+    result = append_insight("Wait 15 minutes after a loss.")
+
+    assert "Max 1% risk per trade" in result["risk_rules"]
+    assert "Wait 15 minutes after a loss." in result["risk_rules"]
+
+
+def test_append_insight_appends_each_on_its_own_line(in_memory_db):
+    from src.tradelens.services.strategy import append_insight
+
+    append_insight("First discipline rule.")
+    result = append_insight("Second discipline rule.")
+
+    lines = [ln for ln in result["risk_rules"].splitlines() if ln.strip()]
+    assert len(lines) == 2
+    assert "First discipline rule." in result["risk_rules"]
+    assert "Second discipline rule." in result["risk_rules"]
+
+
+def test_append_insight_custom_field(in_memory_db):
+    from src.tradelens.services.strategy import append_insight
+
+    result = append_insight("Stops getting moved on losers.", field="common_mistakes")
+
+    assert "Stops getting moved on losers." in result["common_mistakes"]
+
+
+def test_append_insight_blank_is_noop(in_memory_db):
+    from src.tradelens.services.strategy import append_insight, upsert_strategy_profile
+
+    upsert_strategy_profile(name="ICT", risk_rules="Max 1% risk")
+    result = append_insight("   ")
+
+    assert result["risk_rules"] == "Max 1% risk"
+
+
+def test_append_insight_invalid_field_raises(in_memory_db):
+    from src.tradelens.services.strategy import append_insight
+
+    with pytest.raises(ValueError, match="Unknown strategy field"):
+        append_insight("x", field="not_a_field")

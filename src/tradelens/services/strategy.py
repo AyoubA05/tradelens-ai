@@ -80,3 +80,41 @@ def upsert_strategy_profile(**fields) -> dict:
         return _to_dict(row)
     finally:
         db.close()
+
+
+def append_insight(insight: str, field: str = "risk_rules") -> dict:
+    """
+    Append a pattern's suggested rule to a Text field of the active profile.
+
+    Powers the Analytics "Add to Strategy Profile" button. Creates an active
+    profile if none exists. Existing content is preserved — the insight is added
+    as its own bullet line. Blank insights are a no-op. Returns the saved profile.
+
+    Raises ValueError if `field` is not a writable profile field.
+    """
+    if field not in _PROFILE_FIELDS:
+        raise ValueError(f"Unknown strategy field: {field}")
+
+    text = (insight or "").strip()
+    now = datetime.now(timezone.utc).isoformat()
+    db = SessionLocal()
+    try:
+        row = db.query(Strategy).filter(Strategy.is_active == 1).first()
+        if row is None:
+            row = Strategy(
+                name="My Strategy", is_active=1, created_at=now, updated_at=now
+            )
+            db.add(row)
+            db.flush()
+
+        if text:
+            existing = (getattr(row, field, None) or "").strip()
+            bullet = f"• {text}"
+            setattr(row, field, f"{existing}\n{bullet}".strip() if existing else bullet)
+            row.updated_at = now
+
+        db.commit()
+        db.refresh(row)
+        return _to_dict(row)
+    finally:
+        db.close()

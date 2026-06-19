@@ -29,7 +29,10 @@ from src.tradelens.services.metrics import (  # noqa: E402
     killzone_performance,
     mistake_frequency,
     r_multiple_distribution,
+    total_edge_leak,
 )
+from src.tradelens.services.patterns import PatternError, detect_patterns  # noqa: E402
+from src.tradelens.services.strategy import append_insight  # noqa: E402
 from src.tradelens.ui.components.charts import (  # noqa: E402
     drawdown_chart,
     emotion_vs_rr_chart,
@@ -91,6 +94,8 @@ def _load_df(start: str, end: str) -> pd.DataFrame:
             "killzone":           t.killzone,
             "confirmation_model": t.confirmation_model,
             "mistake_tags":       t.mistake_tags,
+            "htf_bias":           t.htf_bias,
+            "followed_rules":     t.followed_rules,
         }
         for t in trades
     ])
@@ -270,3 +275,79 @@ with mk_col:
         mk_disp["total_pnl"] = mk_disp["total_pnl"].round(2)
         mk_disp["avg_pnl"] = mk_disp["avg_pnl"].round(2)
         st.dataframe(mk_disp, hide_index=True, use_container_width=True)
+
+
+# --- Total Edge Leak (Week 5 Phase 3) ---
+st.markdown("---")
+leak = total_edge_leak(df)
+lc1, lc2 = st.columns([1, 3])
+with lc1:
+    st.metric(
+        "Total Edge Leak",
+        f"${leak:,.2f}",
+        help="Net P&L of trades where you broke your rules or logged a mistake tag.",
+    )
+with lc2:
+    if leak < 0:
+        st.caption(
+            "The cumulative cost of rule-breaks and tagged mistakes. "
+            "Tightening discipline here is your clearest edge."
+        )
+    elif leak > 0:
+        st.caption(
+            "Rule-break trades happened to net positive — lucky, not repeatable. "
+            "Discipline keeps it that way."
+        )
+    else:
+        st.caption("No rule-break or mistake-tagged trades in this period.")
+
+
+# --- AI Pattern Insights (Week 5 Phase 3) — reflection only, never signals ---
+st.markdown("---")
+st.subheader("🧠 Pattern Insights")
+st.caption(
+    "Reflection only — these patterns describe what already happened in your "
+    "journal. They are not signals, predictions, or trade advice."
+)
+
+if st.button("Detect patterns", type="primary"):
+    st.session_state.pop("pattern_error", None)
+    with st.spinner("Analyzing your trades… this may take 15–30 seconds."):
+        try:
+            _cards, _usage = detect_patterns(df)
+            st.session_state["pattern_cards"] = _cards
+            st.session_state["pattern_usage"] = str(_usage)
+        except PatternError as exc:
+            st.session_state["pattern_cards"] = None
+            st.session_state["pattern_error"] = str(exc)
+        except Exception as exc:  # noqa: BLE001 — surface any failure gracefully
+            st.session_state["pattern_cards"] = None
+            st.session_state["pattern_error"] = str(exc)
+
+_pattern_cards = st.session_state.get("pattern_cards")
+if st.session_state.get("pattern_error"):
+    st.warning(f"Could not generate patterns: {st.session_state['pattern_error']}")
+elif _pattern_cards is not None:
+    if not _pattern_cards:
+        st.info("Not enough data yet to surface reliable patterns. Log more trades.")
+    else:
+        for _i, card in enumerate(_pattern_cards):
+            with st.container(border=True):
+                if card.get("low_sample"):
+                    st.caption(f"⚠️ {card.get('sample_label')}")
+                st.markdown(f"**{card.get('insight', '—')}**")
+                if card.get("evidence_stat"):
+                    st.markdown(f"📊 {card['evidence_stat']}")
+                st.caption(
+                    f"Impact: {card.get('impact', '—')} · "
+                    f"Sample: {card.get('sample_size', '—')} trades · "
+                    f"Confidence: {card.get('confidence', '—')}"
+                )
+                rule = card.get("suggested_rule", "")
+                if rule:
+                    st.markdown(f"💡 *Suggested rule:* {rule}")
+                    if st.button("➕ Add to Strategy Profile", key=f"add_rule_{_i}"):
+                        append_insight(rule)
+                        st.success("Added to your Strategy Profile (risk rules).")
+        if st.session_state.get("pattern_usage"):
+            st.caption(f"AI usage — {st.session_state['pattern_usage']}")

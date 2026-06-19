@@ -785,3 +785,70 @@ def test_calendar_daily_pnl_single_trade():
     assert len(res) == 1
     assert int(res.iloc[0]["day"]) == 7
     assert res.iloc[0]["net_pnl"] == pytest.approx(-25.0)
+
+
+# ---------------------------------------------------------------------------
+# total_edge_leak (Week 5 Phase 3)
+# ---------------------------------------------------------------------------
+
+def test_total_edge_leak_known_values():
+    """Sum P&L over trades that broke rules (followed_rules==0) OR carry mistake tags."""
+    from src.tradelens.services.metrics import total_edge_leak
+
+    df = pd.DataFrame({
+        "followed_rules": [1, 0, 1, 0, None],
+        "mistake_tags":   ["[]", "[]", '["FOMO"]', '["Late Entry"]', None],
+        "pnl":            [200.0, -100.0, -50.0, -30.0, 999.0],
+    })
+    # clean(+200) excluded; -100 (broke rules) + -50 (mistake) + -30 (both, once) = -180
+    assert total_edge_leak(df) == pytest.approx(-180.0)
+
+
+def test_total_edge_leak_counts_each_trade_once():
+    """A trade that both broke rules AND has a mistake tag is counted a single time."""
+    from src.tradelens.services.metrics import total_edge_leak
+
+    df = pd.DataFrame({
+        "followed_rules": [0],
+        "mistake_tags":   ['["FOMO", "Oversize"]'],
+        "pnl":            [-40.0],
+    })
+    assert total_edge_leak(df) == pytest.approx(-40.0)
+
+
+def test_total_edge_leak_clean_trades_are_zero():
+    """All trades followed rules and carry no mistake tags → no leak."""
+    from src.tradelens.services.metrics import total_edge_leak
+
+    df = pd.DataFrame({
+        "followed_rules": [1, 1, 1],
+        "mistake_tags":   ["[]", None, ""],
+        "pnl":            [100.0, -20.0, 50.0],
+    })
+    assert total_edge_leak(df) == pytest.approx(0.0)
+
+
+def test_total_edge_leak_preserves_sign_for_lucky_breaks():
+    """Rule-breaking trades that happened to win keep their positive sign."""
+    from src.tradelens.services.metrics import total_edge_leak
+
+    df = pd.DataFrame({
+        "followed_rules": [0, 1],
+        "mistake_tags":   ["[]", "[]"],
+        "pnl":            [300.0, 100.0],
+    })
+    assert total_edge_leak(df) == pytest.approx(300.0)
+
+
+def test_total_edge_leak_empty_returns_zero():
+    from src.tradelens.services.metrics import total_edge_leak
+
+    assert total_edge_leak(pd.DataFrame()) == pytest.approx(0.0)
+
+
+def test_total_edge_leak_missing_signal_columns_returns_zero():
+    """Without followed_rules or mistake_tags there is no leak signal."""
+    from src.tradelens.services.metrics import total_edge_leak
+
+    df = pd.DataFrame({"pnl": [100.0, -50.0]})
+    assert total_edge_leak(df) == pytest.approx(0.0)

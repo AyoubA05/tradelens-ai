@@ -976,6 +976,45 @@ def mistake_frequency(trades: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def total_edge_leak(trades: pd.DataFrame) -> float:
+    """
+    Net P&L of trades where the trader broke their own process.
+
+    A trade leaks edge when followed_rules is explicitly False (0) OR it carries
+    one or more mistake_tags. Each qualifying trade is counted exactly once, even
+    when both signals are present.
+
+    The sign is preserved: a negative result is the usual "leak" (rule-breaking
+    cost money); a positive result means rule-breaking trades happened to net a
+    profit (lucky, not repeatable). A None/NaN followed_rules with no mistake tags
+    is treated as "not recorded" and excluded.
+
+    Returns 0.0 on empty input or when neither signal column is present.
+    """
+    if trades is None or trades.empty or "pnl" not in trades.columns:
+        return 0.0
+
+    has_followed = "followed_rules" in trades.columns
+    has_mistakes = "mistake_tags" in trades.columns
+    if not has_followed and not has_mistakes:
+        return 0.0
+
+    pnl = pd.to_numeric(trades["pnl"], errors="coerce").fillna(0.0)
+    leak_mask = pd.Series([False] * len(trades), index=trades.index)
+
+    if has_followed:
+        fr = pd.to_numeric(trades["followed_rules"], errors="coerce")
+        leak_mask = leak_mask | (fr == 0)
+
+    if has_mistakes:
+        has_tag = trades["mistake_tags"].apply(
+            lambda raw: len(_parse_mistake_tags(raw)) > 0
+        )
+        leak_mask = leak_mask | has_tag
+
+    return _safe_float(pnl[leak_mask].sum())
+
+
 _CALENDAR_COLS = ["trade_date", "day", "net_pnl", "trades", "wins", "losses"]
 
 
