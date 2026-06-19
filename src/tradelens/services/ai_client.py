@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 from src.tradelens.config import settings
+from src.tradelens.services.corrections import build_correction_few_shot
 
 # ---------------------------------------------------------------------------
 # Cost table — per 1,000,000 tokens
@@ -136,6 +137,18 @@ def _build_usage(resp, model: str, t0: float) -> Usage:
     )
 
 
+def _corrections_block(scope: Optional[str] = None) -> str:
+    """Fetch the token-budgeted <past_corrections> block, or '' on any error.
+
+    Wrapped defensively so a DB hiccup never breaks an AI call — corrections are
+    optional context, not a hard dependency.
+    """
+    try:
+        return build_correction_few_shot(scope=scope) or ""
+    except Exception:  # noqa: BLE001 — corrections are best-effort context
+        return ""
+
+
 def _build_system(system_message: str, few_shot: Optional[str], cache_system: bool):
     """Assemble the system field. When `cache_system`, return a content-block list
     carrying a cache_control breakpoint (used for the repeated Strategy Profile)."""
@@ -163,6 +176,12 @@ def _complete(
     """Core call path shared by chat() and vision()."""
     chosen = model or settings.model_primary
 
+    # Correction memory: inject the trader's past overrides into EVERY call.
+    # Deterministic + DB-only (no API), so it runs even in DEMO_MODE.
+    corrections = _corrections_block()
+    combined_few_shot = "\n\n".join(p for p in (few_shot, corrections) if p) or None
+    system = _build_system(system_message, combined_few_shot, cache_system)
+
     # DEMO_MODE: never touch the network.
     if settings.demo_mode:
         content = (
@@ -178,7 +197,6 @@ def _complete(
             Usage(chosen, 0, 0, 0, 0.0, 0.0),
         )
 
-    system = _build_system(system_message, few_shot, cache_system)
     kwargs: dict = {
         "max_tokens": max_tokens,
         "messages": messages,

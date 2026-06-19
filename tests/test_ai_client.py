@@ -66,9 +66,16 @@ def _client_returning(*responses) -> MagicMock:
 
 @pytest.fixture(autouse=True)
 def _live_mode(monkeypatch):
-    """Default every test to live (non-demo) mode with a key present."""
+    """Default every test to live (non-demo) mode with a key present.
+
+    Also neutralise correction injection so prompt assertions stay hermetic
+    regardless of DB state (tests that want corrections re-patch this).
+    """
     monkeypatch.setattr(ai_client.settings, "demo_mode", False)
     monkeypatch.setattr(ai_client.settings, "anthropic_api_key", "test-key")
+    monkeypatch.setattr(
+        ai_client, "build_correction_few_shot", lambda **k: "", raising=False
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +230,83 @@ def test_chat_injects_few_shot_block(monkeypatch):
     system = client.messages.create.call_args[1]["system"]
     blob = system if isinstance(system, str) else system[0]["text"]
     assert "PAST CORRECTIONS: foo->bar" in blob
+
+
+# ---------------------------------------------------------------------------
+# Correction memory — auto-injection of <past_corrections> into every call
+# ---------------------------------------------------------------------------
+
+
+def test_chat_injects_past_corrections_block(monkeypatch):
+    monkeypatch.setattr(
+        ai_client,
+        "build_correction_few_shot",
+        lambda **k: "<past_corrections>\nbias: prefer 'bearish'\n</past_corrections>",
+        raising=False,
+    )
+    client = _client_returning(_fake_message("ok"))
+    monkeypatch.setattr(ai_client, "_get_client", lambda: client)
+
+    chat("hello", system_message="BASE")
+    system = client.messages.create.call_args[1]["system"]
+    blob = system if isinstance(system, str) else system[0]["text"]
+    assert "<past_corrections>" in blob
+    assert "bias: prefer 'bearish'" in blob
+    assert "BASE" in blob
+
+
+def test_chat_without_corrections_keeps_system_exact(monkeypatch):
+    monkeypatch.setattr(
+        ai_client, "build_correction_few_shot", lambda **k: "", raising=False
+    )
+    client = _client_returning(_fake_message("ok"))
+    monkeypatch.setattr(ai_client, "_get_client", lambda: client)
+
+    chat("hello", system_message="BASE ONLY")
+    assert client.messages.create.call_args[1]["system"] == "BASE ONLY"
+
+
+def test_vision_injects_past_corrections_block(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        ai_client,
+        "build_correction_few_shot",
+        lambda **k: "<past_corrections>\nX\n</past_corrections>",
+        raising=False,
+    )
+    img = tmp_path / "c.jpg"
+    img.write_bytes(b"x")
+    client = _client_returning(_fake_message("{}"))
+    monkeypatch.setattr(ai_client, "_get_client", lambda: client)
+    monkeypatch.setattr(ai_client, "encode_image", lambda *a, **k: "B64")
+
+    vision(str(img), "analyze", system_message="VBASE")
+    system = client.messages.create.call_args[1]["system"]
+    blob = system if isinstance(system, str) else system[0]["text"]
+    assert "<past_corrections>" in blob
+    assert "VBASE" in blob
+
+
+def test_demo_mode_still_builds_corrections(monkeypatch):
+    """Injection is deterministic (no API) — the builder runs even in DEMO_MODE."""
+    monkeypatch.setattr(ai_client.settings, "demo_mode", True)
+    called = {}
+
+    def fake_build(**k):
+        called["ran"] = True
+        return ""
+
+    monkeypatch.setattr(
+        ai_client, "build_correction_few_shot", fake_build, raising=False
+    )
+
+    def _boom():
+        raise AssertionError("DEMO_MODE must not create an API client")
+
+    monkeypatch.setattr(ai_client, "_get_client", _boom)
+
+    content, _ = chat("hi", demo_response="DEMO")
+    assert content == "DEMO"
+    assert called.get("ran") is True
 
 
 # ---------------------------------------------------------------------------

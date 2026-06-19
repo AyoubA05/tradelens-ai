@@ -241,3 +241,108 @@ def test_get_computed_at_returns_correct_timestamp(pm_db):
     db.close()
 
     assert get_computed_at(user_id=1) == "2026-06-10T14:30:00+00:00"
+
+
+# ---------------------------------------------------------------------------
+# build_correction_few_shot (Week 5 Phase 5)
+# ---------------------------------------------------------------------------
+
+def test_build_few_shot_empty_returns_empty_string(monkeypatch):
+    from src.tradelens.services import corrections
+
+    monkeypatch.setattr(corrections, "get_recent_corrections", lambda **k: [])
+    assert corrections.build_correction_few_shot() == ""
+
+
+def test_build_few_shot_limit_zero_returns_empty(monkeypatch):
+    from src.tradelens.services import corrections
+
+    monkeypatch.setattr(
+        corrections,
+        "get_recent_corrections",
+        lambda **k: [{"field": "bias", "user_value": "x", "ai_value": "y",
+                      "user_reason": None}],
+    )
+    assert corrections.build_correction_few_shot(limit=0) == ""
+
+
+def test_build_few_shot_orders_most_repeated_first(monkeypatch):
+    from src.tradelens.services import corrections
+
+    pool = [
+        {"field": "setup_type", "user_value": "FVG", "ai_value": "OB",
+         "user_reason": None},  # most recent, but only once
+        {"field": "bias", "user_value": "bearish", "ai_value": "bullish",
+         "user_reason": None},
+        {"field": "bias", "user_value": "bearish", "ai_value": "bullish",
+         "user_reason": None},
+        {"field": "bias", "user_value": "bearish", "ai_value": "bullish",
+         "user_reason": None},
+    ]
+    monkeypatch.setattr(corrections, "get_recent_corrections", lambda **k: pool)
+
+    block = corrections.build_correction_few_shot()
+    assert block.startswith("<past_corrections>")
+    assert block.rstrip().endswith("</past_corrections>")
+    # most-repeated (bias x3) ranks above the more-recent single setup_type correction
+    assert block.index("bias") < block.index("setup_type")
+    assert "3" in block  # repeat count surfaced
+
+
+def test_build_few_shot_respects_token_budget(monkeypatch):
+    from src.tradelens.services import corrections
+
+    pool = [
+        {"field": f"field_{i}", "user_value": "X" * 150, "ai_value": "Y" * 150,
+         "user_reason": None}
+        for i in range(100)
+    ]
+    monkeypatch.setattr(corrections, "get_recent_corrections", lambda **k: pool)
+
+    block = corrections.build_correction_few_shot(limit=100)
+    assert corrections._estimate_tokens(block) <= 800
+    assert block.count("\n- ") < 100  # truncated to fit the budget
+
+
+# ---------------------------------------------------------------------------
+# count_corrections / repeated_corrections (Week 5 Phase 5)
+# ---------------------------------------------------------------------------
+
+def test_count_corrections(in_memory_db, sample_ids):
+    from src.tradelens.services.corrections import count_corrections, record_correction
+
+    trade_id, analysis_id = sample_ids
+    assert count_corrections() == 0
+    record_correction(trade_id, analysis_id, "bias", "bullish", "bearish")
+    record_correction(trade_id, analysis_id, "setup_type", "OB", "FVG")
+    assert count_corrections() == 2
+
+
+def test_repeated_corrections_fires_at_threshold(in_memory_db, sample_ids):
+    from src.tradelens.services.corrections import (
+        record_correction,
+        repeated_corrections,
+    )
+
+    trade_id, analysis_id = sample_ids
+    for _ in range(5):
+        record_correction(trade_id, analysis_id, "bias", "bullish", "bearish")
+
+    res = repeated_corrections(threshold=5)
+    assert len(res) == 1
+    assert res[0]["field"] == "bias"
+    assert res[0]["user_value"] == "bearish"
+    assert res[0]["count"] == 5
+
+
+def test_repeated_corrections_below_threshold_excluded(in_memory_db, sample_ids):
+    from src.tradelens.services.corrections import (
+        record_correction,
+        repeated_corrections,
+    )
+
+    trade_id, analysis_id = sample_ids
+    for _ in range(4):
+        record_correction(trade_id, analysis_id, "bias", "bullish", "bearish")
+
+    assert repeated_corrections(threshold=5) == []

@@ -25,9 +25,12 @@ from src.tradelens.services.journal import JournalStructureError, build_journal_
 from src.tradelens.services.strategy import get_active_strategy  # noqa: E402
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
 from src.tradelens.services.vision import ScreenshotAnalysisError, analyze_screenshot  # noqa: E402
+from src.tradelens.ui.components.corrections_sidebar import render_corrections_sidebar  # noqa: E402
 
 st.set_page_config(page_title="Trade Detail", page_icon="🔍")
 st.title("🔍 Trade Detail")
+
+render_corrections_sidebar()
 
 # ── Trade selector ────────────────────────────────────────────────
 trades = get_trades()

@@ -21,7 +21,6 @@ import pandas as pd
 from src.tradelens.db.models import WeeklyReview
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services.ai_client import AIUnavailable, Usage, chat, load_prompt
-from src.tradelens.services.corrections import get_recent_corrections
 from src.tradelens.services.metrics import (
     compute_basic_metrics,
     compute_profit_factor_raw,
@@ -118,25 +117,6 @@ def _week_stats(df: pd.DataFrame) -> dict:
     }
 
 
-def _correction_few_shot(corrections: list) -> str:
-    """Render recent AI→user corrections as a compact few-shot guidance block."""
-    if not corrections:
-        return ""
-    lines = [
-        "RECENT USER CORRECTIONS (the trader overrode the AI here — respect these):"
-    ]
-    for c in corrections[:10]:
-        field = c.get("field", "?")
-        ai_val = c.get("ai_value")
-        user_val = c.get("user_value")
-        reason = c.get("user_reason")
-        line = f"- {field}: AI said {ai_val!r} → trader chose {user_val!r}"
-        if reason:
-            line += f" ({reason})"
-        lines.append(line)
-    return "\n".join(lines)
-
-
 def _build_user_message(monday: str, sunday: str, stats: dict, candidates: dict) -> str:
     return (
         "WEEKLY REVIEW REQUEST\n\n"
@@ -199,19 +179,15 @@ def generate_weekly_review(
         )
 
     candidates = compute_candidates(df)
-    try:
-        few_shot = _correction_few_shot(get_recent_corrections())
-    except Exception:  # noqa: BLE001 — corrections are optional context
-        few_shot = ""
 
     system_message = load_prompt("weekly_v2")
     user_message = _build_user_message(monday, sunday, stats, candidates)
 
+    # Past corrections are injected centrally by ai_client for every call.
     content, usage = chat(
         user_message=user_message,
         system_message=system_message,
         effort="high",
-        few_shot=few_shot or None,
         demo_response=_DEMO_REVIEW_MD,
     )
 
