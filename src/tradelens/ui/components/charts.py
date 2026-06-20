@@ -5,8 +5,11 @@ from typing import Optional
 import pandas as pd
 import plotly.graph_objects as go
 
-_TEAL = "#20808D"
-_RED = "#A84B2F"
+from src.tradelens.ui.components.theme import TEAL, TERRA
+
+# Brand colors come from the design system (single source of truth).
+_TEAL = TEAL
+_RED = TERRA
 _GRAY = "#8E9196"
 _TEAL_FILL = "rgba(32, 128, 141, 0.15)"
 _RED_FILL = "rgba(168, 75, 47, 0.15)"
