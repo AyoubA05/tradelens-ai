@@ -4,6 +4,7 @@ Post-trade journal generation service.
 Generates an 8-section markdown journal entry using user-confirmed AI labels
 and trade data. This is educational reflection only — not live trading advice.
 """
+
 import json
 from typing import Optional
 

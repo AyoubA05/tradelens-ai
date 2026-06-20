@@ -5,6 +5,7 @@ Single-user MVP: exactly one active profile at a time (is_active = 1).
 Returns plain dicts so AI services (vision, journal, grading) remain ORM-free.
 No Streamlit imports here.
 """
+
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -28,7 +29,10 @@ _PROFILE_FIELDS = {
 
 
 def _to_dict(row: Strategy) -> dict:
-    return {field: getattr(row, field, None) for field in _PROFILE_FIELDS | {"id", "is_active", "created_at", "updated_at"}}
+    return {
+        field: getattr(row, field, None)
+        for field in _PROFILE_FIELDS | {"id", "is_active", "created_at", "updated_at"}
+    }
 
 
 def get_active_strategy() -> Optional[dict]:

@@ -7,6 +7,7 @@ Create Date: 2026-06-17
 Adds 11 SMC/ICT columns to the trades table.
 Idempotent: skips any column that already exists.
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -42,17 +43,19 @@ def _existing_columns(table_name: str) -> set:
 def upgrade() -> None:
     existing = _existing_columns("trades")
     new_cols = {
-        "htf_bias":          sa.Column("htf_bias",          sa.String(),  nullable=True),
-        "killzone":          sa.Column("killzone",          sa.String(),  nullable=True),
-        "liquidity_sweep":   sa.Column("liquidity_sweep",   sa.Integer(), nullable=True),
-        "fvg_used":          sa.Column("fvg_used",          sa.Integer(), nullable=True),
-        "order_block_used":  sa.Column("order_block_used",  sa.Integer(), nullable=True),
-        "bos":               sa.Column("bos",               sa.Integer(), nullable=True),
-        "choch":             sa.Column("choch",             sa.Integer(), nullable=True),
-        "confirmation_model": sa.Column("confirmation_model", sa.String(), nullable=True),
-        "entry_type":        sa.Column("entry_type",        sa.String(),  nullable=True),
-        "mistake_tags":      sa.Column("mistake_tags",      sa.Text(),    nullable=True),
-        "followed_rules":    sa.Column("followed_rules",    sa.Integer(), nullable=True),
+        "htf_bias": sa.Column("htf_bias", sa.String(), nullable=True),
+        "killzone": sa.Column("killzone", sa.String(), nullable=True),
+        "liquidity_sweep": sa.Column("liquidity_sweep", sa.Integer(), nullable=True),
+        "fvg_used": sa.Column("fvg_used", sa.Integer(), nullable=True),
+        "order_block_used": sa.Column("order_block_used", sa.Integer(), nullable=True),
+        "bos": sa.Column("bos", sa.Integer(), nullable=True),
+        "choch": sa.Column("choch", sa.Integer(), nullable=True),
+        "confirmation_model": sa.Column(
+            "confirmation_model", sa.String(), nullable=True
+        ),
+        "entry_type": sa.Column("entry_type", sa.String(), nullable=True),
+        "mistake_tags": sa.Column("mistake_tags", sa.Text(), nullable=True),
+        "followed_rules": sa.Column("followed_rules", sa.Integer(), nullable=True),
     }
     for col_name, col_def in new_cols.items():
         if col_name not in existing:

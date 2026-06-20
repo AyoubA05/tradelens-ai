@@ -32,18 +32,20 @@ from src.tradelens.services.trade_service import get_trades  # noqa: E402
 
 
 def _build_df(trades) -> pd.DataFrame:
-    return pd.DataFrame([
-        {
-            "trade_date":    t.trade_date,
-            "day_of_week":   t.day_of_week,
-            "strategy_used": t.strategy_used,
-            "timeframe":     t.timeframe,
-            "rr_realized":   t.rr_realized,
-            "pnl":           t.pnl,
-            "result":        t.result,
-        }
-        for t in trades
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "trade_date": t.trade_date,
+                "day_of_week": t.day_of_week,
+                "strategy_used": t.strategy_used,
+                "timeframe": t.timeframe,
+                "rr_realized": t.rr_realized,
+                "pnl": t.pnl,
+                "result": t.result,
+            }
+            for t in trades
+        ]
+    )
 
 
 def recompute(user_id: int) -> None:
@@ -62,22 +64,26 @@ def recompute(user_id: int) -> None:
     dow_df = by_day_of_week(df)
     best_day = worst_day = None
     if not dow_df.empty:
-        dow_sorted = dow_df.sort_values("total_pnl", ascending=False).reset_index(drop=True)
-        best_day  = str(dow_sorted.iloc[0]["day_of_week"])
+        dow_sorted = dow_df.sort_values("total_pnl", ascending=False).reset_index(
+            drop=True
+        )
+        best_day = str(dow_sorted.iloc[0]["day_of_week"])
         worst_day = str(dow_sorted.iloc[-1]["day_of_week"])
 
     # best/worst strategy — by_strategy already sorts total_pnl descending
     strat_df = by_strategy(df)
-    best_strategy  = strat_df.iloc[0]["strategy_used"] if not strat_df.empty else None
+    best_strategy = strat_df.iloc[0]["strategy_used"] if not strat_df.empty else None
     worst_strategy = strat_df.iloc[-1]["strategy_used"] if len(strat_df) > 1 else None
 
     # best/worst timeframe — by_timeframe already sorts total_pnl descending
     tf_df = by_timeframe(df)
-    best_timeframe  = tf_df.iloc[0]["timeframe"] if not tf_df.empty else None
+    best_timeframe = tf_df.iloc[0]["timeframe"] if not tf_df.empty else None
     worst_timeframe = tf_df.iloc[-1]["timeframe"] if len(tf_df) > 1 else None
 
-    period_start = df["trade_date"].dropna().min() if "trade_date" in df.columns else None
-    period_end   = df["trade_date"].dropna().max() if "trade_date" in df.columns else None
+    period_start = (
+        df["trade_date"].dropna().min() if "trade_date" in df.columns else None
+    )
+    period_end = df["trade_date"].dropna().max() if "trade_date" in df.columns else None
     now = datetime.now(timezone.utc).isoformat()
 
     # float("inf") cannot be stored in SQLite REAL; store None (column is not displayed)
@@ -85,27 +91,31 @@ def recompute(user_id: int) -> None:
 
     db = SessionLocal()
     try:
-        row = db.query(PerformanceMetrics).filter(PerformanceMetrics.user_id == user_id).first()
+        row = (
+            db.query(PerformanceMetrics)
+            .filter(PerformanceMetrics.user_id == user_id)
+            .first()
+        )
         if row is None:
             row = PerformanceMetrics(user_id=user_id)
             db.add(row)
 
-        row.period_start    = period_start
-        row.period_end      = period_end
-        row.trades_count    = m["total_trades"]
-        row.win_rate        = round(m["win_rate"], 4)
-        row.profit_factor   = pf_stored
-        row.avg_rr          = round(m["avg_rr_realized"], 4)
-        row.avg_win         = round(m["avg_win"], 4)
-        row.avg_loss        = round(m["avg_loss"], 4)
-        row.total_pnl       = round(m["total_pnl"], 2)
-        row.best_day        = best_day
-        row.worst_day       = worst_day
-        row.best_strategy   = best_strategy
-        row.worst_strategy  = worst_strategy
-        row.best_timeframe  = best_timeframe
+        row.period_start = period_start
+        row.period_end = period_end
+        row.trades_count = m["total_trades"]
+        row.win_rate = round(m["win_rate"], 4)
+        row.profit_factor = pf_stored
+        row.avg_rr = round(m["avg_rr_realized"], 4)
+        row.avg_win = round(m["avg_win"], 4)
+        row.avg_loss = round(m["avg_loss"], 4)
+        row.total_pnl = round(m["total_pnl"], 2)
+        row.best_day = best_day
+        row.worst_day = worst_day
+        row.best_strategy = best_strategy
+        row.worst_strategy = worst_strategy
+        row.best_timeframe = best_timeframe
         row.worst_timeframe = worst_timeframe
-        row.computed_at     = now
+        row.computed_at = now
 
         db.commit()
         db.refresh(row)
@@ -130,7 +140,10 @@ def recompute(user_id: int) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Pre-compute KPI metrics for a user.")
     parser.add_argument(
-        "--user-id", type=int, default=1, dest="user_id",
+        "--user-id",
+        type=int,
+        default=1,
+        dest="user_id",
         help="User ID to compute metrics for (default: 1)",
     )
     args = parser.parse_args()

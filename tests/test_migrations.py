@@ -17,9 +17,7 @@ from sqlalchemy import create_engine, inspect
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "alembic" / "versions" / "g7h8i9j0k1l2_add_smc_ict_fields.py"
-WEEKLY_MIGRATION = (
-    ROOT / "alembic" / "versions" / "h8i9j0k1l2m3_add_weekly_reviews.py"
-)
+WEEKLY_MIGRATION = ROOT / "alembic" / "versions" / "h8i9j0k1l2m3_add_weekly_reviews.py"
 
 SMC_COLS = {
     "htf_bias",
@@ -125,7 +123,9 @@ def test_weekly_reviews_migration_round_trip(tmp_path):
         assert WEEKLY_COLS <= _columns_of(conn, "weekly_reviews")
 
         mig.downgrade()
-        assert "weekly_reviews" not in _tables(conn), "downgrade() left the table behind"
+        assert "weekly_reviews" not in _tables(
+            conn
+        ), "downgrade() left the table behind"
 
         mig.upgrade()
         assert "weekly_reviews" in _tables(conn), "re-upgrade() did not recreate it"

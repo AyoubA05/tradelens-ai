@@ -93,9 +93,7 @@ def compute_basic_metrics(df: pd.DataFrame) -> dict:
     sum_losses = loss_pnls.sum()
 
     profit_factor = (
-        _safe_float(sum_wins / abs(sum_losses))
-        if abs(sum_losses) > 0
-        else 0.0
+        _safe_float(sum_wins / abs(sum_losses)) if abs(sum_losses) > 0 else 0.0
     )
 
     avg_win = _safe_float(win_pnls.mean()) if wins > 0 else 0.0
@@ -158,6 +156,7 @@ def get_last_n_trades(df: pd.DataFrame, n: int = 5) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Week 4 additions
 # ---------------------------------------------------------------------------
+
 
 def compute_expectancy(metrics: dict) -> float:
     """
@@ -254,7 +253,12 @@ def compute_streaks(df: pd.DataFrame) -> dict:
         max_loss_streak: int  — longest loss streak observed (positive magnitude)
         streak_type:     str  — "win" | "loss" | "none"
     """
-    empty = {"current_streak": 0, "max_win_streak": 0, "max_loss_streak": 0, "streak_type": "none"}
+    empty = {
+        "current_streak": 0,
+        "max_win_streak": 0,
+        "max_loss_streak": 0,
+        "streak_type": "none",
+    }
 
     if df is None or df.empty:
         return empty
@@ -301,7 +305,15 @@ def compute_streaks(df: pd.DataFrame) -> dict:
 
 equity_curve_series = compute_equity_curve  # public alias — same behavior, cleaner name for analytics callers
 
-_BREAKDOWN_COLS = ["trades", "wins", "losses", "breakevens", "win_rate", "avg_pnl", "total_pnl"]
+_BREAKDOWN_COLS = [
+    "trades",
+    "wins",
+    "losses",
+    "breakevens",
+    "win_rate",
+    "avg_pnl",
+    "total_pnl",
+]
 
 
 def compute_breakdown(df: pd.DataFrame, by: str) -> pd.DataFrame:
@@ -328,7 +340,8 @@ def compute_breakdown(df: pd.DataFrame, by: str) -> pd.DataFrame:
     work = df.copy()
     work["_count"] = 1
     work["_pnl"] = (
-        pd.to_numeric(df["pnl"], errors="coerce") if "pnl" in df.columns
+        pd.to_numeric(df["pnl"], errors="coerce")
+        if "pnl" in df.columns
         else pd.Series([float("nan")] * len(df), index=df.index)
     )
 
@@ -351,7 +364,9 @@ def compute_breakdown(df: pd.DataFrame, by: str) -> pd.DataFrame:
     )
 
     grouped["win_rate"] = grouped.apply(
-        lambda row: _safe_float(row["wins"] / row["trades"]) if row["trades"] > 0 else 0.0,
+        lambda row: (
+            _safe_float(row["wins"] / row["trades"]) if row["trades"] > 0 else 0.0
+        ),
         axis=1,
     )
     grouped["total_pnl"] = grouped["total_pnl"].apply(_safe_float)
@@ -367,6 +382,7 @@ def compute_breakdown(df: pd.DataFrame, by: str) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Week 4 Day 2 — time-series and distribution helpers
 # ---------------------------------------------------------------------------
+
 
 def daily_pnl(trades: pd.DataFrame) -> pd.DataFrame:
     """
@@ -453,30 +469,50 @@ def r_multiple_distribution(trades: pd.DataFrame, bins: int = 20) -> pd.DataFram
 
     # All values identical — pd.cut would error; return single bin
     if rr.min() == rr.max():
-        return pd.DataFrame({
-            "bin_left": [rr.min()],
-            "bin_right": [rr.max()],
-            "count": [len(rr)],
-        })
+        return pd.DataFrame(
+            {
+                "bin_left": [rr.min()],
+                "bin_right": [rr.max()],
+                "count": [len(rr)],
+            }
+        )
 
     n_bins = min(bins, len(rr))
     binned = pd.cut(rr, bins=n_bins, include_lowest=True)
     counts = binned.value_counts().sort_index()
 
-    return pd.DataFrame({
-        "bin_left": [iv.left for iv in counts.index],
-        "bin_right": [iv.right for iv in counts.index],
-        "count": counts.values,
-    })
+    return pd.DataFrame(
+        {
+            "bin_left": [iv.left for iv in counts.index],
+            "bin_right": [iv.right for iv in counts.index],
+            "count": counts.values,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # Week 4 Day 3 — group-by breakdown helpers
 # ---------------------------------------------------------------------------
 
-DOW_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+DOW_ORDER = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+]
 
-_GROUP_RR_COLS = ["trades", "wins", "losses", "breakevens", "win_rate", "avg_rr_realized", "total_pnl"]
+_GROUP_RR_COLS = [
+    "trades",
+    "wins",
+    "losses",
+    "breakevens",
+    "win_rate",
+    "avg_rr_realized",
+    "total_pnl",
+]
 
 
 def _group_with_rr(
@@ -537,14 +573,18 @@ def _group_with_rr(
     )
 
     grouped["win_rate"] = grouped.apply(
-        lambda row: _safe_float(row["wins"] / row["trades"]) if row["trades"] > 0 else 0.0,
+        lambda row: (
+            _safe_float(row["wins"] / row["trades"]) if row["trades"] > 0 else 0.0
+        ),
         axis=1,
     )
     grouped["total_pnl"] = grouped["total_pnl"].apply(_safe_float)
     grouped["avg_rr_realized"] = grouped["avg_rr_realized"].apply(_safe_float)
 
     if sort_by and sort_by in grouped.columns:
-        grouped = grouped.sort_values(sort_by, ascending=sort_ascending).reset_index(drop=True)
+        grouped = grouped.sort_values(sort_by, ascending=sort_ascending).reset_index(
+            drop=True
+        )
 
     return grouped[_cols]
 
@@ -561,7 +601,16 @@ def _group_with_profit_factor(df: pd.DataFrame, by: str) -> pd.DataFrame:
     Returns: [by, trades, wins, losses, breakevens, win_rate, total_pnl, profit_factor]
     sorted by total_pnl descending.
     """
-    _cols = [by, "trades", "wins", "losses", "breakevens", "win_rate", "total_pnl", "profit_factor"]
+    _cols = [
+        by,
+        "trades",
+        "wins",
+        "losses",
+        "breakevens",
+        "win_rate",
+        "total_pnl",
+        "profit_factor",
+    ]
     empty = pd.DataFrame(columns=_cols)
 
     base = _group_with_rr(df, by=by)
@@ -595,11 +644,7 @@ def _group_with_profit_factor(df: pd.DataFrame, by: str) -> pd.DataFrame:
     else:
         base["profit_factor"] = 0.0
 
-    return (
-        base[_cols]
-        .sort_values("total_pnl", ascending=False)
-        .reset_index(drop=True)
-    )
+    return base[_cols].sort_values("total_pnl", ascending=False).reset_index(drop=True)
 
 
 def by_day_of_week(trades: pd.DataFrame) -> pd.DataFrame:
@@ -723,11 +768,7 @@ def by_setup_type(trades: pd.DataFrame) -> pd.DataFrame:
         .reset_index()
     )
 
-    return (
-        grouped[_cols]
-        .sort_values("trades", ascending=False)
-        .reset_index(drop=True)
-    )
+    return grouped[_cols].sort_values("trades", ascending=False).reset_index(drop=True)
 
 
 def emotion_vs_rr(trades: pd.DataFrame) -> pd.DataFrame:
@@ -830,9 +871,7 @@ def by_hour_of_day(trades: pd.DataFrame) -> pd.DataFrame:
     grouped["avg_rr_realized"] = grouped["avg_rr_realized"].apply(_safe_float)
 
     return (
-        grouped[_cols]
-        .sort_values("hour_of_day", ascending=True)
-        .reset_index(drop=True)
+        grouped[_cols].sort_values("hour_of_day", ascending=True).reset_index(drop=True)
     )
 
 
@@ -963,7 +1002,9 @@ def mistake_frequency(trades: pd.DataFrame) -> pd.DataFrame:
     exploded = pd.DataFrame(rows, columns=["mistake_tag", "_pnl"])
     grouped = (
         exploded.groupby("mistake_tag")
-        .agg(count=("_pnl", "size"), total_pnl=("_pnl", "sum"), avg_pnl=("_pnl", "mean"))
+        .agg(
+            count=("_pnl", "size"), total_pnl=("_pnl", "sum"), avg_pnl=("_pnl", "mean")
+        )
         .reset_index()
     )
     grouped["total_pnl"] = grouped["total_pnl"].apply(_safe_float)
@@ -1013,6 +1054,118 @@ def total_edge_leak(trades: pd.DataFrame) -> float:
         leak_mask = leak_mask | has_tag
 
     return _safe_float(pnl[leak_mask].sum())
+
+
+# Letter grade → numeric (F..A spans a 0..4 range used for the trend component).
+_GRADE_TO_NUM = {"A": 4, "B": 3, "C": 2, "D": 1, "F": 0}
+_GRADE_RANGE = 4
+
+# consistency_score component weights — must sum to 1.0.
+_CONSISTENCY_WEIGHTS = {
+    "rule_adherence": 0.40,
+    "mistake_cleanliness": 0.35,
+    "grade_trend": 0.25,
+}
+_MIN_TRADES_FOR_CONSISTENCY = 5
+_GRADE_TREND_WINDOW = 20
+
+
+def _is_followed(value) -> bool:
+    """True only when followed_rules is explicitly truthy (1 / True)."""
+    if value is True:
+        return True
+    try:
+        return int(value) == 1
+    except (TypeError, ValueError):
+        return False
+
+
+def _grade_trend_component(trades: pd.DataFrame) -> float:
+    """
+    Normalised grade trend (0..1) over the last _GRADE_TREND_WINDOW graded trades.
+
+    Prefers user_grade, falling back to ai_grade. Letters map A..F → 4..0. The
+    least-squares slope is projected across the window (slope × (n-1)) and scaled
+    by the full grade range into 0..1, where 0.5 is "no trend". With fewer than two
+    graded trades there is no trend signal, so it returns the neutral 0.5.
+    """
+    col = None
+    for candidate in ("user_grade", "ai_grade"):
+        if candidate in trades.columns:
+            col = candidate
+            break
+    if col is None:
+        return 0.5
+
+    work = trades.copy()
+    if "trade_date" in work.columns:
+        work = work.sort_values("trade_date")
+
+    nums = [
+        _GRADE_TO_NUM[g]
+        for g in work[col].tolist()
+        if isinstance(g, str) and g in _GRADE_TO_NUM
+    ]
+    nums = nums[-_GRADE_TREND_WINDOW:]
+    n = len(nums)
+    if n < 2:
+        return 0.5
+
+    xs = list(range(n))
+    x_mean = sum(xs) / n
+    y_mean = sum(nums) / n
+    denom = sum((x - x_mean) ** 2 for x in xs)
+    if denom == 0:
+        return 0.5
+    slope = sum((xs[i] - x_mean) * (nums[i] - y_mean) for i in range(n)) / denom
+
+    projected = slope * (n - 1)  # total grade change predicted across the window
+    normalised = 0.5 + projected / (2 * _GRADE_RANGE)
+    return max(0.0, min(1.0, normalised))
+
+
+def consistency_score(trades: pd.DataFrame) -> float:
+    """
+    A 0–100 process-consistency score blending three components.
+
+    Weights (documented contract):
+      • Rule adherence       40%  — share of trades with followed_rules truthy.
+      • Mistake cleanliness  35%  — 1 − (trades with any mistake_tags / total).
+      • Grade trend          25%  — slope of numeric grade over the last 20 trades,
+                                    normalised to 0..1 (0.5 = flat / no signal).
+
+    Returns 0.0 when there are fewer than 5 trades (too little signal to score).
+    Result is rounded to one decimal place.
+    """
+    if trades is None or len(trades) < _MIN_TRADES_FOR_CONSISTENCY:
+        return 0.0
+
+    total = len(trades)
+
+    if "followed_rules" in trades.columns:
+        followed = trades["followed_rules"].apply(_is_followed).sum()
+        rule_adherence = followed / total
+    else:
+        rule_adherence = 0.0
+
+    if "mistake_tags" in trades.columns:
+        dirty = (
+            trades["mistake_tags"]
+            .apply(lambda raw: len(_parse_mistake_tags(raw)) > 0)
+            .sum()
+        )
+        mistake_cleanliness = 1.0 - (dirty / total)
+    else:
+        mistake_cleanliness = 1.0  # no recorded mistakes → treated as clean
+
+    grade_trend = _grade_trend_component(trades)
+
+    score = 100.0 * (
+        _CONSISTENCY_WEIGHTS["rule_adherence"] * rule_adherence
+        + _CONSISTENCY_WEIGHTS["mistake_cleanliness"] * mistake_cleanliness
+        + _CONSISTENCY_WEIGHTS["grade_trend"] * grade_trend
+    )
+    return round(_safe_float(score), 1)
 
 
 _CALENDAR_COLS = ["trade_date", "day", "net_pnl", "trades", "wins", "losses"]

@@ -165,7 +165,9 @@ def test_generate_missing_section_raises():
         "src.tradelens.services.weekly.get_trades", return_value=_fake_trades()
     ), patch(
         "src.tradelens.services.weekly.chat", return_value=(incomplete, _make_usage())
-    ), patch("src.tradelens.services.weekly.load_prompt", return_value="mock"):
+    ), patch(
+        "src.tradelens.services.weekly.load_prompt", return_value="mock"
+    ):
         with pytest.raises(WeeklyReviewError, match="missing required section"):
             generate_weekly_review("2026-06-17")
 
@@ -178,7 +180,9 @@ def test_generate_ai_unavailable_raises():
     ), patch(
         "src.tradelens.services.weekly.chat",
         return_value=(AIUnavailable("AI declined"), _make_usage()),
-    ), patch("src.tradelens.services.weekly.load_prompt", return_value="mock"):
+    ), patch(
+        "src.tradelens.services.weekly.load_prompt", return_value="mock"
+    ):
         with pytest.raises(WeeklyReviewError, match="AI declined"):
             generate_weekly_review("2026-06-17")
 
@@ -194,9 +198,7 @@ def test_generate_demo_mode_returns_mock_review(monkeypatch):
         ai_client, "build_correction_few_shot", lambda **k: "", raising=False
     )
 
-    with patch(
-        "src.tradelens.services.weekly.get_trades", return_value=_fake_trades()
-    ):
+    with patch("src.tradelens.services.weekly.get_trades", return_value=_fake_trades()):
         review, usage = generate_weekly_review("2026-06-17")
 
     assert review["empty"] is False

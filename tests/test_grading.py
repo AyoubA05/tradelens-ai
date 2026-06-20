@@ -2,6 +2,7 @@
 Tests for grading.py — all AI calls mocked; no network.
 DB persistence tests use in-memory SQLite.
 """
+
 import json
 from unittest.mock import patch
 
@@ -23,12 +24,17 @@ from src.tradelens.services.ai_client import Usage
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def in_memory_db(monkeypatch):
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(engine)
     TestSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    monkeypatch.setattr("src.tradelens.services.ai_analysis_service.SessionLocal", TestSession)
+    monkeypatch.setattr(
+        "src.tradelens.services.ai_analysis_service.SessionLocal", TestSession
+    )
     return TestSession
 
 
@@ -83,6 +89,7 @@ def _make_grading(grade: str = "B", score: int = 7) -> dict:
 # build_grading_context
 # ---------------------------------------------------------------------------
 
+
 def test_build_grading_context_extracts_fields(sample_analysis):
     trade, analysis = sample_analysis
     trade_dict, vision_dict = build_grading_context(trade, analysis)
@@ -99,14 +106,22 @@ def test_build_grading_context_extracts_fields(sample_analysis):
 # grade_trade — mocked AI
 # ---------------------------------------------------------------------------
 
+
 def test_grade_trade_returns_dict_and_usage():
     trade = {"asset": "NQ", "direction": "Long", "result": "Win", "pnl": 300.0}
-    vision = {"bias": "bullish", "detected_setup": "OB", "trade_quality": 9,
-              "matched_strategy": None, "possible_mistakes": [], "missed_opportunities": []}
+    vision = {
+        "bias": "bullish",
+        "detected_setup": "OB",
+        "trade_quality": 9,
+        "matched_strategy": None,
+        "possible_mistakes": [],
+        "missed_opportunities": [],
+    }
 
-    with patch("src.tradelens.services.grading.chat",
-               return_value=(json.dumps(_make_grading("A", 9)), _make_usage())), \
-         patch("src.tradelens.services.grading.load_prompt", return_value="mock prompt"):
+    with patch(
+        "src.tradelens.services.grading.chat",
+        return_value=(json.dumps(_make_grading("A", 9)), _make_usage()),
+    ), patch("src.tradelens.services.grading.load_prompt", return_value="mock prompt"):
         result, usage = grade_trade(trade, None, vision)
 
     assert result["grade"] == "A"
@@ -117,16 +132,26 @@ def test_grade_trade_returns_dict_and_usage():
 
 def test_grade_winning_reckless_trade():
     """Winning trade noted as undisciplined/reckless → mock returns low grade."""
-    trade = {"asset": "NQ", "result": "Win", "pnl": 800.0, "notes": "Ignored stop, got lucky."}
-    vision = {"bias": "bullish", "detected_setup": None, "trade_quality": 2,
-              "matched_strategy": None,
-              "possible_mistakes": ["No stop loss", "Over-sized position"],
-              "missed_opportunities": []}
+    trade = {
+        "asset": "NQ",
+        "result": "Win",
+        "pnl": 800.0,
+        "notes": "Ignored stop, got lucky.",
+    }
+    vision = {
+        "bias": "bullish",
+        "detected_setup": None,
+        "trade_quality": 2,
+        "matched_strategy": None,
+        "possible_mistakes": ["No stop loss", "Over-sized position"],
+        "missed_opportunities": [],
+    }
 
     grading = _make_grading("F", 2)
-    with patch("src.tradelens.services.grading.chat",
-               return_value=(json.dumps(grading), _make_usage())), \
-         patch("src.tradelens.services.grading.load_prompt", return_value="mock"):
+    with patch(
+        "src.tradelens.services.grading.chat",
+        return_value=(json.dumps(grading), _make_usage()),
+    ), patch("src.tradelens.services.grading.load_prompt", return_value="mock"):
         result, _ = grade_trade(trade, None, vision)
 
     assert result["grade"] in ("D", "F")
@@ -135,15 +160,26 @@ def test_grade_winning_reckless_trade():
 
 def test_grade_losing_disciplined_trade():
     """Losing trade with perfect process → mock returns high grade."""
-    trade = {"asset": "EURUSD", "result": "Loss", "pnl": -50.0,
-             "notes": "Stopped out cleanly. Setup was valid but invalidated."}
-    vision = {"bias": "bearish", "detected_setup": "FVG", "trade_quality": 8,
-              "matched_strategy": "ICT", "possible_mistakes": [], "missed_opportunities": []}
+    trade = {
+        "asset": "EURUSD",
+        "result": "Loss",
+        "pnl": -50.0,
+        "notes": "Stopped out cleanly. Setup was valid but invalidated.",
+    }
+    vision = {
+        "bias": "bearish",
+        "detected_setup": "FVG",
+        "trade_quality": 8,
+        "matched_strategy": "ICT",
+        "possible_mistakes": [],
+        "missed_opportunities": [],
+    }
 
     grading = _make_grading("A", 9)
-    with patch("src.tradelens.services.grading.chat",
-               return_value=(json.dumps(grading), _make_usage())), \
-         patch("src.tradelens.services.grading.load_prompt", return_value="mock"):
+    with patch(
+        "src.tradelens.services.grading.chat",
+        return_value=(json.dumps(grading), _make_usage()),
+    ), patch("src.tradelens.services.grading.load_prompt", return_value="mock"):
         result, _ = grade_trade(trade, None, vision)
 
     assert result["grade"] in ("A", "B")
@@ -153,8 +189,14 @@ def test_grade_losing_disciplined_trade():
 def test_grade_no_strategy_uses_fallback():
     """With strategy_profile=None, fallback text must appear in user message."""
     trade = {"asset": "NQ"}
-    vision = {"bias": "bullish", "detected_setup": None, "trade_quality": 5,
-              "matched_strategy": None, "possible_mistakes": [], "missed_opportunities": []}
+    vision = {
+        "bias": "bullish",
+        "detected_setup": None,
+        "trade_quality": 5,
+        "matched_strategy": None,
+        "possible_mistakes": [],
+        "missed_opportunities": [],
+    }
 
     captured = {}
 
@@ -162,8 +204,9 @@ def test_grade_no_strategy_uses_fallback():
         captured["user"] = user_message
         return json.dumps(_make_grading()), _make_usage()
 
-    with patch("src.tradelens.services.grading.chat", side_effect=fake_chat), \
-         patch("src.tradelens.services.grading.load_prompt", return_value="mock"):
+    with patch("src.tradelens.services.grading.chat", side_effect=fake_chat), patch(
+        "src.tradelens.services.grading.load_prompt", return_value="mock"
+    ):
         grade_trade(trade, None, vision)
 
     assert "No strategy profile provided" in captured["user"]
@@ -173,9 +216,10 @@ def test_grade_missing_top_level_key_raises():
     """JSON missing 'grade' key → GradingError."""
     bad = {"score": 5, "rubric": {}, "one_line_verdict": "ok"}
 
-    with patch("src.tradelens.services.grading.chat",
-               return_value=(json.dumps(bad), _make_usage())), \
-         patch("src.tradelens.services.grading.load_prompt", return_value="mock"):
+    with patch(
+        "src.tradelens.services.grading.chat",
+        return_value=(json.dumps(bad), _make_usage()),
+    ), patch("src.tradelens.services.grading.load_prompt", return_value="mock"):
         with pytest.raises(GradingError, match="missing top-level keys"):
             grade_trade({}, None, {})
 
@@ -186,9 +230,10 @@ def test_grade_missing_rubric_dimension_raises():
     bad_rubric = {dim: {"score": 5, "note": "ok"} for dim in dims_minus_one}
     bad = {"grade": "B", "score": 7, "rubric": bad_rubric, "one_line_verdict": "ok"}
 
-    with patch("src.tradelens.services.grading.chat",
-               return_value=(json.dumps(bad), _make_usage())), \
-         patch("src.tradelens.services.grading.load_prompt", return_value="mock"):
+    with patch(
+        "src.tradelens.services.grading.chat",
+        return_value=(json.dumps(bad), _make_usage()),
+    ), patch("src.tradelens.services.grading.load_prompt", return_value="mock"):
         with pytest.raises(GradingError, match="emotional_control"):
             grade_trade({}, None, {})
 
@@ -199,9 +244,10 @@ def test_grade_rubric_missing_note_raises():
     rubric["entry_quality"] = {"score": 5}  # missing 'note'
     bad = {"grade": "C", "score": 5, "rubric": rubric, "one_line_verdict": "ok"}
 
-    with patch("src.tradelens.services.grading.chat",
-               return_value=(json.dumps(bad), _make_usage())), \
-         patch("src.tradelens.services.grading.load_prompt", return_value="mock"):
+    with patch(
+        "src.tradelens.services.grading.chat",
+        return_value=(json.dumps(bad), _make_usage()),
+    ), patch("src.tradelens.services.grading.load_prompt", return_value="mock"):
         with pytest.raises(GradingError, match="entry_quality"):
             grade_trade({}, None, {})
 
@@ -219,8 +265,10 @@ def test_grade_trade_ai_unavailable_raises():
 
 
 def test_grade_missing_prompt_raises():
-    with patch("src.tradelens.services.grading.load_prompt",
-               side_effect=FileNotFoundError("missing")):
+    with patch(
+        "src.tradelens.services.grading.load_prompt",
+        side_effect=FileNotFoundError("missing"),
+    ):
         with pytest.raises(FileNotFoundError):
             grade_trade({}, None, {})
 
@@ -228,6 +276,7 @@ def test_grade_missing_prompt_raises():
 # ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
+
 
 def test_save_grade_writes_grading_json_and_ai_grade(sample_analysis, in_memory_db):
     from src.tradelens.services.ai_analysis_service import save_grade

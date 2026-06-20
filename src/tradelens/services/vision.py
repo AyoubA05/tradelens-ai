@@ -4,11 +4,18 @@ Post-trade screenshot analysis service.
 Calls claude-fable-5 vision to review a chart image AFTER a trade has closed.
 This is educational journaling only — not live trading advice.
 """
+
 import json
 from pathlib import Path
 from typing import Optional, Union
 
-from src.tradelens.services.ai_client import AIUnavailable, Usage, load_prompt, vision
+from src.tradelens.services.ai_client import (
+    AIUnavailable,
+    Usage,
+    load_prompt,
+    parse_ai_json,
+    vision,
+)
 
 _SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
@@ -104,7 +111,9 @@ def analyze_screenshot(
     if strategy_profile:
         strategy_block = json.dumps(strategy_profile, indent=2)
     else:
-        strategy_block = "No strategy profile provided — use generic price-action analysis."
+        strategy_block = (
+            "No strategy profile provided — use generic price-action analysis."
+        )
 
     user_message = (
         "POST-TRADE REVIEW\n\n"
@@ -123,11 +132,5 @@ def analyze_screenshot(
     if isinstance(raw, AIUnavailable):
         raise ScreenshotAnalysisError(raw.reason)
 
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ScreenshotAnalysisError(
-            f"AI returned malformed JSON: {exc}\nRaw response: {raw[:200]}"
-        ) from exc
-
+    data = parse_ai_json(raw)
     return _fill_defaults(data), usage

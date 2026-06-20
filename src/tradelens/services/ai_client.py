@@ -79,6 +79,19 @@ class AIUnavailable:
     category: Optional[str] = None
 
 
+_PARSE_ERROR_MSG = (
+    "The AI returned a malformed response (invalid JSON). Please try again."
+)
+
+
+class AIParseError(Exception):
+    """Raised when an AI response cannot be parsed as JSON.
+
+    Carries a friendly, user-facing message — feature services surface this
+    instead of leaking a raw json.JSONDecodeError / stack trace to the page.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -206,25 +219,34 @@ def _complete(
     if system is not None:
         kwargs["system"] = system
 
-    client = _get_client()
     t0 = time.monotonic()
-
-    resp = client.messages.create(model=chosen, **kwargs)
-    # Refusal → retry once with the fallback model (spec rule).
-    if getattr(resp, "stop_reason", None) == "refusal":
-        resp = client.messages.create(model=settings.model_fallback, **kwargs)
+    try:
+        client = _get_client()
+        resp = client.messages.create(model=chosen, **kwargs)
+        # Refusal → retry once with the fallback model (spec rule).
         if getattr(resp, "stop_reason", None) == "refusal":
-            usage = _build_usage(resp, settings.model_fallback, t0)
-            usage.refused = True
-            return (
-                AIUnavailable(
-                    "The AI declined to analyze this request.", category="refusal"
-                ),
-                usage,
-            )
-        return _extract_text(resp), _build_usage(resp, settings.model_fallback, t0)
+            resp = client.messages.create(model=settings.model_fallback, **kwargs)
+            if getattr(resp, "stop_reason", None) == "refusal":
+                usage = _build_usage(resp, settings.model_fallback, t0)
+                usage.refused = True
+                return (
+                    AIUnavailable(
+                        "The AI declined to analyze this request.", category="refusal"
+                    ),
+                    usage,
+                )
+            return _extract_text(resp), _build_usage(resp, settings.model_fallback, t0)
 
-    return _extract_text(resp), _build_usage(resp, chosen, t0)
+        return _extract_text(resp), _build_usage(resp, chosen, t0)
+    except Exception as exc:  # noqa: BLE001 — any transport/API error → typed result
+        return (
+            AIUnavailable(
+                "The AI service is temporarily unavailable "
+                f"({type(exc).__name__}). Please try again shortly.",
+                category="network",
+            ),
+            Usage(chosen, 0, 0, 0, 0.0, round(time.monotonic() - t0, 3)),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +283,27 @@ def load_prompt(name: str) -> str:
     if not path.exists():
         raise FileNotFoundError(f"Prompt file not found: {path}")
     return path.read_text(encoding="utf-8").strip()
+
+
+def parse_ai_json(text: str):
+    """Parse an AI response as JSON, tolerating a ```json code fence.
+
+    Returns the decoded object/list. Raises AIParseError (friendly message) on
+    anything unparseable — the single typed error for malformed AI JSON.
+    """
+    import json
+
+    raw = (text or "").strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+        if raw.rstrip().endswith("```"):
+            raw = raw.rstrip()[:-3]
+        raw = raw.strip()
+
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, ValueError, TypeError) as exc:
+        raise AIParseError(_PARSE_ERROR_MSG) from exc
 
 
 # ---------------------------------------------------------------------------

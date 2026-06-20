@@ -10,6 +10,7 @@ Killzone windows (ET):
     ny_lunch     12:00 – 13:00
     ny_pm        13:30 – 16:00  (NYSE close / power hour)
 """
+
 from __future__ import annotations
 
 from datetime import datetime, time
@@ -20,19 +21,19 @@ ET = ZoneInfo("America/New_York")
 
 # (name, start_ET, end_ET_inclusive)  — None end means "through 23:59:59"
 _KILLZONES = [
-    ("asia",        time(20, 0),  None),
-    ("london_open", time(2,  0),  time(4,  59, 59)),
-    ("ny_am",       time(7,  0),  time(9,  59, 59)),
-    ("ny_lunch",    time(12, 0),  time(12, 59, 59)),
-    ("ny_pm",       time(13, 30), time(15, 59, 59)),
+    ("asia", time(20, 0), None),
+    ("london_open", time(2, 0), time(4, 59, 59)),
+    ("ny_am", time(7, 0), time(9, 59, 59)),
+    ("ny_lunch", time(12, 0), time(12, 59, 59)),
+    ("ny_pm", time(13, 30), time(15, 59, 59)),
 ]
 
 KILLZONE_LABELS: dict = {
-    "asia":        "Asian Session",
+    "asia": "Asian Session",
     "london_open": "London Open",
-    "ny_am":       "New York AM",
-    "ny_lunch":    "New York Lunch",
-    "ny_pm":       "New York PM",
+    "ny_am": "New York AM",
+    "ny_lunch": "New York Lunch",
+    "ny_pm": "New York PM",
     "off_session": "Off Session",
 }
 

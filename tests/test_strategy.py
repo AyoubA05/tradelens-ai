@@ -1,6 +1,7 @@
 """
 Tests for strategy.py — all DB operations use in-memory SQLite.
 """
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -12,9 +13,12 @@ from src.tradelens.db.models import Base, Strategy
 # Fixture
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def in_memory_db(monkeypatch):
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(engine)
     TestSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr("src.tradelens.services.strategy.SessionLocal", TestSession)
@@ -25,10 +29,13 @@ def in_memory_db(monkeypatch):
 # Tests
 # ---------------------------------------------------------------------------
 
+
 def test_create_strategy_creates_active_profile(in_memory_db):
     from src.tradelens.services.strategy import upsert_strategy_profile
 
-    result = upsert_strategy_profile(name="ICT OB Strategy", entry_rules="BOS + OB retest")
+    result = upsert_strategy_profile(
+        name="ICT OB Strategy", entry_rules="BOS + OB retest"
+    )
 
     assert result["name"] == "ICT OB Strategy"
     assert result["entry_rules"] == "BOS + OB retest"
@@ -47,7 +54,9 @@ def test_upsert_updates_existing_active_profile(in_memory_db):
     from src.tradelens.services.strategy import upsert_strategy_profile
 
     upsert_strategy_profile(name="Initial", entry_rules="Rule A")
-    result = upsert_strategy_profile(name="Updated", entry_rules="Rule B", risk_rules="Max 1%")
+    result = upsert_strategy_profile(
+        name="Updated", entry_rules="Rule B", risk_rules="Max 1%"
+    )
 
     assert result["name"] == "Updated"
     assert result["entry_rules"] == "Rule B"
@@ -81,7 +90,10 @@ def test_only_one_active_profile_at_a_time(in_memory_db):
 
 
 def test_get_active_strategy_returns_dict(in_memory_db):
-    from src.tradelens.services.strategy import get_active_strategy, upsert_strategy_profile
+    from src.tradelens.services.strategy import (
+        get_active_strategy,
+        upsert_strategy_profile,
+    )
 
     upsert_strategy_profile(
         name="ICT",
@@ -133,6 +145,7 @@ def test_upsert_sets_timestamps_properly(in_memory_db):
 # ---------------------------------------------------------------------------
 # append_insight (Week 5 Phase 3) — add a pattern's suggested rule to the profile
 # ---------------------------------------------------------------------------
+
 
 def test_append_insight_creates_profile_when_none(in_memory_db):
     from src.tradelens.services.strategy import append_insight

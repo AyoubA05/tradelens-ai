@@ -3,6 +3,7 @@ Persistence layer for AI screenshot analysis results.
 
 Keeps all DB logic out of the Streamlit UI layer. No Streamlit imports here.
 """
+
 import json
 from datetime import datetime, timezone
 from typing import Optional
@@ -72,8 +73,13 @@ def update_analysis_fields(analysis_id: int, **fields) -> AIAnalysis:
     the Trades list and Home dashboard reflect user-confirmed values.
     """
     allowed = {
-        "bias", "detected_setup", "trade_quality", "zones_json",
-        "matched_strategy", "mistakes_json", "missed_opps_json",
+        "bias",
+        "detected_setup",
+        "trade_quality",
+        "zones_json",
+        "matched_strategy",
+        "mistakes_json",
+        "missed_opps_json",
     }
     now = datetime.now(timezone.utc).isoformat()
     db = SessionLocal()

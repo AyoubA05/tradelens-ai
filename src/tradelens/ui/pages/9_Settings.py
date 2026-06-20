@@ -1,4 +1,5 @@
 import sys
+import datetime
 from pathlib import Path
 
 # parents[4] of src/tradelens/ui/pages/7_Settings.py  →  project root
@@ -11,7 +12,12 @@ import streamlit as st  # noqa: E402
 
 from src.tradelens.db.models import Trade  # noqa: E402
 from src.tradelens.db.session import SessionLocal  # noqa: E402
-from src.tradelens.services.csvio import CSV_COLUMNS, export_trades_csv, import_trades_csv  # noqa: E402
+from src.tradelens.services.cost import monthly_cost_by_feature  # noqa: E402
+from src.tradelens.services.csvio import (
+    CSV_COLUMNS,
+    export_trades_csv,
+    import_trades_csv,
+)  # noqa: E402
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
 
 st.set_page_config(page_title="Settings", page_icon="⚙️")
@@ -21,10 +27,9 @@ st.title("⚙️ Settings")
 st.subheader("📤 Export Trades")
 
 trades = get_trades()
-df_export = pd.DataFrame([
-    {col: getattr(t, col, None) for col in CSV_COLUMNS}
-    for t in trades
-])
+df_export = pd.DataFrame(
+    [{col: getattr(t, col, None) for col in CSV_COLUMNS} for t in trades]
+)
 
 csv_bytes = export_trades_csv(df_export)
 
@@ -54,6 +59,28 @@ if uploaded is not None:
             st.warning(err)
     if rows_inserted == 0 and not errors:
         st.info("CSV was valid but contained no rows.")
+
+st.markdown("---")
+
+# ── AI Cost (current month) ───────────────────────────────────────
+st.subheader("💸 AI Cost — This Month")
+_today = datetime.date.today()
+_cost_df = monthly_cost_by_feature(_today.year, _today.month)
+if _cost_df.empty:
+    st.caption("No AI spend recorded this month.")
+else:
+    _disp = _cost_df.copy()
+    _total = float(_disp["cost_usd"].sum())
+    _disp["cost_usd"] = _disp["cost_usd"].apply(lambda v: f"${v:.4f}")
+    _disp = _disp.rename(
+        columns={"feature": "Feature", "cost_usd": "Cost", "calls": "Calls"}
+    )
+    st.dataframe(_disp, hide_index=True, use_container_width=True)
+    st.caption(f"Total this month: ${_total:.4f}")
+st.caption(
+    "Pattern detection and the AI Partner are per-session and not persisted, "
+    "so they are not shown here (tracked for Week 6)."
+)
 
 st.markdown("---")
 

@@ -2,6 +2,7 @@
 Tests for Day 3 AI analysis persistence layer.
 All DB operations use in-memory SQLite; no network calls.
 """
+
 import json
 
 import pytest
@@ -16,17 +17,22 @@ from src.tradelens.services.ai_client import Usage
 # In-memory DB fixture — mirrors pattern from test_trade_service.py
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def in_memory_db(monkeypatch):
     """
     Spin up a fresh in-memory SQLite engine and patch SessionLocal
     so service functions use it instead of the file-backed DB.
     """
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(engine)
     TestSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
-    monkeypatch.setattr("src.tradelens.services.ai_analysis_service.SessionLocal", TestSession)
+    monkeypatch.setattr(
+        "src.tradelens.services.ai_analysis_service.SessionLocal", TestSession
+    )
     return TestSession
 
 
@@ -81,6 +87,7 @@ _VISION_RESULT = {
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 def test_create_analysis_persists_all_fields(sample_trade, in_memory_db):
     from src.tradelens.services.ai_analysis_service import create_or_update_analysis
@@ -226,7 +233,9 @@ def test_save_user_grade_does_not_overwrite_ai_grade(sample_trade, in_memory_db)
 
     row = create_or_update_analysis(sample_trade.id, _VISION_RESULT, _make_usage())
     grading_result = {
-        "grade": "C", "score": 5, "one_line_verdict": "Mediocre.",
+        "grade": "C",
+        "score": 5,
+        "one_line_verdict": "Mediocre.",
         "rubric": {
             "entry_quality": {"score": 5, "note": "Late entry."},
             "risk_management": {"score": 5, "note": "OK."},
@@ -242,7 +251,7 @@ def test_save_user_grade_does_not_overwrite_ai_grade(sample_trade, in_memory_db)
     trade = db.query(Trade).filter(Trade.id == sample_trade.id).first()
     db.close()
 
-    assert trade.ai_grade == "C"   # AI grade unchanged
+    assert trade.ai_grade == "C"  # AI grade unchanged
     assert trade.user_grade == "A"  # user override set
 
 
@@ -265,7 +274,9 @@ def test_update_analysis_fields_denormalizes_to_trade(sample_trade, in_memory_db
     )
 
     row = create_or_update_analysis(sample_trade.id, _VISION_RESULT, _make_usage())
-    update_analysis_fields(row.id, bias="bearish", detected_setup="FVG", trade_quality=6)
+    update_analysis_fields(
+        row.id, bias="bearish", detected_setup="FVG", trade_quality=6
+    )
 
     # Check that trade row was also updated
     db = in_memory_db()
@@ -298,7 +309,9 @@ _SMC_VISION = {
 }
 
 
-def test_get_smc_prefill_uses_ai_proposal_when_user_value_absent(sample_trade, in_memory_db):
+def test_get_smc_prefill_uses_ai_proposal_when_user_value_absent(
+    sample_trade, in_memory_db
+):
     from src.tradelens.services.ai_analysis_service import (
         create_or_update_analysis,
         get_smc_prefill,
@@ -307,7 +320,9 @@ def test_get_smc_prefill_uses_ai_proposal_when_user_value_absent(sample_trade, i
     create_or_update_analysis(sample_trade.id, _SMC_VISION, _make_usage())
     db = in_memory_db()
     trade = db.query(Trade).filter(Trade.id == sample_trade.id).first()
-    analysis = db.query(AIAnalysis).filter(AIAnalysis.trade_id == sample_trade.id).first()
+    analysis = (
+        db.query(AIAnalysis).filter(AIAnalysis.trade_id == sample_trade.id).first()
+    )
     prefill = get_smc_prefill(trade, analysis)
     db.close()
 
@@ -329,7 +344,9 @@ def test_get_smc_prefill_prefers_user_value_over_ai(sample_trade, in_memory_db):
 
     db = in_memory_db()
     trade = db.query(Trade).filter(Trade.id == sample_trade.id).first()
-    analysis = db.query(AIAnalysis).filter(AIAnalysis.trade_id == sample_trade.id).first()
+    analysis = (
+        db.query(AIAnalysis).filter(AIAnalysis.trade_id == sample_trade.id).first()
+    )
     prefill = get_smc_prefill(trade, analysis)
     db.close()
 

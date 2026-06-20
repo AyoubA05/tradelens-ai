@@ -8,6 +8,7 @@ Coverage:
 - Vision JSON parse: screenshot_v2.txt new keys present / absent are handled
 - Seed integrity: all 60 seeded trades have non-null SMC/ICT values
 """
+
 import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -25,6 +26,7 @@ UTC = ZoneInfo("UTC")
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _utc(year, month, day, hour, minute=0, second=0):
     return datetime(year, month, day, hour, minute, second, tzinfo=UTC)
 
@@ -32,6 +34,7 @@ def _utc(year, month, day, hour, minute=0, second=0):
 # ---------------------------------------------------------------------------
 # 1. Killzone boundary tests — all 5 killzones
 # ---------------------------------------------------------------------------
+
 
 class TestKillzoneBoundaries:
     """Parameterised boundary checks (entry, interior, exit, just-outside)."""
@@ -46,42 +49,85 @@ class TestKillzoneBoundaries:
 
     CASES = [
         # asia entry boundary
-        (_utc(2025,1,16, 1, 0), "asia",        "asia: entry 01:00 UTC (20:00 EST)"),
-        (_utc(2025,1,16, 2, 0), "asia",        "asia: interior 02:00 UTC (21:00 EST)"),
-        (_utc(2025,1,16, 4,59), "asia",        "asia: interior 04:59 UTC (23:59 EST)"),
-        (_utc(2025,1,16, 0,59), None,           "asia: just before (00:59 UTC = 19:59 EST)"),
-
+        (_utc(2025, 1, 16, 1, 0), "asia", "asia: entry 01:00 UTC (20:00 EST)"),
+        (_utc(2025, 1, 16, 2, 0), "asia", "asia: interior 02:00 UTC (21:00 EST)"),
+        (_utc(2025, 1, 16, 4, 59), "asia", "asia: interior 04:59 UTC (23:59 EST)"),
+        (_utc(2025, 1, 16, 0, 59), None, "asia: just before (00:59 UTC = 19:59 EST)"),
         # london_open
-        (_utc(2025,1,15, 7, 0), "london_open", "london_open: entry 07:00 UTC (02:00 EST)"),
-        (_utc(2025,1,15, 8,30), "london_open", "london_open: interior 08:30 UTC (03:30 EST)"),
-        (_utc(2025,1,15, 9,59), "london_open", "london_open: last minute 09:59 UTC (04:59 EST)"),
-        (_utc(2025,1,15, 6,59), None,           "london_open: just before 06:59 UTC (01:59 EST)"),
-        (_utc(2025,1,15,10, 0), None,           "london_open: just after 10:00 UTC (05:00 EST)"),
-
+        (
+            _utc(2025, 1, 15, 7, 0),
+            "london_open",
+            "london_open: entry 07:00 UTC (02:00 EST)",
+        ),
+        (
+            _utc(2025, 1, 15, 8, 30),
+            "london_open",
+            "london_open: interior 08:30 UTC (03:30 EST)",
+        ),
+        (
+            _utc(2025, 1, 15, 9, 59),
+            "london_open",
+            "london_open: last minute 09:59 UTC (04:59 EST)",
+        ),
+        (
+            _utc(2025, 1, 15, 6, 59),
+            None,
+            "london_open: just before 06:59 UTC (01:59 EST)",
+        ),
+        (
+            _utc(2025, 1, 15, 10, 0),
+            None,
+            "london_open: just after 10:00 UTC (05:00 EST)",
+        ),
         # ny_am
-        (_utc(2025,1,15,12, 0), "ny_am",       "ny_am: entry 12:00 UTC (07:00 EST)"),
-        (_utc(2025,1,15,13,30), "ny_am",       "ny_am: interior 13:30 UTC (08:30 EST)"),
-        (_utc(2025,1,15,14,59), "ny_am",       "ny_am: last minute 14:59 UTC (09:59 EST)"),
-        (_utc(2025,1,15,11,59), None,           "ny_am: just before 11:59 UTC (06:59 EST)"),
-        (_utc(2025,1,15,15, 0), None,           "ny_am: just after 15:00 UTC (10:00 EST)"),
-
+        (_utc(2025, 1, 15, 12, 0), "ny_am", "ny_am: entry 12:00 UTC (07:00 EST)"),
+        (_utc(2025, 1, 15, 13, 30), "ny_am", "ny_am: interior 13:30 UTC (08:30 EST)"),
+        (
+            _utc(2025, 1, 15, 14, 59),
+            "ny_am",
+            "ny_am: last minute 14:59 UTC (09:59 EST)",
+        ),
+        (_utc(2025, 1, 15, 11, 59), None, "ny_am: just before 11:59 UTC (06:59 EST)"),
+        (_utc(2025, 1, 15, 15, 0), None, "ny_am: just after 15:00 UTC (10:00 EST)"),
         # ny_lunch
-        (_utc(2025,1,15,17, 0), "ny_lunch",    "ny_lunch: entry 17:00 UTC (12:00 EST)"),
-        (_utc(2025,1,15,17,30), "ny_lunch",    "ny_lunch: interior 17:30 UTC (12:30 EST)"),
-        (_utc(2025,1,15,17,59), "ny_lunch",    "ny_lunch: last minute 17:59 UTC (12:59 EST)"),
-        (_utc(2025,1,15,16,59), None,           "ny_lunch: just before 16:59 UTC (11:59 EST)"),
-        (_utc(2025,1,15,18, 0), None,           "ny_lunch: just after 18:00 UTC (13:00 EST) — gap before ny_pm"),
-
+        (_utc(2025, 1, 15, 17, 0), "ny_lunch", "ny_lunch: entry 17:00 UTC (12:00 EST)"),
+        (
+            _utc(2025, 1, 15, 17, 30),
+            "ny_lunch",
+            "ny_lunch: interior 17:30 UTC (12:30 EST)",
+        ),
+        (
+            _utc(2025, 1, 15, 17, 59),
+            "ny_lunch",
+            "ny_lunch: last minute 17:59 UTC (12:59 EST)",
+        ),
+        (
+            _utc(2025, 1, 15, 16, 59),
+            None,
+            "ny_lunch: just before 16:59 UTC (11:59 EST)",
+        ),
+        (
+            _utc(2025, 1, 15, 18, 0),
+            None,
+            "ny_lunch: just after 18:00 UTC (13:00 EST) — gap before ny_pm",
+        ),
         # ny_pm
-        (_utc(2025,1,15,18,30), "ny_pm",       "ny_pm: entry 18:30 UTC (13:30 EST)"),
-        (_utc(2025,1,15,19,30), "ny_pm",       "ny_pm: interior 19:30 UTC (14:30 EST)"),
-        (_utc(2025,1,15,20,59), "ny_pm",       "ny_pm: last minute 20:59 UTC (15:59 EST)"),
-        (_utc(2025,1,15,18,29), None,           "ny_pm: just before 18:29 UTC (13:29 EST)"),
-        (_utc(2025,1,15,21, 0), None,           "ny_pm: just after 21:00 UTC (16:00 EST)"),
-
+        (_utc(2025, 1, 15, 18, 30), "ny_pm", "ny_pm: entry 18:30 UTC (13:30 EST)"),
+        (_utc(2025, 1, 15, 19, 30), "ny_pm", "ny_pm: interior 19:30 UTC (14:30 EST)"),
+        (
+            _utc(2025, 1, 15, 20, 59),
+            "ny_pm",
+            "ny_pm: last minute 20:59 UTC (15:59 EST)",
+        ),
+        (_utc(2025, 1, 15, 18, 29), None, "ny_pm: just before 18:29 UTC (13:29 EST)"),
+        (_utc(2025, 1, 15, 21, 0), None, "ny_pm: just after 21:00 UTC (16:00 EST)"),
         # off-session (midday gap and after close)
-        (_utc(2025,1,15,21, 0), None,           "off: 21:00 UTC (16:00 EST) after ny_pm close"),
-        (_utc(2025,1,15,11, 0), None,           "off: 11:00 UTC (06:00 EST) before ny_am"),
+        (
+            _utc(2025, 1, 15, 21, 0),
+            None,
+            "off: 21:00 UTC (16:00 EST) after ny_pm close",
+        ),
+        (_utc(2025, 1, 15, 11, 0), None, "off: 11:00 UTC (06:00 EST) before ny_am"),
     ]
 
     @pytest.mark.parametrize("dt,expected,label", CASES, ids=[c[2] for c in CASES])
@@ -92,6 +138,7 @@ class TestKillzoneBoundaries:
 # ---------------------------------------------------------------------------
 # 2. DST flip — March 9 2025 (US spring forward at 2:00 AM EST → 3:00 AM EDT)
 # ---------------------------------------------------------------------------
+
 
 class TestDSTFlip:
     """On DST flip day, UTC offsets shift from -5 (EST) to -4 (EDT) at 07:00 UTC."""
@@ -147,14 +194,24 @@ class TestDSTFlip:
 # ---------------------------------------------------------------------------
 
 EXPECTED_SMC_COLS = [
-    "htf_bias", "killzone", "liquidity_sweep", "fvg_used", "order_block_used",
-    "bos", "choch", "confirmation_model", "entry_type", "mistake_tags", "followed_rules",
+    "htf_bias",
+    "killzone",
+    "liquidity_sweep",
+    "fvg_used",
+    "order_block_used",
+    "bos",
+    "choch",
+    "confirmation_model",
+    "entry_type",
+    "mistake_tags",
+    "followed_rules",
 ]
 
 
 def test_migration_columns_present():
     """alembic upgrade head must have added all 11 SMC/ICT columns."""
     from src.tradelens.db.session import engine
+
     insp = inspect(engine)
     cols = {c["name"] for c in insp.get_columns("trades")}
     missing = [c for c in EXPECTED_SMC_COLS if c not in cols]
@@ -170,6 +227,7 @@ def test_migration_columns_present():
 # ---------------------------------------------------------------------------
 # 4. Vision JSON parse — screenshot_v2.txt new keys
 # ---------------------------------------------------------------------------
+
 
 def _make_v1_response():
     return {
@@ -192,18 +250,27 @@ def _make_v1_response():
 
 def _make_v2_response():
     data = _make_v1_response()
-    data.update({
-        "htf_bias": "bullish",
-        "liquidity_sweep": True,
-        "fvg_used": False,
-        "order_block_used": True,
-    })
+    data.update(
+        {
+            "htf_bias": "bullish",
+            "liquidity_sweep": True,
+            "fvg_used": False,
+            "order_block_used": True,
+        }
+    )
     return data
 
 
 def test_v2_json_has_all_new_keys():
     data = _make_v2_response()
-    for key in ("htf_bias", "liquidity_sweep", "fvg_used", "order_block_used", "bos", "choch"):
+    for key in (
+        "htf_bias",
+        "liquidity_sweep",
+        "fvg_used",
+        "order_block_used",
+        "bos",
+        "choch",
+    ):
         assert key in data, f"Missing key in v2 response: {key}"
 
 
@@ -223,10 +290,18 @@ def test_v1_json_missing_new_keys_handled_gracefully():
 def test_v2_prompt_file_contains_required_keys():
     """screenshot_v2.txt must declare all 6 SMC/ICT output keys."""
     from pathlib import Path
+
     prompt = Path(__file__).resolve().parents[1] / "prompts" / "screenshot_v2.txt"
     assert prompt.exists(), "prompts/screenshot_v2.txt not found"
     text = prompt.read_text()
-    for key in ("htf_bias", "liquidity_sweep", "fvg_used", "order_block_used", "bos", "choch"):
+    for key in (
+        "htf_bias",
+        "liquidity_sweep",
+        "fvg_used",
+        "order_block_used",
+        "bos",
+        "choch",
+    ):
         assert f'"{key}"' in text, f"Key {key!r} missing from screenshot_v2.txt"
 
 
@@ -234,11 +309,15 @@ def test_v2_prompt_file_contains_required_keys():
 # 5. Seed integrity — all 60 trades must have non-null SMC/ICT values
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def seeded_db():
     """Create a fresh in-memory DB and seed it."""
     import src.tradelens.services.trade_service as _ts
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
@@ -268,14 +347,18 @@ def test_seed_trade_count(seeded_db):
         db.close()
 
 
-@pytest.mark.parametrize("col", ["htf_bias", "killzone", "liquidity_sweep", "fvg_used", "order_block_used"])
+@pytest.mark.parametrize(
+    "col", ["htf_bias", "killzone", "liquidity_sweep", "fvg_used", "order_block_used"]
+)
 def test_seed_no_nulls_on_smc_fields(seeded_db, col):
     db = seeded_db()
     try:
         null_count = db.execute(
             text(f"SELECT COUNT(*) FROM trades WHERE {col} IS NULL")
         ).scalar()
-        assert null_count == 0, f"Column {col!r} has {null_count} NULL rows after seeding"
+        assert (
+            null_count == 0
+        ), f"Column {col!r} has {null_count} NULL rows after seeding"
     finally:
         db.close()
 
@@ -309,6 +392,8 @@ def test_seed_mistake_tags_are_valid_json(seeded_db):
         for (tags,) in rows:
             if tags is not None:
                 parsed = json.loads(tags)
-                assert isinstance(parsed, list), f"mistake_tags is not a JSON list: {tags!r}"
+                assert isinstance(
+                    parsed, list
+                ), f"mistake_tags is not a JSON list: {tags!r}"
     finally:
         db.close()

@@ -172,13 +172,14 @@ def test_generate_cards_missing_key_raises():
 
 
 def test_generate_cards_invalid_json_raises():
-    from src.tradelens.services.patterns import PatternError, generate_cards
+    from src.tradelens.services.ai_client import AIParseError
+    from src.tradelens.services.patterns import generate_cards
 
     with patch(
         "src.tradelens.services.patterns.chat",
         return_value=("not json at all", _make_usage()),
     ), patch("src.tradelens.services.patterns.load_prompt", return_value="mock"):
-        with pytest.raises(PatternError, match="JSON"):
+        with pytest.raises(AIParseError, match="JSON"):
             generate_cards({"total_trades": 6})
 
 

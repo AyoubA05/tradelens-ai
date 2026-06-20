@@ -19,6 +19,7 @@ Requirements:
   - ANTHROPIC_API_KEY must be set in .env or environment
   - At least one trade with a screenshot that exists on disk
 """
+
 import sys
 from pathlib import Path
 
@@ -30,6 +31,7 @@ if _root not in sys.path:
 # Load .env if present
 try:
     from dotenv import load_dotenv
+
     load_dotenv(Path(_root) / ".env")
 except ImportError:
     pass
@@ -38,7 +40,10 @@ from src.tradelens.config import settings  # noqa: E402
 from src.tradelens.db.session import SessionLocal  # noqa: E402
 from src.tradelens.db.models import Trade  # noqa: E402
 from src.tradelens.services.strategy import get_active_strategy  # noqa: E402
-from src.tradelens.services.vision import analyze_screenshot, ScreenshotAnalysisError  # noqa: E402
+from src.tradelens.services.vision import (
+    analyze_screenshot,
+    ScreenshotAnalysisError,
+)  # noqa: E402
 from src.tradelens.services.journal import build_journal_context  # noqa: E402
 from src.tradelens.services.grading import build_grading_context  # noqa: E402
 from src.tradelens.db.models import AIAnalysis  # noqa: E402
@@ -50,13 +55,22 @@ def _find_eligible_trade():
     try:
         trades = db.query(Trade).order_by(Trade.id).all()
         for t in trades:
-            for s in (t.screenshots or []):
+            for s in t.screenshots or []:
                 if Path(s.file_path).exists():
-                    return dict(
-                        id=t.id, asset=t.asset, direction=t.direction,
-                        result=t.result, pnl=t.pnl, session=t.session,
-                        setup_type=t.setup_type, bias=t.bias, notes=t.notes,
-                    ), s.file_path
+                    return (
+                        dict(
+                            id=t.id,
+                            asset=t.asset,
+                            direction=t.direction,
+                            result=t.result,
+                            pnl=t.pnl,
+                            session=t.session,
+                            setup_type=t.setup_type,
+                            bias=t.bias,
+                            notes=t.notes,
+                        ),
+                        s.file_path,
+                    )
     finally:
         db.close()
     return None, None
@@ -65,7 +79,7 @@ def _find_eligible_trade():
 def _print_banner(title: str):
     print(f"\n{'='*60}")
     print(f"  {title}")
-    print('='*60)
+    print("=" * 60)
 
 
 def main():
@@ -83,7 +97,9 @@ def main():
         print("Seed the DB and upload at least one screenshot, then retry.")
         sys.exit(1)
 
-    print(f"\nTrade #{trade_ctx['id']}  {trade_ctx['asset']}  {trade_ctx['direction'] or '?'}  {trade_ctx['result'] or '?'}")
+    print(
+        f"\nTrade #{trade_ctx['id']}  {trade_ctx['asset']}  {trade_ctx['direction'] or '?'}  {trade_ctx['result'] or '?'}"
+    )
     print(f"Screenshot: {screenshot_path}")
 
     active_strategy = get_active_strategy()
@@ -101,12 +117,18 @@ def main():
             screenshot_path, trade_ctx, strategy_profile=active_strategy
         )
         usages.append(("Vision (claude-fable-5)", v_usage))
-        print(f"  Bias:          {vision_result.get('bias')} ({vision_result.get('bias_confidence')})")
-        print(f"  Setup:         {vision_result.get('detected_timeframe')} / {vision_result.get('detected_asset')}")
+        print(
+            f"  Bias:          {vision_result.get('bias')} ({vision_result.get('bias_confidence')})"
+        )
+        print(
+            f"  Setup:         {vision_result.get('detected_timeframe')} / {vision_result.get('detected_asset')}"
+        )
         print(f"  Trade Quality: {vision_result.get('trade_quality')}/10")
         print(f"  Mistakes:      {vision_result.get('possible_mistakes', [])}")
         print(f"  Notes:         {str(vision_result.get('notes_to_user', ''))[:120]}")
-        print(f"  Cost: ${v_usage.estimated_cost_usd:.5f}  Tokens: {v_usage.tokens_in}↑ {v_usage.tokens_out}↓  Latency: {v_usage.latency_s:.1f}s")
+        print(
+            f"  Cost: ${v_usage.estimated_cost_usd:.5f}  Tokens: {v_usage.tokens_in}↑ {v_usage.tokens_out}↓  Latency: {v_usage.latency_s:.1f}s"
+        )
     except ScreenshotAnalysisError as exc:
         print(f"  FAILED: {exc}")
         sys.exit(1)
@@ -116,13 +138,16 @@ def main():
     db = SessionLocal()
     try:
         # Try to find an existing persisted analysis for richer context
-        analysis_orm = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_ctx["id"]).first()
+        analysis_orm = (
+            db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_ctx["id"]).first()
+        )
     finally:
         db.close()
 
     if analysis_orm is None:
         print("\n  NOTE: No persisted AIAnalysis found for this trade.")
         print("  Journal + grading will use fresh vision output only.")
+
         # Stub a minimal object for build_journal_context
         class _FakeAnalysis:
             bias = vision_result.get("bias")
@@ -150,8 +175,11 @@ def main():
         db.close()
 
     from src.tradelens.services.journal import generate_journal, JournalStructureError
+
     try:
-        markdown, j_usage = generate_journal(trade_dict, ai_dict, strategy_profile=active_strategy)
+        markdown, j_usage = generate_journal(
+            trade_dict, ai_dict, strategy_profile=active_strategy
+        )
         usages.append(("Journal (claude-fable-5)", j_usage))
         # Print section headings found
         headings = [line for line in markdown.splitlines() if line.startswith("### ")]
@@ -159,7 +187,9 @@ def main():
         for h in headings:
             print(f"    {h}")
         print(f"  Preview: {markdown[:200].replace(chr(10), ' ')}…")
-        print(f"  Cost: ${j_usage.estimated_cost_usd:.5f}  Tokens: {j_usage.tokens_in}↑ {j_usage.tokens_out}↓  Latency: {j_usage.latency_s:.1f}s")
+        print(
+            f"  Cost: ${j_usage.estimated_cost_usd:.5f}  Tokens: {j_usage.tokens_in}↑ {j_usage.tokens_out}↓  Latency: {j_usage.latency_s:.1f}s"
+        )
     except JournalStructureError as exc:
         print(f"  FAILED (structure): {exc}")
     except Exception as exc:
@@ -176,15 +206,24 @@ def main():
         db.close()
 
     from src.tradelens.services.grading import grade_trade, GradingError
+
     try:
-        grading_result, g_usage = grade_trade(grade_trade_dict, active_strategy, vision_dict)
+        grading_result, g_usage = grade_trade(
+            grade_trade_dict, active_strategy, vision_dict
+        )
         usages.append(("Grading (claude-haiku-4-5)", g_usage))
-        print(f"  Grade:   {grading_result.get('grade')}  Score: {grading_result.get('score')}/10")
+        print(
+            f"  Grade:   {grading_result.get('grade')}  Score: {grading_result.get('score')}/10"
+        )
         print(f"  Verdict: {grading_result.get('one_line_verdict')}")
         rubric = grading_result.get("rubric", {})
         for dim, data in rubric.items():
-            print(f"    {dim.replace('_',' ').title()}: {data.get('score')}/10 — {data.get('note','')[:60]}")
-        print(f"  Cost: ${g_usage.estimated_cost_usd:.5f}  Tokens: {g_usage.tokens_in}↑ {g_usage.tokens_out}↓  Latency: {g_usage.latency_s:.1f}s")
+            print(
+                f"    {dim.replace('_',' ').title()}: {data.get('score')}/10 — {data.get('note','')[:60]}"
+            )
+        print(
+            f"  Cost: ${g_usage.estimated_cost_usd:.5f}  Tokens: {g_usage.tokens_in}↑ {g_usage.tokens_out}↓  Latency: {g_usage.latency_s:.1f}s"
+        )
     except GradingError as exc:
         print(f"  FAILED (grading): {exc}")
     except Exception as exc:
@@ -193,10 +232,14 @@ def main():
     # ── Summary ──────────────────────────────────────────────────────
     _print_banner("Cost Summary")
     total_cost = 0.0
-    print(f"  {'Step':<28} {'Model':<15} {'In':>6} {'Out':>6} {'Cost':>10} {'Latency':>8}")
+    print(
+        f"  {'Step':<28} {'Model':<15} {'In':>6} {'Out':>6} {'Cost':>10} {'Latency':>8}"
+    )
     print(f"  {'-'*75}")
     for label, u in usages:
-        print(f"  {label:<28} {u.model:<15} {u.tokens_in:>6} {u.tokens_out:>6} ${u.estimated_cost_usd:>8.5f} {u.latency_s:>6.1f}s")
+        print(
+            f"  {label:<28} {u.model:<15} {u.tokens_in:>6} {u.tokens_out:>6} ${u.estimated_cost_usd:>8.5f} {u.latency_s:>6.1f}s"
+        )
         total_cost += u.estimated_cost_usd
     print(f"  {'-'*75}")
     print(f"  {'TOTAL':<50} ${total_cost:>8.5f}")

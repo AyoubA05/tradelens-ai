@@ -4,6 +4,7 @@ Revision ID: f6g7h8i9j0k1
 Revises: e5f6a7b8c9d0
 Create Date: 2026-06-10
 """
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -35,7 +36,9 @@ def upgrade() -> None:
         sa.Column("worst_timeframe", sa.String(), nullable=True),
         sa.Column("computed_at", sa.String(), nullable=True),
     )
-    op.create_index("ix_performance_metrics_user_id", "performance_metrics", ["user_id"])
+    op.create_index(
+        "ix_performance_metrics_user_id", "performance_metrics", ["user_id"]
+    )
 
 
 def downgrade() -> None:

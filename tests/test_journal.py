@@ -2,6 +2,7 @@
 Tests for journal.py — all AI calls are mocked; no network traffic, no cost.
 DB tests use in-memory SQLite.
 """
+
 import json
 from unittest.mock import patch
 
@@ -23,12 +24,17 @@ from src.tradelens.services.ai_client import Usage
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def in_memory_db(monkeypatch):
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(engine)
     TestSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
-    monkeypatch.setattr("src.tradelens.services.ai_analysis_service.SessionLocal", TestSession)
+    monkeypatch.setattr(
+        "src.tradelens.services.ai_analysis_service.SessionLocal", TestSession
+    )
     return TestSession
 
 
@@ -44,7 +50,16 @@ def sample_analysis(in_memory_db):
         detected_setup="FVG",
         trade_quality=8,
         matched_strategy="ICT OB Retest",
-        zones_json=json.dumps([{"type": "order_block", "description": "Bearish OB", "approx_price": 19200.0, "confidence": 0.8}]),
+        zones_json=json.dumps(
+            [
+                {
+                    "type": "order_block",
+                    "description": "Bearish OB",
+                    "approx_price": 19200.0,
+                    "confidence": 0.8,
+                }
+            ]
+        ),
         mistakes_json=json.dumps(["Entry slightly late"]),
         missed_opps_json=json.dumps(["Could have scaled at OB"]),
     )
@@ -79,6 +94,7 @@ def _make_usage() -> Usage:
 # build_journal_context
 # ---------------------------------------------------------------------------
 
+
 def test_build_journal_context_extracts_trade_and_analysis_fields(sample_analysis):
     trade, analysis = sample_analysis
     trade_dict, ai_dict = build_journal_context(trade, analysis)
@@ -100,14 +116,25 @@ def test_build_journal_context_extracts_trade_and_analysis_fields(sample_analysi
 # generate_journal
 # ---------------------------------------------------------------------------
 
+
 def test_generate_journal_returns_markdown_and_usage():
     trade = {"asset": "NQ", "direction": "Long", "result": "Win", "pnl": 300.0}
-    ai_analysis = {"bias": "bullish", "detected_setup": "FVG", "trade_quality": 8,
-                   "matched_strategy": None, "key_zones": [], "possible_mistakes": [],
-                   "missed_opportunities": []}
+    ai_analysis = {
+        "bias": "bullish",
+        "detected_setup": "FVG",
+        "trade_quality": 8,
+        "matched_strategy": None,
+        "key_zones": [],
+        "possible_mistakes": [],
+        "missed_opportunities": [],
+    }
 
-    with patch("src.tradelens.services.journal.chat", return_value=(_full_journal(), _make_usage())), \
-         patch("src.tradelens.services.journal.load_prompt", return_value="mock system prompt"):
+    with patch(
+        "src.tradelens.services.journal.chat",
+        return_value=(_full_journal(), _make_usage()),
+    ), patch(
+        "src.tradelens.services.journal.load_prompt", return_value="mock system prompt"
+    ):
         result, usage = generate_journal(trade, ai_analysis)
 
     assert isinstance(result, str)
@@ -117,12 +144,20 @@ def test_generate_journal_returns_markdown_and_usage():
 
 def test_generate_journal_contains_all_eight_sections():
     trade = {"asset": "EURUSD", "direction": "Short", "result": "Loss", "pnl": -120.0}
-    ai_analysis = {"bias": "bearish", "detected_setup": None, "trade_quality": 5,
-                   "matched_strategy": None, "key_zones": [], "possible_mistakes": [],
-                   "missed_opportunities": []}
+    ai_analysis = {
+        "bias": "bearish",
+        "detected_setup": None,
+        "trade_quality": 5,
+        "matched_strategy": None,
+        "key_zones": [],
+        "possible_mistakes": [],
+        "missed_opportunities": [],
+    }
 
-    with patch("src.tradelens.services.journal.chat", return_value=(_full_journal(), _make_usage())), \
-         patch("src.tradelens.services.journal.load_prompt", return_value="mock"):
+    with patch(
+        "src.tradelens.services.journal.chat",
+        return_value=(_full_journal(), _make_usage()),
+    ), patch("src.tradelens.services.journal.load_prompt", return_value="mock"):
         result, _ = generate_journal(trade, ai_analysis)
 
     for section in _REQUIRED_SECTIONS:
@@ -132,9 +167,15 @@ def test_generate_journal_contains_all_eight_sections():
 def test_generate_journal_strategy_aware():
     """Strategy profile content must reach the chat() user_message."""
     trade = {"asset": "NQ", "direction": "Long", "result": "Win", "pnl": 250.0}
-    ai_analysis = {"bias": "bullish", "detected_setup": "OB", "trade_quality": 9,
-                   "matched_strategy": "ICT", "key_zones": [], "possible_mistakes": [],
-                   "missed_opportunities": []}
+    ai_analysis = {
+        "bias": "bullish",
+        "detected_setup": "OB",
+        "trade_quality": 9,
+        "matched_strategy": "ICT",
+        "key_zones": [],
+        "possible_mistakes": [],
+        "missed_opportunities": [],
+    }
     strategy = {"name": "ICT Precision", "entry_rules": "BOS + OB retest only"}
 
     captured_messages = {}
@@ -143,8 +184,9 @@ def test_generate_journal_strategy_aware():
         captured_messages["user"] = user_message
         return _full_journal(), _make_usage()
 
-    with patch("src.tradelens.services.journal.chat", side_effect=fake_chat), \
-         patch("src.tradelens.services.journal.load_prompt", return_value="mock"):
+    with patch("src.tradelens.services.journal.chat", side_effect=fake_chat), patch(
+        "src.tradelens.services.journal.load_prompt", return_value="mock"
+    ):
         generate_journal(trade, ai_analysis, strategy_profile=strategy)
 
     assert "ICT Precision" in captured_messages["user"]
@@ -154,9 +196,15 @@ def test_generate_journal_strategy_aware():
 def test_generate_journal_no_strategy_fallback():
     """With strategy_profile=None the generic fallback text should be in the user message."""
     trade = {"asset": "NQ", "direction": "Long", "result": "Win", "pnl": 200.0}
-    ai_analysis = {"bias": "bullish", "detected_setup": None, "trade_quality": 7,
-                   "matched_strategy": None, "key_zones": [], "possible_mistakes": [],
-                   "missed_opportunities": []}
+    ai_analysis = {
+        "bias": "bullish",
+        "detected_setup": None,
+        "trade_quality": 7,
+        "matched_strategy": None,
+        "key_zones": [],
+        "possible_mistakes": [],
+        "missed_opportunities": [],
+    }
 
     captured_messages = {}
 
@@ -164,8 +212,9 @@ def test_generate_journal_no_strategy_fallback():
         captured_messages["user"] = user_message
         return _full_journal(), _make_usage()
 
-    with patch("src.tradelens.services.journal.chat", side_effect=fake_chat), \
-         patch("src.tradelens.services.journal.load_prompt", return_value="mock"):
+    with patch("src.tradelens.services.journal.chat", side_effect=fake_chat), patch(
+        "src.tradelens.services.journal.load_prompt", return_value="mock"
+    ):
         generate_journal(trade, ai_analysis, strategy_profile=None)
 
     assert "No strategy profile provided" in captured_messages["user"]
@@ -187,7 +236,10 @@ def test_generate_journal_missing_prompt_raises():
     trade = {"asset": "NQ"}
     ai_analysis = {}
 
-    with patch("src.tradelens.services.journal.load_prompt", side_effect=FileNotFoundError("missing")):
+    with patch(
+        "src.tradelens.services.journal.load_prompt",
+        side_effect=FileNotFoundError("missing"),
+    ):
         with pytest.raises(FileNotFoundError, match="missing"):
             generate_journal(trade, ai_analysis)
 
@@ -199,8 +251,9 @@ def test_generate_journal_missing_section_raises():
     trade = {"asset": "NQ"}
     ai_analysis = {}
 
-    with patch("src.tradelens.services.journal.chat", return_value=(incomplete, _make_usage())), \
-         patch("src.tradelens.services.journal.load_prompt", return_value="mock"):
+    with patch(
+        "src.tradelens.services.journal.chat", return_value=(incomplete, _make_usage())
+    ), patch("src.tradelens.services.journal.load_prompt", return_value="mock"):
         with pytest.raises(JournalStructureError, match="missing required section"):
             generate_journal(trade, ai_analysis)
 
@@ -215,8 +268,10 @@ def test_generate_journal_out_of_order_sections_raises():
     trade = {"asset": "NQ"}
     ai_analysis = {}
 
-    with patch("src.tradelens.services.journal.chat", return_value=(out_of_order, _make_usage())), \
-         patch("src.tradelens.services.journal.load_prompt", return_value="mock"):
+    with patch(
+        "src.tradelens.services.journal.chat",
+        return_value=(out_of_order, _make_usage()),
+    ), patch("src.tradelens.services.journal.load_prompt", return_value="mock"):
         with pytest.raises(JournalStructureError, match="out of order"):
             generate_journal(trade, ai_analysis)
 
@@ -224,6 +279,7 @@ def test_generate_journal_out_of_order_sections_raises():
 # ---------------------------------------------------------------------------
 # save_journal persistence
 # ---------------------------------------------------------------------------
+
 
 def test_save_journal_persists_markdown(sample_analysis, in_memory_db):
     from src.tradelens.services.ai_analysis_service import save_journal

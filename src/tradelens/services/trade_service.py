@@ -9,7 +9,9 @@ from src.tradelens.db.models import Trade
 from src.tradelens.db.session import SessionLocal
 
 
-def _calc_rr(entry: float, stop: float, target: float, direction: str) -> Optional[float]:
+def _calc_rr(
+    entry: float, stop: float, target: float, direction: str
+) -> Optional[float]:
     """Risk-to-reward ratio for Long or Short."""
     try:
         risk = abs(entry - stop)

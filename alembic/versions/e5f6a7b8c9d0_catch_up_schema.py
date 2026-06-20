@@ -9,6 +9,7 @@ upgrade() function. Uses column-existence checks so the migration is idempotent
 regardless of whether the DB was created via init_db or alembic upgrade head.
 
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa

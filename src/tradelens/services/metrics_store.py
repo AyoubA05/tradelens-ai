@@ -1,4 +1,5 @@
 """Read/write access to the performance_metrics table. No Streamlit imports."""
+
 from typing import Optional
 
 from src.tradelens.db.models import PerformanceMetrics
@@ -13,7 +14,11 @@ def get_computed_at(user_id: int = 1) -> Optional[str]:
     """
     db = SessionLocal()
     try:
-        row = db.query(PerformanceMetrics).filter(PerformanceMetrics.user_id == user_id).first()
+        row = (
+            db.query(PerformanceMetrics)
+            .filter(PerformanceMetrics.user_id == user_id)
+            .first()
+        )
         return row.computed_at if row else None
     except Exception:
         return None

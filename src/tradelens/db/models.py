@@ -82,11 +82,20 @@ class Trade(Base):
     created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
-    strategy_id: Mapped[Optional[int]] = mapped_column(ForeignKey("strategies.id"), nullable=True)
+    strategy_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("strategies.id"), nullable=True
+    )
 
     strategy = relationship("Strategy", back_populates="trades")
-    screenshots = relationship("Screenshot", back_populates="trade", cascade="all, delete-orphan")
-    ai_analysis = relationship("AIAnalysis", back_populates="trade", uselist=False, cascade="all, delete-orphan")
+    screenshots = relationship(
+        "Screenshot", back_populates="trade", cascade="all, delete-orphan"
+    )
+    ai_analysis = relationship(
+        "AIAnalysis",
+        back_populates="trade",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
 
 class Screenshot(Base):
@@ -107,7 +116,9 @@ class AIAnalysis(Base):
     __table_args__ = (UniqueConstraint("trade_id", name="uq_aianalysis_trade_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    trade_id: Mapped[int] = mapped_column(ForeignKey("trades.id", ondelete="CASCADE"), nullable=False)
+    trade_id: Mapped[int] = mapped_column(
+        ForeignKey("trades.id", ondelete="CASCADE"), nullable=False
+    )
     model: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     prompt_version: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     bias: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -133,8 +144,12 @@ class Correction(Base):
     __tablename__ = "corrections"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    trade_id: Mapped[int] = mapped_column(ForeignKey("trades.id", ondelete="CASCADE"), nullable=False)
-    ai_analysis_id: Mapped[int] = mapped_column(ForeignKey("aianalysis.id", ondelete="CASCADE"), nullable=False)
+    trade_id: Mapped[int] = mapped_column(
+        ForeignKey("trades.id", ondelete="CASCADE"), nullable=False
+    )
+    ai_analysis_id: Mapped[int] = mapped_column(
+        ForeignKey("aianalysis.id", ondelete="CASCADE"), nullable=False
+    )
     field: Mapped[str] = mapped_column(Text, nullable=False)
     ai_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     user_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -145,33 +160,35 @@ class Correction(Base):
 class PerformanceMetrics(Base):
     __tablename__ = "performance_metrics"
 
-    id:              Mapped[int]            = mapped_column(Integer, primary_key=True, index=True)
-    user_id:         Mapped[int]            = mapped_column(Integer, nullable=False, index=True)
-    period_start:    Mapped[Optional[str]]  = mapped_column(String, nullable=True)
-    period_end:      Mapped[Optional[str]]  = mapped_column(String, nullable=True)
-    trades_count:    Mapped[Optional[int]]  = mapped_column(Integer, nullable=True)
-    win_rate:        Mapped[Optional[float]]= mapped_column(Float, nullable=True)
-    profit_factor:   Mapped[Optional[float]]= mapped_column(Float, nullable=True)
-    avg_rr:          Mapped[Optional[float]]= mapped_column(Float, nullable=True)
-    avg_win:         Mapped[Optional[float]]= mapped_column(Float, nullable=True)
-    avg_loss:        Mapped[Optional[float]]= mapped_column(Float, nullable=True)
-    total_pnl:       Mapped[Optional[float]]= mapped_column(Float, nullable=True)
-    best_day:        Mapped[Optional[str]]  = mapped_column(String, nullable=True)
-    worst_day:       Mapped[Optional[str]]  = mapped_column(String, nullable=True)
-    best_strategy:   Mapped[Optional[str]]  = mapped_column(String, nullable=True)
-    worst_strategy:  Mapped[Optional[str]]  = mapped_column(String, nullable=True)
-    best_timeframe:  Mapped[Optional[str]]  = mapped_column(String, nullable=True)
-    worst_timeframe: Mapped[Optional[str]]  = mapped_column(String, nullable=True)
-    computed_at:     Mapped[Optional[str]]  = mapped_column(String, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    period_start: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    period_end: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    trades_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    win_rate: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    profit_factor: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    avg_rr: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    avg_win: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    avg_loss: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    total_pnl: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    best_day: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    worst_day: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    best_strategy: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    worst_strategy: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    best_timeframe: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    worst_timeframe: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    computed_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 
 class WeeklyReview(Base):
     __tablename__ = "weekly_reviews"
 
-    id:               Mapped[int]            = mapped_column(Integer, primary_key=True, index=True)
-    week_start:       Mapped[str]            = mapped_column(String, nullable=False, index=True)  # ISO Monday (YYYY-MM-DD)
-    content_md:       Mapped[Optional[str]]  = mapped_column(Text, nullable=True)
-    thinking_summary: Mapped[Optional[str]]  = mapped_column(Text, nullable=True)
-    stats_json:       Mapped[Optional[str]]  = mapped_column(Text, nullable=True)
-    cost_usd:         Mapped[Optional[float]]= mapped_column(Float, nullable=True)
-    created_at:       Mapped[Optional[str]]  = mapped_column(String, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    week_start: Mapped[str] = mapped_column(
+        String, nullable=False, index=True
+    )  # ISO Monday (YYYY-MM-DD)
+    content_md: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    thinking_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stats_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cost_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)

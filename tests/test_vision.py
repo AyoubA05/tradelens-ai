@@ -1,6 +1,7 @@
 """
 Tests for vision.py — all AI calls are mocked; no network traffic, no cost.
 """
+
 import io
 import json
 from pathlib import Path
@@ -18,6 +19,7 @@ from src.tradelens.services.vision import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_jpeg(tmp_path: Path, name: str = "chart.jpg") -> Path:
     """Create a minimal 1×1 JPEG that Pillow can open."""
@@ -73,6 +75,7 @@ _VALID_ANALYSIS = {
 # Tests
 # ---------------------------------------------------------------------------
 
+
 def test_analyze_screenshot_success(tmp_path):
     image = _make_jpeg(tmp_path)
     trade_ctx = {"asset": "NQ", "direction": "Long", "result": "Win", "pnl": 250}
@@ -98,7 +101,11 @@ def test_analyze_screenshot_no_strategy_fallback(tmp_path):
     image = _make_jpeg(tmp_path)
     trade_ctx = {"asset": "BTCUSD", "direction": "Short", "result": "Loss"}
 
-    analysis = {**_VALID_ANALYSIS, "matched_strategy": None, "matched_strategy_reason": None}
+    analysis = {
+        **_VALID_ANALYSIS,
+        "matched_strategy": None,
+        "matched_strategy_reason": None,
+    }
 
     with patch(
         "src.tradelens.services.vision.vision",
@@ -157,7 +164,9 @@ def test_analyze_screenshot_malformed_json(tmp_path):
         "src.tradelens.services.vision.load_prompt",
         return_value="mock system prompt",
     ):
-        with pytest.raises(ScreenshotAnalysisError, match="malformed JSON"):
+        from src.tradelens.services.ai_client import AIParseError
+
+        with pytest.raises(AIParseError, match="malformed"):
             analyze_screenshot(image, {"asset": "NQ"})
 
 
@@ -209,7 +218,9 @@ def test_analyze_screenshot_uses_v2_and_returns_smc_keys(tmp_path):
         result, _ = analyze_screenshot(image, {"asset": "NQ"})
 
     assert captured["name"] == "screenshot_v2"
-    assert {"htf_bias", "liquidity_sweep", "fvg_used", "order_block_used"} <= set(result.keys())
+    assert {"htf_bias", "liquidity_sweep", "fvg_used", "order_block_used"} <= set(
+        result.keys()
+    )
     assert result["htf_bias"] == "bullish"
     assert result["liquidity_sweep"] is True
     assert result["fvg_used"] is False

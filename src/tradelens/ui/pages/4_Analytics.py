@@ -23,6 +23,7 @@ from src.tradelens.services.metrics import (  # noqa: E402
     compute_max_drawdown,
     compute_profit_factor_raw,
     confirmation_model_performance,
+    consistency_score,
     drawdown_series,
     emotion_vs_rr,
     equity_curve_series,
@@ -78,27 +79,31 @@ def _cached_computed_at(user_id: int = 1) -> Optional[str]:
 @st.cache_data(ttl=60)
 def _load_df(start: str, end: str) -> pd.DataFrame:
     trades = get_trades(start_date=start, end_date=end)
-    return pd.DataFrame([
-        {
-            "trade_date":      t.trade_date,
-            "day_of_week":     t.day_of_week,
-            "session":         t.session,
-            "asset":           t.asset,
-            "timeframe":       t.timeframe,
-            "strategy_used":   t.strategy_used,
-            "setup_type":      t.setup_type,
-            "emotions_before": t.emotions_before,
-            "rr_realized":     t.rr_realized,
-            "pnl":             t.pnl,
-            "result":          t.result,
-            "killzone":           t.killzone,
-            "confirmation_model": t.confirmation_model,
-            "mistake_tags":       t.mistake_tags,
-            "htf_bias":           t.htf_bias,
-            "followed_rules":     t.followed_rules,
-        }
-        for t in trades
-    ])
+    return pd.DataFrame(
+        [
+            {
+                "trade_date": t.trade_date,
+                "day_of_week": t.day_of_week,
+                "session": t.session,
+                "asset": t.asset,
+                "timeframe": t.timeframe,
+                "strategy_used": t.strategy_used,
+                "setup_type": t.setup_type,
+                "emotions_before": t.emotions_before,
+                "rr_realized": t.rr_realized,
+                "pnl": t.pnl,
+                "result": t.result,
+                "killzone": t.killzone,
+                "confirmation_model": t.confirmation_model,
+                "mistake_tags": t.mistake_tags,
+                "htf_bias": t.htf_bias,
+                "followed_rules": t.followed_rules,
+                "ai_grade": t.ai_grade,
+                "user_grade": t.user_grade,
+            }
+            for t in trades
+        ]
+    )
 
 
 df_raw = _load_df(str(start_date), str(end_date))
@@ -129,7 +134,9 @@ if selected_strategies:
 
 # --- Empty state: filters narrowed to nothing ---
 if df.empty:
-    st.warning("No trades match the selected filters. Try adjusting the date range or filters above.")
+    st.warning(
+        "No trades match the selected filters. Try adjusting the date range or filters above."
+    )
     st.stop()
 
 # --- Compute metrics (all delegated to metrics.py — no math here) ---
@@ -141,7 +148,11 @@ dd_df = drawdown_series(df)
 max_dd = compute_max_drawdown(eq_df)
 rr_df = r_multiple_distribution(df)
 
-rr_values = df["rr_realized"].dropna() if "rr_realized" in df.columns else pd.Series(dtype=float)
+rr_values = (
+    df["rr_realized"].dropna()
+    if "rr_realized" in df.columns
+    else pd.Series(dtype=float)
+)
 median_rr = float(rr_values.median()) if not rr_values.empty else None
 
 dow_df = by_day_of_week(df)
@@ -153,13 +164,21 @@ emo_df = emotion_vs_rr(df)
 pf_display = "∞" if math.isinf(pf) else f"{pf:.2f}"
 avg_rr = m.get("avg_rr_realized", 0.0)
 
-k1, k2, k3, k4, k5, k6 = st.columns(6)
+cs = consistency_score(df)
+cs_display = f"{cs:.0f}/100" if cs else "—"
+
+k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
 k1.metric("Total P/L", f"${m['total_pnl']:,.2f}")
 k2.metric("Win Rate", f"{m['win_rate']:.1%}")
 k3.metric("Profit Factor", pf_display)
 k4.metric("Expectancy", f"${exp:,.2f}")
 k5.metric("Avg R Realized", f"{avg_rr:.2f}R")
 k6.metric("Total Trades", m["total_trades"])
+k7.metric(
+    "Consistency",
+    cs_display,
+    help="Process score (0–100): rule adherence, mistake cleanliness, grade trend.",
+)
 
 last_ts = _cached_computed_at()
 if last_ts:
@@ -200,7 +219,9 @@ with r3c1:
     st.plotly_chart(profit_factor_gauge(pf), use_container_width=True)
 with r3c2:
     st.subheader("R-Multiple Distribution")
-    st.plotly_chart(r_multiple_histogram(rr_df, median_rr=median_rr), use_container_width=True)
+    st.plotly_chart(
+        r_multiple_histogram(rr_df, median_rr=median_rr), use_container_width=True
+    )
     if rr_df.empty:
         st.caption("Log trades with R-multiple to see distribution.")
 
@@ -228,7 +249,9 @@ st.subheader("🎯 Killzone Performance")
 
 kz_df = killzone_performance(df)
 if kz_df.empty:
-    st.caption("No killzone data yet. Tag trades with a killzone to see this breakdown.")
+    st.caption(
+        "No killzone data yet. Tag trades with a killzone to see this breakdown."
+    )
 else:
     kc1, kc2 = st.columns([3, 2])
     with kc1:
@@ -241,7 +264,14 @@ else:
         kz_disp["total_pnl"] = kz_disp["total_pnl"].round(2)
         st.dataframe(
             kz_disp[
-                ["killzone", "trades", "win_rate", "avg_rr_realized", "profit_factor", "total_pnl"]
+                [
+                    "killzone",
+                    "trades",
+                    "win_rate",
+                    "avg_rr_realized",
+                    "profit_factor",
+                    "total_pnl",
+                ]
             ],
             hide_index=True,
             use_container_width=True,
@@ -260,7 +290,15 @@ with cm_col:
         cm_disp["profit_factor"] = cm_disp["profit_factor"].apply(_fmt_pf)
         cm_disp["total_pnl"] = cm_disp["total_pnl"].round(2)
         st.dataframe(
-            cm_disp[["confirmation_model", "trades", "win_rate", "profit_factor", "total_pnl"]],
+            cm_disp[
+                [
+                    "confirmation_model",
+                    "trades",
+                    "win_rate",
+                    "profit_factor",
+                    "total_pnl",
+                ]
+            ],
             hide_index=True,
             use_container_width=True,
         )

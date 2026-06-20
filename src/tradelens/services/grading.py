@@ -4,11 +4,18 @@ Post-trade grading service.
 Scores a trade on PROCESS (not outcome) across 5 dimensions using claude-haiku-4-5.
 This is educational review only — not live trading advice.
 """
+
 import json
 from typing import Optional
 
 from src.tradelens.config import settings
-from src.tradelens.services.ai_client import AIUnavailable, Usage, chat, load_prompt
+from src.tradelens.services.ai_client import (
+    AIUnavailable,
+    Usage,
+    chat,
+    load_prompt,
+    parse_ai_json,
+)
 
 _REQUIRED_TOP_KEYS = {"grade", "score", "rubric", "one_line_verdict"}
 _REQUIRED_RUBRIC_DIMS = {
@@ -156,10 +163,6 @@ def grade_trade(
     if isinstance(content, AIUnavailable):
         raise GradingError(content.reason)
 
-    try:
-        data = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise GradingError(f"Grading response is not valid JSON: {exc}") from exc
-
+    data = parse_ai_json(content)
     _validate_grading_result(data)
     return data, usage

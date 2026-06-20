@@ -4,6 +4,7 @@ Corrections service — captures field-level diffs between AI-generated and user
 Append-only: each Save action that changes a value writes one row per changed field.
 No Streamlit imports here.
 """
+
 import json
 from datetime import datetime, timezone
 from typing import Optional
@@ -124,9 +125,7 @@ def build_correction_few_shot(limit: int = 10, scope: Optional[str] = None) -> s
     used = _estimate_tokens(header) + _estimate_tokens(footer)
     lines: list = []
     for g in ordered[:limit]:
-        line = (
-            f"- {g['field']}: prefer {g['user_value']!r} over {g['ai_value']!r}"
-        )
+        line = f"- {g['field']}: prefer {g['user_value']!r} over {g['ai_value']!r}"
         if g["count"] > 1:
             line += f" (corrected {g['count']}x)"
         if g["user_reason"]:
@@ -189,12 +188,7 @@ def get_recent_corrections(limit: int = 10) -> list[dict]:
     """Return the most recent corrections as plain dicts, ordered by id DESC."""
     db = SessionLocal()
     try:
-        rows = (
-            db.query(Correction)
-            .order_by(Correction.id.desc())
-            .limit(limit)
-            .all()
-        )
+        rows = db.query(Correction).order_by(Correction.id.desc()).limit(limit).all()
         return [
             {
                 "id": r.id,

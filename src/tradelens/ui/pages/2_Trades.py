@@ -32,7 +32,9 @@ with col3:
     result_filter = st.selectbox("Result", ["All", "Win", "Loss", "Breakeven"])
 
 with col4:
-    session_filter = st.selectbox("Session", ["All", "London", "NY AM", "NY PM", "Asia"])
+    session_filter = st.selectbox(
+        "Session", ["All", "London", "NY AM", "NY PM", "Asia"]
+    )
 
 
 # --- Load trades ---
@@ -50,23 +52,32 @@ if not trades:
 
 # --- Build DataFrame ---
 DISPLAY_COLS = [
-    "trade_date", "asset", "direction", "setup_type",
-    "result", "pnl", "rr_realized", "strategy_used", "notes",
+    "trade_date",
+    "asset",
+    "direction",
+    "setup_type",
+    "result",
+    "pnl",
+    "rr_realized",
+    "strategy_used",
+    "notes",
 ]
 
 rows = []
 for t in trades:
-    rows.append({
-        "trade_date": t.trade_date,
-        "asset": t.asset,
-        "direction": t.direction,
-        "setup_type": t.setup_type,
-        "result": t.result,
-        "pnl": t.pnl if t.pnl is not None else 0.0,
-        "rr_realized": t.rr_realized,
-        "strategy_used": t.strategy_used,
-        "notes": (t.notes or "")[:40] if t.notes else "",
-    })
+    rows.append(
+        {
+            "trade_date": t.trade_date,
+            "asset": t.asset,
+            "direction": t.direction,
+            "setup_type": t.setup_type,
+            "result": t.result,
+            "pnl": t.pnl if t.pnl is not None else 0.0,
+            "rr_realized": t.rr_realized,
+            "strategy_used": t.strategy_used,
+            "notes": (t.notes or "")[:40] if t.notes else "",
+        }
+    )
 
 df = pd.DataFrame(rows, columns=DISPLAY_COLS)
 

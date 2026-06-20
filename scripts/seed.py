@@ -1,7 +1,8 @@
 import json
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from datetime import datetime, timedelta
 import random
@@ -11,21 +12,21 @@ from src.tradelens.db.models import Trade
 random.seed(42)
 
 ASSETS = [
-    ("NQ",     "futures", "5m",  "NY AM"),
-    ("NQ",     "futures", "15m", "NY AM"),
-    ("MNQ",    "futures", "5m",  "NY AM"),
-    ("ES",     "futures", "5m",  "NY AM"),
-    ("ES",     "futures", "15m", "NY PM"),
-    ("MES",    "futures", "5m",  "NY AM"),
-    ("NG",     "futures", "1H",  "London"),
-    ("Gold",   "futures", "15m", "London"),
-    ("Silver", "futures", "1H",  "London"),
-    ("BTCUSD", "crypto",  "15m", "NY AM"),
-    ("BTCUSD", "crypto",  "1H",  "Asia"),
-    ("ETHUSD", "crypto",  "15m", "NY AM"),
-    ("EURUSD", "forex",   "15m", "London"),
-    ("EURUSD", "forex",   "1H",  "NY AM"),
-    ("XAUUSD", "forex",   "15m", "London"),
+    ("NQ", "futures", "5m", "NY AM"),
+    ("NQ", "futures", "15m", "NY AM"),
+    ("MNQ", "futures", "5m", "NY AM"),
+    ("ES", "futures", "5m", "NY AM"),
+    ("ES", "futures", "15m", "NY PM"),
+    ("MES", "futures", "5m", "NY AM"),
+    ("NG", "futures", "1H", "London"),
+    ("Gold", "futures", "15m", "London"),
+    ("Silver", "futures", "1H", "London"),
+    ("BTCUSD", "crypto", "15m", "NY AM"),
+    ("BTCUSD", "crypto", "1H", "Asia"),
+    ("ETHUSD", "crypto", "15m", "NY AM"),
+    ("EURUSD", "forex", "15m", "London"),
+    ("EURUSD", "forex", "1H", "NY AM"),
+    ("XAUUSD", "forex", "15m", "London"),
 ]
 
 SETUPS = [
@@ -41,7 +42,7 @@ SETUPS = [
 
 EMOTIONS_BEFORE = ["calm", "focused", "hesitant", "confident", "anxious", "neutral"]
 EMOTIONS_DURING = ["patient", "nervous", "disciplined", "impulsive", "calm"]
-EMOTIONS_AFTER  = ["satisfied", "frustrated", "neutral", "relieved", "regretful"]
+EMOTIONS_AFTER = ["satisfied", "frustrated", "neutral", "relieved", "regretful"]
 
 STRATEGIES = ["ICT 5m", "Supply & Demand", "S/R Breakout", "Scalp", "Swing"]
 
@@ -52,90 +53,104 @@ KILLZONES = ["asia", "london_open", "ny_am", "ny_lunch", "ny_pm"]
 HTF_BIAS_OPTIONS = ["bullish", "bearish", "neutral"]
 
 CONFIRMATION_MODELS = [
-    "Liquidity Sweep", "BOS", "CHoCH", "MSS", "FVG Fill",
-    "OB Reaction", "S/R Rejection", "Candle Close",
+    "Liquidity Sweep",
+    "BOS",
+    "CHoCH",
+    "MSS",
+    "FVG Fill",
+    "OB Reaction",
+    "S/R Rejection",
+    "Candle Close",
 ]
 
 ENTRY_TYPES = ["limit", "market", "stop_limit"]
 
 MISTAKE_OPTIONS = [
-    "Early Entry", "Late Entry", "Bad Stop Placement", "Moved Stop",
-    "Closed Too Early", "FOMO", "Revenge Trade", "Against HTF Bias",
+    "Early Entry",
+    "Late Entry",
+    "Bad Stop Placement",
+    "Moved Stop",
+    "Closed Too Early",
+    "FOMO",
+    "Revenge Trade",
+    "Against HTF Bias",
 ]
 
 
 def random_trade(trade_date):
-    asset_row  = random.choice(ASSETS)
+    asset_row = random.choice(ASSETS)
     asset, asset_class, timeframe, session = asset_row
-    direction  = random.choice(["long", "short"])
-    result     = random.choices(["win", "loss", "breakeven"], weights=[50, 40, 10])[0]
+    direction = random.choice(["long", "short"])
+    result = random.choices(["win", "loss", "breakeven"], weights=[50, 40, 10])[0]
 
     entry = round(random.uniform(100, 20000), 2)
     stop_dist = round(entry * random.uniform(0.002, 0.008), 2)
-    tp_dist   = stop_dist * random.uniform(1.5, 3.0)
+    tp_dist = stop_dist * random.uniform(1.5, 3.0)
 
     if direction == "long":
-        stop  = round(entry - stop_dist, 2)
-        tp    = round(entry + tp_dist,   2)
+        stop = round(entry - stop_dist, 2)
+        tp = round(entry + tp_dist, 2)
         exit_ = round(entry + (tp_dist if result == "win" else -stop_dist * 0.9), 2)
     else:
-        stop  = round(entry + stop_dist, 2)
-        tp    = round(entry - tp_dist,   2)
+        stop = round(entry + stop_dist, 2)
+        tp = round(entry - tp_dist, 2)
         exit_ = round(entry - (tp_dist if result == "win" else -stop_dist * 0.9), 2)
 
-    rr_planned  = round(tp_dist / stop_dist, 2)
-    rr_realized = round(rr_planned if result == "win" else -0.9 if result == "loss" else 0.0, 2)
-    position    = round(random.uniform(1, 5), 1)
-    risk_amt    = round(stop_dist * position * 10, 2)
-    pnl = round(
-        risk_amt * rr_realized if result != "breakeven" else 0.0,
-        2
+    rr_planned = round(tp_dist / stop_dist, 2)
+    rr_realized = round(
+        rr_planned if result == "win" else -0.9 if result == "loss" else 0.0, 2
     )
+    position = round(random.uniform(1, 5), 1)
+    risk_amt = round(stop_dist * position * 10, 2)
+    pnl = round(risk_amt * rr_realized if result != "breakeven" else 0.0, 2)
 
     return Trade(
-        strategy_id      = None,
-        trade_date       = trade_date.strftime("%Y-%m-%d"),
-        day_of_week      = trade_date.strftime("%a"),
-        session          = session,
-        asset            = asset,
-        asset_class      = asset_class,
-        timeframe        = timeframe,
-        direction        = direction,
-        entry_price      = entry,
-        stop_price       = stop,
-        tp_price         = tp,
-        exit_price       = exit_,
-        position_size    = position,
-        risk_amount      = risk_amt,
-        reward_amount    = round(risk_amt * rr_planned, 2),
-        rr_planned       = rr_planned,
-        rr_realized      = rr_realized,
-        result           = result,
-        pnl              = pnl,
-        strategy_used    = random.choice(STRATEGIES),
-        bias             = random.choice(["bullish", "bearish", "neutral"]),
-        setup_type       = random.choice(SETUPS),
-        emotions_before  = random.choice(EMOTIONS_BEFORE),
-        emotions_during  = random.choice(EMOTIONS_DURING),
-        emotions_after   = random.choice(EMOTIONS_AFTER),
-        notes            = "Seeded trade.",
-        ai_grade         = random.choice(GRADES),
-        user_grade       = None,
+        strategy_id=None,
+        trade_date=trade_date.strftime("%Y-%m-%d"),
+        day_of_week=trade_date.strftime("%a"),
+        session=session,
+        asset=asset,
+        asset_class=asset_class,
+        timeframe=timeframe,
+        direction=direction,
+        entry_price=entry,
+        stop_price=stop,
+        tp_price=tp,
+        exit_price=exit_,
+        position_size=position,
+        risk_amount=risk_amt,
+        reward_amount=round(risk_amt * rr_planned, 2),
+        rr_planned=rr_planned,
+        rr_realized=rr_realized,
+        result=result,
+        pnl=pnl,
+        strategy_used=random.choice(STRATEGIES),
+        bias=random.choice(["bullish", "bearish", "neutral"]),
+        setup_type=random.choice(SETUPS),
+        emotions_before=random.choice(EMOTIONS_BEFORE),
+        emotions_during=random.choice(EMOTIONS_DURING),
+        emotions_after=random.choice(EMOTIONS_AFTER),
+        notes="Seeded trade.",
+        ai_grade=random.choice(GRADES),
+        user_grade=None,
         # SMC/ICT fields — Phase 1
-        htf_bias         = random.choice(HTF_BIAS_OPTIONS),
-        killzone         = random.choice(KILLZONES),
-        liquidity_sweep  = random.choice([0, 1]),
-        fvg_used         = random.choice([0, 1]),
-        order_block_used = random.choice([0, 1]),
-        bos              = random.choice([0, 1]),
-        choch            = random.choice([0, 1]),
-        confirmation_model = random.choice(CONFIRMATION_MODELS),
-        entry_type       = random.choice(ENTRY_TYPES),
-        mistake_tags     = json.dumps(random.choices(MISTAKE_OPTIONS, k=random.randint(0, 2))),
-        followed_rules   = random.choice([0, 1]),
-        created_at       = datetime.utcnow().isoformat(),
-        updated_at       = datetime.utcnow().isoformat(),
+        htf_bias=random.choice(HTF_BIAS_OPTIONS),
+        killzone=random.choice(KILLZONES),
+        liquidity_sweep=random.choice([0, 1]),
+        fvg_used=random.choice([0, 1]),
+        order_block_used=random.choice([0, 1]),
+        bos=random.choice([0, 1]),
+        choch=random.choice([0, 1]),
+        confirmation_model=random.choice(CONFIRMATION_MODELS),
+        entry_type=random.choice(ENTRY_TYPES),
+        mistake_tags=json.dumps(
+            random.choices(MISTAKE_OPTIONS, k=random.randint(0, 2))
+        ),
+        followed_rules=random.choice([0, 1]),
+        created_at=datetime.utcnow().isoformat(),
+        updated_at=datetime.utcnow().isoformat(),
     )
+
 
 def seed():
     db = SessionLocal()
@@ -174,6 +189,7 @@ def seed():
         raise
     finally:
         db.close()
+
 
 if __name__ == "__main__":
     seed()

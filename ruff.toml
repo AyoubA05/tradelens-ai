@@ -1,0 +1,14 @@
+# Ruff configuration for TradeLens AI.
+# Keeps Ruff's default rule selection; only adds a scoped exception.
+
+[lint.per-file-ignores]
+# Streamlit multipage entrypoints must insert the project root into sys.path
+# BEFORE importing project modules, so module-level imports legitimately follow
+# code (E402). This is intentional and unavoidable for Streamlit's page model.
+"src/tradelens/ui/pages/*.py" = ["E402"]
+# Standalone scripts use the same sys.path-before-imports bootstrap.
+"scripts/*.py" = ["E402"]
+# Alembic's generated env + migration templates ship boilerplate imports and a
+# config-before-imports layout we don't hand-edit.
+"alembic/env.py" = ["E402", "E401"]
+"alembic/versions/*.py" = ["F401", "E402"]

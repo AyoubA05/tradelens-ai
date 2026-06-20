@@ -2,6 +2,7 @@
 Tests for corrections.py — all DB operations use in-memory SQLite.
 No network calls.
 """
+
 import json
 import pytest
 from sqlalchemy import create_engine
@@ -9,16 +10,25 @@ from sqlalchemy.orm import sessionmaker
 
 import src.tradelens.services.metrics_store as metrics_store
 
-from src.tradelens.db.models import AIAnalysis, Base, Correction, PerformanceMetrics, Trade
+from src.tradelens.db.models import (
+    AIAnalysis,
+    Base,
+    Correction,
+    PerformanceMetrics,
+    Trade,
+)
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def in_memory_db(monkeypatch):
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(engine)
     TestSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr("src.tradelens.services.corrections.SessionLocal", TestSession)
@@ -45,14 +55,17 @@ def sample_ids(in_memory_db):
 # _serialize helper (imported directly for unit testing)
 # ---------------------------------------------------------------------------
 
+
 def test_serialize_none_and_empty_string_are_equal():
     from src.tradelens.services.corrections import _serialize
+
     assert _serialize(None) == _serialize("")
     assert _serialize(None) is None
 
 
 def test_serialize_list_is_stable_json():
     from src.tradelens.services.corrections import _serialize
+
     result = _serialize([{"b": 2, "a": 1}])
     parsed = json.loads(result)
     assert parsed == [{"b": 2, "a": 1}]
@@ -62,6 +75,7 @@ def test_serialize_list_is_stable_json():
 
 def test_serialize_dict_sort_keys():
     from src.tradelens.services.corrections import _serialize
+
     r1 = _serialize({"z": 1, "a": 2})
     r2 = _serialize({"a": 2, "z": 1})
     assert r1 == r2  # stable regardless of insertion order
@@ -71,8 +85,10 @@ def test_serialize_dict_sort_keys():
 # record_correction
 # ---------------------------------------------------------------------------
 
+
 def test_record_writes_when_values_differ(in_memory_db, sample_ids):
     from src.tradelens.services.corrections import record_correction
+
     trade_id, analysis_id = sample_ids
 
     result = record_correction(trade_id, analysis_id, "bias", "bullish", "bearish")
@@ -91,6 +107,7 @@ def test_record_writes_when_values_differ(in_memory_db, sample_ids):
 
 def test_record_no_write_when_values_equal(in_memory_db, sample_ids):
     from src.tradelens.services.corrections import record_correction
+
     trade_id, analysis_id = sample_ids
 
     result = record_correction(trade_id, analysis_id, "bias", "bullish", "bullish")
@@ -105,9 +122,12 @@ def test_record_no_write_when_values_equal(in_memory_db, sample_ids):
 
 def test_record_none_vs_value_writes_row(in_memory_db, sample_ids):
     from src.tradelens.services.corrections import record_correction
+
     trade_id, analysis_id = sample_ids
 
-    result = record_correction(trade_id, analysis_id, "detected_setup", None, "Order Block")
+    result = record_correction(
+        trade_id, analysis_id, "detected_setup", None, "Order Block"
+    )
 
     assert result is not None
     assert result.ai_value is None
@@ -116,6 +136,7 @@ def test_record_none_vs_value_writes_row(in_memory_db, sample_ids):
 
 def test_record_value_vs_none_writes_row(in_memory_db, sample_ids):
     from src.tradelens.services.corrections import record_correction
+
     trade_id, analysis_id = sample_ids
 
     result = record_correction(trade_id, analysis_id, "detected_setup", "FVG", None)
@@ -127,6 +148,7 @@ def test_record_value_vs_none_writes_row(in_memory_db, sample_ids):
 
 def test_record_none_vs_none_no_write(in_memory_db, sample_ids):
     from src.tradelens.services.corrections import record_correction
+
     trade_id, analysis_id = sample_ids
 
     result = record_correction(trade_id, analysis_id, "detected_setup", None, None)
@@ -137,6 +159,7 @@ def test_record_none_vs_none_no_write(in_memory_db, sample_ids):
 def test_record_empty_string_vs_none_no_write(in_memory_db, sample_ids):
     """Empty string and None are treated as equivalent — no spurious row."""
     from src.tradelens.services.corrections import record_correction
+
     trade_id, analysis_id = sample_ids
 
     result = record_correction(trade_id, analysis_id, "detected_setup", "", None)
@@ -146,6 +169,7 @@ def test_record_empty_string_vs_none_no_write(in_memory_db, sample_ids):
 
 def test_record_dict_serialized_as_stable_json(in_memory_db, sample_ids):
     from src.tradelens.services.corrections import record_correction
+
     trade_id, analysis_id = sample_ids
 
     ai_val = {"score": 7, "grade": "B"}
@@ -160,10 +184,13 @@ def test_record_dict_serialized_as_stable_json(in_memory_db, sample_ids):
 def test_record_equivalent_dicts_no_write(in_memory_db, sample_ids):
     """Two dicts with same content but different key order → no write."""
     from src.tradelens.services.corrections import record_correction
+
     trade_id, analysis_id = sample_ids
 
     result = record_correction(
-        trade_id, analysis_id, "grading",
+        trade_id,
+        analysis_id,
+        "grading",
         {"b": 2, "a": 1},
         {"a": 1, "b": 2},
     )
@@ -173,6 +200,7 @@ def test_record_equivalent_dicts_no_write(in_memory_db, sample_ids):
 
 def test_record_grade_field(in_memory_db, sample_ids):
     from src.tradelens.services.corrections import record_correction
+
     trade_id, analysis_id = sample_ids
 
     result = record_correction(trade_id, analysis_id, "grade", "B", "A")
@@ -187,8 +215,13 @@ def test_record_grade_field(in_memory_db, sample_ids):
 # get_recent_corrections
 # ---------------------------------------------------------------------------
 
+
 def test_get_recent_corrections_returns_dicts(in_memory_db, sample_ids):
-    from src.tradelens.services.corrections import get_recent_corrections, record_correction
+    from src.tradelens.services.corrections import (
+        get_recent_corrections,
+        record_correction,
+    )
+
     trade_id, analysis_id = sample_ids
 
     record_correction(trade_id, analysis_id, "bias", "bullish", "bearish")
@@ -203,7 +236,11 @@ def test_get_recent_corrections_returns_dicts(in_memory_db, sample_ids):
 
 
 def test_get_recent_corrections_respects_limit(in_memory_db, sample_ids):
-    from src.tradelens.services.corrections import get_recent_corrections, record_correction
+    from src.tradelens.services.corrections import (
+        get_recent_corrections,
+        record_correction,
+    )
+
     trade_id, analysis_id = sample_ids
 
     for i in range(5):
@@ -217,10 +254,13 @@ def test_get_recent_corrections_respects_limit(in_memory_db, sample_ids):
 # metrics_store.get_computed_at
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def pm_db(monkeypatch):
     """In-memory DB fixture patched onto metrics_store.SessionLocal."""
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(engine)
     TestSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr(metrics_store, "SessionLocal", TestSession)
@@ -229,6 +269,7 @@ def pm_db(monkeypatch):
 
 def test_get_computed_at_returns_none_when_no_row(pm_db):
     from src.tradelens.services.metrics_store import get_computed_at
+
     assert get_computed_at(user_id=1) is None
 
 
@@ -247,6 +288,7 @@ def test_get_computed_at_returns_correct_timestamp(pm_db):
 # build_correction_few_shot (Week 5 Phase 5)
 # ---------------------------------------------------------------------------
 
+
 def test_build_few_shot_empty_returns_empty_string(monkeypatch):
     from src.tradelens.services import corrections
 
@@ -260,8 +302,9 @@ def test_build_few_shot_limit_zero_returns_empty(monkeypatch):
     monkeypatch.setattr(
         corrections,
         "get_recent_corrections",
-        lambda **k: [{"field": "bias", "user_value": "x", "ai_value": "y",
-                      "user_reason": None}],
+        lambda **k: [
+            {"field": "bias", "user_value": "x", "ai_value": "y", "user_reason": None}
+        ],
     )
     assert corrections.build_correction_few_shot(limit=0) == ""
 
@@ -270,14 +313,30 @@ def test_build_few_shot_orders_most_repeated_first(monkeypatch):
     from src.tradelens.services import corrections
 
     pool = [
-        {"field": "setup_type", "user_value": "FVG", "ai_value": "OB",
-         "user_reason": None},  # most recent, but only once
-        {"field": "bias", "user_value": "bearish", "ai_value": "bullish",
-         "user_reason": None},
-        {"field": "bias", "user_value": "bearish", "ai_value": "bullish",
-         "user_reason": None},
-        {"field": "bias", "user_value": "bearish", "ai_value": "bullish",
-         "user_reason": None},
+        {
+            "field": "setup_type",
+            "user_value": "FVG",
+            "ai_value": "OB",
+            "user_reason": None,
+        },  # most recent, but only once
+        {
+            "field": "bias",
+            "user_value": "bearish",
+            "ai_value": "bullish",
+            "user_reason": None,
+        },
+        {
+            "field": "bias",
+            "user_value": "bearish",
+            "ai_value": "bullish",
+            "user_reason": None,
+        },
+        {
+            "field": "bias",
+            "user_value": "bearish",
+            "ai_value": "bullish",
+            "user_reason": None,
+        },
     ]
     monkeypatch.setattr(corrections, "get_recent_corrections", lambda **k: pool)
 
@@ -293,8 +352,12 @@ def test_build_few_shot_respects_token_budget(monkeypatch):
     from src.tradelens.services import corrections
 
     pool = [
-        {"field": f"field_{i}", "user_value": "X" * 150, "ai_value": "Y" * 150,
-         "user_reason": None}
+        {
+            "field": f"field_{i}",
+            "user_value": "X" * 150,
+            "ai_value": "Y" * 150,
+            "user_reason": None,
+        }
         for i in range(100)
     ]
     monkeypatch.setattr(corrections, "get_recent_corrections", lambda **k: pool)
@@ -307,6 +370,7 @@ def test_build_few_shot_respects_token_budget(monkeypatch):
 # ---------------------------------------------------------------------------
 # count_corrections / repeated_corrections (Week 5 Phase 5)
 # ---------------------------------------------------------------------------
+
 
 def test_count_corrections(in_memory_db, sample_ids):
     from src.tradelens.services.corrections import count_corrections, record_correction

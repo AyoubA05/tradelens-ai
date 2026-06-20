@@ -18,7 +18,13 @@ import json
 
 import pandas as pd
 
-from src.tradelens.services.ai_client import AIUnavailable, Usage, chat, load_prompt
+from src.tradelens.services.ai_client import (
+    AIUnavailable,
+    Usage,
+    chat,
+    load_prompt,
+    parse_ai_json,
+)
 from src.tradelens.services.metrics import (
     compute_breakdown,
     compute_streaks,
@@ -111,17 +117,7 @@ def _parse_cards(content: str) -> list:
     Tolerates a ```json fence and accepts either a {"patterns": [...]} object or
     a bare list. Raises PatternError on anything that is not valid JSON.
     """
-    text = content.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-        if text.rstrip().endswith("```"):
-            text = text.rstrip()[:-3]
-        text = text.strip()
-
-    try:
-        data = json.loads(text)
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise PatternError(f"Pattern response is not valid JSON: {exc}") from exc
+    data = parse_ai_json(content)
 
     if isinstance(data, dict):
         cards = data.get("patterns", [])

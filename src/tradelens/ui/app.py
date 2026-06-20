@@ -58,18 +58,20 @@ if not trades:
     st.info("No trades yet. Log your first trade on the New Trade page.")
     st.stop()
 
-df = pd.DataFrame([
-    {
-        "trade_date":  t.trade_date,
-        "asset":       t.asset,
-        "direction":   t.direction,
-        "result":      t.result,
-        "pnl":         t.pnl,
-        "rr_realized": t.rr_realized,
-        "setup_type":  t.setup_type,
-    }
-    for t in trades
-])
+df = pd.DataFrame(
+    [
+        {
+            "trade_date": t.trade_date,
+            "asset": t.asset,
+            "direction": t.direction,
+            "result": t.result,
+            "pnl": t.pnl,
+            "rr_realized": t.rr_realized,
+            "setup_type": t.setup_type,
+        }
+        for t in trades
+    ]
+)
 
 # Drop rows with no trade_date — old test rows without a date set
 df = df[df["trade_date"].notna() & (df["trade_date"] != "")]
@@ -82,10 +84,10 @@ m = compute_basic_metrics(df)
 
 # ── KPI cards ─────────────────────────────────────────────────────
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("Total P/L",      f"${m['total_pnl']:,.2f}")
-k2.metric("Win Rate",       f"{m['win_rate']:.1%}")
-k3.metric("Total Trades",   m["total_trades"])
-k4.metric("Profit Factor",  f"{m['profit_factor']:.2f}")
+k1.metric("Total P/L", f"${m['total_pnl']:,.2f}")
+k2.metric("Win Rate", f"{m['win_rate']:.1%}")
+k3.metric("Total Trades", m["total_trades"])
+k4.metric("Profit Factor", f"{m['profit_factor']:.2f}")
 
 st.markdown("")
 
@@ -96,15 +98,17 @@ eq = compute_equity_curve(df)
 
 if not eq.empty:
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=eq["trade_date"],
-        y=eq["cumulative_pnl"],
-        mode="lines",
-        fill="tozeroy",
-        line=dict(color="#20808D", width=2),
-        fillcolor="rgba(32, 128, 141, 0.12)",
-        hovertemplate="Date: %{x}<br>Cumulative P/L: $%{y:,.2f}<extra></extra>",
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=eq["trade_date"],
+            y=eq["cumulative_pnl"],
+            mode="lines",
+            fill="tozeroy",
+            line=dict(color="#20808D", width=2),
+            fillcolor="rgba(32, 128, 141, 0.12)",
+            hovertemplate="Date: %{x}<br>Cumulative P/L: $%{y:,.2f}<extra></extra>",
+        )
+    )
     fig.add_hline(
         y=0,
         line_dash="dash",
@@ -135,13 +139,15 @@ st.subheader("Recent Trades")
 recent = get_last_n_trades(df, 5)
 RECENT_COLS = ["trade_date", "asset", "direction", "result", "pnl", "setup_type"]
 recent_display = recent[[c for c in RECENT_COLS if c in recent.columns]]
-recent_display = recent_display.rename(columns={
-    "trade_date": "Date",
-    "asset":      "Asset",
-    "direction":  "Direction",
-    "result":     "Result",
-    "pnl":        "P&L ($)",
-    "setup_type": "Setup",
-})
+recent_display = recent_display.rename(
+    columns={
+        "trade_date": "Date",
+        "asset": "Asset",
+        "direction": "Direction",
+        "result": "Result",
+        "pnl": "P&L ($)",
+        "setup_type": "Setup",
+    }
+)
 
 st.dataframe(recent_display, use_container_width=True, hide_index=True)
