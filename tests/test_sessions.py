@@ -39,94 +39,32 @@ def _utc(year, month, day, hour, minute=0, second=0):
 class TestKillzoneBoundaries:
     """Parameterised boundary checks (entry, interior, exit, just-outside)."""
 
-    # Each tuple: (utc_datetime, expected_killzone_or_None, label)
-    # Dates use 2025-01-15 (EST, UTC-5) so windows are: UTC = ET + 5
-    #   asia:         20:00-23:59 ET  → 01:00-04:59 UTC next day
-    #   london_open:  02:00-04:59 ET  → 07:00-09:59 UTC
-    #   ny_am:        07:00-09:59 ET  → 12:00-14:59 UTC
-    #   ny_lunch:     12:00-12:59 ET  → 17:00-17:59 UTC
-    #   ny_pm:        13:30-15:59 ET  → 18:30-20:59 UTC
-
     CASES = [
-        # asia entry boundary
         (_utc(2025, 1, 16, 1, 0), "asia", "asia: entry 01:00 UTC (20:00 EST)"),
         (_utc(2025, 1, 16, 2, 0), "asia", "asia: interior 02:00 UTC (21:00 EST)"),
         (_utc(2025, 1, 16, 4, 59), "asia", "asia: interior 04:59 UTC (23:59 EST)"),
         (_utc(2025, 1, 16, 0, 59), None, "asia: just before (00:59 UTC = 19:59 EST)"),
-        # london_open
-        (
-            _utc(2025, 1, 15, 7, 0),
-            "london_open",
-            "london_open: entry 07:00 UTC (02:00 EST)",
-        ),
-        (
-            _utc(2025, 1, 15, 8, 30),
-            "london_open",
-            "london_open: interior 08:30 UTC (03:30 EST)",
-        ),
-        (
-            _utc(2025, 1, 15, 9, 59),
-            "london_open",
-            "london_open: last minute 09:59 UTC (04:59 EST)",
-        ),
-        (
-            _utc(2025, 1, 15, 6, 59),
-            None,
-            "london_open: just before 06:59 UTC (01:59 EST)",
-        ),
-        (
-            _utc(2025, 1, 15, 10, 0),
-            None,
-            "london_open: just after 10:00 UTC (05:00 EST)",
-        ),
-        # ny_am
+        (_utc(2025, 1, 15, 7, 0), "london_open", "london_open: entry 07:00 UTC (02:00 EST)"),
+        (_utc(2025, 1, 15, 8, 30), "london_open", "london_open: interior 08:30 UTC (03:30 EST)"),
+        (_utc(2025, 1, 15, 9, 59), "london_open", "london_open: last minute 09:59 UTC (04:59 EST)"),
+        (_utc(2025, 1, 15, 6, 59), None, "london_open: just before 06:59 UTC (01:59 EST)"),
+        (_utc(2025, 1, 15, 10, 0), None, "london_open: just after 10:00 UTC (05:00 EST)"),
         (_utc(2025, 1, 15, 12, 0), "ny_am", "ny_am: entry 12:00 UTC (07:00 EST)"),
         (_utc(2025, 1, 15, 13, 30), "ny_am", "ny_am: interior 13:30 UTC (08:30 EST)"),
-        (
-            _utc(2025, 1, 15, 14, 59),
-            "ny_am",
-            "ny_am: last minute 14:59 UTC (09:59 EST)",
-        ),
+        (_utc(2025, 1, 15, 14, 59), "ny_am", "ny_am: last minute 14:59 UTC (09:59 EST)"),
         (_utc(2025, 1, 15, 11, 59), None, "ny_am: just before 11:59 UTC (06:59 EST)"),
         (_utc(2025, 1, 15, 15, 0), None, "ny_am: just after 15:00 UTC (10:00 EST)"),
-        # ny_lunch
         (_utc(2025, 1, 15, 17, 0), "ny_lunch", "ny_lunch: entry 17:00 UTC (12:00 EST)"),
-        (
-            _utc(2025, 1, 15, 17, 30),
-            "ny_lunch",
-            "ny_lunch: interior 17:30 UTC (12:30 EST)",
-        ),
-        (
-            _utc(2025, 1, 15, 17, 59),
-            "ny_lunch",
-            "ny_lunch: last minute 17:59 UTC (12:59 EST)",
-        ),
-        (
-            _utc(2025, 1, 15, 16, 59),
-            None,
-            "ny_lunch: just before 16:59 UTC (11:59 EST)",
-        ),
-        (
-            _utc(2025, 1, 15, 18, 0),
-            None,
-            "ny_lunch: just after 18:00 UTC (13:00 EST) — gap before ny_pm",
-        ),
-        # ny_pm
+        (_utc(2025, 1, 15, 17, 30), "ny_lunch", "ny_lunch: interior 17:30 UTC (12:30 EST)"),
+        (_utc(2025, 1, 15, 17, 59), "ny_lunch", "ny_lunch: last minute 17:59 UTC (12:59 EST)"),
+        (_utc(2025, 1, 15, 16, 59), None, "ny_lunch: just before 16:59 UTC (11:59 EST)"),
+        (_utc(2025, 1, 15, 18, 0), None, "ny_lunch: just after 18:00 UTC (13:00 EST) — gap before ny_pm"),
         (_utc(2025, 1, 15, 18, 30), "ny_pm", "ny_pm: entry 18:30 UTC (13:30 EST)"),
         (_utc(2025, 1, 15, 19, 30), "ny_pm", "ny_pm: interior 19:30 UTC (14:30 EST)"),
-        (
-            _utc(2025, 1, 15, 20, 59),
-            "ny_pm",
-            "ny_pm: last minute 20:59 UTC (15:59 EST)",
-        ),
+        (_utc(2025, 1, 15, 20, 59), "ny_pm", "ny_pm: last minute 20:59 UTC (15:59 EST)"),
         (_utc(2025, 1, 15, 18, 29), None, "ny_pm: just before 18:29 UTC (13:29 EST)"),
         (_utc(2025, 1, 15, 21, 0), None, "ny_pm: just after 21:00 UTC (16:00 EST)"),
-        # off-session (midday gap and after close)
-        (
-            _utc(2025, 1, 15, 21, 0),
-            None,
-            "off: 21:00 UTC (16:00 EST) after ny_pm close",
-        ),
+        (_utc(2025, 1, 15, 21, 0), None, "off: 21:00 UTC (16:00 EST) after ny_pm close"),
         (_utc(2025, 1, 15, 11, 0), None, "off: 11:00 UTC (06:00 EST) before ny_am"),
     ]
 
@@ -144,25 +82,18 @@ class TestDSTFlip:
     """On DST flip day, UTC offsets shift from -5 (EST) to -4 (EDT) at 07:00 UTC."""
 
     def test_before_dst_transition_london_open(self):
-        # 06:30 UTC = 01:30 EST → off (before london_open starts at 02:00 ET)
         dt = _utc(2025, 3, 9, 6, 30)
         assert assign_killzone(dt) is None
 
     def test_dst_transition_moment_london_open(self):
-        # 07:00 UTC: clocks spring from 02:00 EST → 03:00 EDT
-        # zoneinfo renders this as 03:00 EDT → inside london_open (02:00-04:59 ET)
         dt = _utc(2025, 3, 9, 7, 0)
         assert assign_killzone(dt) == "london_open"
 
     def test_after_dst_ny_am(self):
-        # 11:00 UTC = 07:00 EDT (EDT = UTC-4) → ny_am
         dt = _utc(2025, 3, 9, 11, 0)
         assert assign_killzone(dt) == "ny_am"
 
     def test_after_dst_ny_am_would_be_wrong_with_fixed_est(self):
-        # With a naive UTC-5 offset, 11:00 UTC = 06:00 EST → off-session
-        # With correct zoneinfo DST, 11:00 UTC = 07:00 EDT → ny_am
-        # This confirms DST is handled correctly
         dt = _utc(2025, 3, 9, 11, 0)
         result = assign_killzone(dt)
         assert result == "ny_am", (
@@ -171,21 +102,17 @@ class TestDSTFlip:
         )
 
     def test_winter_ny_am_needs_extra_hour(self):
-        # In January (EST, UTC-5): ny_am 07:00 ET = 12:00 UTC
         dt_winter = _utc(2025, 1, 15, 12, 0)
-        # In summer (EDT, UTC-4): ny_am 07:00 ET = 11:00 UTC
         dt_summer = _utc(2025, 6, 15, 11, 0)
         assert assign_killzone(dt_winter) == "ny_am"
         assert assign_killzone(dt_summer) == "ny_am"
 
     def test_naive_datetime_assumed_utc(self):
-        # Naive datetime (no tzinfo) is treated as UTC by default
-        naive_dt = datetime(2025, 1, 15, 12, 0)  # 12:00 = 07:00 EST = ny_am
+        naive_dt = datetime(2025, 1, 15, 12, 0)
         assert assign_killzone(naive_dt) == "ny_am"
 
     def test_tz_override(self):
-        # Pass Eastern time directly via tz parameter
-        et_naive = datetime(2025, 1, 15, 7, 0)  # 07:00 ET = ny_am
+        et_naive = datetime(2025, 1, 15, 7, 0)
         assert assign_killzone(et_naive, tz="America/New_York") == "ny_am"
 
 
@@ -209,19 +136,15 @@ EXPECTED_SMC_COLS = [
 
 
 def test_migration_columns_present():
-    """alembic upgrade head must have added all 11 SMC/ICT columns."""
-    from src.tradelens.db.session import engine
-
+    """All 11 SMC/ICT columns must exist in the Trade model schema."""
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
+    Base.metadata.create_all(bind=engine)
     insp = inspect(engine)
     cols = {c["name"] for c in insp.get_columns("trades")}
     missing = [c for c in EXPECTED_SMC_COLS if c not in cols]
-    assert not missing, f"Missing columns after migration: {missing}"
-
-
-# Migration idempotency + downgrade reversibility are covered in isolation by
-# tests/test_migrations.py (throwaway temp DB, no alembic-CLI dependency, no
-# mutation of the real dev DB). The previous subprocess-based variants relied on
-# `alembic` being on PATH and asserted the now-removed SQLite no-op downgrade.
+    assert not missing, f"Missing columns in Trade model: {missing}"
 
 
 # ---------------------------------------------------------------------------
@@ -277,12 +200,10 @@ def test_v2_json_has_all_new_keys():
 def test_v1_json_missing_new_keys_handled_gracefully():
     """Code consuming vision output must handle v1 responses that lack v2 keys."""
     data = _make_v1_response()
-    # Simulate a consumer using .get() with a default
     assert data.get("htf_bias") is None
     assert data.get("liquidity_sweep") is None
     assert data.get("fvg_used") is None
     assert data.get("order_block_used") is None
-    # v1 already has bos and choch
     assert data.get("bos") is True
     assert data.get("choch") is False
 
@@ -321,7 +242,6 @@ def seeded_db():
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
-    # Patch SessionLocal in both trade_service and seed so they share the in-memory DB
     import scripts.seed as _seed_mod
 
     original_ts = _ts.SessionLocal
@@ -356,9 +276,7 @@ def test_seed_no_nulls_on_smc_fields(seeded_db, col):
         null_count = db.execute(
             text(f"SELECT COUNT(*) FROM trades WHERE {col} IS NULL")
         ).scalar()
-        assert (
-            null_count == 0
-        ), f"Column {col!r} has {null_count} NULL rows after seeding"
+        assert null_count == 0, f"Column {col!r} has {null_count} NULL rows after seeding"
     finally:
         db.close()
 
@@ -392,8 +310,6 @@ def test_seed_mistake_tags_are_valid_json(seeded_db):
         for (tags,) in rows:
             if tags is not None:
                 parsed = json.loads(tags)
-                assert isinstance(
-                    parsed, list
-                ), f"mistake_tags is not a JSON list: {tags!r}"
+                assert isinstance(parsed, list), f"mistake_tags is not a JSON list: {tags!r}"
     finally:
         db.close()
