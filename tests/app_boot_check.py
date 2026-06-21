@@ -7,6 +7,14 @@ realizes "env var before import": DATABASE_URL is set in the child's environment
 before any src.tradelens module is imported, so the engine binds to the tmp DB
 with no post-import SessionLocal monkeypatching.
 
+⚠️  DO NOT "optimize" this back into an in-process pytest fixture (e.g. setting
+DATABASE_URL then purging src.tradelens.* from sys.modules and re-importing).
+That is a known Streamlit-testing trap: reloading the package mid-suite creates a
+SECOND copy of ai_client, so every downstream `isinstance(x, AIUnavailable)`
+check in other test files (which bound those symbols at collection time) fails.
+We measured 34–47 spurious failures doing exactly that. A subprocess is the
+correct, suite-safe isolation boundary. Keep it.
+
 Usage:
     DATABASE_URL=sqlite:///<tmp> python app_boot_check.py <root> <app> <marker> <0|1>
 
