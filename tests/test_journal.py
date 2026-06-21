@@ -180,7 +180,9 @@ def test_generate_journal_strategy_aware():
 
     captured_messages = {}
 
-    def fake_chat(user_message, system_message="", model=None, response_format=None):
+    def fake_chat(
+        user_message, system_message="", model=None, response_format=None, **kwargs
+    ):
         captured_messages["user"] = user_message
         return _full_journal(), _make_usage()
 
@@ -208,7 +210,9 @@ def test_generate_journal_no_strategy_fallback():
 
     captured_messages = {}
 
-    def fake_chat(user_message, system_message="", model=None, response_format=None):
+    def fake_chat(
+        user_message, system_message="", model=None, response_format=None, **kwargs
+    ):
         captured_messages["user"] = user_message
         return _full_journal(), _make_usage()
 

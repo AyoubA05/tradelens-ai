@@ -11,12 +11,15 @@ import datetime  # noqa: E402
 import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 
+from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
+from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import empty_state, section_header  # noqa: E402
 
 st.set_page_config(page_title="Trade Journal")
 inject_css()
+render_demo_banner()
 st.markdown(section_header("Trade Journal"), unsafe_allow_html=True)
 
 # --- Filter row ---
@@ -48,18 +51,7 @@ trades = get_trades(
     session=session_filter,
 )
 
-if not trades:
-    st.markdown(
-        empty_state(
-            "No trades match these filters — widen the date range or log a trade.",
-            cta_label="Log a trade",
-            cta_href="/NewTrade",
-        ),
-        unsafe_allow_html=True,
-    )
-    st.stop()
-
-# --- Build DataFrame ---
+# --- Build DataFrame (from logged trades, or synthetic demo data) ---
 DISPLAY_COLS = [
     "trade_date",
     "asset",
@@ -74,9 +66,8 @@ DISPLAY_COLS = [
     "notes",
 ]
 
-rows = []
-for t in trades:
-    rows.append(
+if trades:
+    rows = [
         {
             "trade_date": t.trade_date,
             "asset": t.asset,
@@ -90,9 +81,24 @@ for t in trades:
             "strategy_used": t.strategy_used,
             "notes": (t.notes or "")[:40] if t.notes else "",
         }
+        for t in trades
+    ]
+    df = pd.DataFrame(rows, columns=DISPLAY_COLS)
+elif is_demo():
+    ddf = get_demo_df()
+    ddf["grade"] = ddf["user_grade"].fillna(ddf["ai_grade"]).fillna("—")
+    ddf["notes"] = ""
+    df = ddf[DISPLAY_COLS].copy()
+else:
+    st.markdown(
+        empty_state(
+            "No trades match these filters — widen the date range or log a trade.",
+            cta_label="Log a trade",
+            cta_href="/NewTrade",
+        ),
+        unsafe_allow_html=True,
     )
-
-df = pd.DataFrame(rows, columns=DISPLAY_COLS)
+    st.stop()
 
 # --- Summary line ---
 total_pnl = df["pnl"].sum()

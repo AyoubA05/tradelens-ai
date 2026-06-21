@@ -30,12 +30,14 @@ from src.tradelens.services.metrics import (  # noqa: E402
     split_periods,
     trade_of_the_week,
 )
+from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
 from src.tradelens.services.trade_service import (  # noqa: E402
     get_primary_screenshot,
     get_trades,
 )
 from src.tradelens.ui.components.charts import equity_curve_chart  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
+from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.theme import PLOTLY_TEMPLATE, inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import (  # noqa: E402
     empty_state,
@@ -50,6 +52,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 inject_css()
+render_demo_banner()
 
 _DF_COLS = [
     "id",
@@ -118,6 +121,10 @@ def _fmt_pf(pf) -> str:
 
 # ── Load data ─────────────────────────────────────────────────────
 df = _load_df()
+
+# DEMO_MODE on a cold/empty DB: show rich synthetic data so the app is alive.
+if df.empty and is_demo():
+    df = get_demo_df()
 
 with st.sidebar:
     render_sidebar(df if not df.empty else None)

@@ -16,6 +16,7 @@ from src.tradelens.services.ai_client import (
     parse_ai_json,
     vision,
 )
+from src.tradelens.services.demo import is_demo, load_demo_fixture
 
 _SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
@@ -122,11 +123,21 @@ def analyze_screenshot(
         "Analyze the chart screenshot above and return the JSON object as instructed."
     )
 
+    # DEMO_MODE: serve a cached fixture (trade-keyed, then default) so the demo
+    # renders real analysis with zero API spend. ai_client short-circuits on it.
+    demo_resp = None
+    if is_demo():
+        demo_resp = (
+            load_demo_fixture("vision", (trade_ctx or {}).get("id"))
+            or '{"bias": "neutral", "trade_quality": 5}'
+        )
+
     raw, usage = vision(
         image_path=path,
         user_message=user_message,
         system_message=system_message,
         response_format={"type": "json_object"},
+        demo_response=demo_resp,
     )
 
     if isinstance(raw, AIUnavailable):

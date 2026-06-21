@@ -32,6 +32,7 @@ from src.tradelens.services.metrics import (  # noqa: E402
     r_multiple_distribution,
     total_edge_leak,
 )
+from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
 from src.tradelens.services.patterns import PatternError, detect_patterns  # noqa: E402
 from src.tradelens.services.strategy import append_insight  # noqa: E402
 from src.tradelens.ui.components.charts import (  # noqa: E402
@@ -44,11 +45,13 @@ from src.tradelens.ui.components.charts import (  # noqa: E402
     setup_breakdown_chart,
     win_rate_by_dow_chart,
 )
+from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import empty_state, section_header  # noqa: E402
 
 st.set_page_config(page_title="Analytics", layout="wide")
 inject_css()
+render_demo_banner()
 st.markdown(section_header("Analytics"), unsafe_allow_html=True)
 
 # --- Sidebar: date range (loaded before trades so the date range drives the query) ---
@@ -109,6 +112,10 @@ def _load_df(start: str, end: str) -> pd.DataFrame:
 
 
 df_raw = _load_df(str(start_date), str(end_date))
+
+# DEMO_MODE on a cold/empty DB: show rich synthetic data so analytics is alive.
+if df_raw.empty and is_demo():
+    df_raw = get_demo_df()
 
 # --- Empty state: no trades logged at all ---
 if df_raw.empty:

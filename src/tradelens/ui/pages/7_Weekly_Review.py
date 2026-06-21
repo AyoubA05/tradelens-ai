@@ -17,11 +17,13 @@ from src.tradelens.services.weekly import (  # noqa: E402
     save_weekly_review,
     week_bounds,
 )
+from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import empty_state, section_header  # noqa: E402
 
 st.set_page_config(page_title="Weekly Review", layout="wide")
 inject_css()
+render_demo_banner()
 st.markdown(
     section_header(
         "Weekly AI Review",

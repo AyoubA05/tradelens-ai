@@ -16,6 +16,23 @@ from src.tradelens.services.ai_client import (
     load_prompt,
     parse_ai_json,
 )
+from src.tradelens.services.demo import is_demo, load_demo_fixture
+
+# Minimal valid grading response used in DEMO_MODE if the fixture file is absent.
+_DEMO_GRADE_FALLBACK = json.dumps(
+    {
+        "grade": "B",
+        "score": 7,
+        "one_line_verdict": "Solid, disciplined execution.",
+        "rubric": {
+            "entry_quality": {"score": 7, "note": "Reasonable entry on the retest."},
+            "risk_management": {"score": 8, "note": "Risk defined and controlled."},
+            "exit_quality": {"score": 7, "note": "Acceptable exit management."},
+            "rule_adherence": {"score": 8, "note": "Followed the plan."},
+            "emotional_control": {"score": 8, "note": "Calm and patient."},
+        },
+    }
+)
 
 _REQUIRED_TOP_KEYS = {"grade", "score", "rubric", "one_line_verdict"}
 _REQUIRED_RUBRIC_DIMS = {
@@ -153,11 +170,17 @@ def grade_trade(
         "Grade this trade on process. Return the JSON grading object now."
     )
 
+    # DEMO_MODE: serve a cached grading fixture (zero API spend).
+    demo_resp = None
+    if is_demo():
+        demo_resp = load_demo_fixture("grade", trade.get("id")) or _DEMO_GRADE_FALLBACK
+
     content, usage = chat(
         user_message=user_message,
         system_message=system_message,
         model=settings.model_grading,
         response_format={"type": "json_object"},
+        demo_response=demo_resp,
     )
 
     if isinstance(content, AIUnavailable):

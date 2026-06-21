@@ -9,6 +9,19 @@ import json
 from typing import Optional
 
 from src.tradelens.services.ai_client import AIUnavailable, Usage, chat, load_prompt
+from src.tradelens.services.demo import is_demo, load_demo_fixture
+
+# Minimal valid 8-section journal used in DEMO_MODE if the fixture file is absent.
+_DEMO_JOURNAL_FALLBACK = (
+    "### Trade Summary\nDemo trade review.\n\n"
+    "### Market Bias\nBullish bias confirmed by structure.\n\n"
+    "### Strategy Used\nICT OB retest model.\n\n"
+    "### What Went Well\nPatient, planned entry with defined risk.\n\n"
+    "### What Went Wrong\nEntry slightly early before the FVG filled.\n\n"
+    "### Missed Opportunities\nNo scale-in on the retest.\n\n"
+    "### Emotional Review\nCalm and disciplined throughout.\n\n"
+    "### Improvement Plan\nAnchor entries to the completed FVG fill.\n"
+)
 
 _REQUIRED_SECTIONS = [
     "### Trade Summary",
@@ -145,9 +158,17 @@ def generate_journal(
         "Write the 8-section journal entry now."
     )
 
+    # DEMO_MODE: serve a cached journal fixture (zero API spend).
+    demo_resp = None
+    if is_demo():
+        demo_resp = (
+            load_demo_fixture("journal", trade.get("id")) or _DEMO_JOURNAL_FALLBACK
+        )
+
     content, usage = chat(
         user_message=user_message,
         system_message=system_message,
+        demo_response=demo_resp,
     )
 
     if isinstance(content, AIUnavailable):

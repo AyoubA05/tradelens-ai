@@ -1,0 +1,25 @@
+{
+  "default": {
+    "bias": "bullish",
+    "bias_confidence": 0.78,
+    "detected_timeframe": "15m",
+    "detected_asset": "NQ",
+    "structure": "Clean bullish structure: HH/HL after a London-session liquidity sweep, then a 15m BOS into a discount FVG.",
+    "bos": true,
+    "choch": false,
+    "key_zones": [
+      {"type": "order_block", "description": "Demand OB at the origin of the BOS leg", "approx_price": 19250.0, "confidence": 0.74},
+      {"type": "fvg", "description": "15m FVG filled on the retracement into entry", "approx_price": 19268.0, "confidence": 0.7}
+    ],
+    "matched_strategy": "ICT OB Strategy",
+    "matched_strategy_reason": "Sweep -> BOS -> FVG/OB retest aligns with the active profile's entry model.",
+    "possible_mistakes": ["Entry taken slightly before the FVG fully filled"],
+    "missed_opportunities": ["Could have scaled in on the OB retest for a better average"],
+    "trade_quality": 7,
+    "notes_to_user": "Solid read of structure. Tighten entry timing to the FVG fill and the process is repeatable.",
+    "htf_bias": "bullish",
+    "liquidity_sweep": true,
+    "fvg_used": true,
+    "order_block_used": true
+  }
+}

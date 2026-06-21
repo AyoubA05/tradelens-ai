@@ -200,7 +200,9 @@ def test_grade_no_strategy_uses_fallback():
 
     captured = {}
 
-    def fake_chat(user_message, system_message="", model=None, response_format=None):
+    def fake_chat(
+        user_message, system_message="", model=None, response_format=None, **kwargs
+    ):
         captured["user"] = user_message
         return json.dumps(_make_grading()), _make_usage()
 

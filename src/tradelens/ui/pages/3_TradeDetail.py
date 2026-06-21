@@ -40,6 +40,7 @@ from src.tradelens.services.vision import (  # noqa: E402
 from src.tradelens.ui.components.corrections_sidebar import (  # noqa: E402
     render_corrections_sidebar,
 )
+from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import (  # noqa: E402
     empty_state,
@@ -49,6 +50,7 @@ from src.tradelens.ui.components.ui import (  # noqa: E402
 
 st.set_page_config(page_title="Trade Detail", layout="wide")
 inject_css()
+render_demo_banner()
 st.markdown(section_header("Trade Detail"), unsafe_allow_html=True)
 
 render_corrections_sidebar()

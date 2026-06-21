@@ -20,6 +20,7 @@ PAGES_DIR = ROOT / "src" / "tradelens" / "ui" / "pages"
 RUNNER = ROOT / "tests" / "app_boot_check.py"
 
 ALL_PAGES = [
+    "0_Home.py",
     "1_NewTrade.py",
     "2_Trades.py",
     "3_TradeDetail.py",

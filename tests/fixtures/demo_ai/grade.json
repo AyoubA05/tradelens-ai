@@ -1,0 +1,14 @@
+{
+  "default": {
+    "grade": "B+",
+    "score": 8,
+    "one_line_verdict": "Disciplined execution on a valid setup; minor entry-timing slack cost a tighter stop.",
+    "rubric": {
+      "entry_quality": {"score": 8, "note": "Entered on the FVG retest after a clean BOS — in line with the plan."},
+      "risk_management": {"score": 8, "note": "Stop defined before entry behind the OB; risk held under 1%."},
+      "exit_quality": {"score": 7, "note": "Took partial at 1:1 and ran a runner; could have trailed more patiently."},
+      "rule_adherence": {"score": 9, "note": "Followed the strategy's sweep -> BOS -> FVG sequence with confirmation."},
+      "emotional_control": {"score": 8, "note": "No revenge or FOMO behavior; waited for the setup."}
+    }
+  }
+}

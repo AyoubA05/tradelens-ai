@@ -1,0 +1,22 @@
+{
+  "default": {
+    "patterns": [
+      {
+        "insight": "Your NY AM killzone trades materially outperform every other session.",
+        "evidence_stat": "NY AM win rate 68% vs 47% in all other killzones",
+        "sample_size": 22,
+        "confidence": "high",
+        "impact": "high",
+        "suggested_rule": "Concentrate primary risk in the NY AM killzone; treat other sessions as B-setups."
+      },
+      {
+        "insight": "Trades flagged with an early-entry mistake are where your edge leaks.",
+        "evidence_stat": "Early-entry trades net -$310 vs +$190 average for clean entries",
+        "sample_size": 7,
+        "confidence": "medium",
+        "impact": "medium",
+        "suggested_rule": "Require the FVG to fully fill before entry; no early fills."
+      }
+    ]
+  }
+}

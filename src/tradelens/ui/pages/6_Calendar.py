@@ -12,9 +12,11 @@ import datetime  # noqa: E402
 import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 
+from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
 from src.tradelens.services.metrics import calendar_daily_pnl  # noqa: E402
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
 from src.tradelens.ui.components.charts import calendar_heatmap_chart  # noqa: E402
+from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import (  # noqa: E402
     empty_state,
@@ -24,6 +26,7 @@ from src.tradelens.ui.components.ui import (  # noqa: E402
 
 st.set_page_config(page_title="Calendar", layout="wide")
 inject_css()
+render_demo_banner()
 st.markdown(section_header("Trade Calendar"), unsafe_allow_html=True)
 
 
@@ -53,6 +56,10 @@ def _load_df() -> pd.DataFrame:
 
 
 df = _load_df()
+
+# DEMO_MODE on a cold/empty DB: show rich synthetic data so the calendar is alive.
+if df.empty and is_demo():
+    df = get_demo_df()
 
 if df.empty:
     st.markdown(
