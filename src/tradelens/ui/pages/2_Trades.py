@@ -12,10 +12,12 @@ import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
+from src.tradelens.ui.components.theme import inject_css  # noqa: E402
+from src.tradelens.ui.components.ui import empty_state, section_header  # noqa: E402
 
-st.set_page_config(page_title="Trade Journal", page_icon="📒")
-
-st.title("📒 Trade Journal")
+st.set_page_config(page_title="Trade Journal")
+inject_css()
+st.markdown(section_header("Trade Journal"), unsafe_allow_html=True)
 
 # --- Filter row ---
 col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
@@ -47,7 +49,14 @@ trades = get_trades(
 )
 
 if not trades:
-    st.info("No trades found. Log your first trade on the New Trade page.")
+    st.markdown(
+        empty_state(
+            "No trades match these filters — widen the date range or log a trade.",
+            cta_label="Log a trade",
+            cta_href="/NewTrade",
+        ),
+        unsafe_allow_html=True,
+    )
     st.stop()
 
 # --- Build DataFrame ---
@@ -56,9 +65,11 @@ DISPLAY_COLS = [
     "asset",
     "direction",
     "setup_type",
+    "killzone",
     "result",
     "pnl",
     "rr_realized",
+    "grade",
     "strategy_used",
     "notes",
 ]
@@ -71,9 +82,11 @@ for t in trades:
             "asset": t.asset,
             "direction": t.direction,
             "setup_type": t.setup_type,
+            "killzone": t.killzone,
             "result": t.result,
             "pnl": t.pnl if t.pnl is not None else 0.0,
             "rr_realized": t.rr_realized,
+            "grade": t.user_grade or t.ai_grade or "—",
             "strategy_used": t.strategy_used,
             "notes": (t.notes or "")[:40] if t.notes else "",
         }
@@ -99,15 +112,11 @@ col_cfg = {
     "asset": st.column_config.TextColumn("Asset"),
     "direction": st.column_config.TextColumn("Direction"),
     "setup_type": st.column_config.TextColumn("Setup"),
+    "killzone": st.column_config.TextColumn("Killzone"),
     "result": st.column_config.TextColumn("Result"),
-    "pnl": st.column_config.NumberColumn(
-        "P&L ($)",
-        format="$%.2f",
-    ),
-    "rr_realized": st.column_config.NumberColumn(
-        "RR Realized",
-        format="%.2fR",
-    ),
+    "pnl": st.column_config.NumberColumn("P&L ($)", format="$%.2f"),
+    "rr_realized": st.column_config.NumberColumn("RR Realized", format="%.2fR"),
+    "grade": st.column_config.TextColumn("Grade"),
     "strategy_used": st.column_config.TextColumn("Strategy"),
     "notes": st.column_config.TextColumn("Notes"),
 }

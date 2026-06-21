@@ -18,9 +18,15 @@ from src.tradelens.services.sessions import (
     assign_killzone,
 )  # noqa: E402
 from src.tradelens.services.trade_service import create_trade  # noqa: E402
+from src.tradelens.ui.components.theme import inject_css  # noqa: E402
+from src.tradelens.ui.components.ui import section_header  # noqa: E402
 
-st.set_page_config(page_title="New Trade", page_icon="📝")
-st.title("📝 New Trade")
+st.set_page_config(page_title="New Trade")
+inject_css()
+st.markdown(
+    section_header("New Trade", "Log a completed trade for review"),
+    unsafe_allow_html=True,
+)
 
 EMOTION_OPTIONS = [
     "Calm",
@@ -182,13 +188,27 @@ with st.form("new_trade_form"):
     # PSYCHOLOGY & NOTES  (collapsed)
     # ═══════════════════════════════════════════════════════════════
     with st.expander("Psychology & Notes", expanded=False):
-        em_col1, em_col2, em_col3 = st.columns(3)
-        with em_col1:
-            emotions_before = st.selectbox("Emotions Before", EMOTION_OPTIONS)
-        with em_col2:
-            emotions_during = st.selectbox("Emotions During", EMOTION_OPTIONS)
-        with em_col3:
-            emotions_after = st.selectbox("Emotions After", EMOTION_OPTIONS)
+        # Emotion picker: a clean chip row per phase (no emoji), writing the
+        # existing emotions_before/during/after columns. Defaults to "Neutral".
+        st.markdown("**Emotional state** — pick one per phase")
+        emotions_before = (
+            st.segmented_control(
+                "Before", EMOTION_OPTIONS, default="Neutral", key="emo_before"
+            )
+            or "Neutral"
+        )
+        emotions_during = (
+            st.segmented_control(
+                "During", EMOTION_OPTIONS, default="Neutral", key="emo_during"
+            )
+            or "Neutral"
+        )
+        emotions_after = (
+            st.segmented_control(
+                "After", EMOTION_OPTIONS, default="Neutral", key="emo_after"
+            )
+            or "Neutral"
+        )
         notes = st.text_area("Notes", height=120)
 
     # ── Screenshot upload (preview before submit) ─────────────────
@@ -197,7 +217,9 @@ with st.form("new_trade_form"):
         type=["png", "jpg", "jpeg"],
     )
     if screenshot_file is not None:
-        st.image(screenshot_file, caption="Uploaded screenshot", use_column_width=True)
+        st.image(
+            screenshot_file, caption="Uploaded screenshot", use_container_width=True
+        )
 
     submitted = st.form_submit_button(
         "Save Trade", type="primary", use_container_width=True
@@ -223,7 +245,7 @@ if submitted:
 
     if errors:
         for err in errors:
-            st.error(err)
+            st.toast(err, icon="✕")
     else:
         _fr_map = {"Yes": 1, "No": 0, "Partial": None}
         trade_data = {
@@ -263,14 +285,14 @@ if submitted:
         }
         try:
             trade = create_trade(trade_data)
-            st.success(f"✅ Trade saved! ID: {trade.id}")
+            st.toast(f"Trade saved · ID {trade.id}", icon="✓")
             st.balloons()
         except Exception as e:
-            st.error(str(e))
+            st.toast(str(e), icon="✕")
         else:
             if screenshot_file is not None:
                 try:
-                    screenshot = save_screenshot(trade.id, screenshot_file)
-                    st.success(f"Screenshot saved to {screenshot.file_path}")
+                    save_screenshot(trade.id, screenshot_file)
+                    st.toast("Screenshot saved", icon="✓")
                 except Exception as exc:
                     st.warning(f"Trade saved but screenshot upload failed: {exc}")

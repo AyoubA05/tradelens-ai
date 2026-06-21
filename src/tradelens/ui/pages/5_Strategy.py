@@ -7,26 +7,33 @@ if _root not in sys.path:
 
 import streamlit as st  # noqa: E402
 
-from src.tradelens.services.strategy import (
+from src.tradelens.services.strategy import (  # noqa: E402
     get_active_strategy,
     upsert_strategy_profile,
-)  # noqa: E402
+)
+from src.tradelens.ui.components.theme import inject_css  # noqa: E402
+from src.tradelens.ui.components.ui import section_header  # noqa: E402
 
-st.set_page_config(page_title="Strategy Profile", page_icon="🎯")
-st.title("🎯 Strategy Profile")
-st.caption(
-    "Define your trading strategy so AI analysis, journal, and grading are strategy-aware."
+st.set_page_config(page_title="Strategy Profile")
+inject_css()
+st.markdown(
+    section_header(
+        "Strategy Profile",
+        "Define your strategy so AI analysis, journal, and grading are strategy-aware.",
+    ),
+    unsafe_allow_html=True,
 )
 
 # Load active profile (if any)
 profile = get_active_strategy()
 
 if profile:
-    st.success(
-        f"Active profile: **{profile.get('name', '—')}** — last updated: {profile.get('updated_at', '—')[:10] if profile.get('updated_at') else '—'}"
+    updated = (profile.get("updated_at") or "")[:10] or "—"
+    st.caption(
+        f"Active profile: **{profile.get('name', '—')}** — last updated {updated}"
     )
 else:
-    st.info("No active strategy profile yet. Fill in the form below and click Save.")
+    st.caption("No active profile yet — fill in the form below and click Save.")
 
 st.markdown("---")
 
@@ -113,16 +120,16 @@ with st.form("strategy_form"):
         "Common Mistakes to Watch For",
         value=p.get("common_mistakes") or "",
         height=100,
-        placeholder="e.g. Entering too early before confirmation, revenge trading after losses",
+        placeholder="e.g. Entering too early before confirmation, revenge trading",
     )
 
     submitted = st.form_submit_button(
-        "💾 Save Strategy Profile", type="primary", use_container_width=True
+        "Save Strategy Profile", type="primary", use_container_width=True
     )
 
 if submitted:
     if not name.strip():
-        st.error("Strategy Name is required.")
+        st.toast("Strategy Name is required.", icon="✕")
     else:
         try:
             upsert_strategy_profile(
@@ -139,7 +146,7 @@ if submitted:
                 news_session_rules=news_session_rules.strip() or None,
                 common_mistakes=common_mistakes.strip() or None,
             )
-            st.success(f"Strategy profile '{name.strip()}' saved and activated!")
+            st.toast(f"Strategy profile '{name.strip()}' saved", icon="✓")
             st.rerun()
         except Exception as exc:
-            st.error(f"Failed to save strategy profile: {exc}")
+            st.toast(f"Failed to save strategy profile: {exc}", icon="✕")

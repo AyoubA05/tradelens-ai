@@ -2,7 +2,7 @@ import sys
 import datetime
 from pathlib import Path
 
-# parents[4] of src/tradelens/ui/pages/7_Settings.py  →  project root
+# parents[4] of src/tradelens/ui/pages/9_Settings.py  →  project root
 _root = str(Path(__file__).resolve().parents[4])
 if _root not in sys.path:
     sys.path.insert(0, _root)
@@ -13,18 +13,21 @@ import streamlit as st  # noqa: E402
 from src.tradelens.db.models import Trade  # noqa: E402
 from src.tradelens.db.session import SessionLocal  # noqa: E402
 from src.tradelens.services.cost import monthly_cost_by_feature  # noqa: E402
-from src.tradelens.services.csvio import (
+from src.tradelens.services.csvio import (  # noqa: E402
     CSV_COLUMNS,
     export_trades_csv,
     import_trades_csv,
-)  # noqa: E402
+)
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
+from src.tradelens.ui.components.theme import inject_css  # noqa: E402
+from src.tradelens.ui.components.ui import section_header  # noqa: E402
 
-st.set_page_config(page_title="Settings", page_icon="⚙️")
-st.title("⚙️ Settings")
+st.set_page_config(page_title="Settings")
+inject_css()
+st.markdown(section_header("Settings"), unsafe_allow_html=True)
 
 # ── Export Trades ─────────────────────────────────────────────────
-st.subheader("📤 Export Trades")
+st.subheader("Export Trades")
 
 trades = get_trades()
 df_export = pd.DataFrame(
@@ -45,7 +48,7 @@ st.download_button(
 st.markdown("---")
 
 # ── Import Trades ─────────────────────────────────────────────────
-st.subheader("📥 Import Trades")
+st.subheader("Import Trades")
 st.caption("Tip: Export first to see the required column format.")
 
 uploaded = st.file_uploader("Upload trades CSV", type=["csv"])
@@ -53,17 +56,17 @@ uploaded = st.file_uploader("Upload trades CSV", type=["csv"])
 if uploaded is not None:
     rows_inserted, errors = import_trades_csv(uploaded)
     if rows_inserted:
-        st.success(f"Imported {rows_inserted} trades successfully.")
+        st.toast(f"Imported {rows_inserted} trades", icon="✓")
     if errors:
         for err in errors:
             st.warning(err)
     if rows_inserted == 0 and not errors:
-        st.info("CSV was valid but contained no rows.")
+        st.caption("CSV was valid but contained no rows.")
 
 st.markdown("---")
 
 # ── AI Cost (current month) ───────────────────────────────────────
-st.subheader("💸 AI Cost — This Month")
+st.subheader("AI Cost — This Month")
 _today = datetime.date.today()
 _cost_df = monthly_cost_by_feature(_today.year, _today.month)
 if _cost_df.empty:
@@ -85,16 +88,16 @@ st.caption(
 st.markdown("---")
 
 # ── Danger Zone ───────────────────────────────────────────────────
-with st.expander("⚠️ Danger Zone", expanded=False):
+with st.expander("Danger Zone", expanded=False):
     confirmed = st.checkbox("I understand this will delete ALL trades")
     if st.button("Delete ALL trades", type="primary", disabled=not confirmed):
         db = SessionLocal()
         try:
             deleted = db.query(Trade).delete()
             db.commit()
-            st.success(f"Deleted {deleted} trade(s). The database is now empty.")
+            st.toast(f"Deleted {deleted} trade(s)", icon="✓")
         except Exception as exc:
             db.rollback()
-            st.error(f"Delete failed: {exc}")
+            st.toast(f"Delete failed: {exc}", icon="✕")
         finally:
             db.close()

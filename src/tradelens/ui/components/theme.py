@@ -236,6 +236,20 @@ def _build_css() -> str:
     font-weight: 600;
     text-decoration: none;
 }}
+.tl-chat-user {{
+    background: {TEAL_SOFT};
+    border: 1px solid rgba(32,128,141,0.35);
+    border-radius: {RADIUS_MD};
+    padding: 10px 14px;
+    margin: 6px 0 6px 12%;
+}}
+.tl-chat-ai {{
+    background: {SURFACE};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_MD};
+    padding: 10px 14px;
+    margin: 6px 12% 6px 0;
+}}
 </style>"""
 
 

@@ -15,11 +15,16 @@ import streamlit as st  # noqa: E402
 from src.tradelens.services.metrics import calendar_daily_pnl  # noqa: E402
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
 from src.tradelens.ui.components.charts import calendar_heatmap_chart  # noqa: E402
+from src.tradelens.ui.components.theme import inject_css  # noqa: E402
+from src.tradelens.ui.components.ui import (  # noqa: E402
+    empty_state,
+    grade_chip,
+    section_header,
+)
 
-st.set_page_config(page_title="Calendar", page_icon="🗓️", layout="wide")
-st.title("🗓️ Trade Calendar")
-
-_GRADE_COLORS = {"A": "🟢", "B": "🔵", "C": "🟡", "D": "🟠", "F": "🔴"}
+st.set_page_config(page_title="Calendar", layout="wide")
+inject_css()
+st.markdown(section_header("Trade Calendar"), unsafe_allow_html=True)
 
 
 def _val(x):
@@ -50,7 +55,14 @@ def _load_df() -> pd.DataFrame:
 df = _load_df()
 
 if df.empty:
-    st.info("You haven't logged any trades yet. Head to New Trade to get started.")
+    st.markdown(
+        empty_state(
+            "No trades yet — log a trade to see your calendar fill in.",
+            cta_label="Log a trade",
+            cta_href="/NewTrade",
+        ),
+        unsafe_allow_html=True,
+    )
     st.stop()
 
 # --- Month navigation (session-state) ---
@@ -88,9 +100,12 @@ with nav_title:
 daily = calendar_daily_pnl(df, year, month)
 
 if daily.empty:
-    st.info(
-        f"No trades in {_calendar.month_name[month]} {year}. "
-        "Use ◀ / ▶ above to pick another month."
+    st.markdown(
+        empty_state(
+            f"No trades in {_calendar.month_name[month]} {year}. "
+            "Use the arrows above to pick another month."
+        ),
+        unsafe_allow_html=True,
     )
     st.stop()
 
@@ -106,7 +121,11 @@ k2.metric("Trades", total_trades)
 k3.metric("Win Rate", f"{win_rate:.1%}")
 
 # --- Heatmap ---
-st.plotly_chart(calendar_heatmap_chart(daily, year, month), use_container_width=True)
+st.plotly_chart(
+    calendar_heatmap_chart(daily, year, month),
+    use_container_width=True,
+    key="cal_heatmap",
+)
 
 # --- Day drill-down (select a day with trades → list with grade chips) ---
 st.markdown("#### Day Detail")
@@ -125,12 +144,12 @@ if day_trades.empty:
 else:
     for _, tr in day_trades.iterrows():
         grade = _val(tr.get("user_grade")) or _val(tr.get("ai_grade"))
-        chip = f"{_GRADE_COLORS.get(grade, '⚪')} {grade}" if grade else "⚪ —"
         pnl = _val(tr.get("pnl"))
         pnl_str = f"${pnl:,.2f}" if pnl is not None else "—"
         kz = _val(tr.get("killzone")) or "—"
         result = _val(tr.get("result")) or "?"
         st.markdown(
             f"**#{int(tr['id'])}** · {tr['asset']} · {result} · "
-            f"P/L {pnl_str} · Killzone `{kz}` · Grade {chip}"
+            f"P/L {pnl_str} · Killzone `{kz}` · {grade_chip(grade)}",
+            unsafe_allow_html=True,
         )

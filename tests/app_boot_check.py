@@ -69,10 +69,12 @@ def main() -> int:
         print(f"app raised: {at.exception}", file=sys.stderr)
         return 2
 
-    markdowns = [m.value for m in at.markdown]
-    if not any(marker in v for v in markdowns):
-        print(f"marker not found: {marker}", file=sys.stderr)
-        return 3
+    # marker == "-" means boot-only: assert no exception, skip the content check.
+    if marker != "-":
+        markdowns = [m.value for m in at.markdown]
+        if not any(marker in v for v in markdowns):
+            print(f"marker not found: {marker}", file=sys.stderr)
+            return 3
 
     print("OK")
     return 0

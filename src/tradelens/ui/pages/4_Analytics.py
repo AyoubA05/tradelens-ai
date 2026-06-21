@@ -44,10 +44,12 @@ from src.tradelens.ui.components.charts import (  # noqa: E402
     setup_breakdown_chart,
     win_rate_by_dow_chart,
 )
+from src.tradelens.ui.components.theme import inject_css  # noqa: E402
+from src.tradelens.ui.components.ui import empty_state, section_header  # noqa: E402
 
-st.set_page_config(page_title="Analytics", page_icon="📊", layout="wide")
-
-st.title("📊 Analytics")
+st.set_page_config(page_title="Analytics", layout="wide")
+inject_css()
+st.markdown(section_header("Analytics"), unsafe_allow_html=True)
 
 # --- Sidebar: date range (loaded before trades so the date range drives the query) ---
 with st.sidebar:
@@ -110,7 +112,14 @@ df_raw = _load_df(str(start_date), str(end_date))
 
 # --- Empty state: no trades logged at all ---
 if df_raw.empty:
-    st.info("You haven't logged any trades yet. Head to New Trade to get started.")
+    st.markdown(
+        empty_state(
+            "No trades in this range yet — log a trade to unlock your analytics.",
+            cta_label="Log a trade",
+            cta_href="/NewTrade",
+        ),
+        unsafe_allow_html=True,
+    )
     st.stop()
 
 # --- Sidebar: multiselect filters built from loaded data ---
@@ -135,7 +144,7 @@ if selected_strategies:
 # --- Empty state: filters narrowed to nothing ---
 if df.empty:
     st.warning(
-        "No trades match the selected filters. Try adjusting the date range or filters above."
+        "No trades match the selected filters. Try adjusting the date range or filters."
     )
     st.stop()
 
@@ -190,12 +199,14 @@ st.markdown("---")
 r1c1, r1c2 = st.columns(2)
 with r1c1:
     st.subheader("Equity Curve")
-    st.plotly_chart(equity_curve_chart(eq_df), use_container_width=True)
+    st.plotly_chart(
+        equity_curve_chart(eq_df), use_container_width=True, key="an_equity"
+    )
     if eq_df.empty:
         st.caption("No trades in this period to plot.")
 with r1c2:
     st.subheader("Drawdown")
-    st.plotly_chart(drawdown_chart(dd_df), use_container_width=True)
+    st.plotly_chart(drawdown_chart(dd_df), use_container_width=True, key="an_drawdown")
     if dd_df.empty:
         st.caption("No drawdown data available.")
 
@@ -203,12 +214,16 @@ with r1c2:
 r2c1, r2c2 = st.columns(2)
 with r2c1:
     st.subheader("Win Rate by Day of Week")
-    st.plotly_chart(win_rate_by_dow_chart(dow_df), use_container_width=True)
+    st.plotly_chart(
+        win_rate_by_dow_chart(dow_df), use_container_width=True, key="an_dow"
+    )
     if dow_df.empty:
         st.caption("Log more trades to see day-of-week trends.")
 with r2c2:
     st.subheader("P/L by Strategy")
-    st.plotly_chart(pnl_by_strategy_chart(strat_df), use_container_width=True)
+    st.plotly_chart(
+        pnl_by_strategy_chart(strat_df), use_container_width=True, key="an_strategy"
+    )
     if strat_df.empty:
         st.caption("Assign strategies to trades to see this breakdown.")
 
@@ -216,11 +231,13 @@ with r2c2:
 r3c1, r3c2 = st.columns(2)
 with r3c1:
     st.subheader("Profit Factor")
-    st.plotly_chart(profit_factor_gauge(pf), use_container_width=True)
+    st.plotly_chart(profit_factor_gauge(pf), use_container_width=True, key="an_pf")
 with r3c2:
     st.subheader("R-Multiple Distribution")
     st.plotly_chart(
-        r_multiple_histogram(rr_df, median_rr=median_rr), use_container_width=True
+        r_multiple_histogram(rr_df, median_rr=median_rr),
+        use_container_width=True,
+        key="an_rr",
     )
     if rr_df.empty:
         st.caption("Log trades with R-multiple to see distribution.")
@@ -229,12 +246,14 @@ with r3c2:
 b1, b2 = st.columns(2)
 with b1:
     st.subheader("Emotion vs. R-Multiple")
-    st.plotly_chart(emotion_vs_rr_chart(emo_df), use_container_width=True)
+    st.plotly_chart(emotion_vs_rr_chart(emo_df), use_container_width=True, key="an_emo")
     if emo_df.empty:
         st.caption("Add emotion labels to trades to see this chart.")
 with b2:
     st.subheader("Setup Breakdown")
-    st.plotly_chart(setup_breakdown_chart(setup_df), use_container_width=True)
+    st.plotly_chart(
+        setup_breakdown_chart(setup_df), use_container_width=True, key="an_setup"
+    )
     if setup_df.empty:
         st.caption("Assign setup types to trades to see this chart.")
 
@@ -245,7 +264,7 @@ def _fmt_pf(v: float) -> str:
 
 # --- Killzone Performance (Week 5 Phase 2) ---
 st.markdown("---")
-st.subheader("🎯 Killzone Performance")
+st.subheader("Killzone Performance")
 
 kz_df = killzone_performance(df)
 if kz_df.empty:
@@ -342,7 +361,7 @@ with lc2:
 
 # --- AI Pattern Insights (Week 5 Phase 3) — reflection only, never signals ---
 st.markdown("---")
-st.subheader("🧠 Pattern Insights")
+st.subheader("Pattern Insights")
 st.caption(
     "Reflection only — these patterns describe what already happened in your "
     "journal. They are not signals, predictions, or trade advice."
@@ -350,7 +369,7 @@ st.caption(
 
 if st.button("Detect patterns", type="primary"):
     st.session_state.pop("pattern_error", None)
-    with st.spinner("Analyzing your trades… this may take 15–30 seconds."):
+    with st.spinner("Detecting patterns with Fable 5…"):
         try:
             _cards, _usage = detect_patterns(df)
             st.session_state["pattern_cards"] = _cards
@@ -358,7 +377,7 @@ if st.button("Detect patterns", type="primary"):
         except PatternError as exc:
             st.session_state["pattern_cards"] = None
             st.session_state["pattern_error"] = str(exc)
-        except Exception as exc:  # noqa: BLE001 — surface any failure gracefully
+        except Exception as exc:
             st.session_state["pattern_cards"] = None
             st.session_state["pattern_error"] = str(exc)
 
@@ -372,10 +391,10 @@ elif _pattern_cards is not None:
         for _i, card in enumerate(_pattern_cards):
             with st.container(border=True):
                 if card.get("low_sample"):
-                    st.caption(f"⚠️ {card.get('sample_label')}")
+                    st.caption(f"Low sample — {card.get('sample_label')}")
                 st.markdown(f"**{card.get('insight', '—')}**")
                 if card.get("evidence_stat"):
-                    st.markdown(f"📊 {card['evidence_stat']}")
+                    st.markdown(f"**Evidence:** {card['evidence_stat']}")
                 st.caption(
                     f"Impact: {card.get('impact', '—')} · "
                     f"Sample: {card.get('sample_size', '—')} trades · "
@@ -383,9 +402,9 @@ elif _pattern_cards is not None:
                 )
                 rule = card.get("suggested_rule", "")
                 if rule:
-                    st.markdown(f"💡 *Suggested rule:* {rule}")
-                    if st.button("➕ Add to Strategy Profile", key=f"add_rule_{_i}"):
+                    st.markdown(f"*Suggested rule:* {rule}")
+                    if st.button("Add to Strategy Profile", key=f"add_rule_{_i}"):
                         append_insight(rule)
-                        st.success("Added to your Strategy Profile (risk rules).")
+                        st.toast("Added to your Strategy Profile", icon="✓")
         if st.session_state.get("pattern_usage"):
             st.caption(f"AI usage — {st.session_state['pattern_usage']}")

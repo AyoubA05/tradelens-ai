@@ -17,11 +17,17 @@ from src.tradelens.services.weekly import (  # noqa: E402
     save_weekly_review,
     week_bounds,
 )
+from src.tradelens.ui.components.theme import inject_css  # noqa: E402
+from src.tradelens.ui.components.ui import empty_state, section_header  # noqa: E402
 
-st.set_page_config(page_title="Weekly Review", page_icon="🗒️", layout="wide")
-st.title("🗒️ Weekly AI Review")
-st.caption(
-    "Post-trade reflection on a completed week. Not signals, predictions, or advice."
+st.set_page_config(page_title="Weekly Review", layout="wide")
+inject_css()
+st.markdown(
+    section_header(
+        "Weekly AI Review",
+        "Post-trade reflection on a completed week — not signals or advice.",
+    ),
+    unsafe_allow_html=True,
 )
 
 
@@ -50,7 +56,7 @@ def _render_review(review: dict) -> None:
         st.markdown(review["content_md"])
     thinking = review.get("thinking_summary")
     if thinking:
-        with st.expander("🧠 How the AI reasoned"):
+        with st.expander("How the AI reasoned"):
             st.markdown(thinking)
     cost = review.get("cost_usd")
     if cost:
@@ -71,22 +77,26 @@ confirm_key = "wk_confirm_overwrite"
 
 if existing is None:
     if st.button("Generate weekly review", type="primary"):
-        with st.spinner("Reviewing your week… this may take 20–40 seconds."):
+        with st.spinner("Writing weekly review with Fable 5…"):
             try:
                 review, _usage = generate_weekly_review(monday)
                 if review["empty"]:
-                    st.info(
-                        "No trades logged for this week. Pick a week with trades, "
-                        "or head to New Trade to log some."
+                    st.markdown(
+                        empty_state(
+                            "This week has no trades to review yet.",
+                            cta_label="Log a trade",
+                            cta_href="/NewTrade",
+                        ),
+                        unsafe_allow_html=True,
                     )
                 else:
                     save_weekly_review(review, overwrite=False)
-                    st.success("Weekly review generated.")
+                    st.toast("Weekly review generated", icon="✓")
                     st.rerun()
             except WeeklyReviewError as exc:
-                st.error(f"Could not generate review: {exc}")
-            except Exception as exc:  # noqa: BLE001 — surface any failure gracefully
-                st.error(f"Unexpected error: {exc}")
+                st.toast(f"Could not generate review: {exc}", icon="✕")
+            except Exception as exc:
+                st.toast(f"Unexpected error: {exc}", icon="✕")
 else:
     _render_review(existing)
     st.markdown("---")
@@ -96,26 +106,29 @@ else:
             "new AI call. Continue?"
         )
         c1, c2 = st.columns(2)
-        if c1.button("✅ Confirm regenerate", type="primary"):
+        if c1.button("Confirm regenerate", type="primary"):
             st.session_state.pop(confirm_key, None)
-            with st.spinner("Regenerating…"):
+            with st.spinner("Regenerating with Fable 5…"):
                 try:
                     review, _usage = generate_weekly_review(monday)
                     if review["empty"]:
-                        st.info("No trades logged for this week anymore.")
+                        st.markdown(
+                            empty_state("This week has no trades anymore."),
+                            unsafe_allow_html=True,
+                        )
                     else:
                         save_weekly_review(review, overwrite=True)
-                        st.success("Weekly review regenerated.")
+                        st.toast("Weekly review regenerated", icon="✓")
                         st.rerun()
                 except WeeklyReviewError as exc:
-                    st.error(f"Could not regenerate review: {exc}")
-                except Exception as exc:  # noqa: BLE001
-                    st.error(f"Unexpected error: {exc}")
+                    st.toast(f"Could not regenerate review: {exc}", icon="✕")
+                except Exception as exc:
+                    st.toast(f"Unexpected error: {exc}", icon="✕")
         if c2.button("Cancel"):
             st.session_state.pop(confirm_key, None)
             st.rerun()
     else:
-        if st.button("🔄 Regenerate review"):
+        if st.button("Regenerate review"):
             st.session_state[confirm_key] = monday
             st.rerun()
 
