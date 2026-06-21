@@ -15,131 +15,233 @@ Path(__file__).resolve().parents[3].joinpath("data", "screenshots").mkdir(
     parents=True, exist_ok=True
 )
 
+import math  # noqa: E402
+
 import pandas as pd  # noqa: E402
-import plotly.graph_objects as go  # noqa: E402
 import streamlit as st  # noqa: E402
 
 from src.tradelens.services.metrics import (  # noqa: E402
     compute_basic_metrics,
     compute_equity_curve,
+    consistency_score,
     get_last_n_trades,
+    killzone_performance,
+    period_deltas,
+    split_periods,
+    trade_of_the_week,
 )
-from src.tradelens.services.trade_service import get_trades  # noqa: E402
+from src.tradelens.services.trade_service import (  # noqa: E402
+    get_primary_screenshot,
+    get_trades,
+)
+from src.tradelens.ui.components.charts import equity_curve_chart  # noqa: E402
+from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
+from src.tradelens.ui.components.theme import PLOTLY_TEMPLATE, inject_css  # noqa: E402
+from src.tradelens.ui.components.ui import (  # noqa: E402
+    empty_state,
+    grade_chip,
+    kpi_card,
+    section_header,
+)
 
 st.set_page_config(
     page_title="TradeLens AI",
-    page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+inject_css()
 
-# ── Sidebar ───────────────────────────────────────────────────────
-with st.sidebar:
-    st.title("📊 TradeLens AI")
-    st.markdown("---")
-    st.markdown("🏠 **Home**")
-    st.markdown("➕ New Trade")
-    st.markdown("📋 Trades")
-    st.markdown("📅 Calendar")
-    st.markdown("📈 Analytics")
-    st.markdown("🎯 Strategy")
-    st.markdown("📝 Weekly Review")
-    st.markdown("⚙️ Settings")
+_DF_COLS = [
+    "id",
+    "trade_date",
+    "asset",
+    "direction",
+    "result",
+    "pnl",
+    "rr_realized",
+    "setup_type",
+    "ai_grade",
+    "user_grade",
+    "killzone",
+    "followed_rules",
+    "mistake_tags",
+    "htf_bias",
+    "updated_at",
+]
 
-# ── Header ────────────────────────────────────────────────────────
-st.title("TradeLens AI")
-st.caption("Your AI-Powered Trading Journal")
-st.markdown("---")
+
+def _load_df() -> pd.DataFrame:
+    trades = get_trades()
+    df = pd.DataFrame([{c: getattr(t, c, None) for c in _DF_COLS} for t in trades])
+    if df.empty:
+        return df
+    # Drop rows with no trade_date (legacy/empty rows would break date math).
+    return df[df["trade_date"].notna() & (df["trade_date"] != "")].reset_index(
+        drop=True
+    )
+
+
+@st.cache_data(show_spinner=False)
+def _dashboard(version, df: pd.DataFrame) -> dict:
+    """Expensive aggregations, cached on `version` = (trade_count, max_updated_at)
+    so a delete+add (same count) still busts the cache."""
+    current, prior = split_periods(df, days=30)
+    return {
+        "metrics": compute_basic_metrics(df),
+        "consistency": consistency_score(df),
+        "equity": compute_equity_curve(df),
+        "killzone": killzone_performance(df),
+        "deltas": period_deltas(current, prior),
+        "trade_of_week": trade_of_the_week(df),
+    }
+
+
+def _fmt_delta(key: str, val):
+    if val is None:
+        return None, None
+    sign = "+" if val >= 0 else "-"
+    a = abs(val)
+    if key == "net_pnl":
+        text = f"{sign}${a:,.0f}"
+    elif key == "win_rate":
+        text = f"{sign}{a * 100:.1f} pts"
+    elif key == "profit_factor":
+        text = f"{sign}{a:.2f}"
+    else:  # consistency
+        text = f"{sign}{a:.1f}"
+    return text, (val >= 0)
+
+
+def _fmt_pf(pf) -> str:
+    return "∞" if pf is not None and math.isinf(pf) else f"{pf:.2f}"
+
 
 # ── Load data ─────────────────────────────────────────────────────
-trades = get_trades()
+df = _load_df()
 
-if not trades:
-    st.info("No trades yet. Log your first trade on the New Trade page.")
-    st.stop()
+with st.sidebar:
+    render_sidebar(df if not df.empty else None)
 
-df = pd.DataFrame(
-    [
-        {
-            "trade_date": t.trade_date,
-            "asset": t.asset,
-            "direction": t.direction,
-            "result": t.result,
-            "pnl": t.pnl,
-            "rr_realized": t.rr_realized,
-            "setup_type": t.setup_type,
-        }
-        for t in trades
-    ]
+st.markdown(
+    section_header("Dashboard", "Your trading performance at a glance"),
+    unsafe_allow_html=True,
 )
 
-# Drop rows with no trade_date — old test rows without a date set
-df = df[df["trade_date"].notna() & (df["trade_date"] != "")]
-
+# ── Empty state ───────────────────────────────────────────────────
 if df.empty:
-    st.info("No trades yet. Log your first trade on the New Trade page.")
+    st.markdown(
+        empty_state(
+            "No trades yet — log your first trade to see your dashboard come alive.",
+            cta_label="Log a trade",
+            cta_href="/NewTrade",
+        ),
+        unsafe_allow_html=True,
+    )
     st.stop()
 
-m = compute_basic_metrics(df)
+version = (len(df), max((str(v) for v in df["updated_at"].fillna("")), default=""))
+data = _dashboard(version, df)
+m = data["metrics"]
+deltas = data["deltas"]
+total = m["total_trades"]
 
-# ── KPI cards ─────────────────────────────────────────────────────
+# ── Hero KPI row ──────────────────────────────────────────────────
+pnl_d_text, pnl_d_pos = _fmt_delta("net_pnl", deltas["net_pnl"])
+wr_d_text, wr_d_pos = _fmt_delta("win_rate", deltas["win_rate"])
+pf_d_text, pf_d_pos = _fmt_delta("profit_factor", deltas["profit_factor"])
+cs_d_text, cs_d_pos = _fmt_delta("consistency", deltas["consistency"])
+
+cs_value = f"{data['consistency']:.0f}" if total >= 5 else "—"
+
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("Total P/L", f"${m['total_pnl']:,.2f}")
-k2.metric("Win Rate", f"{m['win_rate']:.1%}")
-k3.metric("Total Trades", m["total_trades"])
-k4.metric("Profit Factor", f"{m['profit_factor']:.2f}")
+k1.markdown(
+    kpi_card("Net P&L", f"${m['total_pnl']:,.2f}", pnl_d_text, pnl_d_pos),
+    unsafe_allow_html=True,
+)
+k2.markdown(
+    kpi_card("Win Rate", f"{m['win_rate']:.1%}", wr_d_text, wr_d_pos),
+    unsafe_allow_html=True,
+)
+k3.markdown(
+    kpi_card("Profit Factor", _fmt_pf(m["profit_factor"]), pf_d_text, pf_d_pos),
+    unsafe_allow_html=True,
+)
+k4.markdown(
+    kpi_card("Consistency", cs_value, cs_d_text, cs_d_pos),
+    unsafe_allow_html=True,
+)
+st.caption("Δ shown vs the previous 30 days.")
 
 st.markdown("")
 
 # ── Equity curve ──────────────────────────────────────────────────
-st.subheader("Equity Curve")
-
-eq = compute_equity_curve(df)
-
+st.markdown(section_header("Equity Curve"), unsafe_allow_html=True)
+eq = data["equity"]
 if not eq.empty:
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=eq["trade_date"],
-            y=eq["cumulative_pnl"],
-            mode="lines",
-            fill="tozeroy",
-            line=dict(color="#20808D", width=2),
-            fillcolor="rgba(32, 128, 141, 0.12)",
-            hovertemplate="Date: %{x}<br>Cumulative P/L: $%{y:,.2f}<extra></extra>",
-        )
-    )
-    fig.add_hline(
-        y=0,
-        line_dash="dash",
-        line_color="rgba(128, 128, 128, 0.5)",
-        line_width=1,
-    )
-    fig.update_layout(
-        margin=dict(l=0, r=0, t=8, b=0),
-        xaxis=dict(showgrid=False, title=None),
-        yaxis=dict(
-            showgrid=True,
-            gridcolor="rgba(200, 200, 200, 0.3)",
-            title=None,
-            tickprefix="$",
-        ),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        hovermode="x unified",
-        showlegend=False,
-    )
+    fig = equity_curve_chart(eq)
+    fig.update_layout(template=PLOTLY_TEMPLATE)
     st.plotly_chart(fig, use_container_width=True)
+else:
+    st.caption("Not enough data to plot an equity curve yet.")
+
+st.markdown("")
+
+# ── Two-up: Trade of the Week + Killzone performance ──────────────
+left, right = st.columns([1, 1])
+
+with left:
+    st.markdown(section_header("Trade of the Week"), unsafe_allow_html=True)
+    tow = data["trade_of_week"]
+    if tow:
+        chip = grade_chip(tow.get("grade"))
+        asset = tow.get("asset") or "—"
+        pnl = tow.get("pnl") or 0.0
+        tdate = tow.get("trade_date") or ""
+        st.markdown(
+            '<div class="tl-kpi-card">'
+            '<div style="display:flex;justify-content:space-between;'
+            f'align-items:center"><span style="font-weight:600">{asset}</span>'
+            f"{chip}</div>"
+            f'<div class="tl-kpi-value" style="margin-top:6px">${pnl:,.2f}</div>'
+            f'<div class="tl-kpi-label">{tdate}</div></div>',
+            unsafe_allow_html=True,
+        )
+        shot = get_primary_screenshot(tow.get("id"))
+        if shot and Path(shot).exists():
+            st.image(shot, use_container_width=True)
+    else:
+        st.markdown(
+            empty_state("No graded trades yet — grade a trade to feature it here."),
+            unsafe_allow_html=True,
+        )
+
+with right:
+    st.markdown(section_header("Killzone Performance"), unsafe_allow_html=True)
+    kz = data["killzone"]
+    if kz is not None and not kz.empty:
+        view = kz.copy()
+        view["win_rate"] = (view["win_rate"] * 100).round(1)
+        st.dataframe(
+            view[["killzone", "trades", "win_rate", "total_pnl"]],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "killzone": "Killzone",
+                "trades": "Trades",
+                "win_rate": st.column_config.NumberColumn("Win %", format="%.1f"),
+                "total_pnl": st.column_config.NumberColumn("Net P&L", format="$%.0f"),
+            },
+        )
+    else:
+        st.caption("No killzone data yet.")
 
 st.markdown("")
 
 # ── Recent trades ─────────────────────────────────────────────────
-st.subheader("Recent Trades")
-
+st.markdown(section_header("Recent Trades"), unsafe_allow_html=True)
 recent = get_last_n_trades(df, 5)
 RECENT_COLS = ["trade_date", "asset", "direction", "result", "pnl", "setup_type"]
-recent_display = recent[[c for c in RECENT_COLS if c in recent.columns]]
-recent_display = recent_display.rename(
+recent_display = recent[[c for c in RECENT_COLS if c in recent.columns]].rename(
     columns={
         "trade_date": "Date",
         "asset": "Asset",
@@ -149,5 +251,11 @@ recent_display = recent_display.rename(
         "setup_type": "Setup",
     }
 )
-
-st.dataframe(recent_display, use_container_width=True, hide_index=True)
+st.dataframe(
+    recent_display,
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        "P&L ($)": st.column_config.NumberColumn("P&L ($)", format="$%.2f"),
+    },
+)

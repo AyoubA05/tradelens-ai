@@ -11,6 +11,7 @@
 #   day_of_week  str    nullable
 #   bias         str    nullable  (user-confirmed via Save Labels)
 
+import datetime as dt
 import json
 import math
 from typing import Optional, Tuple
@@ -1218,3 +1219,176 @@ def calendar_daily_pnl(trades: pd.DataFrame, year: int, month: int) -> pd.DataFr
     grouped["day"] = grouped["trade_date"].astype(str).str.slice(8, 10).astype(int)
 
     return grouped[_CALENDAR_COLS].sort_values("day").reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+# Dashboard helpers (Week 6 — Ship Week)
+# ---------------------------------------------------------------------------
+
+# Full grade ranking incl. +/- modifiers for Trade-of-the-Week selection.
+_GRADE_RANK = {
+    "A+": 12,
+    "A": 11,
+    "A-": 10,
+    "B+": 9,
+    "B": 8,
+    "B-": 7,
+    "C+": 6,
+    "C": 5,
+    "C-": 4,
+    "D+": 3,
+    "D": 2,
+    "D-": 1,
+    "F": 0,
+}
+
+
+def _coerce_date(value) -> Optional[dt.date]:
+    """Best-effort convert str/date/datetime to a date; None on failure."""
+    if value is None:
+        return None
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    try:
+        return dt.date.fromisoformat(str(value)[:10])
+    except (ValueError, TypeError):
+        return None
+
+
+def _best_by_grade(df: pd.DataFrame, grade_col: str):
+    """Return the row with the highest grade in grade_col, tie-broken by pnl.
+    None when no row has a recognised grade."""
+    if grade_col not in df.columns:
+        return None
+    sub = df[df[grade_col].notna() & (df[grade_col].astype(str).str.strip() != "")]
+    if sub.empty:
+        return None
+    sub = sub.copy()
+    sub["_rank"] = sub[grade_col].map(lambda g: _GRADE_RANK.get(str(g).strip(), -1))
+    sub = sub[sub["_rank"] >= 0]
+    if sub.empty:
+        return None
+    if "pnl" in sub.columns:
+        sub["_pnl_sort"] = pd.to_numeric(sub["pnl"], errors="coerce").fillna(
+            float("-inf")
+        )
+    else:
+        sub["_pnl_sort"] = 0.0
+    sub = sub.sort_values(["_rank", "_pnl_sort"], ascending=[False, False])
+    return sub.iloc[0]
+
+
+def trade_of_the_week(df: pd.DataFrame) -> Optional[dict]:
+    """Highest-graded trade for the 'Trade of the Week' card.
+
+    Prefers ai_grade; falls back to user_grade when no trade has an ai_grade;
+    returns None when neither grade is set on any trade (caller renders an empty
+    state). Ties on grade are broken by higher pnl. Returns a plain dict with the
+    chosen 'grade' and 'grade_source' ('ai' | 'user') added.
+    """
+    if df is None or df.empty:
+        return None
+
+    source = "ai"
+    row = _best_by_grade(df, "ai_grade")
+    if row is None:
+        source = "user"
+        row = _best_by_grade(df, "user_grade")
+    if row is None:
+        return None
+
+    result = row.drop(
+        labels=[c for c in ("_rank", "_pnl_sort") if c in row.index]
+    ).to_dict()
+    result["grade"] = (
+        result.get("ai_grade") if source == "ai" else result.get("user_grade")
+    )
+    result["grade_source"] = source
+    return result
+
+
+def split_periods(
+    df: pd.DataFrame, days: int = 30, today=None
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Split trades into (current, prior) windows of `days` each, ending today.
+
+    current = (today-days, today];  prior = (today-2*days, today-days].
+    `today` accepts a date/datetime/ISO-string; defaults to today.
+    """
+    empty = pd.DataFrame()
+    if df is None or df.empty or "trade_date" not in df.columns:
+        return empty, empty
+
+    anchor = _coerce_date(today) or dt.date.today()
+    work = df.copy()
+    work["_dt"] = pd.to_datetime(work["trade_date"], errors="coerce").dt.date
+    work = work[work["_dt"].notna()]
+
+    cur_start = anchor - dt.timedelta(days=days)
+    prior_start = anchor - dt.timedelta(days=2 * days)
+    current = work[(work["_dt"] > cur_start) & (work["_dt"] <= anchor)]
+    prior = work[(work["_dt"] > prior_start) & (work["_dt"] <= cur_start)]
+    return (
+        current.drop(columns=["_dt"]).reset_index(drop=True),
+        prior.drop(columns=["_dt"]).reset_index(drop=True),
+    )
+
+
+def _safe_delta(current, prior) -> Optional[float]:
+    """current - prior, or None if either side is non-finite (inf/NaN)."""
+    try:
+        c, p = float(current), float(prior)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(c) or math.isinf(c) or math.isnan(p) or math.isinf(p):
+        return None
+    return c - p
+
+
+def period_deltas(current_df: pd.DataFrame, prior_df: pd.DataFrame) -> dict:
+    """Deltas (current − prior) for the hero KPIs.
+
+    Returns keys: net_pnl, win_rate, profit_factor, consistency. Any value is
+    None when it cannot be computed — notably when the prior period has no trades
+    (no ZeroDivisionError), or for consistency when either side has <5 trades.
+    """
+    keys = ("net_pnl", "win_rate", "profit_factor", "consistency")
+    none = {k: None for k in keys}
+    if prior_df is None or prior_df.empty or current_df is None or current_df.empty:
+        return dict(none)
+
+    cur = compute_basic_metrics(current_df)
+    pri = compute_basic_metrics(prior_df)
+    out = {
+        "net_pnl": _safe_delta(cur["total_pnl"], pri["total_pnl"]),
+        "win_rate": _safe_delta(cur["win_rate"], pri["win_rate"]),
+        "profit_factor": _safe_delta(cur["profit_factor"], pri["profit_factor"]),
+    }
+    if (
+        len(current_df) >= _MIN_TRADES_FOR_CONSISTENCY
+        and len(prior_df) >= _MIN_TRADES_FOR_CONSISTENCY
+    ):
+        out["consistency"] = _safe_delta(
+            consistency_score(current_df), consistency_score(prior_df)
+        )
+    else:
+        out["consistency"] = None
+    return out
+
+
+def current_week_pnl(df: pd.DataFrame, today=None) -> float:
+    """Net P&L for the ISO week (Mon–Sun) containing `today`. 0.0 when empty."""
+    if df is None or df.empty or "trade_date" not in df.columns:
+        return 0.0
+
+    anchor = _coerce_date(today) or dt.date.today()
+    monday = anchor - dt.timedelta(days=anchor.weekday())
+    sunday = monday + dt.timedelta(days=6)
+
+    work = df.copy()
+    work["_dt"] = pd.to_datetime(work["trade_date"], errors="coerce").dt.date
+    mask = work["_dt"].notna() & (work["_dt"] >= monday) & (work["_dt"] <= sunday)
+    pnl = pd.to_numeric(work.loc[mask, "pnl"], errors="coerce").fillna(0.0)
+    return _safe_float(pnl.sum())

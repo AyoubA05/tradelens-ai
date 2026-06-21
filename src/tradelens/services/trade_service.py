@@ -108,3 +108,26 @@ def get_trades(
         return query.order_by(Trade.trade_date.desc()).all()
     finally:
         db.close()
+
+
+def get_primary_screenshot(trade_id: int) -> Optional[str]:
+    """Return the file_path of a trade's first screenshot, or None.
+
+    Best-effort lookup for the Trade-of-the-Week thumbnail; never raises on a
+    missing trade or missing screenshot — the caller renders without a thumbnail.
+    """
+    if trade_id is None:
+        return None
+    db: Session = SessionLocal()
+    try:
+        from src.tradelens.db.models import Screenshot
+
+        shot = (
+            db.query(Screenshot)
+            .filter(Screenshot.trade_id == trade_id)
+            .order_by(Screenshot.id.asc())
+            .first()
+        )
+        return shot.file_path if shot else None
+    finally:
+        db.close()
