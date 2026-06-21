@@ -41,3 +41,8 @@ jobs:
         run: |
           pip install pytest
           pytest tests/ -v --tb=short
+
+      - name: Coverage gate (services >= 80%)
+        run: |
+          pip install pytest-cov
+          pytest --cov=src/tradelens/services --cov-fail-under=80 -q

@@ -52,3 +52,164 @@ def test_equity_curve_cumulative():
     )
     eq = compute_equity_curve(df)
     assert eq["cumulative_pnl"].iloc[-1] == 250.0
+
+
+# ---------------------------------------------------------------------------
+# create_trade — derived fields + key filtering
+# ---------------------------------------------------------------------------
+
+
+def test_create_trade_derives_day_of_week(in_memory_db):
+    t = trade_service.create_trade(
+        {"asset": "NQ", "result": "Win", "pnl": 1.0, "trade_date": "2026-06-15"}
+    )
+    assert t.day_of_week == "Monday"
+
+
+def test_create_trade_invalid_date_no_day_of_week(in_memory_db):
+    t = trade_service.create_trade(
+        {"asset": "NQ", "result": "Win", "pnl": 1.0, "trade_date": "not-a-date"}
+    )
+    assert t.day_of_week is None
+
+
+def test_create_trade_computes_rr_long(in_memory_db):
+    t = trade_service.create_trade(
+        {
+            "asset": "NQ",
+            "result": "Win",
+            "trade_date": "2026-06-15",
+            "direction": "Long",
+            "entry_price": 100.0,
+            "stop_price": 90.0,
+            "tp_price": 130.0,
+            "exit_price": 120.0,
+        }
+    )
+    assert t.rr_planned == 3.0  # reward 30 / risk 10
+    assert t.rr_realized == 2.0  # reward 20 / risk 10
+
+
+def test_create_trade_zero_risk_rr_none(in_memory_db):
+    t = trade_service.create_trade(
+        {
+            "asset": "NQ",
+            "result": "Breakeven",
+            "trade_date": "2026-06-15",
+            "direction": "Long",
+            "entry_price": 100.0,
+            "stop_price": 100.0,  # zero risk
+            "tp_price": 130.0,
+            "exit_price": 120.0,
+        }
+    )
+    assert t.rr_planned is None and t.rr_realized is None
+
+
+def test_create_trade_strips_unknown_keys(in_memory_db):
+    t = trade_service.create_trade(
+        {
+            "asset": "NQ",
+            "result": "Win",
+            "pnl": 1.0,
+            "trade_date": "2026-06-15",
+            "not_a_real_column": "ignored",
+        }
+    )
+    assert t.id is not None
+    assert not hasattr(t, "not_a_real_column")
+
+
+# ---------------------------------------------------------------------------
+# get_trades — filters
+# ---------------------------------------------------------------------------
+
+
+def _seed_three(in_memory_db):
+    trade_service.create_trade(
+        {
+            "asset": "NQ",
+            "result": "Win",
+            "pnl": 100.0,
+            "trade_date": "2026-06-10",
+            "session": "NY AM",
+            "strategy_used": "ICT OB",
+        }
+    )
+    trade_service.create_trade(
+        {
+            "asset": "ES",
+            "result": "Loss",
+            "pnl": -50.0,
+            "trade_date": "2026-06-15",
+            "session": "London",
+            "strategy_used": "FVG",
+        }
+    )
+    trade_service.create_trade(
+        {
+            "asset": "BTCUSD",
+            "result": "Win",
+            "pnl": 200.0,
+            "trade_date": "2026-06-20",
+            "session": "NY AM",
+            "strategy_used": "ICT OB",
+        }
+    )
+
+
+def test_get_trades_date_range(in_memory_db):
+    _seed_three(in_memory_db)
+    rows = trade_service.get_trades(start_date="2026-06-12", end_date="2026-06-18")
+    assert [r.asset for r in rows] == ["ES"]
+
+
+def test_get_trades_filters_asset_result_session_strategy(in_memory_db):
+    _seed_three(in_memory_db)
+    assert {r.asset for r in trade_service.get_trades(asset="NQ")} == {"NQ"}
+    assert {r.asset for r in trade_service.get_trades(result="Win")} == {"NQ", "BTCUSD"}
+    assert {r.asset for r in trade_service.get_trades(session="London")} == {"ES"}
+    assert {r.asset for r in trade_service.get_trades(strategy="ICT")} == {
+        "NQ",
+        "BTCUSD",
+    }
+
+
+def test_get_trades_result_all_is_ignored(in_memory_db):
+    _seed_three(in_memory_db)
+    assert len(trade_service.get_trades(result="All")) == 3
+
+
+def test_get_trades_orders_recent_first(in_memory_db):
+    _seed_three(in_memory_db)
+    dates = [r.trade_date for r in trade_service.get_trades()]
+    assert dates == ["2026-06-20", "2026-06-15", "2026-06-10"]
+
+
+# ---------------------------------------------------------------------------
+# get_primary_screenshot
+# ---------------------------------------------------------------------------
+
+
+def test_get_primary_screenshot_none_for_no_screenshot(in_memory_db):
+    t = trade_service.create_trade(
+        {"asset": "NQ", "result": "Win", "pnl": 1.0, "trade_date": "2026-06-15"}
+    )
+    assert trade_service.get_primary_screenshot(t.id) is None
+
+
+def test_get_primary_screenshot_none_id(in_memory_db):
+    assert trade_service.get_primary_screenshot(None) is None
+
+
+def test_get_primary_screenshot_returns_path(in_memory_db):
+    from src.tradelens.db.models import Screenshot
+
+    t = trade_service.create_trade(
+        {"asset": "NQ", "result": "Win", "pnl": 1.0, "trade_date": "2026-06-15"}
+    )
+    db = trade_service.SessionLocal()
+    db.add(Screenshot(trade_id=t.id, file_path="/tmp/shot.png"))
+    db.commit()
+    db.close()
+    assert trade_service.get_primary_screenshot(t.id) == "/tmp/shot.png"

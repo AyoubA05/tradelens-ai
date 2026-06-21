@@ -1123,3 +1123,21 @@ def test_consistency_score_weights_blend_with_neutral_trend():
         }
     )
     assert consistency_score(df) == 87.5
+
+
+def test_calendar_daily_pnl_dec_jan_boundary():
+    """Month boundary (§e): Dec trades must not leak into Jan, and vice versa."""
+    df = pd.DataFrame(
+        {
+            "trade_date": ["2025-12-31", "2026-01-01", "2026-01-15"],
+            "pnl": [500.0, 100.0, 200.0],
+            "result": ["Win", "Win", "Loss"],
+        }
+    )
+    jan = calendar_daily_pnl(df, 2026, 1)
+    assert set(jan["day"]) == {1, 15}
+    assert jan["net_pnl"].sum() == 300.0  # Dec 31 excluded
+
+    dec = calendar_daily_pnl(df, 2025, 12)
+    assert set(dec["day"]) == {31}
+    assert dec["net_pnl"].sum() == 500.0  # Jan trades excluded
