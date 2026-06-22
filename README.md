@@ -3,12 +3,15 @@
   <img src="https://github.com/AyoubA05/tradelens-ai/actions/workflows/ci.yml/badge.svg" alt="CI status">
   <img src="https://img.shields.io/badge/coverage-92%25-brightgreen" alt="Service coverage 92%">
   <img src="https://img.shields.io/badge/python-3.11-blue" alt="Python 3.11">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT">
   <img src="https://img.shields.io/badge/Streamlit-1.50-FF4B4B" alt="Streamlit 1.50">
 </p>
 
 # TradeLens AI
 
 **A post-trade reflection journal and analytics dashboard for SMC/ICT day traders — it reviews every chart, grades your process against your own rules, and learns your corrections.** Not a signal app, not a bot, not financial advice.
+
+**Live demo:** _pending deploy_ <!-- LIVE_URL: replace this line with the live https://<app>.streamlit.app URL after Streamlit Cloud deploy --> · runs in `DEMO_MODE` (cached AI, zero API spend).
 
 <!-- screenshot: dashboard — full home dashboard with KPI glass cards, equity curve, and Trade of the Week. Replace after Streamlit Cloud deploy. -->
 
