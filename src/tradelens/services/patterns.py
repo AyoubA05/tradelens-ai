@@ -187,3 +187,209 @@ def generate_cards(candidates: dict) -> tuple[list, Usage]:
 def detect_patterns(trades: pd.DataFrame) -> tuple[list, Usage]:
     """Convenience orchestrator for pages: compute_candidates → generate_cards."""
     return generate_cards(compute_candidates(trades))
+
+
+# ---------------------------------------------------------------------------
+# Deterministic insights (Session C, Section 5) — no AI key required.
+# ---------------------------------------------------------------------------
+
+MIN_CATEGORY_TRADES = 3  # need at least this many trades before claiming an edge
+
+
+def _confidence_for(n: int) -> str:
+    """Confidence label from a sample size (spec thresholds)."""
+    if n < 10:
+        return "low"
+    if n < 30:
+        return "medium"
+    return "high"
+
+
+def _insight(title, body, conf, kind, min_trades) -> dict:
+    return {
+        "title": title,
+        "body": body,
+        "confidence": conf,
+        "type": kind,
+        "min_trades": min_trades,
+    }
+
+
+def generate_insights(trades_df: pd.DataFrame, strategy_profile=None) -> list:
+    """Deterministic, AI-free pattern insights from a trades DataFrame.
+
+    Returns a list of insight dicts: {title, body, confidence, type, min_trades}.
+    Each insight is emitted only when its category has enough data
+    (>= MIN_CATEGORY_TRADES). Never raises — missing columns are skipped.
+    """
+    from src.tradelens.utils.format import humanize
+
+    if trades_df is None or trades_df.empty:
+        return []
+
+    n = int(len(trades_df))
+    insights: list = []
+
+    # ── Killzone edge (best / worst) ──────────────────────────────
+    try:
+        kz = killzone_performance(trades_df)
+        kz = kz[kz["trades"] >= MIN_CATEGORY_TRADES] if not kz.empty else kz
+        if not kz.empty:
+            best = kz.loc[kz["win_rate"].idxmax()]
+            worst = kz.loc[kz["win_rate"].idxmin()]
+            insights.append(
+                _insight(
+                    "Strongest killzone",
+                    f"Your best killzone is {humanize(best['killzone'])} with a "
+                    f"{best['win_rate'] * 100:.0f}% win rate "
+                    f"({int(best['trades'])} trades).",
+                    _confidence_for(int(best["trades"])),
+                    "positive",
+                    MIN_CATEGORY_TRADES,
+                )
+            )
+            if worst["killzone"] != best["killzone"]:
+                insights.append(
+                    _insight(
+                        "Weakest killzone",
+                        f"Your worst killzone is {humanize(worst['killzone'])} "
+                        f"({worst['win_rate'] * 100:.0f}% win rate, "
+                        f"{int(worst['trades'])} trades).",
+                        _confidence_for(int(worst["trades"])),
+                        "negative",
+                        MIN_CATEGORY_TRADES,
+                    )
+                )
+    except Exception:  # noqa: BLE001 — an insight is best-effort, never fatal
+        pass
+
+    # ── Most profitable setup ─────────────────────────────────────
+    try:
+        setups = compute_breakdown(trades_df, "setup_type")
+        setups = setups[setups["trades"] >= MIN_CATEGORY_TRADES]
+        if not setups.empty:
+            top = setups.loc[setups["avg_pnl"].idxmax()]
+            if top["avg_pnl"] > 0:
+                insights.append(
+                    _insight(
+                        "Most profitable setup",
+                        f"Your most profitable setup is {humanize(top['setup_type'])} "
+                        f"(avg ${top['avg_pnl']:,.0f} over {int(top['trades'])} trades).",
+                        _confidence_for(int(top["trades"])),
+                        "positive",
+                        MIN_CATEGORY_TRADES,
+                    )
+                )
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ── Most costly mistake ───────────────────────────────────────
+    try:
+        mistakes = mistake_frequency(trades_df)
+        if not mistakes.empty:
+            worst = mistakes.loc[mistakes["total_pnl"].idxmin()]
+            if worst["total_pnl"] < 0:
+                insights.append(
+                    _insight(
+                        "Most costly mistake",
+                        f"Trades tagged '{humanize(worst['mistake_tag'])}' are net "
+                        f"${worst['total_pnl']:,.0f} — your most costly mistake "
+                        f"({int(worst['count'])} trades).",
+                        _confidence_for(int(worst["count"])),
+                        "negative",
+                        1,
+                    )
+                )
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ── Rule-break edge leak ──────────────────────────────────────
+    try:
+        leak = total_edge_leak(trades_df)
+        if leak < 0:
+            insights.append(
+                _insight(
+                    "Rule-break edge leak",
+                    f"Trades where you broke your rules are net ${leak:,.0f} — "
+                    "tightening discipline here is your clearest edge.",
+                    _confidence_for(n),
+                    "negative",
+                    1,
+                )
+            )
+        elif leak > 0:
+            insights.append(
+                _insight(
+                    "Rule-break edge leak",
+                    f"Rule-break trades are net +${leak:,.0f} — lucky, not "
+                    "repeatable. Check whether this holds up.",
+                    _confidence_for(n),
+                    "neutral",
+                    1,
+                )
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ── HTF bias alignment (needs htf_bias + direction) ───────────
+    try:
+        if {"htf_bias", "direction"} <= set(trades_df.columns):
+            insights.extend(_htf_alignment_insight(trades_df))
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ── General: more data → higher confidence ────────────────────
+    if n < 30:
+        needed = (10 if n < 10 else 30) - n
+        insights.append(
+            _insight(
+                "Keep logging",
+                f"You have {n} trades. Log {needed} more for higher-confidence "
+                "insights.",
+                "low",
+                "neutral",
+                1,
+            )
+        )
+
+    return insights
+
+
+def _htf_alignment_insight(trades_df: pd.DataFrame) -> list:
+    """Win rate when trading WITH vs AGAINST the logged HTF bias."""
+    work = trades_df.dropna(subset=["htf_bias", "direction"]).copy()
+    if work.empty:
+        return []
+
+    def _aligned(row) -> bool:
+        bias = str(row["htf_bias"]).lower()
+        direction = str(row["direction"]).lower()
+        return (bias == "bullish" and direction == "long") or (
+            bias == "bearish" and direction == "short"
+        )
+
+    work["_aligned"] = work.apply(_aligned, axis=1)
+    with_mask = work["_aligned"]
+    against = work[~with_mask]
+    aligned = work[with_mask]
+    if len(aligned) < MIN_CATEGORY_TRADES or len(against) < MIN_CATEGORY_TRADES:
+        return []
+
+    def _win_rate(frame) -> float:
+        results = frame["result"].fillna("").str.lower() if "result" in frame else None
+        if results is None:
+            return 0.0
+        return (results == "win").mean()
+
+    with_pct = _win_rate(aligned) * 100
+    against_pct = _win_rate(against) * 100
+    return [
+        _insight(
+            "HTF bias alignment",
+            f"When following your HTF bias, your win rate is {with_pct:.0f}% vs "
+            f"{against_pct:.0f}% when trading against it.",
+            _confidence_for(len(work)),
+            "positive" if with_pct >= against_pct else "negative",
+            MIN_CATEGORY_TRADES,
+        )
+    ]

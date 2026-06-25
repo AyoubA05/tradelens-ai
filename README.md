@@ -52,11 +52,12 @@ Pages only render and call services; **all** business logic lives in `services/`
 | Feature | What it does | Screenshot |
 |---|---|---|
 | New Trade | Log a trade with full SMC/ICT fields; killzone auto-fills from entry time | <!-- screenshot: new-trade — the New Trade form with SMC/ICT expander and killzone auto-fill --> |
-| Trade Detail | Two-column review: chart left, AI analysis + journal + grade right | <!-- screenshot: trade-detail — two-column layout with grade chip and rubric --> |
-| Analytics | Equity curve, drawdown, killzone performance, edge leak, consistency, AI pattern cards | <!-- screenshot: analytics — KPI row + killzone performance + pattern insights --> |
-| Calendar | Monthly P&L heatmap with day drill-down and grade chips | <!-- screenshot: calendar — month heatmap with day detail --> |
-| Weekly Review | 5-section AI retrospective with reasoning expander | <!-- screenshot: weekly-review — 5-section report --> |
-| AI Partner | Multi-turn SMC/ICT review of a completed trade | <!-- screenshot: ai-partner — chat bubbles reviewing a trade --> |
+| Journal | Unified filterable table + inline trade detail with editable AI screenshot analysis | <!-- screenshot: journal — table with inline detail and AI analysis --> |
+| AI Screenshot Analysis | Post-trade chart review from an uploaded image **or a direct image URL**; AI labels are editable before "Apply to Trade", and overrides are remembered | <!-- screenshot: ai-analysis — editable AI-detected panel --> |
+| Analytics | Tabs: Performance, Calendar, Weekly Review, Pattern Insights — equity curve, killzone edge, edge leak, consistency | <!-- screenshot: analytics — KPI row + tabs --> |
+| Pattern Insights | Deterministic, **no-API-key** insights that auto-load (best/worst killzone, costly mistakes, edge leak, HTF-bias alignment) with confidence labels | <!-- screenshot: pattern-insights — insight cards --> |
+| Calendar | Real HTML month grid (teal/red tinted day cells) with a per-day trade drill-down | <!-- screenshot: calendar — month grid with day detail --> |
+| Weekly Review | Deterministic weekly stats always shown; AI-written coach summary when a key is set | <!-- screenshot: weekly-review — week stats + AI summary --> |
 | Settings | CSV import/export, monthly AI cost dashboard | <!-- screenshot: settings — AI cost table --> |
 
 ---

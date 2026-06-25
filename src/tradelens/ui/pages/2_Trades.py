@@ -13,6 +13,7 @@ import streamlit as st  # noqa: E402
 
 from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
 from src.tradelens.services.screenshot_service import save_screenshot  # noqa: E402
+from src.tradelens.services.strategy import get_active_strategy  # noqa: E402
 from src.tradelens.services.trade_service import (  # noqa: E402
     delete_trade,
     get_trade,
@@ -21,10 +22,12 @@ from src.tradelens.services.trade_service import (  # noqa: E402
 )
 from src.tradelens.ui.components.auth import current_user_id, require_auth  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
+from src.tradelens.ui.components.screenshot_analyzer import (  # noqa: E402
+    render_screenshot_analyzer,
+)
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import empty_state, section_header  # noqa: E402
-from src.tradelens.utils.ai_utils import is_ai_enabled  # noqa: E402
 from src.tradelens.utils.format import humanize  # noqa: E402
 
 st.set_page_config(page_title="Journal", layout="wide")
@@ -260,14 +263,7 @@ if selected_id is not None:
                 st.toast("Screenshot added", icon="✓")
                 st.rerun()
 
-        st.markdown("**AI Analysis**")
-        st.info("AI analysis coming soon. Enable your API key in Settings.")
-        st.button(
-            "Analyze Screenshot",
-            disabled=not is_ai_enabled(),
-            help="Add your API key in Settings to enable this.",
-            key="detail_analyze",
-        )
+        render_screenshot_analyzer(trade, get_active_strategy())
 
     # ── Quick actions ─────────────────────────────────────────────
     with st.expander("Edit Trade"):

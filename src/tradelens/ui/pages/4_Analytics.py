@@ -1,5 +1,4 @@
 import sys
-import calendar as _calendar
 import math
 import datetime
 from pathlib import Path
@@ -19,7 +18,6 @@ from src.tradelens.services.metrics import (  # noqa: E402
     by_day_of_week,
     by_setup_type,
     by_strategy,
-    calendar_daily_pnl,
     compute_basic_metrics,
     compute_expectancy,
     compute_profit_factor_raw,
@@ -34,8 +32,15 @@ from src.tradelens.services.metrics import (  # noqa: E402
     total_edge_leak,
 )
 from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
-from src.tradelens.services.patterns import PatternError, detect_patterns  # noqa: E402
-from src.tradelens.services.strategy import append_insight  # noqa: E402
+from src.tradelens.services.patterns import (  # noqa: E402
+    detect_patterns,
+    generate_insights,
+)
+from src.tradelens.services.strategy import (  # noqa: E402
+    append_insight,
+    get_active_strategy,
+)
+from src.tradelens.utils.ai_utils import is_ai_enabled  # noqa: E402
 from src.tradelens.utils.format import humanize  # noqa: E402
 from src.tradelens.services.weekly import (  # noqa: E402
     WeeklyReviewError,
@@ -50,7 +55,6 @@ from src.tradelens.ui.components.auth import (  # noqa: E402
     require_auth,
 )
 from src.tradelens.ui.components.charts import (  # noqa: E402
-    calendar_heatmap_chart,
     drawdown_chart,
     emotion_vs_rr_chart,
     equity_curve_chart,
@@ -60,15 +64,14 @@ from src.tradelens.ui.components.charts import (  # noqa: E402
     setup_breakdown_chart,
     win_rate_by_dow_chart,
 )
+from src.tradelens.ui.components.calendar_view import render_calendar  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import (  # noqa: E402
     empty_state,
-    grade_chip,
     section_header,
 )
-from src.tradelens.utils.ai_utils import is_ai_enabled  # noqa: E402
 
 st.set_page_config(page_title="Analytics", layout="wide")
 inject_css()
@@ -76,6 +79,15 @@ require_auth()
 render_demo_banner()
 render_sidebar()
 st.markdown(section_header("Analytics"), unsafe_allow_html=True)
+
+_active_strategy = get_active_strategy()
+if _active_strategy:
+    st.caption(f"Strategy: {_active_strategy.get('name', '—')}")
+else:
+    st.warning(
+        "⚠️ No active strategy profile. Add one in Strategy Profile to make AI "
+        "reviews strategy-aware."
+    )
 
 
 def _fmt_pf(v: float) -> str:
@@ -137,7 +149,9 @@ def _load_all_df(user_id=None) -> pd.DataFrame:
 
 
 # ── Tabs ──────────────────────────────────────────────────────────
-tab_perf, tab_cal, tab_weekly = st.tabs(["Performance", "Calendar", "Weekly Review"])
+tab_perf, tab_cal, tab_weekly, tab_insights = st.tabs(
+    ["Performance", "Calendar", "Weekly Review", "Pattern Insights"]
+)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -409,81 +423,12 @@ def _render_performance() -> None:
         else:
             st.caption("No rule-break or mistake-tagged trades in this period.")
 
-    # --- AI Pattern Insights — reflection only, never signals ---
-    st.divider()
-    st.subheader("Pattern Insights")
-    st.caption(
-        "Reflection only — these patterns describe what already happened in your "
-        "journal. They are not signals, predictions, or trade advice."
-    )
-
-    if not is_ai_enabled():
-        st.info(
-            "🤖 AI features are disabled. Add your ANTHROPIC_API_KEY in Settings "
-            "to enable screenshot analysis and trade review."
-        )
-    if st.button("Detect patterns", type="primary", disabled=not is_ai_enabled()):
-        st.session_state.pop("pattern_error", None)
-        with st.spinner("Detecting patterns…"):
-            try:
-                _cards, _usage = detect_patterns(df)
-                st.session_state["pattern_cards"] = _cards
-                st.session_state["pattern_usage"] = str(_usage)
-            except PatternError as exc:
-                st.session_state["pattern_cards"] = None
-                st.session_state["pattern_error"] = str(exc)
-            except Exception as exc:
-                st.session_state["pattern_cards"] = None
-                st.session_state["pattern_error"] = str(exc)
-
-    _pattern_cards = st.session_state.get("pattern_cards")
-    if st.session_state.get("pattern_error"):
-        st.warning(f"Could not generate patterns: {st.session_state['pattern_error']}")
-    elif _pattern_cards is not None:
-        if not _pattern_cards:
-            st.info(
-                "Not enough data yet to surface reliable patterns. Log more trades."
-            )
-        else:
-            for _i, card in enumerate(_pattern_cards):
-                with st.container(border=True):
-                    if card.get("low_sample"):
-                        st.caption(f"Low sample — {card.get('sample_label')}")
-                    st.markdown(f"**{card.get('insight', '—')}**")
-                    if card.get("evidence_stat"):
-                        st.markdown(f"**Evidence:** {card['evidence_stat']}")
-                    st.caption(
-                        f"Impact: {card.get('impact', '—')} · "
-                        f"Sample: {card.get('sample_size', '—')} trades · "
-                        f"Confidence: {card.get('confidence', '—')}"
-                    )
-                    rule = card.get("suggested_rule", "")
-                    if rule:
-                        st.markdown(f"*Suggested rule:* {rule}")
-                        if st.button("Add to Strategy Profile", key=f"add_rule_{_i}"):
-                            append_insight(rule)
-                            st.toast("Added to your Strategy Profile", icon="✓")
-            if st.session_state.get("pattern_usage"):
-                st.caption(f"AI usage — {st.session_state['pattern_usage']}")
+    # Pattern Insights now live in their own auto-loading tab (see _render_insights).
 
 
 # ══════════════════════════════════════════════════════════════════
 # CALENDAR
 # ══════════════════════════════════════════════════════════════════
-def _shift_month(delta: int) -> None:
-    y, m = st.session_state["cal_year"], st.session_state["cal_month"]
-    m += delta
-    if m < 1:
-        m, y = 12, y - 1
-    elif m > 12:
-        m, y = 1, y + 1
-    st.session_state["cal_year"], st.session_state["cal_month"] = y, m
-
-
-def _cell_val(x):
-    return None if pd.isna(x) else x
-
-
 def _render_calendar() -> None:
     df = _load_all_df(current_user_id())
     if df.empty and is_demo():
@@ -500,77 +445,7 @@ def _render_calendar() -> None:
         )
         return
 
-    today = datetime.date.today()
-    if "cal_year" not in st.session_state:
-        st.session_state["cal_year"] = today.year
-        st.session_state["cal_month"] = today.month
-
-    nav_prev, nav_title, nav_next = st.columns([1, 3, 1])
-    with nav_prev:
-        st.button("◀ Prev", on_click=_shift_month, args=(-1,), use_container_width=True)
-    with nav_next:
-        st.button("Next ▶", on_click=_shift_month, args=(1,), use_container_width=True)
-
-    year = st.session_state["cal_year"]
-    month = st.session_state["cal_month"]
-    with nav_title:
-        st.markdown(
-            f"<h3 style='text-align:center'>{_calendar.month_name[month]} {year}</h3>",
-            unsafe_allow_html=True,
-        )
-
-    daily = calendar_daily_pnl(df, year, month)
-    if daily.empty:
-        st.markdown(
-            empty_state(
-                f"No trades in {_calendar.month_name[month]} {year}. "
-                "Use the arrows above to pick another month."
-            ),
-            unsafe_allow_html=True,
-        )
-        return
-
-    net = float(daily["net_pnl"].sum())
-    total_trades = int(daily["trades"].sum())
-    total_wins = int(daily["wins"].sum())
-    win_rate = (total_wins / total_trades) if total_trades else 0.0
-
-    k1, k2, k3 = st.columns(3)
-    k1.metric("Month Net P/L", f"${net:,.2f}")
-    k2.metric("Trades", total_trades)
-    k3.metric("Win Rate", f"{win_rate:.1%}")
-
-    st.plotly_chart(
-        calendar_heatmap_chart(daily, year, month),
-        use_container_width=True,
-        key="cal_heatmap",
-    )
-
-    st.markdown("#### Day Detail")
-    days_with_trades = [int(d) for d in daily["day"].tolist()]
-    selected_day = st.selectbox(
-        "Select a day with trades",
-        options=days_with_trades,
-        format_func=lambda d: f"{_calendar.month_name[month]} {d}, {year}",
-        key="cal_day",
-    )
-
-    date_str = f"{year:04d}-{month:02d}-{selected_day:02d}"
-    day_trades = df[df["trade_date"].astype(str) == date_str]
-    if day_trades.empty:
-        st.caption("No trades on this day.")
-    else:
-        for _, tr in day_trades.iterrows():
-            grade = _cell_val(tr.get("user_grade")) or _cell_val(tr.get("ai_grade"))
-            pnl = _cell_val(tr.get("pnl"))
-            pnl_str = f"${pnl:,.2f}" if pnl is not None else "—"
-            kz = humanize(_cell_val(tr.get("killzone")))
-            result = _cell_val(tr.get("result")) or "?"
-            st.markdown(
-                f"**#{int(tr['id'])}** · {tr['asset']} · {result} · "
-                f"P/L {pnl_str} · Killzone `{kz}` · {grade_chip(grade)}",
-                unsafe_allow_html=True,
-            )
+    render_calendar(df)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -688,6 +563,74 @@ def _render_weekly() -> None:
                 _render_review(row)
 
 
+def _render_insights() -> None:
+    st.subheader("Pattern Insights")
+    st.caption(
+        "Reflection only — these describe what already happened in your journal. "
+        "Not signals, predictions, or trade advice."
+    )
+
+    df = _load_all_df(current_user_id())
+    if df.empty and is_demo():
+        df = get_demo_df()
+
+    if df.empty or len(df) < 5:
+        count = 0 if df.empty else len(df)
+        st.info(
+            f"Log 5+ trades to start seeing pattern insights. Current: {count} trades."
+        )
+        return
+
+    if st.button("Refresh insights", key="insights_refresh"):
+        st.rerun()
+
+    icons = {"positive": "🟢", "negative": "🔴", "neutral": "⚪"}
+    conf_labels = {"low": "Low", "medium": "Medium", "high": "High"}
+    for ins in generate_insights(df, get_active_strategy()):
+        with st.container(border=True):
+            st.markdown(f"{icons.get(ins['type'], '⚪')} **{ins['title']}**")
+            st.markdown(ins["body"])
+            st.caption(f"{conf_labels.get(ins['confidence'], 'Low')} confidence")
+
+    # Optional deeper AI patterns (single AI call) — gated on the key.
+    st.divider()
+    st.markdown("**Deeper AI patterns** (optional)")
+    if not is_ai_enabled():
+        st.info(
+            "🤖 Enable your ANTHROPIC_API_KEY in Settings for AI-generated "
+            "pattern cards."
+        )
+    if st.button("Detect deeper patterns with AI", disabled=not is_ai_enabled()):
+        with st.spinner("Detecting patterns…"):
+            try:
+                cards, _usage = detect_patterns(df)
+                st.session_state["pattern_cards"] = cards
+                st.session_state.pop("pattern_error", None)
+            except Exception as exc:  # noqa: BLE001 — surface a clean message
+                st.session_state["pattern_cards"] = None
+                st.session_state["pattern_error"] = str(exc)
+
+    if st.session_state.get("pattern_error"):
+        st.warning(f"Could not generate patterns: {st.session_state['pattern_error']}")
+    elif st.session_state.get("pattern_cards"):
+        for _i, card in enumerate(st.session_state["pattern_cards"]):
+            with st.container(border=True):
+                st.markdown(f"**{card.get('insight', '—')}**")
+                if card.get("evidence_stat"):
+                    st.markdown(f"**Evidence:** {card['evidence_stat']}")
+                st.caption(
+                    f"Impact: {card.get('impact', '—')} · "
+                    f"Sample: {card.get('sample_size', '—')} trades · "
+                    f"Confidence: {card.get('confidence', '—')}"
+                )
+                rule = card.get("suggested_rule", "")
+                if rule:
+                    st.markdown(f"*Suggested rule:* {rule}")
+                    if st.button("Add to Strategy Profile", key=f"add_rule_{_i}"):
+                        append_insight(rule)
+                        st.toast("Added to your Strategy Profile", icon="✓")
+
+
 with tab_perf:
     _render_performance()
 
@@ -696,3 +639,6 @@ with tab_cal:
 
 with tab_weekly:
     _render_weekly()
+
+with tab_insights:
+    _render_insights()

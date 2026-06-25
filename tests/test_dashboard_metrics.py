@@ -12,6 +12,8 @@ import pandas as pd
 
 from src.tradelens.services.metrics import (
     calculate_profit_factor,
+    compute_basic_metrics,
+    compute_expectancy,
     compute_profit_factor_raw,
     daily_equity_curve,
     format_profit_factor,
@@ -45,6 +47,24 @@ def test_profit_factor_empty_is_zero_not_infinity():
     df = _df([])
     assert calculate_profit_factor(df) == 0.0
     assert format_profit_factor(df) == "0.00"
+
+
+def test_expectancy_calculation():
+    # 2 wins (+100 each), 2 losses (-50 each): win_rate=.5, avg_win=100,
+    # loss_rate=.5, avg_loss=-50 → expectancy = .5*100 + .5*(-50) = 25.
+    df = _df(
+        [
+            {"result": "Win", "pnl": 100.0},
+            {"result": "Win", "pnl": 100.0},
+            {"result": "Loss", "pnl": -50.0},
+            {"result": "Loss", "pnl": -50.0},
+        ]
+    )
+    assert compute_expectancy(compute_basic_metrics(df)) == 25.0
+
+
+def test_expectancy_empty_is_zero():
+    assert compute_expectancy(compute_basic_metrics(_df([]))) == 0.0
 
 
 def test_dashboard_and_analytics_agree_on_all_wins():

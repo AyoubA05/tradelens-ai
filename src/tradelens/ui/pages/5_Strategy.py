@@ -30,16 +30,60 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+STARTER_TEMPLATE = {
+    "name": "ICT/SMC Day Trading",
+    "trading_style": "ICT / SMC",
+    "markets": "NQ, ES, EURUSD, GBP/USD",
+    "timeframes": "15m entry, 1H/4H HTF",
+    "entry_rules": (
+        "Wait for HTF POI, confirm BOS or CHoCH on LTF, enter on FVG or OB retest"
+    ),
+    "stop_rules": "Place SL below/above the swing that caused the BOS",
+    "take_profit_rules": "TP at next liquidity level or opposing HTF POI",
+    "risk_rules": "Max 1% per trade, max 2 trades per session, no revenge trading",
+    "setups_traded": "Liquidity Sweep + FVG, BOS + OB Retest, CHoCH Entry",
+    "setups_avoided": (
+        "Counter-trend without BOS, news candle entries, off-session trades"
+    ),
+    "common_mistakes": "FOMO entry, moving SL, off-session trades, overtrading",
+}
+
 # Load active profile (if any)
 profile = get_active_strategy()
 
+st.caption(
+    "Your AI reviews become stronger when they know your exact rules. "
+    "Fill this in to get strategy-aware insights."
+)
+
+if st.session_state.pop("_strategy_saved", False):
+    st.markdown(
+        '<div style="background:rgba(46,125,50,0.15);border:1px solid #2e7d32;'
+        'border-radius:8px;padding:10px 14px;color:#7bd88f">'
+        "✅ <strong>Strategy Profile saved.</strong> AI reviews will now use your "
+        "rules.</div>",
+        unsafe_allow_html=True,
+    )
+
 if profile:
     updated = (profile.get("updated_at") or "")[:10] or "—"
-    st.caption(
-        f"Active profile: **{profile.get('name', '—')}** — last updated {updated}"
+    st.markdown(
+        '<div style="background:rgba(32,128,141,0.12);border:1px solid #20808D;'
+        'border-radius:10px;padding:12px 14px;margin:8px 0">'
+        f"✅ <strong>Active Strategy: {profile.get('name', '—')}</strong><br>"
+        f"<span style='color:#B4B8BD;font-size:0.85rem'>"
+        f"Markets: {profile.get('markets') or '—'} &nbsp;|&nbsp; "
+        f"Timeframes: {profile.get('timeframes') or '—'} &nbsp;|&nbsp; "
+        f"Last updated: {updated}</span></div>",
+        unsafe_allow_html=True,
     )
 else:
-    st.caption("No active profile yet — fill in the form below and click Save.")
+    st.caption("No active profile yet — use the starter template or fill the form.")
+
+if st.button("Use ICT/SMC Starter Template", key="strategy_starter"):
+    upsert_strategy_profile(**STARTER_TEMPLATE)
+    st.toast("Starter template loaded — review and save.", icon="✓")
+    st.rerun()
 
 st.markdown("---")
 
@@ -152,7 +196,7 @@ if submitted:
                 news_session_rules=news_session_rules.strip() or None,
                 common_mistakes=common_mistakes.strip() or None,
             )
-            st.toast(f"Strategy profile '{name.strip()}' saved", icon="✓")
+            st.session_state["_strategy_saved"] = True
             st.rerun()
         except Exception as exc:
             st.toast(f"Failed to save strategy profile: {exc}", icon="✕")
