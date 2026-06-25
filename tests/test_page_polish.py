@@ -13,24 +13,21 @@ import pytest
 
 PAGES_DIR = Path(__file__).resolve().parents[1] / "src" / "tradelens" / "ui" / "pages"
 
+# Session A: only the active (non-archived) pages are linted. Home/TradeDetail/
+# Calendar/Weekly/AI Partner now live in pages/_archive/ (Calendar + Weekly are
+# Analytics tabs); they re-enter the app in Session B/C.
 ALL_PAGES = [
     "1_NewTrade.py",
     "2_Trades.py",
-    "3_TradeDetail.py",
     "4_Analytics.py",
     "5_Strategy.py",
-    "6_Calendar.py",
-    "7_Weekly_Review.py",
-    "8_AI_Partner.py",
     "9_Settings.py",
 ]
 
-# Pages that make AI calls and therefore must brand their loading spinners.
+# Active pages that make AI calls (Analytics hosts pattern detection + the
+# Weekly Review tab).
 AI_PAGES = [
-    "3_TradeDetail.py",
     "4_Analytics.py",
-    "7_Weekly_Review.py",
-    "8_AI_Partner.py",
 ]
 
 # Empty-state phrasing that must live in empty_state(), never a raw st.info().
@@ -134,27 +131,19 @@ def test_no_emoji_in_headings(page):
 
 
 # ---------------------------------------------------------------------------
-# Constraint 3 — AI Partner uses scoped markdown bubbles, not st.chat_*
-# ---------------------------------------------------------------------------
-
-
-def test_ai_partner_no_chat_message():
-    src = _src("8_AI_Partner.py")
-    assert "st.chat_message" not in src
-    assert "st.chat_input" not in src
-
-
-# ---------------------------------------------------------------------------
-# AI spinners are branded "… with Fable 5…"
+# AI spinners must NOT leak a model brand name (Session A, Section 3).
+# Copy stays generic ("AI reviews your chart"), never "Fable 5".
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("page", AI_PAGES)
-def test_ai_spinner_mentions_fable5(page):
+def test_ai_spinner_has_no_model_brand(page):
     spinners = re.findall(r"st\.spinner\(\s*[\"'](.+?)[\"']", _src(page))
     assert spinners, f"{page}: expected at least one st.spinner"
     for text in spinners:
-        assert "Fable 5" in text, f"{page}: spinner not branded: {text!r}"
+        low = text.lower()
+        assert "fable" not in low, f"{page}: spinner leaks a model brand: {text!r}"
+        assert "claude" not in low, f"{page}: spinner leaks a model brand: {text!r}"
 
 
 # ---------------------------------------------------------------------------

@@ -19,21 +19,19 @@ ROOT = Path(__file__).resolve().parents[1]
 PAGES_DIR = ROOT / "src" / "tradelens" / "ui" / "pages"
 RUNNER = ROOT / "tests" / "app_boot_check.py"
 
+# Session A: the sidebar now exposes exactly these five pages (plus app.py, the
+# Dashboard, covered by test_dashboard). Home/TradeDetail/Calendar/Weekly/AI
+# Partner moved to pages/_archive/ (Calendar + Weekly are now Analytics tabs).
 ALL_PAGES = [
-    "0_Home.py",
     "1_NewTrade.py",
     "2_Trades.py",
-    "3_TradeDetail.py",
     "4_Analytics.py",
     "5_Strategy.py",
-    "6_Calendar.py",
-    "7_Weekly_Review.py",
-    "8_AI_Partner.py",
     "9_Settings.py",
 ]
 
 # Read-only data pages worth booting with rows present.
-SEED_PAGES = ["2_Trades.py", "4_Analytics.py", "6_Calendar.py"]
+SEED_PAGES = ["2_Trades.py", "4_Analytics.py"]
 
 
 def _boot(page: str, db_path: Path, seed: str):

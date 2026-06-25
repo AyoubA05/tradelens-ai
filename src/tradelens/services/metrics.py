@@ -1392,3 +1392,74 @@ def current_week_pnl(df: pd.DataFrame, today=None) -> float:
     mask = work["_dt"].notna() & (work["_dt"] >= monday) & (work["_dt"] <= sunday)
     pnl = pd.to_numeric(work.loc[mask, "pnl"], errors="coerce").fillna(0.0)
     return _safe_float(pnl.sum())
+
+
+def today_pnl(df: pd.DataFrame, today=None) -> float:
+    """Net P&L for trades dated `today` (defaults to the current date). 0.0 when empty."""
+    if df is None or df.empty or "trade_date" not in df.columns:
+        return 0.0
+
+    anchor = _coerce_date(today) or dt.date.today()
+    work = df.copy()
+    work["_dt"] = pd.to_datetime(work["trade_date"], errors="coerce").dt.date
+    pnl = pd.to_numeric(work.loc[work["_dt"] == anchor, "pnl"], errors="coerce").fillna(
+        0.0
+    )
+    return _safe_float(pnl.sum())
+
+
+# ---------------------------------------------------------------------------
+# Canonical profit factor display + daily equity curve (Session A bug fixes)
+# ---------------------------------------------------------------------------
+
+
+def calculate_profit_factor(df: pd.DataFrame):
+    """Canonical profit factor for a trades frame.
+
+    Returns a float ratio, or the string ``"∞"`` when there are winning trades
+    but no losing trades (rather than float('inf') or a misleading 0.00). This is
+    the single function the Dashboard and Analytics both display, so the value is
+    always consistent between them.
+    """
+    pf = compute_profit_factor_raw(df)
+    return "∞" if math.isinf(pf) else round(pf, 2)
+
+
+def format_profit_factor(df: pd.DataFrame) -> str:
+    """Profit factor as a display string: ``"2.34"`` or ``"∞"`` (no losses)."""
+    value = calculate_profit_factor(df)
+    return value if isinstance(value, str) else f"{value:.2f}"
+
+
+def daily_equity_curve(df: pd.DataFrame) -> pd.DataFrame:
+    """Cumulative equity aggregated to ONE point per calendar day.
+
+    Unlike compute_equity_curve (one point per trade), this collapses same-day
+    trades into a single daily P&L before the running sum, and normalises
+    trade_date to a clean ``YYYY-MM-DD`` string — so the equity chart's x-axis
+    shows dates, never microsecond timestamps or duplicated same-day points.
+
+    Returns columns: trade_date, pnl, cumulative_pnl — sorted ascending by date.
+    """
+    empty = pd.DataFrame(columns=["trade_date", "pnl", "cumulative_pnl"])
+    if df is None or df.empty:
+        return empty
+    if "trade_date" not in df.columns or "pnl" not in df.columns:
+        return empty
+
+    work = df[["trade_date", "pnl"]].copy()
+    work = work.dropna(subset=["trade_date"])
+    work["trade_date"] = work["trade_date"].astype(str).str.slice(0, 10)
+    work = work[work["trade_date"] != ""]
+    if work.empty:
+        return empty
+
+    work["pnl"] = pd.to_numeric(work["pnl"], errors="coerce").fillna(0.0)
+    grouped = (
+        work.groupby("trade_date", as_index=False, sort=True)["pnl"]
+        .sum()
+        .sort_values("trade_date")
+        .reset_index(drop=True)
+    )
+    grouped["cumulative_pnl"] = grouped["pnl"].cumsum()
+    return grouped[["trade_date", "pnl", "cumulative_pnl"]]

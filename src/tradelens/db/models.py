@@ -79,6 +79,9 @@ class Trade(Base):
     mistake_tags: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     followed_rules: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
+    # Marks demo/sample rows so they can be cleared without touching real trades.
+    is_sample: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
+
     created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 

@@ -73,7 +73,8 @@ def equity_curve_chart(df: pd.DataFrame) -> go.Figure:
     fig.update_layout(
         **_BASE_LAYOUT,
         hovermode="x unified",
-        xaxis=dict(showgrid=False, title=None),
+        # Force clean YYYY-MM-DD ticks — never microsecond timestamps.
+        xaxis=dict(showgrid=False, title=None, type="date", tickformat="%Y-%m-%d"),
         yaxis=dict(
             showgrid=True,
             gridcolor="rgba(128, 128, 128, 0.2)",

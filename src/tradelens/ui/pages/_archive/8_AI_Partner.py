@@ -2,8 +2,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-# parents[4] of src/tradelens/ui/pages/*.py  →  project root
-_root = str(Path(__file__).resolve().parents[4])
+# parents[5] of src/tradelens/ui/pages/*.py  →  project root
+_root = str(Path(__file__).resolve().parents[5])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
@@ -163,7 +163,7 @@ with st.form("partner_turn", clear_on_submit=True):
 
 if submitted and prompt:
     history.append({"role": "user", "content": prompt})
-    with st.spinner("Reviewing with Fable 5…"):
+    with st.spinner("Reviewing with AI…"):
         try:
             reply, usage = partner_reply(
                 history,

@@ -18,13 +18,17 @@ from src.tradelens.services.sessions import (
     assign_killzone,
 )  # noqa: E402
 from src.tradelens.services.trade_service import create_trade  # noqa: E402
+from src.tradelens.ui.components.auth import require_auth  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
+from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import section_header  # noqa: E402
 
 st.set_page_config(page_title="New Trade")
 inject_css()
+require_auth()
 render_demo_banner()
+render_sidebar()
 st.markdown(
     section_header("New Trade", "Log a completed trade for review"),
     unsafe_allow_html=True,

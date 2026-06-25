@@ -152,9 +152,10 @@ def _build_css() -> str:
     background: {SURFACE};
     border: 1px solid {BORDER};
     border-radius: {RADIUS_MD};
-    padding: 18px 20px;
+    padding: 16px 16px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.25);
     transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    overflow: visible;
 }}
 .tl-kpi-card:hover {{
     transform: translateY(-2px);
@@ -169,9 +170,13 @@ def _build_css() -> str:
 }}
 .tl-kpi-value {{
     font-family: '{MONO_FONT}', monospace;
-    font-size: 1.7rem;
+    /* Responsive so a six-card KPI row never clips values like "$2,800.00". */
+    font-size: clamp(1.05rem, 1.5vw, 1.55rem);
     font-weight: 600;
     color: {TEXT_PRIMARY};
+    white-space: nowrap;
+    overflow: visible;
+    line-height: 1.25;
 }}
 .tl-kpi-delta {{
     font-family: '{MONO_FONT}', monospace;

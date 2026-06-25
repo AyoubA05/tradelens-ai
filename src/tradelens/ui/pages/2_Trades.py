@@ -13,13 +13,18 @@ import streamlit as st  # noqa: E402
 
 from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
+from src.tradelens.utils.format import humanize  # noqa: E402
+from src.tradelens.ui.components.auth import require_auth  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
+from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import empty_state, section_header  # noqa: E402
 
 st.set_page_config(page_title="Trade Journal")
 inject_css()
+require_auth()
 render_demo_banner()
+render_sidebar()
 st.markdown(section_header("Trade Journal"), unsafe_allow_html=True)
 
 # --- Filter row ---
@@ -99,6 +104,11 @@ else:
         unsafe_allow_html=True,
     )
     st.stop()
+
+# --- Readable labels instead of raw tokens (off_session, None, ...) ---
+df["killzone"] = df["killzone"].map(humanize)
+_text_cols = [c for c in df.columns if c not in ("pnl", "rr_realized")]
+df[_text_cols] = df[_text_cols].fillna("—")
 
 # --- Summary line ---
 total_pnl = df["pnl"].sum()

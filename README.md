@@ -67,10 +67,30 @@ Pages only render and call services; **all** business logic lives in `services/`
 git clone https://github.com/AyoubA05/tradelens-ai.git && cd tradelens-ai
 pip install -r requirements.txt
 python -m src.tradelens.db.init_db
+alembic upgrade head          # apply schema migrations to an existing DB
 streamlit run src/tradelens/ui/app.py
 ```
 
-Add `ANTHROPIC_API_KEY` to `.streamlit/secrets.toml` (or your environment) to enable AI features. Prefer to explore first? Set `DEMO_MODE=true` and the whole app runs on cached AI output at zero API cost (see [Demo Mode](#demo-mode)).
+### Login
+
+The app is gated by a sign-in page. Credentials come from Streamlit secrets / environment:
+
+```toml
+# .streamlit/secrets.toml  (or .env)
+TRADELENS_USERNAME = "demo"
+TRADELENS_PASSWORD = "tradelens2025"
+```
+
+If you don't set them, the app falls back to **`demo` / `tradelens2025`** so the public demo stays usable. Set your own values in production. The **Sign out** button lives at the bottom of the sidebar.
+
+### Enable AI
+
+This app uses **Anthropic**. Add the key named `ANTHROPIC_API_KEY`:
+
+- **Streamlit Cloud** → App Settings → Secrets → `ANTHROPIC_API_KEY = "your-key-here"`
+- **Locally** → add it to `.streamlit/secrets.toml` or `.env`, then restart.
+
+Settings → **AI Status** shows whether the key is detected, with step-by-step instructions. Prefer to explore first? Set `DEMO_MODE=true` and the whole app runs on cached AI output at zero API cost (see [Demo Mode](#demo-mode)).
 
 ---
 

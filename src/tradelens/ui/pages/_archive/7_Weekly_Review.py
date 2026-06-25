@@ -2,8 +2,8 @@ import sys
 import datetime
 from pathlib import Path
 
-# parents[4] of src/tradelens/ui/pages/*.py  →  project root
-_root = str(Path(__file__).resolve().parents[4])
+# parents[5] of src/tradelens/ui/pages/*.py  →  project root
+_root = str(Path(__file__).resolve().parents[5])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
@@ -79,7 +79,7 @@ confirm_key = "wk_confirm_overwrite"
 
 if existing is None:
     if st.button("Generate weekly review", type="primary"):
-        with st.spinner("Writing weekly review with Fable 5…"):
+        with st.spinner("Writing weekly review with AI…"):
             try:
                 review, _usage = generate_weekly_review(monday)
                 if review["empty"]:
@@ -110,7 +110,7 @@ else:
         c1, c2 = st.columns(2)
         if c1.button("Confirm regenerate", type="primary"):
             st.session_state.pop(confirm_key, None)
-            with st.spinner("Regenerating with Fable 5…"):
+            with st.spinner("Regenerating with AI…"):
                 try:
                     review, _usage = generate_weekly_review(monday)
                     if review["empty"]:

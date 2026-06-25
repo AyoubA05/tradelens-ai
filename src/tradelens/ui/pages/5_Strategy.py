@@ -11,13 +11,17 @@ from src.tradelens.services.strategy import (  # noqa: E402
     get_active_strategy,
     upsert_strategy_profile,
 )
+from src.tradelens.ui.components.auth import require_auth  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
+from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import section_header  # noqa: E402
 
 st.set_page_config(page_title="Strategy Profile")
 inject_css()
+require_auth()
 render_demo_banner()
+render_sidebar()
 st.markdown(
     section_header(
         "Strategy Profile",

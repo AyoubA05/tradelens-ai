@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "tests" / "app_boot_check.py"
 ENTRY = ROOT / "src" / "tradelens" / "ui" / "app.py"
-HOME = ROOT / "src" / "tradelens" / "ui" / "pages" / "0_Home.py"
+HOME = ROOT / "src" / "tradelens" / "ui" / "pages" / "_archive" / "0_Home.py"
 
 
 def _cold_boot(app_path: Path, marker: str, tmp_path: Path) -> subprocess.CompletedProcess:

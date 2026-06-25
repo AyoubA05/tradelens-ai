@@ -148,3 +148,57 @@ def test_weekly_reviews_upgrade_is_idempotent(tmp_path):
 
 def _columns_of(conn, table: str) -> set:
     return {c["name"] for c in inspect(conn).get_columns(table)}
+
+
+# ---------------------------------------------------------------------------
+# is_sample flag (Session A)
+# ---------------------------------------------------------------------------
+
+IS_SAMPLE_MIGRATION = ROOT / "alembic" / "versions" / "i9j0k1l2m3n4_add_is_sample.py"
+
+
+def _load_is_sample_migration():
+    spec = importlib.util.spec_from_file_location(
+        "is_sample_migration", IS_SAMPLE_MIGRATION
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_is_sample_migration_round_trip(tmp_path):
+    url = f"sqlite:///{tmp_path / 'is_sample.db'}"
+    engine = create_engine(url)
+    mig = _load_is_sample_migration()
+
+    with engine.connect() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE trades (id INTEGER PRIMARY KEY, asset VARCHAR)"
+        )
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()
+        assert "is_sample" in _columns(conn)
+
+        mig.downgrade()
+        assert "is_sample" not in _columns(conn)
+
+        mig.upgrade()
+        assert "is_sample" in _columns(conn)
+
+
+def test_is_sample_upgrade_is_idempotent(tmp_path):
+    url = f"sqlite:///{tmp_path / 'is_sample_idem.db'}"
+    engine = create_engine(url)
+    mig = _load_is_sample_migration()
+
+    with engine.connect() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE trades (id INTEGER PRIMARY KEY, is_sample INTEGER)"
+        )
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()  # must not error despite is_sample pre-existing
+        assert "is_sample" in _columns(conn)
