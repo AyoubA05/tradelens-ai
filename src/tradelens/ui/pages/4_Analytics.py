@@ -45,7 +45,10 @@ from src.tradelens.services.weekly import (  # noqa: E402
     save_weekly_review,
     week_bounds,
 )
-from src.tradelens.ui.components.auth import require_auth  # noqa: E402
+from src.tradelens.ui.components.auth import (  # noqa: E402
+    current_user_id,
+    require_auth,
+)
 from src.tradelens.ui.components.charts import (  # noqa: E402
     calendar_heatmap_chart,
     drawdown_chart,
@@ -65,6 +68,7 @@ from src.tradelens.ui.components.ui import (  # noqa: E402
     grade_chip,
     section_header,
 )
+from src.tradelens.utils.ai_utils import is_ai_enabled  # noqa: E402
 
 st.set_page_config(page_title="Analytics", layout="wide")
 inject_css()
@@ -96,8 +100,8 @@ def _cached_computed_at(user_id: int = 1) -> Optional[str]:
 
 
 @st.cache_data(ttl=60)
-def _load_df(start: str, end: str) -> pd.DataFrame:
-    trades = get_trades(start_date=start, end_date=end)
+def _load_df(start: str, end: str, user_id=None) -> pd.DataFrame:
+    trades = get_trades(start_date=start, end_date=end, user_id=user_id)
     return pd.DataFrame(
         [
             {
@@ -127,9 +131,9 @@ def _load_df(start: str, end: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60)
-def _load_all_df() -> pd.DataFrame:
+def _load_all_df(user_id=None) -> pd.DataFrame:
     """All trades (no date filter) — powers the Calendar tab."""
-    return _load_df("0000-01-01", "9999-12-31")
+    return _load_df("0000-01-01", "9999-12-31", user_id)
 
 
 # ── Tabs ──────────────────────────────────────────────────────────
@@ -149,7 +153,7 @@ def _render_performance() -> None:
     with fcol2:
         end_date = st.date_input("To", value=today, key="an_to")
 
-    df_raw = _load_df(str(start_date), str(end_date))
+    df_raw = _load_df(str(start_date), str(end_date), current_user_id())
 
     # DEMO_MODE on a cold/empty DB: show rich synthetic data so analytics is alive.
     if df_raw.empty and is_demo():
@@ -413,7 +417,12 @@ def _render_performance() -> None:
         "journal. They are not signals, predictions, or trade advice."
     )
 
-    if st.button("Detect patterns", type="primary"):
+    if not is_ai_enabled():
+        st.info(
+            "🤖 AI features are disabled. Add your ANTHROPIC_API_KEY in Settings "
+            "to enable screenshot analysis and trade review."
+        )
+    if st.button("Detect patterns", type="primary", disabled=not is_ai_enabled()):
         st.session_state.pop("pattern_error", None)
         with st.spinner("Detecting patterns…"):
             try:
@@ -476,7 +485,7 @@ def _cell_val(x):
 
 
 def _render_calendar() -> None:
-    df = _load_all_df()
+    df = _load_all_df(current_user_id())
     if df.empty and is_demo():
         df = get_demo_df()
 

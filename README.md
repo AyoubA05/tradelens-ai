@@ -71,17 +71,25 @@ alembic upgrade head          # apply schema migrations to an existing DB
 streamlit run src/tradelens/ui/app.py
 ```
 
-### Login
+### Login & accounts
 
-The app is gated by a sign-in page. Credentials come from Streamlit secrets / environment:
+The app is gated by a sign-in page. Configure it via Streamlit secrets / environment:
 
 ```toml
 # .streamlit/secrets.toml  (or .env)
-TRADELENS_USERNAME = "demo"
+TRADELENS_USERNAME = "demo"            # secrets login (used until DB users exist)
 TRADELENS_PASSWORD = "tradelens2025"
+TRADELENS_INVITE_CODE = "your-code"    # gates signup; omit to hide the signup form
 ```
 
-If you don't set them, the app falls back to **`demo` / `tradelens2025`** so the public demo stays usable. Set your own values in production. The **Sign out** button lives at the bottom of the sidebar.
+- **Sign in** falls back to `demo` / `tradelens2025` while no accounts exist, so the public demo stays usable.
+- **Create Account** appears on the login card only when `TRADELENS_INVITE_CODE` is set. Signup needs that invite code; passwords are **bcrypt-hashed** (never stored in plaintext). Username rules: 3–20 chars, letters/numbers/underscore.
+- Once any account is created, only DB users can sign in — the secrets fallback is ignored. New trades are tagged with your `user_id`; legacy trades (no owner) stay visible to everyone. See [docs/secrets_setup.md](docs/secrets_setup.md).
+- The signed-in username and **Sign out** button live at the bottom of the sidebar.
+
+### Logging a trade
+
+The **New Trade** form is organized into tabs (Timing → Market Context → Setup → Risk & Outcome → Psychology → Screenshot). Price levels default to empty and auto-calculate your planned/realized R; tick **"Skip price levels"** to enter P&L and R by hand. Double-submits and reruns are de-duplicated by a content fingerprint, and CSV import skips rows that already exist.
 
 ### Enable AI
 

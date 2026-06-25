@@ -28,8 +28,12 @@ from src.tradelens.services.metrics import (  # noqa: E402
     today_pnl,
 )
 from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
+from src.tradelens.services.sample_data import count_sample_trades  # noqa: E402
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
-from src.tradelens.ui.components.auth import require_auth  # noqa: E402
+from src.tradelens.ui.components.auth import (  # noqa: E402
+    current_user_id,
+    require_auth,
+)
 from src.tradelens.ui.components.charts import equity_curve_chart  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
@@ -74,7 +78,7 @@ _DF_COLS = [
 
 
 def _load_df() -> pd.DataFrame:
-    trades = get_trades()
+    trades = get_trades(user_id=current_user_id())
     df = pd.DataFrame([{c: getattr(t, c, None) for c in _DF_COLS} for t in trades])
     if df.empty:
         return df
@@ -102,6 +106,9 @@ st.markdown(
     section_header("Dashboard", "Your trading performance at a glance"),
     unsafe_allow_html=True,
 )
+
+if count_sample_trades(current_user_id()) > 0:
+    st.info("🔬 Demo data is active. These are sample trades.")
 
 # ── Empty state ───────────────────────────────────────────────────
 if df.empty:

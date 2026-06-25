@@ -4,6 +4,18 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .session import Base
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    username: Mapped[str] = mapped_column(
+        String, unique=True, nullable=False, index=True
+    )
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    is_active: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
 class Strategy(Base):
     __tablename__ = "strategies"
 
@@ -81,6 +93,13 @@ class Trade(Base):
 
     # Marks demo/sample rows so they can be cleared without touching real trades.
     is_sample: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
+
+    # Owning user (multi-user, Session B). NULL = legacy single-user trades.
+    user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    # Deterministic fingerprint for duplicate detection (Session B).
+    trade_hash: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
 
     created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)

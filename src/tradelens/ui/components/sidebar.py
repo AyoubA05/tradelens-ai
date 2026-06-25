@@ -88,7 +88,7 @@ def render_sidebar(df=None, today=None) -> None:
     import streamlit as st
 
     from src.tradelens.services.strategy import get_active_strategy
-    from src.tradelens.ui.components.auth import render_logout_button
+    from src.tradelens.ui.components.auth import current_user, render_logout_button
 
     strategy = get_active_strategy()
     strategy_name = (strategy or {}).get("name")
@@ -102,4 +102,7 @@ def render_sidebar(df=None, today=None) -> None:
         st.markdown(_strategy_badge_html(strategy_name), unsafe_allow_html=True)
 
         st.divider()
+        uname = current_user()
+        if uname:
+            st.caption(f"Signed in as: **{uname}**")
         render_logout_button()

@@ -25,7 +25,10 @@ from src.tradelens.services.sample_data import (  # noqa: E402
     load_sample_trades,
 )
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
-from src.tradelens.ui.components.auth import require_auth  # noqa: E402
+from src.tradelens.ui.components.auth import (  # noqa: E402
+    current_user_id,
+    require_auth,
+)
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
@@ -77,7 +80,7 @@ st.divider()
 # ── Data Management ───────────────────────────────────────────────
 st.subheader("Data Management")
 
-trades = get_trades()
+trades = get_trades(user_id=current_user_id())
 df_export = pd.DataFrame(
     [{col: getattr(t, col, None) for col in CSV_COLUMNS} for t in trades]
 )
@@ -99,18 +102,23 @@ with imp_col:
     st.caption("Tip: Export first to see the required column format.")
     uploaded = st.file_uploader("Upload trades CSV", type=["csv"])
     if uploaded is not None:
-        rows_inserted, errors = import_trades_csv(uploaded)
-        if rows_inserted:
-            st.toast(f"Imported {rows_inserted} trades", icon="✓")
+        rows_inserted, skipped, errors = import_trades_csv(
+            uploaded, user_id=current_user_id()
+        )
+        if rows_inserted or skipped:
+            st.toast(
+                f"Imported {rows_inserted} trades. Skipped {skipped} duplicates.",
+                icon="✓",
+            )
         for err in errors:
             st.warning(err)
-        if rows_inserted == 0 and not errors:
+        if rows_inserted == 0 and skipped == 0 and not errors:
             st.caption("CSV was valid but contained no rows.")
 
 st.markdown("")
 
 # ── Sample data ───────────────────────────────────────────────────
-sample_count = count_sample_trades()
+sample_count = count_sample_trades(current_user_id())
 st.markdown("**Demo Data**")
 st.caption(
     f"Sample trades currently loaded: {sample_count}. "
@@ -120,7 +128,7 @@ st.caption(
 load_col, clear_col = st.columns(2)
 with load_col:
     if st.button("Load sample trades", use_container_width=True):
-        inserted = load_sample_trades()
+        inserted = load_sample_trades(current_user_id())
         st.toast(f"Loaded {inserted} demo trades", icon="✓")
         st.rerun()
 with clear_col:
@@ -129,7 +137,7 @@ with clear_col:
         use_container_width=True,
         disabled=sample_count == 0,
     ):
-        removed = clear_sample_trades()
+        removed = clear_sample_trades(current_user_id())
         st.toast(f"Removed {removed} demo trades", icon="✓")
         st.rerun()
 

@@ -28,7 +28,12 @@ _DEFAULT_USERNAME = "demo"
 _DEFAULT_PASSWORD = "tradelens2025"
 
 _AUTH_KEY = "authenticated"
+_USER_KEY = "current_user"
+_UID_KEY = "current_user_id"
 _ERROR_KEY = "_login_error"
+_MODE_KEY = "_auth_mode"  # "login" | "signup"
+_SIGNUP_ERR = "_signup_error"
+_SIGNUP_OK = "_signup_ok"
 
 
 def _read_secret(name: str, default: str) -> str:
@@ -68,6 +73,75 @@ def verify_credentials(username: str | None, password: str | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Multi-user (Session B): DB users with a secrets fallback + invite-code signup
+# ---------------------------------------------------------------------------
+
+
+def invite_code() -> str:
+    """The configured signup invite code, or "" when signup is disabled."""
+    return _read_secret("TRADELENS_INVITE_CODE", "")
+
+
+def signup_enabled() -> bool:
+    """Signup is offered only when an invite code is configured."""
+    return bool(invite_code())
+
+
+def authenticate_login(username, password):
+    """Resolve a login attempt to ``(ok, username, user_id)``.
+
+    DB users take precedence: once the users table has rows, only bcrypt DB users
+    can sign in. While it is empty, fall back to the secrets credentials (whose
+    user_id is None — legacy single-user trades).
+    """
+    from src.tradelens.services import users
+
+    try:
+        has_db_users = users.users_exist()
+    except Exception:  # noqa: BLE001 — a DB hiccup must not lock everyone out
+        has_db_users = False
+
+    if has_db_users:
+        user = users.authenticate(str(username or ""), str(password or ""))
+        if user is not None:
+            return True, user.username, user.id
+        return False, None, None
+
+    if verify_credentials(username, password):
+        return True, str(username), None
+    return False, None, None
+
+
+def validate_signup(username, password, confirm, invite) -> str | None:
+    """Return an error message for an invalid signup, or None when valid."""
+    from src.tradelens.services import users
+
+    if not users.is_valid_username(str(username or "")):
+        return "Username must be 3–20 characters: letters, numbers, underscore."
+    if users.username_taken(str(username)):
+        return "Username already taken."
+    if len(str(password or "")) < users.MIN_PASSWORD_LEN:
+        return f"Password must be at least {users.MIN_PASSWORD_LEN} characters."
+    if password != confirm:
+        return "Passwords do not match."
+    expected = invite_code()
+    if not expected or not hmac.compare_digest(str(invite or ""), expected):
+        return "Invalid invite code."
+    return None
+
+
+def process_signup(username, password, confirm, invite) -> str | None:
+    """Validate + create a user. Returns an error message, or None on success."""
+    from src.tradelens.services import users
+
+    error = validate_signup(username, password, confirm, invite)
+    if error:
+        return error
+    users.create_user(str(username), str(password))
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Streamlit-facing helpers (imported lazily so the module stays import-light)
 # ---------------------------------------------------------------------------
 
@@ -76,6 +150,65 @@ def is_authenticated() -> bool:
     import streamlit as st
 
     return bool(st.session_state.get(_AUTH_KEY, False))
+
+
+def _render_login_form(st) -> None:
+    with st.form("tl_login", clear_on_submit=False):
+        username = st.text_input("Username", key="login_username")
+        password = st.text_input("Password", type="password", key="login_password")
+        submitted = st.form_submit_button("Sign In", use_container_width=True)
+
+    if submitted:
+        ok, uname, uid = authenticate_login(username, password)
+        if ok:
+            st.session_state[_AUTH_KEY] = True
+            st.session_state[_USER_KEY] = uname
+            st.session_state[_UID_KEY] = uid
+            st.session_state.pop(_ERROR_KEY, None)
+            st.rerun()
+        else:
+            st.session_state[_ERROR_KEY] = True
+
+    if st.session_state.get(_ERROR_KEY):
+        st.error("Incorrect username or password.")
+
+    if signup_enabled():
+        if st.button("Create Account", key="show_signup", use_container_width=True):
+            st.session_state[_MODE_KEY] = "signup"
+            st.session_state.pop(_ERROR_KEY, None)
+            st.rerun()
+
+
+def _render_signup_form(st) -> None:
+    st.caption("Create your account — an invite code is required.")
+    show = st.checkbox("Show password", key="signup_show")
+    ptype = "default" if show else "password"
+    with st.form("tl_signup", clear_on_submit=False):
+        username = st.text_input("Username", key="signup_username")
+        password = st.text_input("Password", type=ptype, key="signup_password")
+        confirm = st.text_input("Confirm Password", type=ptype, key="signup_confirm")
+        invite = st.text_input(
+            "Invite Code — required to create an account", key="signup_invite"
+        )
+        submitted = st.form_submit_button("Create Account", use_container_width=True)
+
+    if submitted:
+        error = process_signup(username, password, confirm, invite)
+        if error:
+            st.session_state[_SIGNUP_ERR] = error
+        else:
+            st.session_state[_SIGNUP_OK] = True
+            st.session_state[_MODE_KEY] = "login"
+            st.session_state.pop(_SIGNUP_ERR, None)
+            st.rerun()
+
+    if st.session_state.get(_SIGNUP_ERR):
+        st.error(st.session_state[_SIGNUP_ERR])
+
+    if st.button("← Back to Sign In", key="back_to_login", use_container_width=True):
+        st.session_state[_MODE_KEY] = "login"
+        st.session_state.pop(_SIGNUP_ERR, None)
+        st.rerun()
 
 
 def _render_login() -> None:
@@ -108,21 +241,13 @@ Sign in to review your trades.</div></div>""",
             unsafe_allow_html=True,
         )
 
-        with st.form("tl_login", clear_on_submit=False):
-            username = st.text_input("Username", key="login_username")
-            password = st.text_input("Password", type="password", key="login_password")
-            submitted = st.form_submit_button("Sign In", use_container_width=True)
+        if st.session_state.pop(_SIGNUP_OK, False):
+            st.success("Account created. Sign in below.")
 
-        if submitted:
-            if verify_credentials(username, password):
-                st.session_state[_AUTH_KEY] = True
-                st.session_state.pop(_ERROR_KEY, None)
-                st.rerun()
-            else:
-                st.session_state[_ERROR_KEY] = True
-
-        if st.session_state.get(_ERROR_KEY):
-            st.error("Incorrect username or password.")
+        if st.session_state.get(_MODE_KEY) == "signup":
+            _render_signup_form(st)
+        else:
+            _render_login_form(st)
 
 
 def require_auth() -> None:
@@ -145,5 +270,20 @@ def render_logout_button() -> None:
 
     if st.button("Sign out", key="tl_logout", use_container_width=True):
         st.session_state[_AUTH_KEY] = False
-        st.session_state.pop(_ERROR_KEY, None)
+        for key in (_USER_KEY, _UID_KEY, _ERROR_KEY, _MODE_KEY):
+            st.session_state.pop(key, None)
         st.rerun()
+
+
+def current_user() -> str | None:
+    """The signed-in username, or None."""
+    import streamlit as st
+
+    return st.session_state.get(_USER_KEY)
+
+
+def current_user_id() -> int | None:
+    """The signed-in user's DB id (None for the secrets-fallback legacy user)."""
+    import streamlit as st
+
+    return st.session_state.get(_UID_KEY)
