@@ -58,10 +58,26 @@ def clear_sample_trades(user_id=None) -> int:
         db.close()
 
 
+def _recent_weekdays(n: int) -> list:
+    """The last `n` weekdays ending today, oldest first.
+
+    Anchoring sample trades to the recent past (instead of a fixed calendar date)
+    keeps them inside the app's default date ranges — dashboard, "this week", and
+    the Analytics last-90-days filter all show them no matter when the demo runs.
+    """
+    days, day = [], dt.date.today()
+    while len(days) < n:
+        if day.weekday() < 5:
+            days.append(day)
+        day -= dt.timedelta(days=1)
+    return list(reversed(days))
+
+
 def _build_sample_trades(user_id) -> list:
-    """A deterministic, varied 20-trade demo set (~60% win / 30% loss / 10% BE)."""
+    """A deterministic, varied 20-trade demo set (~60% win / 30% loss / 10% BE),
+    dated over the most recent weekdays so it always appears on the dashboard."""
     rows = []
-    start = dt.date(2026, 6, 1)
+    weekdays = _recent_weekdays(SAMPLE_COUNT)
     for i in range(SAMPLE_COUNT):
         bucket = i % 10
         result = "Win" if bucket < 6 else ("Loss" if bucket < 9 else "Breakeven")
@@ -74,9 +90,7 @@ def _build_sample_trades(user_id) -> list:
         else:
             pnl, rr = 0.0, 0.0
 
-        day = start + dt.timedelta(days=int(i * 1.5))
-        while day.weekday() >= 5:  # weekdays only
-            day += dt.timedelta(days=1)
+        day = weekdays[i]
 
         asset, asset_class = _ASSETS[i % len(_ASSETS)]
         mistakes = [_MISTAKES[i % len(_MISTAKES)]] if result == "Loss" else []

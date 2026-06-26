@@ -113,17 +113,27 @@ def empty_state(
     message: str,
     cta_label: Optional[str] = None,
     cta_href: Optional[str] = None,
+    cta2_label: Optional[str] = None,
+    cta2_href: Optional[str] = None,
 ) -> str:
-    """A designed empty state: glass card, inline-SVG icon, message, optional CTA link."""
-    cta = ""
+    """A designed empty state: glass card, inline-SVG icon, message, and up to two
+    CTA links (primary teal button + an optional secondary text link)."""
+    ctas = ""
     if cta_label and cta_href:
-        cta = (
-            f'<a class="tl-empty-cta" href="{html.escape(str(cta_href))}">'
-            f"{html.escape(str(cta_label))}</a>"
+        ctas += (
+            f'<a class="tl-empty-cta" href="{html.escape(str(cta_href))}" '
+            f'target="_self">{html.escape(str(cta_label))}</a>'
+        )
+    if cta2_label and cta2_href:
+        ctas += (
+            f'<a href="{html.escape(str(cta2_href))}" target="_self" '
+            'style="display:inline-block;margin-left:14px;color:#8E9196;'
+            'font-size:0.92rem;text-decoration:none">'
+            f"{html.escape(str(cta2_label))} →</a>"
         )
     return (
         '<div class="tl-empty-state">'
         f'<div class="tl-empty-icon">{_EMPTY_ICON}</div>'
         f'<div class="tl-empty-message">{html.escape(str(message))}</div>'
-        f"{cta}</div>"
+        f"{ctas}</div>"
     )

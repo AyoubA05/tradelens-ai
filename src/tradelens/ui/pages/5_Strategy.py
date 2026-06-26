@@ -82,7 +82,7 @@ else:
 
 if st.button("Use ICT/SMC Starter Template", key="strategy_starter"):
     upsert_strategy_profile(**STARTER_TEMPLATE)
-    st.toast("Starter template loaded — review and save.", icon="✓")
+    st.toast("Starter template loaded — review and save.", icon="✅")
     st.rerun()
 
 st.markdown("---")
@@ -179,7 +179,7 @@ with st.form("strategy_form"):
 
 if submitted:
     if not name.strip():
-        st.toast("Strategy Name is required.", icon="✕")
+        st.toast("Strategy Name is required.", icon="❌")
     else:
         try:
             upsert_strategy_profile(
@@ -199,4 +199,4 @@ if submitted:
             st.session_state["_strategy_saved"] = True
             st.rerun()
         except Exception as exc:
-            st.toast(f"Failed to save strategy profile: {exc}", icon="✕")
+            st.toast(f"Failed to save strategy profile: {exc}", icon="❌")

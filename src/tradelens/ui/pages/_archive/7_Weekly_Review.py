@@ -93,12 +93,12 @@ if existing is None:
                     )
                 else:
                     save_weekly_review(review, overwrite=False)
-                    st.toast("Weekly review generated", icon="✓")
+                    st.toast("Weekly review generated", icon="✅")
                     st.rerun()
             except WeeklyReviewError as exc:
-                st.toast(f"Could not generate review: {exc}", icon="✕")
+                st.toast(f"Could not generate review: {exc}", icon="❌")
             except Exception as exc:
-                st.toast(f"Unexpected error: {exc}", icon="✕")
+                st.toast(f"Unexpected error: {exc}", icon="❌")
 else:
     _render_review(existing)
     st.markdown("---")
@@ -120,12 +120,12 @@ else:
                         )
                     else:
                         save_weekly_review(review, overwrite=True)
-                        st.toast("Weekly review regenerated", icon="✓")
+                        st.toast("Weekly review regenerated", icon="✅")
                         st.rerun()
                 except WeeklyReviewError as exc:
-                    st.toast(f"Could not regenerate review: {exc}", icon="✕")
+                    st.toast(f"Could not regenerate review: {exc}", icon="❌")
                 except Exception as exc:
-                    st.toast(f"Unexpected error: {exc}", icon="✕")
+                    st.toast(f"Unexpected error: {exc}", icon="❌")
         if c2.button("Cancel"):
             st.session_state.pop(confirm_key, None)
             st.rerun()

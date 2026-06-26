@@ -200,16 +200,16 @@ with right:
                     analysis = create_or_update_analysis(
                         selected_id, vision_result, usage
                     )
-                    st.toast("Analysis complete", icon="✓")
+                    st.toast("Analysis complete", icon="✅")
                     st.rerun()
                 except ScreenshotAnalysisError as exc:
-                    st.toast(f"Screenshot analysis failed: {exc}", icon="✕")
+                    st.toast(f"Screenshot analysis failed: {exc}", icon="❌")
                 except AIParseError as exc:
-                    st.toast(f"AI returned an unreadable response: {exc}", icon="✕")
+                    st.toast(f"AI returned an unreadable response: {exc}", icon="❌")
                 except ValueError as exc:
-                    st.toast(str(exc), icon="✕")
+                    st.toast(str(exc), icon="❌")
                 except Exception as exc:
-                    st.toast(f"Unexpected error: {exc}", icon="✕")
+                    st.toast(f"Unexpected error: {exc}", icon="❌")
     else:
         rerun_btn = st.button(
             "Re-run Analysis",
@@ -227,16 +227,16 @@ with right:
                     analysis = create_or_update_analysis(
                         selected_id, vision_result, usage
                     )
-                    st.toast("Analysis updated", icon="✓")
+                    st.toast("Analysis updated", icon="✅")
                     st.rerun()
                 except ScreenshotAnalysisError as exc:
-                    st.toast(f"Screenshot analysis failed: {exc}", icon="✕")
+                    st.toast(f"Screenshot analysis failed: {exc}", icon="❌")
                 except AIParseError as exc:
-                    st.toast(f"AI returned an unreadable response: {exc}", icon="✕")
+                    st.toast(f"AI returned an unreadable response: {exc}", icon="❌")
                 except ValueError as exc:
-                    st.toast(str(exc), icon="✕")
+                    st.toast(str(exc), icon="❌")
                 except Exception as exc:
-                    st.toast(f"Unexpected error: {exc}", icon="✕")
+                    st.toast(f"Unexpected error: {exc}", icon="❌")
 
     # ── Editable labels (only when analysis exists) ───────────────
     if analysis is not None:
@@ -378,7 +378,7 @@ with right:
                 fvg_used=1 if new_fvg else 0,
                 order_block_used=1 if new_ob else 0,
             )
-            st.toast("Labels saved", icon="✓")
+            st.toast("Labels saved", icon="✅")
             st.rerun()
 
         # ── Journal Entry section ─────────────────────────────────
@@ -406,14 +406,14 @@ with right:
                         trade_dict, ai_dict, strategy_profile=active_strategy
                     )
                     save_journal(analysis.id, markdown)
-                    st.toast("Journal saved", icon="✓")
+                    st.toast("Journal saved", icon="✅")
                     st.rerun()
                 except JournalStructureError as exc:
-                    st.toast(f"Journal structure error: {exc}", icon="✕")
+                    st.toast(f"Journal structure error: {exc}", icon="❌")
                 except ValueError as exc:
-                    st.toast(str(exc), icon="✕")
+                    st.toast(str(exc), icon="❌")
                 except Exception as exc:
-                    st.toast(f"Journal generation failed: {exc}", icon="✕")
+                    st.toast(f"Journal generation failed: {exc}", icon="❌")
 
         # ── Grade section ─────────────────────────────────────────
         st.divider()
@@ -475,7 +475,7 @@ with right:
                         resolved_override,
                     )
                     save_user_grade(selected_id, resolved_override)
-                    st.toast("Grade override saved", icon="✓")
+                    st.toast("Grade override saved", icon="✅")
                     st.rerun()
 
             run_grade = st.button(
@@ -490,13 +490,13 @@ with right:
                         trade_dict, active_strategy, vision_dict
                     )
                     save_grade(analysis.id, grading_result)
-                    st.toast("Grade saved", icon="✓")
+                    st.toast("Grade saved", icon="✅")
                     st.rerun()
                 except GradingError as exc:
-                    st.toast(f"Grading failed: {exc}", icon="✕")
+                    st.toast(f"Grading failed: {exc}", icon="❌")
                 except AIParseError as exc:
-                    st.toast(f"AI returned an unreadable response: {exc}", icon="✕")
+                    st.toast(f"AI returned an unreadable response: {exc}", icon="❌")
                 except ValueError as exc:
-                    st.toast(str(exc), icon="✕")
+                    st.toast(str(exc), icon="❌")
                 except Exception as exc:
-                    st.toast(f"Unexpected error during grading: {exc}", icon="✕")
+                    st.toast(f"Unexpected error during grading: {exc}", icon="❌")

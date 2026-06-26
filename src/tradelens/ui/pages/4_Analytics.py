@@ -509,12 +509,12 @@ def _render_weekly() -> None:
                         )
                     else:
                         save_weekly_review(review, overwrite=False, user_id=uid)
-                        st.toast("Weekly review generated", icon="✓")
+                        st.toast("Weekly review generated", icon="✅")
                         st.rerun()
                 except WeeklyReviewError as exc:
-                    st.toast(f"Could not generate review: {exc}", icon="✕")
+                    st.toast(f"Could not generate review: {exc}", icon="❌")
                 except Exception as exc:
-                    st.toast(f"Unexpected error: {exc}", icon="✕")
+                    st.toast(f"Unexpected error: {exc}", icon="❌")
     else:
         _render_review(existing)
         if (existing.get("stats") or {}).get("trades", 0) < 3:
@@ -540,12 +540,12 @@ def _render_weekly() -> None:
                             )
                         else:
                             save_weekly_review(review, overwrite=True, user_id=uid)
-                            st.toast("Weekly review regenerated", icon="✓")
+                            st.toast("Weekly review regenerated", icon="✅")
                             st.rerun()
                     except WeeklyReviewError as exc:
-                        st.toast(f"Could not regenerate review: {exc}", icon="✕")
+                        st.toast(f"Could not regenerate review: {exc}", icon="❌")
                     except Exception as exc:
-                        st.toast(f"Unexpected error: {exc}", icon="✕")
+                        st.toast(f"Unexpected error: {exc}", icon="❌")
             if c2.button("Cancel", key="wk_cancel"):
                 st.session_state.pop(confirm_key, None)
                 st.rerun()
@@ -636,7 +636,7 @@ def _render_insights() -> None:
                     st.markdown(f"*Suggested rule:* {rule}")
                     if st.button("Add to Strategy Profile", key=f"add_rule_{_i}"):
                         append_insight(rule)
-                        st.toast("Added to your Strategy Profile", icon="✓")
+                        st.toast("Added to your Strategy Profile", icon="✅")
 
 
 with tab_perf:

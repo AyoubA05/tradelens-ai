@@ -117,6 +117,8 @@ if df.empty:
             "No trades yet — log your first trade to see your dashboard come alive.",
             cta_label="Log a trade",
             cta_href="/NewTrade",
+            cta2_label="Load sample trades",
+            cta2_href="/Settings",
         ),
         unsafe_allow_html=True,
     )
