@@ -72,13 +72,17 @@ def test_export_then_import_round_trip(in_memory_db):
 
 def test_import_missing_required_columns_returns_error(in_memory_db):
     bad = pd.DataFrame([{"asset": "NQ"}])  # missing trade_date/direction/result/pnl
-    inserted, _skipped, errors = import_trades_csv(io.BytesIO(bad.to_csv(index=False).encode()))
+    inserted, _skipped, errors = import_trades_csv(
+        io.BytesIO(bad.to_csv(index=False).encode())
+    )
     assert inserted == 0
     assert errors and "missing required columns" in errors[0]
 
 
 def test_import_corrupt_csv_returns_error(in_memory_db):
-    inserted, _skipped, errors = import_trades_csv(io.BytesIO(b"\x00\x01 not,a,valid\ncsv\x00"))
+    inserted, _skipped, errors = import_trades_csv(
+        io.BytesIO(b"\x00\x01 not,a,valid\ncsv\x00")
+    )
     assert inserted == 0
     assert errors  # parse or column error reported, never raised
 

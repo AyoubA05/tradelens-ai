@@ -21,6 +21,7 @@ from src.tradelens.services.trade_service import (  # noqa: E402
     update_trade,
 )
 from src.tradelens.ui.components.auth import current_user_id, require_auth  # noqa: E402
+from src.tradelens.ui.components.ai_trade_chat import render_ask_ai  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.screenshot_analyzer import (  # noqa: E402
     render_screenshot_analyzer,
@@ -314,12 +315,5 @@ if selected_id is not None:
             st.toast("Trade deleted", icon="✓")
             st.rerun()
 
-    # ── Ask AI (placeholder) ──────────────────────────────────────
-    st.divider()
-    st.subheader("Ask AI About This Trade")
-    st.info("AI analysis will be available here. Enable your API key in Settings.")
-    a1, a2, a3, a4 = st.columns(4)
-    a1.button("What did I do well?", disabled=True, key="ask1")
-    a2.button("What rule did I break?", disabled=True, key="ask2")
-    a3.button("How can I improve this setup?", disabled=True, key="ask3")
-    a4.button("Summarize this trade in journal format.", disabled=True, key="ask4")
+    # ── Ask AI About This Trade ───────────────────────────────────
+    render_ask_ai(trade, get_active_strategy())

@@ -46,7 +46,7 @@ from src.tradelens.services.weekly import (  # noqa: E402
     WeeklyReviewError,
     generate_weekly_review,
     get_weekly_review,
-    list_weekly_reviews,
+    get_weekly_reviews,
     save_weekly_review,
     week_bounds,
 )
@@ -485,12 +485,16 @@ def _render_weekly() -> None:
     monday, sunday = week_bounds(picked)
     st.subheader(f"Week of {monday} → {sunday}")
 
-    existing = get_weekly_review(monday)
+    uid = current_user_id()
+    existing = get_weekly_review(monday, uid)
     _render_week_stats(existing["stats"] if existing else {})
 
     confirm_key = "wk_confirm_overwrite"
     if existing is None:
-        if st.button("Generate weekly review", type="primary", key="wk_gen"):
+        # AI button only appears when a key is configured; stats above always show.
+        if is_ai_enabled() and st.button(
+            "Generate weekly review", type="primary", key="wk_gen"
+        ):
             with st.spinner("Writing weekly review…"):
                 try:
                     review, _usage = generate_weekly_review(monday)
@@ -504,7 +508,7 @@ def _render_weekly() -> None:
                             unsafe_allow_html=True,
                         )
                     else:
-                        save_weekly_review(review, overwrite=False)
+                        save_weekly_review(review, overwrite=False, user_id=uid)
                         st.toast("Weekly review generated", icon="✓")
                         st.rerun()
                 except WeeklyReviewError as exc:
@@ -513,6 +517,10 @@ def _render_weekly() -> None:
                     st.toast(f"Unexpected error: {exc}", icon="✕")
     else:
         _render_review(existing)
+        if (existing.get("stats") or {}).get("trades", 0) < 3:
+            st.caption(
+                "Based on a small sample. Log more trades for stronger insights."
+            )
         st.divider()
         if st.session_state.get(confirm_key) == monday:
             st.warning(
@@ -531,7 +539,7 @@ def _render_weekly() -> None:
                                 unsafe_allow_html=True,
                             )
                         else:
-                            save_weekly_review(review, overwrite=True)
+                            save_weekly_review(review, overwrite=True, user_id=uid)
                             st.toast("Weekly review regenerated", icon="✓")
                             st.rerun()
                     except WeeklyReviewError as exc:
@@ -542,13 +550,13 @@ def _render_weekly() -> None:
                 st.session_state.pop(confirm_key, None)
                 st.rerun()
         else:
-            if st.button("Regenerate review", key="wk_regen"):
+            if is_ai_enabled() and st.button("Regenerate review", key="wk_regen"):
                 st.session_state[confirm_key] = monday
                 st.rerun()
 
     st.divider()
     st.subheader("Past Reviews")
-    history = list_weekly_reviews()
+    history = get_weekly_reviews(uid)
     if not history:
         st.caption("No saved reviews yet.")
     else:

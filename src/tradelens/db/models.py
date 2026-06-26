@@ -206,6 +206,10 @@ class WeeklyReview(Base):
     __tablename__ = "weekly_reviews"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    # Owning user (multi-user, Session D). NULL = legacy single-user reviews.
+    user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
     week_start: Mapped[str] = mapped_column(
         String, nullable=False, index=True
     )  # ISO Monday (YYYY-MM-DD)
