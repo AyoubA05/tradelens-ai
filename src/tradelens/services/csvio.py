@@ -2,7 +2,11 @@ import io
 
 import pandas as pd
 
-from src.tradelens.services.trade_service import create_trade
+from src.tradelens.services.trade_service import (
+    compute_trade_hash,
+    create_trade,
+    trade_hash_exists,
+)
 
 # CSV columns match Trade model column names exactly (snake_case).
 # Import round-trips through create_trade(), which filters by model column keys.
@@ -45,31 +49,44 @@ def export_trades_csv(df: pd.DataFrame) -> bytes:
     return out.to_csv(index=False).encode("utf-8")
 
 
-def import_trades_csv(file) -> tuple[int, list[str]]:
+def import_trades_csv(file, user_id=None) -> tuple[int, int, list[str]]:
     """
     Parse a CSV UploadedFile and insert each row as a Trade via create_trade().
 
-    Returns (rows_inserted, errors). Never raises — bad rows are collected in errors.
+    Returns (rows_inserted, skipped_duplicates, errors). Duplicate rows — those
+    whose trade_hash already exists (scoped to `user_id`) or repeat within the
+    file — are skipped, not inserted. Never raises; bad rows go into `errors`.
     """
     try:
         df = pd.read_csv(io.BytesIO(file.read()))
     except Exception as exc:
-        return 0, [f"Could not parse CSV: {exc}"]
+        return 0, 0, [f"Could not parse CSV: {exc}"]
 
     missing = _REQUIRED_IMPORT_COLS - set(df.columns)
     if missing:
-        return 0, [f"CSV is missing required columns: {', '.join(sorted(missing))}"]
+        return 0, 0, [f"CSV is missing required columns: {', '.join(sorted(missing))}"]
 
     rows_inserted = 0
+    skipped = 0
     errors: list[str] = []
+    seen_hashes: set[str] = set()
 
     for i, row in df.iterrows():
         try:
             # Drop NaN cells so optional fields aren't passed as float('nan')
             trade_data = {k: v for k, v in row.items() if pd.notna(v)}
+            if user_id is not None:
+                trade_data["user_id"] = user_id
+
+            row_hash = compute_trade_hash(trade_data)
+            if row_hash in seen_hashes or trade_hash_exists(row_hash, user_id=user_id):
+                skipped += 1
+                continue
+            seen_hashes.add(row_hash)
+
             create_trade(trade_data)
             rows_inserted += 1
         except Exception as exc:
             errors.append(f"Row {i + 2}: {exc}")  # +2: 1-based + header row
 
-    return rows_inserted, errors
+    return rows_inserted, skipped, errors

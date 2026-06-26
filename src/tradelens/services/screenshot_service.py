@@ -57,3 +57,29 @@ def save_screenshot(trade_id: int, uploaded_file) -> Screenshot:
         raise
     finally:
         db.close()
+
+
+def save_screenshot_url(trade_id: int, url: str) -> Screenshot:
+    """Insert a screenshots row pointing at a remote image URL (no disk write).
+
+    The file_path stores the URL as-is; the UI renders http(s) paths directly and
+    only does a local-file existence check for non-URL paths.
+    """
+    db: Session = SessionLocal()
+    try:
+        record = Screenshot(
+            trade_id=trade_id,
+            file_path=str(url).strip(),
+            width=None,
+            height=None,
+            uploaded_at=datetime.now(timezone.utc).isoformat(),
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        return record
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()

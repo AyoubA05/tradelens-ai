@@ -12,3 +12,8 @@ port = 8501
 
 [browser]
 gatherUsageStats = false
+
+[client]
+# Hide Streamlit's auto page nav — TradeLens renders its own labeled menu
+# (components/sidebar.py) so the sidebar shows exactly six destinations.
+showSidebarNavigation = false

@@ -59,6 +59,31 @@ _DEMO_REVIEW_MD = "\n\n".join(
 )
 
 
+# System prompt for the lightweight "AI Weekly Coach" summary (Session D2).
+# Post-trade only — explicitly forbids live signals/predictions.
+_AI_COACH_SYSTEM = (
+    "You are a weekly trading coach for a day trader using a post-trade journal. "
+    "Review the trader's performance stats for the past week and provide honest, "
+    "constructive coaching. You must NEVER give live signals, entry/exit "
+    "recommendations, or market predictions. Focus on: what worked, what needs "
+    "discipline improvement, key patterns observed, and one clear focus for next "
+    "week. Keep your response to 3-4 paragraphs. Be direct, data-driven, and "
+    "encouraging but honest. If data is insufficient (fewer than 3 trades), "
+    "acknowledge that and encourage consistent logging."
+)
+
+_DEMO_COACH_REVIEW = (
+    "This week was a small but useful sample. Your discipline around waiting for "
+    "the NY AM killzone and HTF-bias alignment held up, and your winners came from "
+    "your A+ setups — a sign your process is sound when you stick to it.\n\n"
+    "Where it slipped was exit quality and a couple of off-plan entries that leaked "
+    "edge. Those are the trades to study: the setup was fine, the management wasn't.\n\n"
+    "Next week, pick one focus — trail to the next liquidity level rather than "
+    "closing at the first sign of strength — and keep logging every trade so the "
+    "patterns sharpen."
+)
+
+
 class WeeklyReviewError(Exception):
     """Raised when the AI weekly review is unavailable or missing required sections."""
 
@@ -208,6 +233,36 @@ def generate_weekly_review(
     )
 
 
+def generate_ai_weekly_review(
+    stats: dict, strategy_profile: Optional[dict] = None
+) -> str:
+    """Return a 3–4 paragraph coaching summary for a week's stats.
+
+    Post-trade only (no signals/predictions — enforced by the system prompt).
+    Routes through ai_client.chat with effort="high"; DEMO_MODE returns a canned
+    summary with zero spend. Raises WeeklyReviewError if the AI is unavailable.
+    """
+    user_message = (
+        "WEEKLY COACHING REQUEST\n\n"
+        f"This week's stats:\n{json.dumps(stats, indent=2, default=str)}\n"
+    )
+    if strategy_profile:
+        user_message += "\nActive strategy profile:\n" + json.dumps(
+            strategy_profile, indent=2, default=str
+        )
+
+    content, _usage = chat(
+        user_message=user_message,
+        system_message=_AI_COACH_SYSTEM,
+        cache_system=True,
+        effort="high",
+        demo_response=_DEMO_COACH_REVIEW,
+    )
+    if isinstance(content, AIUnavailable):
+        raise WeeklyReviewError(content.reason)
+    return content
+
+
 # ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
@@ -229,18 +284,26 @@ def _row_to_dict(row: WeeklyReview) -> dict:
     }
 
 
-def save_weekly_review(review: dict, overwrite: bool = False) -> dict:
+def save_weekly_review(
+    review: dict, overwrite: bool = False, user_id: Optional[int] = None
+) -> dict:
     """
-    Persist a generated review. If a review already exists for the same week_start
-    and overwrite is False, raises WeeklyReviewExistsError (the page asks the user
-    to confirm before retrying with overwrite=True). Returns the saved row as a dict.
+    Persist a generated review, scoped to `user_id` (NULL = legacy single user).
+    If a review already exists for the same (user, week_start) and overwrite is
+    False, raises WeeklyReviewExistsError (the page asks the user to confirm before
+    retrying with overwrite=True). Returns the saved row as a dict.
     """
     week_start = review["week_start"]
     now = dt.datetime.now(dt.timezone.utc).isoformat()
     db = SessionLocal()
     try:
         existing = (
-            db.query(WeeklyReview).filter(WeeklyReview.week_start == week_start).first()
+            db.query(WeeklyReview)
+            .filter(
+                WeeklyReview.week_start == week_start,
+                WeeklyReview.user_id == user_id,
+            )
+            .first()
         )
         if existing is not None and not overwrite:
             raise WeeklyReviewExistsError(
@@ -248,7 +311,7 @@ def save_weekly_review(review: dict, overwrite: bool = False) -> dict:
             )
 
         if existing is None:
-            row = WeeklyReview(week_start=week_start, created_at=now)
+            row = WeeklyReview(week_start=week_start, created_at=now, user_id=user_id)
             db.add(row)
         else:
             row = existing
@@ -265,12 +328,17 @@ def save_weekly_review(review: dict, overwrite: bool = False) -> dict:
         db.close()
 
 
-def get_weekly_review(week_start: str) -> Optional[dict]:
-    """Return the persisted review for the given ISO Monday, or None."""
+def get_weekly_review(week_start: str, user_id: Optional[int] = None) -> Optional[dict]:
+    """Return the persisted review for the given ISO Monday (scoped to user), or None."""
     db = SessionLocal()
     try:
         row = (
-            db.query(WeeklyReview).filter(WeeklyReview.week_start == week_start).first()
+            db.query(WeeklyReview)
+            .filter(
+                WeeklyReview.week_start == week_start,
+                WeeklyReview.user_id == user_id,
+            )
+            .first()
         )
         return _row_to_dict(row) if row else None
     finally:
@@ -278,12 +346,32 @@ def get_weekly_review(week_start: str) -> Optional[dict]:
 
 
 def list_weekly_reviews() -> list:
-    """Return all persisted reviews as dicts, most recent week first."""
+    """Return all persisted reviews as dicts, most recent week first (unscoped)."""
     db = SessionLocal()
     try:
         rows = (
             db.query(WeeklyReview)
             .order_by(WeeklyReview.week_start.desc(), WeeklyReview.id.desc())
+            .all()
+        )
+        return [_row_to_dict(r) for r in rows]
+    finally:
+        db.close()
+
+
+def get_weekly_reviews(user_id: Optional[int] = None, limit: int = 10) -> list:
+    """Return a user's saved reviews (newest week first), capped at `limit`.
+
+    Strictly scoped: a user never sees another user's reviews. Passing None
+    returns the legacy (NULL-owner) reviews.
+    """
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(WeeklyReview)
+            .filter(WeeklyReview.user_id == user_id)
+            .order_by(WeeklyReview.week_start.desc(), WeeklyReview.id.desc())
+            .limit(limit)
             .all()
         )
         return [_row_to_dict(r) for r in rows]

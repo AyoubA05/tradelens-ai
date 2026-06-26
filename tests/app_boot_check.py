@@ -64,7 +64,9 @@ def main() -> int:
 
     from streamlit.testing.v1 import AppTest
 
-    at = AppTest.from_file(app_path).run()
+    at = AppTest.from_file(app_path)
+    at.session_state["authenticated"] = True  # bypass the login gate during boot
+    at = at.run()
     if at.exception:
         print(f"app raised: {at.exception}", file=sys.stderr)
         return 2

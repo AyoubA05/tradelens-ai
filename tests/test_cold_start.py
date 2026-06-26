@@ -15,10 +15,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "tests" / "app_boot_check.py"
 ENTRY = ROOT / "src" / "tradelens" / "ui" / "app.py"
-HOME = ROOT / "src" / "tradelens" / "ui" / "pages" / "0_Home.py"
+HOME = ROOT / "src" / "tradelens" / "ui" / "pages" / "_archive" / "0_Home.py"
 
 
-def _cold_boot(app_path: Path, marker: str, tmp_path: Path) -> subprocess.CompletedProcess:
+def _cold_boot(
+    app_path: Path, marker: str, tmp_path: Path
+) -> subprocess.CompletedProcess:
     """Boot a page in a child process against a fresh empty DB, DEMO_MODE on."""
     env = dict(os.environ)
     env["DATABASE_URL"] = f"sqlite:///{tmp_path / 'cold.db'}"  # fresh, empty

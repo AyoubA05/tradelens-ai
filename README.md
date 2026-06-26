@@ -52,11 +52,12 @@ Pages only render and call services; **all** business logic lives in `services/`
 | Feature | What it does | Screenshot |
 |---|---|---|
 | New Trade | Log a trade with full SMC/ICT fields; killzone auto-fills from entry time | <!-- screenshot: new-trade — the New Trade form with SMC/ICT expander and killzone auto-fill --> |
-| Trade Detail | Two-column review: chart left, AI analysis + journal + grade right | <!-- screenshot: trade-detail — two-column layout with grade chip and rubric --> |
-| Analytics | Equity curve, drawdown, killzone performance, edge leak, consistency, AI pattern cards | <!-- screenshot: analytics — KPI row + killzone performance + pattern insights --> |
-| Calendar | Monthly P&L heatmap with day drill-down and grade chips | <!-- screenshot: calendar — month heatmap with day detail --> |
-| Weekly Review | 5-section AI retrospective with reasoning expander | <!-- screenshot: weekly-review — 5-section report --> |
-| AI Partner | Multi-turn SMC/ICT review of a completed trade | <!-- screenshot: ai-partner — chat bubbles reviewing a trade --> |
+| Journal | Unified filterable table + inline trade detail with editable AI screenshot analysis | <!-- screenshot: journal — table with inline detail and AI analysis --> |
+| AI Screenshot Analysis | Post-trade chart review from an uploaded image **or a direct image URL**; AI labels are editable before "Apply to Trade", and overrides are remembered | <!-- screenshot: ai-analysis — editable AI-detected panel --> |
+| Analytics | Tabs: Performance, Calendar, Weekly Review, Pattern Insights — equity curve, killzone edge, edge leak, consistency | <!-- screenshot: analytics — KPI row + tabs --> |
+| Pattern Insights | Deterministic, **no-API-key** insights that auto-load (best/worst killzone, costly mistakes, edge leak, HTF-bias alignment) with confidence labels | <!-- screenshot: pattern-insights — insight cards --> |
+| Calendar | Real HTML month grid (teal/red tinted day cells) with a per-day trade drill-down | <!-- screenshot: calendar — month grid with day detail --> |
+| Weekly Review | Deterministic weekly stats always shown; AI-written coach summary when a key is set | <!-- screenshot: weekly-review — week stats + AI summary --> |
 | Settings | CSV import/export, monthly AI cost dashboard | <!-- screenshot: settings — AI cost table --> |
 
 ---
@@ -67,10 +68,38 @@ Pages only render and call services; **all** business logic lives in `services/`
 git clone https://github.com/AyoubA05/tradelens-ai.git && cd tradelens-ai
 pip install -r requirements.txt
 python -m src.tradelens.db.init_db
+alembic upgrade head          # apply schema migrations to an existing DB
 streamlit run src/tradelens/ui/app.py
 ```
 
-Add `ANTHROPIC_API_KEY` to `.streamlit/secrets.toml` (or your environment) to enable AI features. Prefer to explore first? Set `DEMO_MODE=true` and the whole app runs on cached AI output at zero API cost (see [Demo Mode](#demo-mode)).
+### Login & accounts
+
+The app is gated by a sign-in page. Configure it via Streamlit secrets / environment:
+
+```toml
+# .streamlit/secrets.toml  (or .env)
+TRADELENS_USERNAME = "demo"            # secrets login (used until DB users exist)
+TRADELENS_PASSWORD = "tradelens2025"
+TRADELENS_INVITE_CODE = "your-code"    # gates signup; omit to hide the signup form
+```
+
+- **Sign in** falls back to `demo` / `tradelens2025` while no accounts exist, so the public demo stays usable.
+- **Create Account** appears on the login card only when `TRADELENS_INVITE_CODE` is set. Signup needs that invite code; passwords are **bcrypt-hashed** (never stored in plaintext). Username rules: 3–20 chars, letters/numbers/underscore.
+- Once any account is created, only DB users can sign in — the secrets fallback is ignored. New trades are tagged with your `user_id`; legacy trades (no owner) stay visible to everyone. See [docs/secrets_setup.md](docs/secrets_setup.md).
+- The signed-in username and **Sign out** button live at the bottom of the sidebar.
+
+### Logging a trade
+
+The **New Trade** form is organized into tabs (Timing → Market Context → Setup → Risk & Outcome → Psychology → Screenshot). Price levels default to empty and auto-calculate your planned/realized R; tick **"Skip price levels"** to enter P&L and R by hand. Double-submits and reruns are de-duplicated by a content fingerprint, and CSV import skips rows that already exist.
+
+### Enable AI
+
+This app uses **Anthropic**. Add the key named `ANTHROPIC_API_KEY`:
+
+- **Streamlit Cloud** → App Settings → Secrets → `ANTHROPIC_API_KEY = "your-key-here"`
+- **Locally** → add it to `.streamlit/secrets.toml` or `.env`, then restart.
+
+Settings → **AI Status** shows whether the key is detected, with step-by-step instructions. Prefer to explore first? Set `DEMO_MODE=true` and the whole app runs on cached AI output at zero API cost (see [Demo Mode](#demo-mode)).
 
 ---
 

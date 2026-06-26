@@ -42,7 +42,9 @@ def test_runtime_has_core_deps():
 def test_runtime_has_no_dev_tools():
     names = _dep_names(RUNTIME)
     for tool in _DEV_TOOLS:
-        assert tool not in names, f"dev tool {tool} must not be in runtime requirements.txt"
+        assert (
+            tool not in names
+        ), f"dev tool {tool} must not be in runtime requirements.txt"
 
 
 def test_dev_references_runtime():

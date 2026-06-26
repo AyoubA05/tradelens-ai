@@ -16,6 +16,7 @@ LANDING = (
     / "tradelens"
     / "ui"
     / "pages"
+    / "_archive"
     / "0_Home.py"
 )
 

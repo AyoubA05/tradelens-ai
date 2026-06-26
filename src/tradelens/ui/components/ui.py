@@ -45,9 +45,16 @@ def kpi_card(
     value: str,
     delta: Optional[str] = None,
     delta_positive: Optional[bool] = None,
+    tooltip: Optional[str] = None,
+    value_color: Optional[str] = None,
 ) -> str:
     """A glassmorphism KPI card. Value renders in JetBrains Mono; an optional
-    delta shows a colored arrow (teal up / terra down)."""
+    delta shows a colored arrow (teal up / terra down).
+
+    `tooltip` adds a native hover title on the value (e.g. "No losses yet" for an
+    infinite profit factor). `value_color` tints the value (teal wins / terra
+    losses) without affecting the label.
+    """
     delta_html = ""
     if delta is not None:
         positive = delta_positive
@@ -59,10 +66,13 @@ def kpi_card(
             f'<div class="tl-kpi-delta" style="color:{color}">'
             f"{arrow} {html.escape(str(delta))}</div>"
         )
+    title_attr = f' title="{html.escape(str(tooltip))}"' if tooltip else ""
+    color_style = f";color:{value_color}" if value_color else ""
     return (
         '<div class="tl-kpi-card">'
         f'<div class="tl-kpi-label">{html.escape(str(label))}</div>'
-        f'<div class="tl-kpi-value" style="font-family:\'{MONO_FONT}\',monospace">'
+        f'<div class="tl-kpi-value"{title_attr} '
+        f"style=\"font-family:'{MONO_FONT}',monospace{color_style}\">"
         f"{html.escape(str(value))}</div>"
         f"{delta_html}"
         "</div>"

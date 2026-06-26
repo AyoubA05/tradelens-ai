@@ -44,27 +44,75 @@ class TestKillzoneBoundaries:
         (_utc(2025, 1, 16, 2, 0), "asia", "asia: interior 02:00 UTC (21:00 EST)"),
         (_utc(2025, 1, 16, 4, 59), "asia", "asia: interior 04:59 UTC (23:59 EST)"),
         (_utc(2025, 1, 16, 0, 59), None, "asia: just before (00:59 UTC = 19:59 EST)"),
-        (_utc(2025, 1, 15, 7, 0), "london_open", "london_open: entry 07:00 UTC (02:00 EST)"),
-        (_utc(2025, 1, 15, 8, 30), "london_open", "london_open: interior 08:30 UTC (03:30 EST)"),
-        (_utc(2025, 1, 15, 9, 59), "london_open", "london_open: last minute 09:59 UTC (04:59 EST)"),
-        (_utc(2025, 1, 15, 6, 59), None, "london_open: just before 06:59 UTC (01:59 EST)"),
-        (_utc(2025, 1, 15, 10, 0), None, "london_open: just after 10:00 UTC (05:00 EST)"),
+        (
+            _utc(2025, 1, 15, 7, 0),
+            "london_open",
+            "london_open: entry 07:00 UTC (02:00 EST)",
+        ),
+        (
+            _utc(2025, 1, 15, 8, 30),
+            "london_open",
+            "london_open: interior 08:30 UTC (03:30 EST)",
+        ),
+        (
+            _utc(2025, 1, 15, 9, 59),
+            "london_open",
+            "london_open: last minute 09:59 UTC (04:59 EST)",
+        ),
+        (
+            _utc(2025, 1, 15, 6, 59),
+            None,
+            "london_open: just before 06:59 UTC (01:59 EST)",
+        ),
+        (
+            _utc(2025, 1, 15, 10, 0),
+            None,
+            "london_open: just after 10:00 UTC (05:00 EST)",
+        ),
         (_utc(2025, 1, 15, 12, 0), "ny_am", "ny_am: entry 12:00 UTC (07:00 EST)"),
         (_utc(2025, 1, 15, 13, 30), "ny_am", "ny_am: interior 13:30 UTC (08:30 EST)"),
-        (_utc(2025, 1, 15, 14, 59), "ny_am", "ny_am: last minute 14:59 UTC (09:59 EST)"),
+        (
+            _utc(2025, 1, 15, 14, 59),
+            "ny_am",
+            "ny_am: last minute 14:59 UTC (09:59 EST)",
+        ),
         (_utc(2025, 1, 15, 11, 59), None, "ny_am: just before 11:59 UTC (06:59 EST)"),
         (_utc(2025, 1, 15, 15, 0), None, "ny_am: just after 15:00 UTC (10:00 EST)"),
         (_utc(2025, 1, 15, 17, 0), "ny_lunch", "ny_lunch: entry 17:00 UTC (12:00 EST)"),
-        (_utc(2025, 1, 15, 17, 30), "ny_lunch", "ny_lunch: interior 17:30 UTC (12:30 EST)"),
-        (_utc(2025, 1, 15, 17, 59), "ny_lunch", "ny_lunch: last minute 17:59 UTC (12:59 EST)"),
-        (_utc(2025, 1, 15, 16, 59), None, "ny_lunch: just before 16:59 UTC (11:59 EST)"),
-        (_utc(2025, 1, 15, 18, 0), None, "ny_lunch: just after 18:00 UTC (13:00 EST) — gap before ny_pm"),
+        (
+            _utc(2025, 1, 15, 17, 30),
+            "ny_lunch",
+            "ny_lunch: interior 17:30 UTC (12:30 EST)",
+        ),
+        (
+            _utc(2025, 1, 15, 17, 59),
+            "ny_lunch",
+            "ny_lunch: last minute 17:59 UTC (12:59 EST)",
+        ),
+        (
+            _utc(2025, 1, 15, 16, 59),
+            None,
+            "ny_lunch: just before 16:59 UTC (11:59 EST)",
+        ),
+        (
+            _utc(2025, 1, 15, 18, 0),
+            None,
+            "ny_lunch: just after 18:00 UTC (13:00 EST) — gap before ny_pm",
+        ),
         (_utc(2025, 1, 15, 18, 30), "ny_pm", "ny_pm: entry 18:30 UTC (13:30 EST)"),
         (_utc(2025, 1, 15, 19, 30), "ny_pm", "ny_pm: interior 19:30 UTC (14:30 EST)"),
-        (_utc(2025, 1, 15, 20, 59), "ny_pm", "ny_pm: last minute 20:59 UTC (15:59 EST)"),
+        (
+            _utc(2025, 1, 15, 20, 59),
+            "ny_pm",
+            "ny_pm: last minute 20:59 UTC (15:59 EST)",
+        ),
         (_utc(2025, 1, 15, 18, 29), None, "ny_pm: just before 18:29 UTC (13:29 EST)"),
         (_utc(2025, 1, 15, 21, 0), None, "ny_pm: just after 21:00 UTC (16:00 EST)"),
-        (_utc(2025, 1, 15, 21, 0), None, "off: 21:00 UTC (16:00 EST) after ny_pm close"),
+        (
+            _utc(2025, 1, 15, 21, 0),
+            None,
+            "off: 21:00 UTC (16:00 EST) after ny_pm close",
+        ),
         (_utc(2025, 1, 15, 11, 0), None, "off: 11:00 UTC (06:00 EST) before ny_am"),
     ]
 
@@ -276,7 +324,9 @@ def test_seed_no_nulls_on_smc_fields(seeded_db, col):
         null_count = db.execute(
             text(f"SELECT COUNT(*) FROM trades WHERE {col} IS NULL")
         ).scalar()
-        assert null_count == 0, f"Column {col!r} has {null_count} NULL rows after seeding"
+        assert (
+            null_count == 0
+        ), f"Column {col!r} has {null_count} NULL rows after seeding"
     finally:
         db.close()
 
@@ -310,6 +360,8 @@ def test_seed_mistake_tags_are_valid_json(seeded_db):
         for (tags,) in rows:
             if tags is not None:
                 parsed = json.loads(tags)
-                assert isinstance(parsed, list), f"mistake_tags is not a JSON list: {tags!r}"
+                assert isinstance(
+                    parsed, list
+                ), f"mistake_tags is not a JSON list: {tags!r}"
     finally:
         db.close()

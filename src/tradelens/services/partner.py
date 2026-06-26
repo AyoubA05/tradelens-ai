@@ -68,6 +68,7 @@ _DEMO_PARTNER_REPLY = (
 
 # Trade-row fields (SMC/ICT vocabulary) surfaced into the conversation context.
 _SMC_TRADE_FIELDS = [
+    "trade_date",
     "asset",
     "direction",
     "result",

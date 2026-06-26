@@ -148,3 +148,123 @@ def test_weekly_reviews_upgrade_is_idempotent(tmp_path):
 
 def _columns_of(conn, table: str) -> set:
     return {c["name"] for c in inspect(conn).get_columns(table)}
+
+
+# ---------------------------------------------------------------------------
+# is_sample flag (Session A)
+# ---------------------------------------------------------------------------
+
+IS_SAMPLE_MIGRATION = ROOT / "alembic" / "versions" / "i9j0k1l2m3n4_add_is_sample.py"
+
+
+def _load_is_sample_migration():
+    spec = importlib.util.spec_from_file_location(
+        "is_sample_migration", IS_SAMPLE_MIGRATION
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_is_sample_migration_round_trip(tmp_path):
+    url = f"sqlite:///{tmp_path / 'is_sample.db'}"
+    engine = create_engine(url)
+    mig = _load_is_sample_migration()
+
+    with engine.connect() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE trades (id INTEGER PRIMARY KEY, asset VARCHAR)"
+        )
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()
+        assert "is_sample" in _columns(conn)
+
+        mig.downgrade()
+        assert "is_sample" not in _columns(conn)
+
+        mig.upgrade()
+        assert "is_sample" in _columns(conn)
+
+
+def test_is_sample_upgrade_is_idempotent(tmp_path):
+    url = f"sqlite:///{tmp_path / 'is_sample_idem.db'}"
+    engine = create_engine(url)
+    mig = _load_is_sample_migration()
+
+    with engine.connect() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE trades (id INTEGER PRIMARY KEY, is_sample INTEGER)"
+        )
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()  # must not error despite is_sample pre-existing
+        assert "is_sample" in _columns(conn)
+
+
+# ---------------------------------------------------------------------------
+# Session B migrations: users table, user_id, trade_hash
+# ---------------------------------------------------------------------------
+
+VERSIONS = ROOT / "alembic" / "versions"
+
+
+def _load_mig(filename: str):
+    spec = importlib.util.spec_from_file_location("m_" + filename, VERSIONS / filename)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_users_table_migration_round_trip(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'users.db'}")
+    mig = _load_mig("j0k1l2m3n4o5_add_users_table.py")
+    with engine.connect() as conn:
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()
+        assert "users" in _tables(conn)
+        assert {"id", "username", "password_hash"} <= _columns_of(conn, "users")
+
+        mig.downgrade()
+        assert "users" not in _tables(conn)
+
+        mig.upgrade()
+        assert "users" in _tables(conn)
+
+
+def test_user_id_migration_round_trip(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'user_id.db'}")
+    mig = _load_mig("k1l2m3n4o5p6_add_user_id_to_trades.py")
+    with engine.connect() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE trades (id INTEGER PRIMARY KEY, asset VARCHAR)"
+        )
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()
+        assert "user_id" in _columns(conn)
+        mig.upgrade()  # idempotent re-run
+        mig.downgrade()
+        assert "user_id" not in _columns(conn)
+
+
+def test_trade_hash_migration_round_trip(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'trade_hash.db'}")
+    mig = _load_mig("l2m3n4o5p6q7_add_trade_hash_column.py")
+    with engine.connect() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE trades (id INTEGER PRIMARY KEY, asset VARCHAR)"
+        )
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()
+        assert "trade_hash" in _columns(conn)
+        mig.upgrade()  # idempotent re-run
+        mig.downgrade()
+        assert "trade_hash" not in _columns(conn)

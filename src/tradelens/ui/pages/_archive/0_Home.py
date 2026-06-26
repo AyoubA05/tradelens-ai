@@ -1,8 +1,8 @@
 import sys
 from pathlib import Path
 
-# parents[4] of src/tradelens/ui/pages/*.py  →  project root
-_root = str(Path(__file__).resolve().parents[4])
+# parents[5] of src/tradelens/ui/pages/*.py  →  project root
+_root = str(Path(__file__).resolve().parents[5])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
@@ -104,7 +104,7 @@ _step(
     s2,
     "02",
     "AI reviews & grades",
-    "Fable 5 reads your chart, proposes SMC/ICT labels, and grades your process "
+    "AI reads your chart, proposes SMC/ICT labels, and grades your process "
     "against your own strategy rules.",
 )
 _step(

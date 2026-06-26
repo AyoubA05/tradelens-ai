@@ -101,6 +101,15 @@ def _has_key() -> bool:
     return bool(settings.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY"))
 
 
+def has_api_key() -> bool:
+    """Public: True when an Anthropic API key is configured.
+
+    Powers the Settings → AI status indicator. Reads the same source as every
+    AI call, so the badge reflects what would actually happen.
+    """
+    return _has_key()
+
+
 def _get_client():
     """Construct an Anthropic client. Imported lazily so DEMO_MODE / tests that
     mock this function don't require the `anthropic` package to be installed."""

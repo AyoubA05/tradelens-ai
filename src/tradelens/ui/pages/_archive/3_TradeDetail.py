@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-_root = str(Path(__file__).resolve().parents[4])
+_root = str(Path(__file__).resolve().parents[5])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
@@ -190,7 +190,7 @@ with right:
             ),
         )
         if analyze_btn:
-            with st.spinner("Analyzing chart with Fable 5…"):
+            with st.spinner("Analyzing chart with AI…"):
                 try:
                     vision_result, usage = analyze_screenshot(
                         latest_screenshot.file_path,
@@ -217,7 +217,7 @@ with right:
             disabled=not has_screenshot or not api_key_ok,
         )
         if rerun_btn:
-            with st.spinner("Re-analyzing chart with Fable 5…"):
+            with st.spinner("Re-analyzing chart with AI…"):
                 try:
                     vision_result, usage = analyze_screenshot(
                         latest_screenshot.file_path,
@@ -399,7 +399,7 @@ with right:
             )
 
         if run_journal:
-            with st.spinner("Writing journal entry with Fable 5…"):
+            with st.spinner("Writing journal entry with AI…"):
                 try:
                     trade_dict, ai_dict = build_journal_context(trade, analysis)
                     markdown, j_usage = generate_journal(
@@ -483,7 +483,7 @@ with right:
             )
 
         if run_grade:
-            with st.spinner("Grading your process with Fable 5…"):
+            with st.spinner("Grading your process with AI…"):
                 try:
                     trade_dict, vision_dict = build_grading_context(trade, analysis)
                     grading_result, g_usage = grade_trade(
