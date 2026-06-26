@@ -108,7 +108,7 @@ with imp_col:
         if rows_inserted or skipped:
             st.toast(
                 f"Imported {rows_inserted} trades. Skipped {skipped} duplicates.",
-                icon="✓",
+                icon="✅",
             )
         for err in errors:
             st.warning(err)
@@ -128,8 +128,7 @@ st.caption(
 load_col, clear_col = st.columns(2)
 with load_col:
     if st.button("Load sample trades", use_container_width=True):
-        inserted = load_sample_trades(current_user_id())
-        st.toast(f"Loaded {inserted} demo trades", icon="✓")
+        st.session_state["_sample_loaded_n"] = load_sample_trades(current_user_id())
         st.rerun()
 with clear_col:
     if st.button(
@@ -138,8 +137,20 @@ with clear_col:
         disabled=sample_count == 0,
     ):
         removed = clear_sample_trades(current_user_id())
-        st.toast(f"Removed {removed} demo trades", icon="✓")
+        st.toast(f"Removed {removed} demo trades", icon="✅")
         st.rerun()
+
+if st.session_state.get("_sample_loaded_n"):
+    n_loaded = st.session_state.pop("_sample_loaded_n")
+    st.markdown(
+        '<div style="background:rgba(46,125,50,0.15);border:1px solid #2e7d32;'
+        'border-radius:8px;padding:10px 14px;color:#7bd88f">'
+        f"✅ Loaded {n_loaded} sample trades. Go to Dashboard to view analytics."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    if st.button("Open Dashboard →", type="primary"):
+        st.switch_page("app.py")
 
 st.divider()
 
@@ -188,9 +199,9 @@ with st.expander("Delete all trades", expanded=False):
         try:
             deleted = db.query(Trade).delete()
             db.commit()
-            st.toast(f"Deleted {deleted} trade(s)", icon="✓")
+            st.toast(f"Deleted {deleted} trade(s)", icon="✅")
         except Exception as exc:
             db.rollback()
-            st.toast(f"Delete failed: {exc}", icon="✕")
+            st.toast(f"Delete failed: {exc}", icon="❌")
         finally:
             db.close()

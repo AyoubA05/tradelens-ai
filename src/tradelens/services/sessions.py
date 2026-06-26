@@ -38,6 +38,62 @@ KILLZONE_LABELS: dict = {
 }
 
 
+def _coerce_local_time(value, user_timezone: str):
+    """Return a datetime.time in the user's wall-clock, or None if unparseable.
+
+    A naive time/datetime is taken as already-local; a tz-aware datetime is
+    converted into `user_timezone`; an 'HH:MM' string is parsed as local.
+    """
+    if value is None:
+        return None
+    if isinstance(value, time):
+        return value
+    if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            return value.astimezone(ZoneInfo(user_timezone)).time()
+        return value.time()
+    if isinstance(value, str):
+        try:
+            parts = value.strip().split(":")
+            return time(int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
+        except (ValueError, IndexError):
+            return None
+    return None
+
+
+def detect_killzone(
+    entry_time, trade_date=None, user_timezone: str = "America/New_York"
+) -> str:
+    """Map a LOCAL entry time to a trading-session killzone key.
+
+    `entry_time` may be a datetime.time, a datetime, or an 'HH:MM' string and is
+    interpreted as the trader's wall-clock time in `user_timezone` (so it never
+    depends on the server timezone). Session windows (local):
+
+        Asian Session  18:00–01:59     London Session 02:00–09:29
+        NY AM          09:30–11:59      NY Lunch       12:00–12:59
+        NY PM          13:00–15:59      Off Session    16:00–17:59
+
+    Returns one of: 'asia', 'london_open', 'ny_am', 'ny_lunch', 'ny_pm',
+    'off_session'. `trade_date` is accepted for future DST/holiday refinement.
+    """
+    t = _coerce_local_time(entry_time, user_timezone)
+    if t is None:
+        return "off_session"
+    minutes = t.hour * 60 + t.minute
+    if minutes >= 18 * 60 or minutes < 2 * 60:
+        return "asia"
+    if minutes < 9 * 60 + 30:
+        return "london_open"
+    if minutes < 12 * 60:
+        return "ny_am"
+    if minutes < 13 * 60:
+        return "ny_lunch"
+    if minutes < 16 * 60:
+        return "ny_pm"
+    return "off_session"
+
+
 def assign_killzone(entry_time_utc: datetime, tz: str = "UTC") -> Optional[str]:
     """Return the ICT killzone name for *entry_time_utc*, or None if off-session.
 

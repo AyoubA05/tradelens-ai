@@ -177,6 +177,6 @@ if submitted and prompt:
             costs["cost"] += usage.estimated_cost_usd
             st.rerun()
         except PartnerError as exc:
-            st.toast(f"Partner unavailable: {exc}", icon="✕")
+            st.toast(f"Partner unavailable: {exc}", icon="❌")
         except Exception as exc:
-            st.toast(f"Unexpected error: {exc}", icon="✕")
+            st.toast(f"Unexpected error: {exc}", icon="❌")

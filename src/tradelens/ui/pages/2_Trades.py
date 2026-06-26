@@ -129,6 +129,8 @@ if not trades:
                 "No trades yet. Log your first trade.",
                 cta_label="Log Trade",
                 cta_href="/NewTrade",
+                cta2_label="Load sample trades",
+                cta2_href="/Settings",
             ),
             unsafe_allow_html=True,
         )
@@ -261,7 +263,7 @@ if selected_id is not None:
             )
             if up is not None:
                 save_screenshot(trade.id, up)
-                st.toast("Screenshot added", icon="✓")
+                st.toast("Screenshot added", icon="✅")
                 st.rerun()
 
         render_screenshot_analyzer(trade, get_active_strategy())
@@ -303,7 +305,7 @@ if selected_id is not None:
                 user_grade=None if new_grade == "—" else new_grade,
                 notes=new_notes.strip() or None,
             )
-            st.toast("Trade updated", icon="✓")
+            st.toast("Trade updated", icon="✅")
             st.rerun()
 
     with st.expander("Delete Trade"):
@@ -312,7 +314,7 @@ if selected_id is not None:
         if st.button("Delete Trade", disabled=not confirm, key="delete_btn"):
             delete_trade(trade.id)
             st.session_state.pop("journal_selected_id", None)
-            st.toast("Trade deleted", icon="✓")
+            st.toast("Trade deleted", icon="✅")
             st.rerun()
 
     # ── Ask AI About This Trade ───────────────────────────────────

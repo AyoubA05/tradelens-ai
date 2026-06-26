@@ -23,6 +23,11 @@ _LABELS = {
     "limit": "Limit",
     "market": "Market",
     "stop_limit": "Stop Limit",
+    # Bias wording (Session E): legacy "neutral" displays as "Consolidation".
+    "neutral": "Consolidation",
+    "consolidation": "Consolidation",
+    "bullish": "Bullish",
+    "bearish": "Bearish",
 }
 
 
