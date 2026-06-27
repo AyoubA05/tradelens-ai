@@ -15,6 +15,8 @@ def test_detect_asset_class_futures():
 def test_detect_asset_class_forex():
     assert detect_asset_class("EURUSD") == "Forex"
     assert detect_asset_class("xauusd") == "Forex"  # case-insensitive
+    assert detect_asset_class("GBP/USD") == "Forex"  # slash normalized
+    assert detect_asset_class(" gbp / usd ") == "Forex"  # slash + spaces
 
 
 def test_detect_asset_class_crypto():

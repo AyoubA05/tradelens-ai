@@ -38,6 +38,28 @@ KILLZONE_LABELS: dict = {
 }
 
 
+def parse_time_input(value):
+    """Parse a typed entry time into a datetime.time, or None if unparseable.
+
+    Accepts '09:30', '9:30 AM', '2:05 PM', '14:05', '0930', a time, or a datetime.
+    """
+    if value is None:
+        return None
+    if isinstance(value, time):
+        return value
+    if isinstance(value, datetime):
+        return value.time()
+    text = str(value).strip().upper().replace(".", "")
+    if not text:
+        return None
+    for fmt in ("%H:%M", "%I:%M %p", "%I:%M%p", "%H%M", "%I %p"):
+        try:
+            return datetime.strptime(text, fmt).time()
+        except ValueError:
+            continue
+    return None
+
+
 def _coerce_local_time(value, user_timezone: str):
     """Return a datetime.time in the user's wall-clock, or None if unparseable.
 
