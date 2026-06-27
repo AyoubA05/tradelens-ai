@@ -13,11 +13,25 @@ Killzone windows (ET):
 
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta, timezone
 from typing import Optional
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-ET = ZoneInfo("America/New_York")
+_ET_NAME = "America/New_York"
+# Fixed Eastern Standard offset, used ONLY as a last resort when the IANA tz
+# database is missing (e.g. a minimal container without the `tzdata` package),
+# so importing this module never raises ZoneInfoNotFoundError on Streamlit Cloud.
+_ET_FALLBACK = timezone(timedelta(hours=-5))
+
+
+def _zone(name: str):
+    """tzinfo for `name`, falling back to a fixed offset instead of raising when
+    the tz database is unavailable — keeps module import safe."""
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, KeyError, ValueError, OSError):
+        return _ET_FALLBACK
+
 
 # (name, start_ET, end_ET_inclusive)  — None end means "through 23:59:59"
 _KILLZONES = [
@@ -72,7 +86,7 @@ def _coerce_local_time(value, user_timezone: str):
         return value
     if isinstance(value, datetime):
         if value.tzinfo is not None:
-            return value.astimezone(ZoneInfo(user_timezone)).time()
+            return value.astimezone(_zone(user_timezone)).time()
         return value.time()
     if isinstance(value, str):
         try:
@@ -128,11 +142,11 @@ def assign_killzone(entry_time_utc: datetime, tz: str = "UTC") -> Optional[str]:
         One of "asia", "london_open", "ny_am", "ny_lunch", "ny_pm", or None.
     """
     if entry_time_utc.tzinfo is None:
-        entry_dt = entry_time_utc.replace(tzinfo=ZoneInfo(tz))
+        entry_dt = entry_time_utc.replace(tzinfo=_zone(tz))
     else:
         entry_dt = entry_time_utc
 
-    et_dt = entry_dt.astimezone(ET)
+    et_dt = entry_dt.astimezone(_zone(_ET_NAME))
     t = et_dt.time()
 
     for name, start, end in _KILLZONES:

@@ -11,3 +11,6 @@ pillow==11.3.0
 pydantic-settings==2.11.0
 alembic==1.16.5
 bcrypt==4.2.1
+# IANA timezone database for zoneinfo — required on minimal Streamlit Cloud
+# containers that lack a system tz database (services/sessions.py uses ZoneInfo).
+tzdata==2026.2
