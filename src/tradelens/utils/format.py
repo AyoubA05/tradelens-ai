@@ -13,7 +13,7 @@ EMPTY = "—"
 # Explicit labels for tokens whose Title-Case would read wrong (acronyms, etc.).
 _LABELS = {
     "off_session": "Off Session",
-    "asia": "Asian Session",
+    "asia": "Asia",
     "london": "London",
     "london_open": "London Open",
     "london_close": "London Close",

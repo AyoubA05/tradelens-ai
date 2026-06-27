@@ -75,11 +75,22 @@ _CLASS_BY_SYMBOL = {
 }
 
 
+def normalize_symbol(symbol: Optional[str]) -> str:
+    """Uppercase, strip spaces, and drop slashes so 'gbp/usd' matches 'GBPUSD'."""
+    if not symbol:
+        return ""
+    return symbol.strip().upper().replace("/", "").replace(" ", "")
+
+
 def detect_asset_class(symbol: Optional[str]) -> Optional[str]:
-    """Return 'Futures' | 'Forex' | 'Crypto' for a known symbol, else None."""
+    """Return 'Futures' | 'Forex' | 'Crypto' for a known symbol, else None.
+
+    Normalization makes display variants ('GBP/USD', ' eurusd ') match the
+    backend symbols ('GBPUSD', 'EURUSD').
+    """
     if not symbol:
         return None
-    return _CLASS_BY_SYMBOL.get(symbol.strip().upper())
+    return _CLASS_BY_SYMBOL.get(normalize_symbol(symbol))
 
 
 def curated_assets() -> list:

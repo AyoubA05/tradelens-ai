@@ -13,6 +13,7 @@ import logging  # noqa: E402
 
 import streamlit as st  # noqa: E402
 
+from src.tradelens.services.app_settings import get_timezone  # noqa: E402
 from src.tradelens.services.assets import (  # noqa: E402
     OTHER,
     curated_assets,
@@ -22,7 +23,10 @@ from src.tradelens.services.screenshot_service import (  # noqa: E402
     save_screenshot,
     save_screenshot_url,
 )
-from src.tradelens.services.sessions import detect_killzone  # noqa: E402
+from src.tradelens.services.sessions import (  # noqa: E402
+    detect_killzone,
+    parse_time_input,
+)
 from src.tradelens.services.strategy import (  # noqa: E402
     get_active_strategy,
     parse_markets,
@@ -69,14 +73,6 @@ KILLZONE_KEYS = ["asia", "london_open", "ny_am", "ny_lunch", "ny_pm", "off_sessi
 TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "D"]
 ASSET_CLASSES = ["Futures", "Forex", "Crypto", "Stocks"]
 BIAS_OPTIONS = ["Bullish", "Bearish", "Consolidation"]
-TIMEZONES = [
-    "America/New_York",
-    "America/Chicago",
-    "Europe/London",
-    "Asia/Tokyo",
-    "Asia/Dubai",
-    "UTC",
-]
 DEFAULT_SETUPS = [
     "FVG",
     "Order Block",
@@ -126,6 +122,10 @@ def _dedup(seq):
     return out
 
 
+def _time_str(t) -> str:
+    return t.strftime("%H:%M") if t else "—"
+
+
 # ── Strategy Profile autofill (safe, non-trade-specific defaults) ──
 _strategy = get_active_strategy()
 _profile_markets = parse_markets(_strategy)
@@ -161,29 +161,27 @@ with tabs[0]:
     with c1:
         trade_date = st.date_input("Trade Date", value=datetime.date.today())
     with c2:
-        entry_time = st.time_input(
+        entry_time_raw = st.text_input(
             "Entry Time",
+            value="09:30",
+            placeholder="e.g., 09:30 or 9:30 AM",
             key="nt_entry_time",
-            step=datetime.timedelta(minutes=1),  # exact minute, not 15-min steps
         )
-    user_tz = st.selectbox(
-        "Your trading timezone",
-        TIMEZONES,
-        key="nt_timezone",
-        help="Killzone/session is detected from your local time (default New York).",
-    )
-    # Auto-detect killzone from the LOCAL entry time; keep the selectbox in sync
-    # until the user overrides it (only push the auto value when it changes).
+    entry_time = parse_time_input(entry_time_raw)
+
+    user_tz = get_timezone()
+    st.caption(f"Trading timezone: **{user_tz}** · Change in Settings")
+
+    # Auto-detect killzone from the typed time + saved timezone; keep the
+    # selectbox in sync until the user overrides it.
     auto_kz = detect_killzone(entry_time, trade_date, user_tz)
     if st.session_state.get("_nt_last_auto_kz") != auto_kz:
         st.session_state["_nt_last_auto_kz"] = auto_kz
         st.session_state["nt_killzone"] = auto_kz
     killzone = st.selectbox(
-        "Killzone (auto-detected)",
-        KILLZONE_KEYS,
-        format_func=humanize,
-        key="nt_killzone",
+        "Killzone", KILLZONE_KEYS, format_func=humanize, key="nt_killzone"
     )
+    st.caption("Based on your entry time and trading timezone.")
 
 # ── Step 2 — Market Context ───────────────────────────────────────
 with tabs[1]:
@@ -198,7 +196,7 @@ with tabs[1]:
             asset_class = st.selectbox(
                 "Asset Class", ASSET_CLASSES, key="nt_class_custom"
             )
-            st.caption("Pick the asset class for your custom symbol.")
+            st.caption("Asset class is detected from selected asset — set it here.")
         else:
             asset = asset_choice
             detected = detect_asset_class(asset_choice) or "Futures"
@@ -209,11 +207,10 @@ with tabs[1]:
                 disabled=True,
                 key="nt_class_locked",
             )
-            st.caption("Asset class auto-detected from selected asset.")
+            st.caption("Asset class is detected from selected asset.")
         session = st.selectbox(
             "Session", ["London", "New York", "Asian", "Overlap"], key="nt_session"
         )
-        direction = st.selectbox("Direction", ["Long", "Short"], key="nt_direction")
     with m2:
         timeframe = st.selectbox(
             "Timeframe", TIMEFRAMES, index=_tf_default, key="nt_timeframe"
@@ -259,77 +256,55 @@ with tabs[2]:
     elif followed_rules == "Yes":
         st.caption("Clean trade — no mistake tag needed.")
 
-# ── Step 4 — Risk & Outcome ───────────────────────────────────────
+# ── Step 4 — Risk & Outcome (quick first, exact prices optional) ──
 with tabs[3]:
     st.markdown("#### 📊 Risk & Outcome")
-    st.caption(
-        "Price levels are used to calculate your planned and realized R-multiple."
-    )
     if _strategy and (_strategy.get("risk_rules") or "").strip():
         st.caption(f"Risk plan: {_strategy['risk_rules']}")
-    skip_prices = st.checkbox(
-        "Skip price levels — enter P&L and R manually", key="nt_skip_prices"
+
+    q1, q2, q3 = st.columns(3)
+    result = q1.selectbox("Result", ["Win", "Loss", "Breakeven"], key="nt_result")
+    pnl = q2.number_input(
+        "P&L ($)", value=None, placeholder="e.g., 250.00", key="nt_pnl"
+    )
+    manual_r = q3.number_input(
+        "R Multiple", value=None, placeholder="e.g., 2.0", key="nt_r"
+    )
+    q4, q5 = st.columns(2)
+    risk_amount = q4.number_input(
+        "Risk ($)", value=None, placeholder="optional", key="nt_risk"
+    )
+    position_size = q5.number_input(
+        "Position size", value=None, placeholder="optional", key="nt_size"
     )
 
     entry_price = stop_price = tp_price = exit_price = None
-    position_size = risk_amount = None
-    manual_r = None
-
-    if skip_prices:
-        rc1, rc2, rc3 = st.columns(3)
-        with rc1:
-            result = st.selectbox(
-                "Result", ["Win", "Loss", "Breakeven"], key="nt_result_m"
-            )
-        with rc2:
-            pnl = st.number_input(
-                "P&L ($)", value=None, placeholder="e.g., 250.00", key="nt_pnl_m"
-            )
-        with rc3:
-            manual_r = st.number_input(
-                "Realized R", value=None, placeholder="e.g., 2.0", key="nt_r_m"
-            )
-    else:
-        p1, p2 = st.columns(2)
-        with p1:
-            entry_price = st.number_input(
-                "Entry Price", value=None, placeholder="e.g., 19850.25", key="nt_entry"
-            )
-            stop_price = st.number_input(
-                "Stop Price", value=None, placeholder="e.g., 19820.00", key="nt_stop"
-            )
-            tp_price = st.number_input(
-                "Take Profit", value=None, placeholder="e.g., 19920.00", key="nt_tp"
-            )
-        with p2:
-            exit_price = st.number_input(
-                "Exit Price", value=None, placeholder="e.g., 19905.00", key="nt_exit"
-            )
-            position_size = st.number_input(
-                "Position Size", value=None, placeholder="optional", key="nt_size"
-            )
-            risk_amount = st.number_input(
-                "Risk ($)", value=None, placeholder="optional", key="nt_risk"
-            )
-        rc1, rc2 = st.columns(2)
-        with rc1:
-            result = st.selectbox(
-                "Result", ["Win", "Loss", "Breakeven"], key="nt_result"
-            )
-        with rc2:
-            pnl = st.number_input(
-                "P&L ($)", value=None, placeholder="e.g., 250.00", key="nt_pnl"
-            )
-
+    with st.expander("Add exact price levels"):
+        st.caption(
+            "Use exact prices if you want TradeLens to calculate planned/realized R."
+        )
+        e1, e2 = st.columns(2)
+        entry_price = e1.number_input(
+            "Entry Price", value=None, placeholder="e.g., 19850.25", key="nt_entry"
+        )
+        stop_price = e1.number_input(
+            "Stop Price", value=None, placeholder="e.g., 19820.00", key="nt_stop"
+        )
+        tp_price = e2.number_input(
+            "Take Profit", value=None, placeholder="e.g., 19920.00", key="nt_tp"
+        )
+        exit_price = e2.number_input(
+            "Exit Price", value=None, placeholder="e.g., 19905.00", key="nt_exit"
+        )
         if entry_price and stop_price and abs(entry_price - stop_price) > 0:
             risk_dist = abs(entry_price - stop_price)
-            ar1, ar2 = st.columns(2)
+            pr1, pr2 = st.columns(2)
             if tp_price:
-                ar1.metric(
+                pr1.metric(
                     "Planned R", f"{abs(tp_price - entry_price) / risk_dist:.2f}R"
                 )
             if exit_price:
-                ar2.metric(
+                pr2.metric(
                     "Realized R", f"{abs(exit_price - entry_price) / risk_dist:.2f}R"
                 )
 
@@ -351,7 +326,7 @@ with tabs[4]:
 # ── Step 6 — Screenshot ───────────────────────────────────────────
 with tabs[5]:
     st.markdown("#### Chart Screenshot")
-    st.caption("Upload your chart screenshot for post-trade AI review.")
+    st.caption("Upload your chart screenshot for post-trade AI review (optional).")
     screenshot_file = st.file_uploader(
         "Upload screenshot", type=["png", "jpg", "jpeg", "webp"], key="nt_shot"
     )
@@ -369,6 +344,17 @@ with tabs[5]:
 # ── Assemble trade payload ────────────────────────────────────────
 def _confluence_flag(name: str) -> int:
     return 1 if name in confluences else 0
+
+
+def _infer_direction():
+    """Infer direction from exact prices, else None (Direction is not asked)."""
+    if entry_price is None or stop_price is None:
+        return None
+    if stop_price < entry_price:
+        return "Long"
+    if stop_price > entry_price:
+        return "Short"
+    return None
 
 
 def _build_trade_data() -> dict:
@@ -391,13 +377,15 @@ def _build_trade_data() -> dict:
 
     return {
         "trade_date": str(trade_date),
-        "entry_time": str(entry_time),  # hash-only; dropped by create_trade
+        # hash-only; dropped by create_trade. Normalized typed time.
+        "entry_time": _time_str(entry_time) if entry_time else "",
         "killzone": killzone,
         "asset": (asset or "").strip(),
         "asset_class": asset_class,
         "session": session,
         "timeframe": timeframe,
-        "direction": direction,
+        # Direction is inferred from exact prices only; otherwise left blank.
+        "direction": _infer_direction(),
         "htf_bias": htf_bias.lower(),
         "bias": ltf_bias.lower(),
         "setup_type": setup_type,
@@ -416,7 +404,9 @@ def _build_trade_data() -> dict:
         "exit_price": exit_price,
         "position_size": position_size,
         "risk_amount": risk_amount,
-        "rr_realized": manual_r if skip_prices else None,
+        # create_trade recomputes rr_realized from prices when entry/stop/exit
+        # are present; otherwise the manually entered R is kept.
+        "rr_realized": manual_r,
         "result": result,
         "pnl": pnl,
         "emotions_before": emo_before if emo_before and emo_before != "—" else None,
@@ -428,20 +418,28 @@ def _build_trade_data() -> dict:
 
 
 def _validate(data: dict) -> list:
+    """Hard, save-blocking errors only. Psychology/screenshot are recommendations."""
     errors = []
     if not data["asset"]:
         errors.append("Asset is required (Market Context).")
-    if not mindset.strip():
-        errors.append("Tell us how you were feeling (Psychology).")
-    if followed_rules is None:
-        errors.append("Answer 'Followed your rules?' (Setup).")
+    if entry_time is None:
+        errors.append("Enter time like 09:30 or 9:30 AM (Timing).")
     e, s = data["entry_price"], data["stop_price"]
-    if e and s:
-        if data["direction"] == "Long" and s >= e:
-            errors.append("Long trade: stop price must be below entry price.")
-        if data["direction"] == "Short" and s <= e:
-            errors.append("Short trade: stop price must be above entry price.")
+    if e is not None and s is not None and e == s:
+        errors.append("Entry and stop price can't be equal (Risk & Outcome).")
     return errors
+
+
+def _soft_warnings() -> list:
+    """Recommended-but-optional gaps — shown, never blocking."""
+    w = []
+    if not mindset.strip():
+        w.append("Psychology — add how you felt (recommended).")
+    if followed_rules is None:
+        w.append("Setup — answer 'Followed your rules?' (recommended).")
+    if not (screenshot_file is not None or (screenshot_url or "").strip()):
+        w.append("Screenshot — optional, not attached.")
+    return w
 
 
 def _persist(data: dict) -> None:
@@ -489,53 +487,56 @@ def _do_save(override: bool) -> None:
         )
 
 
-def _summary_rows(data: dict) -> list:
-    bias = f"{humanize(data['htf_bias'])} / {humanize(data['bias'])}"
-    if data["entry_price"] and data["stop_price"]:
+def _realized_r_str(data: dict) -> str:
+    if data["entry_price"] and data["stop_price"] and data["exit_price"]:
         risk = abs(data["entry_price"] - data["stop_price"]) or None
-        planned = (
-            f"{abs(data['tp_price'] - data['entry_price']) / risk:.2f}R"
-            if (risk and data["tp_price"])
-            else "—"
-        )
-        realized = (
-            f"{abs(data['exit_price'] - data['entry_price']) / risk:.2f}R"
-            if (risk and data["exit_price"])
-            else "—"
-        )
-    else:
-        planned = "—"
-        realized = f"{data['rr_realized']:.2f}R" if data["rr_realized"] else "—"
+        if risk:
+            return f"{abs(data['exit_price'] - data['entry_price']) / risk:.2f}R"
+    if data["rr_realized"] is not None:
+        return f"{data['rr_realized']:.2f}R"
+    return "—"
+
+
+def _summary_rows(data: dict) -> list:
+    pnl_str = f"${data['pnl']:,.2f}" if data["pnl"] is not None else "—"
+    bias = f"{humanize(data['htf_bias'])} / {humanize(data['bias'])}"
     mistakes = json.loads(data["mistake_tags"] or "[]")
-    fr = {1: "Yes", 0: "No", None: "Partial / Not answered"}.get(data["followed_rules"])
-    pnl_str = data["pnl"] if data["pnl"] is not None else "—"
-    return [
-        ("Date / Time", f"{data['trade_date']} {str(entry_time)[:5]}"),
+    fr = {1: "Yes", 0: "No", None: "—"}.get(data["followed_rules"])
+
+    # Outcome first — that's what traders care about.
+    rows = [
+        ("Result · P&L · R", f"{data['result']} · {pnl_str} · {_realized_r_str(data)}"),
+        ("Date / Time", f"{data['trade_date']} {_time_str(entry_time)}"),
         ("Asset / Class", f"{data['asset'] or '—'} ({data['asset_class']})"),
         ("Session / Killzone", f"{data['session']} · {humanize(data['killzone'])}"),
         ("Timeframe", data["timeframe"]),
-        ("Direction", data["direction"]),
         ("HTF / LTF Bias", bias),
         ("Setup", data["setup_type"]),
         ("Confirmation", data["confirmation_model"] or "—"),
         ("Followed rules", fr),
         ("Mistake", ", ".join(mistakes) if mistakes else "—"),
-        (
-            "Entry / Stop / TP / Exit",
-            f"{data['entry_price'] or '—'} / {data['stop_price'] or '—'} / "
-            f"{data['tp_price'] or '—'} / {data['exit_price'] or '—'}",
-        ),
-        ("Planned R / Realized R", f"{planned} / {realized}"),
-        ("Result / P&L", f"{data['result']} · {pnl_str}"),
+    ]
+    if data["direction"]:  # only when inferred from exact prices
+        rows.append(("Direction (inferred)", data["direction"]))
+    if data["entry_price"] and data["stop_price"]:  # only when exact prices entered
+        rows.append(
+            (
+                "Entry / Stop / TP / Exit",
+                f"{data['entry_price'] or '—'} / {data['stop_price'] or '—'} / "
+                f"{data['tp_price'] or '—'} / {data['exit_price'] or '—'}",
+            )
+        )
+    rows.append(
         (
             "Screenshot",
             (
                 "Attached"
                 if (screenshot_file is not None or (screenshot_url or "").strip())
-                else "Missing"
+                else "Optional — not attached"
             ),
-        ),
-    ]
+        )
+    )
+    return rows
 
 
 # ── Step 7 — Review & Save ────────────────────────────────────────
@@ -560,9 +561,12 @@ with tabs[6]:
 
     _errors = _validate(_data)
     if _errors:
-        st.warning(
-            "Missing/invalid before save:\n\n" + "\n".join(f"- {e}" for e in _errors)
-        )
+        _error_box("Fix before saving:\n" + "\n".join(f"• {e}" for e in _errors))
+    _warnings = _soft_warnings()
+    if _warnings:
+        st.caption("Recommended (won't block save):")
+        for _w in _warnings:
+            st.caption(f"• {_w}")
 
     st.divider()
     if st.session_state.get("_nt_dup_pending"):

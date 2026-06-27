@@ -13,6 +13,10 @@ import streamlit as st  # noqa: E402
 from src.tradelens.db.models import Trade  # noqa: E402
 from src.tradelens.db.session import SessionLocal  # noqa: E402
 from src.tradelens.services.ai_client import has_api_key  # noqa: E402
+from src.tradelens.services.app_settings import (  # noqa: E402
+    get_timezone,
+    set_timezone,
+)
 from src.tradelens.services.cost import monthly_cost_by_feature  # noqa: E402
 from src.tradelens.services.csvio import (  # noqa: E402
     CSV_COLUMNS,
@@ -74,6 +78,31 @@ To enable AI screenshot analysis:
 This app uses Anthropic — the key name is `ANTHROPIC_API_KEY`.
 """
     )
+
+st.divider()
+
+# ── Preferences ───────────────────────────────────────────────────
+st.subheader("Preferences")
+_TZ_OPTIONS = [
+    "America/New_York",
+    "America/Chicago",
+    "Europe/London",
+    "Asia/Tokyo",
+    "Asia/Dubai",
+    "UTC",
+]
+_current_tz = get_timezone()
+_tz_index = _TZ_OPTIONS.index(_current_tz) if _current_tz in _TZ_OPTIONS else 0
+_chosen_tz = st.selectbox(
+    "Trading timezone",
+    _TZ_OPTIONS,
+    index=_tz_index,
+    key="settings_timezone",
+    help="Used to detect your killzone/session from the entry time on New Trade.",
+)
+if _chosen_tz != _current_tz:
+    set_timezone(_chosen_tz)
+    st.toast("Trading timezone saved", icon="✅")
 
 st.divider()
 
