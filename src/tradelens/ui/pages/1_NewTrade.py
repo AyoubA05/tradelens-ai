@@ -331,16 +331,36 @@ with tabs[4]:
         )
         e1, e2 = st.columns(2)
         entry_price = e1.number_input(
-            "Entry Price", value=None, placeholder="e.g., 19850.25", key="nt_entry"
+            "Entry Price",
+            value=None,
+            placeholder="e.g., 19850.25",
+            key="nt_entry",
+            on_change=mark_field_edited,
+            args=("entry_price",),
         )
         stop_price = e1.number_input(
-            "Stop Price", value=None, placeholder="e.g., 19820.00", key="nt_stop"
+            "Stop Price",
+            value=None,
+            placeholder="e.g., 19820.00",
+            key="nt_stop",
+            on_change=mark_field_edited,
+            args=("stop_price",),
         )
         tp_price = e2.number_input(
-            "Take Profit", value=None, placeholder="e.g., 19920.00", key="nt_tp"
+            "Take Profit",
+            value=None,
+            placeholder="e.g., 19920.00",
+            key="nt_tp",
+            on_change=mark_field_edited,
+            args=("tp_price",),
         )
         exit_price = e2.number_input(
-            "Exit Price", value=None, placeholder="e.g., 19905.00", key="nt_exit"
+            "Exit Price",
+            value=None,
+            placeholder="e.g., 19905.00",
+            key="nt_exit",
+            on_change=mark_field_edited,
+            args=("exit_price",),
         )
         if entry_price and stop_price and abs(entry_price - stop_price) > 0:
             risk_dist = abs(entry_price - stop_price)
@@ -628,6 +648,10 @@ with tabs[6]:
             ("htf_bias", "HTF Bias"),
             ("ltf_bias", "LTF Bias"),
             ("confluences", "Confluences"),
+            ("entry_price", "Entry"),
+            ("stop_price", "Stop"),
+            ("tp_price", "TP"),
+            ("exit_price", "Exit"),
         ]
         _names = ", ".join(label for key, label in _labels if key in _ai_fields)
         st.caption(f"🤖 AI-suggested (still your call to save): {_names}")

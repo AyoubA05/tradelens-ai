@@ -29,7 +29,7 @@ import socket
 import tempfile
 import urllib.request
 from pathlib import Path
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 from urllib.parse import urlparse
 
 from src.tradelens.services.demo import is_demo
@@ -147,12 +147,19 @@ def analyze_source(
     source: Union[str, Path],
     trade_ctx: dict,
     strategy_profile: Optional[dict] = None,
+    analyzer: Optional[Callable] = None,
 ) -> tuple[dict, object]:
     """Analyze a local image path OR a direct image URL.
 
     Returns (analysis_dict, usage). Raises ScreenshotAnalysisError with a clean,
     user-facing message when a URL cannot be read as a direct image.
+
+    ``analyzer`` selects the vision analyzer — defaults to the screenshot_v2
+    ``analyze_screenshot`` (resolved at call time so tests can monkeypatch it);
+    the screenshot-first New Trade flow passes ``analyze_screenshot_v3``. The
+    SSRF-hardened URL/temp-file handling is shared by both.
     """
+    run = analyzer or analyze_screenshot
     if _is_url(source):
         tmp = None
         try:
@@ -162,7 +169,7 @@ def analyze_source(
                 tmp = _download_image(source)
             else:
                 raise ScreenshotAnalysisError(NOT_AN_IMAGE_MSG)
-            return analyze_screenshot(tmp, trade_ctx, strategy_profile)
+            return run(tmp, trade_ctx, strategy_profile)
         finally:
             if tmp is not None:
                 try:
@@ -170,4 +177,4 @@ def analyze_source(
                 except OSError:
                     pass
 
-    return analyze_screenshot(Path(source), trade_ctx, strategy_profile)
+    return run(Path(source), trade_ctx, strategy_profile)

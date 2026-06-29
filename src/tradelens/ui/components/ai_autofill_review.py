@@ -26,9 +26,14 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from src.tradelens.services.ai_autofill import AutofillResult, map_analysis_to_form
+from src.tradelens.services.ai_overlay import (
+    TradeOverlay,
+    descriptive_section,
+    parse_trade_overlay,
+)
 from src.tradelens.services.ai_screenshot_service import analyze_source
 from src.tradelens.services.assets import OTHER, normalize_symbol
-from src.tradelens.services.vision import ScreenshotAnalysisError
+from src.tradelens.services.vision import ScreenshotAnalysisError, analyze_screenshot_v3
 
 # Editable suggestion fields, in display order, mapped to their nt_* widget keys.
 # "asset" is handled separately (it may route to the custom-asset text field).
@@ -55,6 +60,23 @@ _FIELDS_KEY = "_nt_ai_fields"  # set[str] of AI-sourced semantic fields (for bad
 _APPLIED_KEY = "_nt_ai_applied"  # list[str] applied on the last Apply (transient)
 # Public: nt_* writes staged by Apply, drained by the page before widgets render.
 PENDING_WRITES_KEY = "_nt_pending_writes"
+_OVERLAY_KEY = "_nt_ai_overlay"  # TradeOverlay from the last analysis (Phase 3)
+
+# Overlay price field -> nt_* widget key. Direction is intentionally absent —
+# it's display-only; the form infers direction from the applied entry/stop.
+_OVERLAY_FIELD_TO_KEY = {
+    "entry_price": "nt_entry",
+    "stop_price": "nt_stop",
+    "tp_price": "nt_tp",
+    "exit_price": "nt_exit",
+}
+_OVERLAY_FIELD_LABELS = {
+    "direction": "Direction",
+    "entry_price": "Entry",
+    "stop_price": "Stop",
+    "tp_price": "Take Profit",
+    "exit_price": "Exit",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -99,21 +121,45 @@ def build_form_writes(
     return writes
 
 
+def build_overlay_writes(overlay: TradeOverlay, selected: Iterable[str]) -> dict:
+    """Map accepted overlay PRICES to {nt_key: value}. Never writes direction.
+
+    Direction is omitted by design (Phase-3 decision 5): the New Trade form infers
+    direction from the applied entry/stop. Only selected, non-null prices write.
+    """
+    selected = set(selected)
+    writes: dict = {}
+    for field, key in _OVERLAY_FIELD_TO_KEY.items():
+        if field in selected:
+            value = getattr(overlay, field, None)
+            if value is not None:
+                writes[key] = value
+    return writes
+
+
 def run_autofill(
     source,
     strategy_profile: Optional[dict],
     known_assets: Optional[Iterable[str]] = None,
-) -> tuple[AutofillResult, dict, object]:
-    """Analyze a screenshot source and map it to editable form suggestions.
+) -> tuple[AutofillResult, TradeOverlay, dict, object]:
+    """Analyze a screenshot (screenshot_v3) into descriptive + overlay results.
 
     ``source`` is a local image path or a direct image URL. Returns
-    (autofill_result, raw_analysis, usage): the result drives the review panel,
-    the raw analysis + usage are persisted to AIAnalysis after the trade saves.
+    (autofill_result, trade_overlay, raw_analysis, usage):
+      * autofill_result drives the descriptive review panel (Phase 1 mapping over
+        the flattened ``descriptive`` section — direction/prices can never appear).
+      * trade_overlay drives the separate "Detected from markup" section.
+      * raw_analysis + usage are persisted to AIAnalysis after the trade saves.
     Raises ScreenshotAnalysisError for an unreadable source.
     """
-    analysis, usage = analyze_source(source, {}, strategy_profile)
-    result = map_analysis_to_form(analysis, known_assets=known_assets)
-    return result, analysis, usage
+    analysis, usage = analyze_source(
+        source, {}, strategy_profile, analyzer=analyze_screenshot_v3
+    )
+    result = map_analysis_to_form(
+        descriptive_section(analysis), known_assets=known_assets
+    )
+    overlay = parse_trade_overlay(analysis)
+    return result, overlay, analysis, usage
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +173,7 @@ def clear_autofill_state() -> None:
 
     for key in (
         _RESULT_KEY,
+        _OVERLAY_KEY,
         _ANALYSIS_KEY,
         _USAGE_KEY,
         _FIELDS_KEY,
@@ -134,7 +181,11 @@ def clear_autofill_state() -> None:
         PENDING_WRITES_KEY,
     ):
         st.session_state.pop(key, None)
-    for key in [k for k in st.session_state if str(k).startswith("_nt_sel_")]:
+    for key in [
+        k
+        for k in st.session_state
+        if str(k).startswith("_nt_sel_") or str(k).startswith("_nt_ov_")
+    ]:
         st.session_state.pop(key, None)
 
 
@@ -179,7 +230,15 @@ def persist_analysis_for_trade(trade_id: int) -> None:
     try:
         from src.tradelens.services.ai_analysis_service import create_or_update_analysis
 
-        create_or_update_analysis(trade_id, analysis, usage)
+        # Flatten descriptive to top-level (so the existing column denormalization
+        # in create_or_update_analysis still populates) and keep the full
+        # trade_overlay in raw_response_json for inspection. No schema change.
+        to_persist = dict(descriptive_section(analysis))
+        if isinstance(analysis, dict):
+            to_persist["trade_overlay"] = analysis.get("trade_overlay", {})
+        create_or_update_analysis(
+            trade_id, to_persist, usage, prompt_version="screenshot_v3"
+        )
     except Exception:  # noqa: BLE001 — analysis persistence is best-effort
         pass
 
@@ -211,8 +270,11 @@ def _analyze(screenshot_file, screenshot_url, strategy_profile, known_assets) ->
             source = tmp
         else:
             source = screenshot_url
-        result, analysis, usage = run_autofill(source, strategy_profile, known_assets)
+        result, overlay, analysis, usage = run_autofill(
+            source, strategy_profile, known_assets
+        )
         st.session_state[_RESULT_KEY] = result
+        st.session_state[_OVERLAY_KEY] = overlay
         st.session_state[_ANALYSIS_KEY] = analysis
         st.session_state[_USAGE_KEY] = usage
         st.session_state.pop(_APPLIED_KEY, None)
@@ -245,6 +307,26 @@ def _apply(result: AutofillResult, selected: list, known_assets) -> None:
     st.session_state[_APPLIED_KEY] = list(selected)
     st.session_state.pop(_RESULT_KEY, None)  # collapse the panel; suggestions applied
     for key in [k for k in st.session_state if str(k).startswith("_nt_sel_")]:
+        st.session_state.pop(key, None)
+
+
+def _apply_overlay(overlay: TradeOverlay, selected: list) -> None:
+    """Stage selected overlay PRICES as pending nt_* writes (merge, don't clobber).
+
+    Merges with any pending descriptive writes; marks the price fields AI-sourced;
+    collapses the markup panel. Never stages direction (Phase-3 decision 5).
+    """
+    import streamlit as st
+
+    writes = build_overlay_writes(overlay, selected)
+    pending = dict(st.session_state.get(PENDING_WRITES_KEY) or {})
+    pending.update(writes)
+    st.session_state[PENDING_WRITES_KEY] = pending
+    sourced = st.session_state.get(_FIELDS_KEY) or set()
+    sourced |= set(selected)
+    st.session_state[_FIELDS_KEY] = sourced
+    st.session_state.pop(_OVERLAY_KEY, None)
+    for key in [k for k in st.session_state if str(k).startswith("_nt_ov_")]:
         st.session_state.pop(key, None)
 
 
@@ -329,6 +411,53 @@ def _render_review_panel(result: AutofillResult, known_assets) -> None:
         st.rerun()
 
 
+def _confidence_str(value) -> str:
+    return f" · {int(round(value * 100))}%" if value is not None else ""
+
+
+def _render_overlay_panel(overlay: TradeOverlay) -> None:
+    """Render the separate 'Detected from screenshot markup' price section."""
+    import streamlit as st
+
+    if overlay.source == "none" or not overlay.has_prices():
+        return
+
+    st.markdown("**Detected from screenshot markup**")
+    st.caption(
+        "⚠️ Approximate from the visible trade box / markup — confirm before "
+        "saving. Direction is inferred from the prices you apply, not applied here."
+    )
+    if overlay.direction:
+        conf = _confidence_str(overlay.confidence.get("direction"))
+        st.caption(
+            f"AI sees direction: **{overlay.direction.title()}**{conf} "
+            "(cross-check only — not applied)"
+        )
+
+    selected = []
+    for field in _OVERLAY_FIELD_TO_KEY:  # entry, stop, tp, exit in order
+        value = getattr(overlay, field)
+        if value is None:
+            continue
+        label = _OVERLAY_FIELD_LABELS[field]
+        conf = _confidence_str(overlay.confidence.get(field))
+        # Default OFF — price geometry is approximate; the trader opts in per field.
+        if st.checkbox(
+            f"{label}: {value}{conf} conf", value=False, key=f"_nt_ov_{field}"
+        ):
+            selected.append(field)
+
+    o1, o2 = st.columns(2)
+    if o1.button("Apply detected prices", key="_nt_ov_apply"):
+        _apply_overlay(overlay, selected)
+        st.rerun()
+    if o2.button("Dismiss markup", key="_nt_ov_dismiss"):
+        st.session_state.pop(_OVERLAY_KEY, None)
+        for key in [k for k in st.session_state if str(k).startswith("_nt_ov_")]:
+            st.session_state.pop(key, None)
+        st.rerun()
+
+
 def render_autofill_review(
     *,
     screenshot_file,
@@ -368,3 +497,7 @@ def render_autofill_review(
     result = st.session_state.get(_RESULT_KEY)
     if isinstance(result, AutofillResult):
         _render_review_panel(result, list(known_assets))
+
+    overlay = st.session_state.get(_OVERLAY_KEY)
+    if isinstance(overlay, TradeOverlay):
+        _render_overlay_panel(overlay)
