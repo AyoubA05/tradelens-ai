@@ -38,6 +38,14 @@ from src.tradelens.services.trade_service import (  # noqa: E402
     create_trade,
     find_recent_duplicate,
 )
+from src.tradelens.ui.components.ai_autofill_review import (  # noqa: E402
+    ai_sourced_fields,
+    clear_autofill_state,
+    drain_pending_writes,
+    mark_field_edited,
+    persist_analysis_for_trade,
+    render_autofill_review,
+)
 from src.tradelens.ui.components.auth import current_user_id, require_auth  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
@@ -136,27 +144,32 @@ if _strategy:
     st.caption(f"Defaults from Strategy Profile: **{_strategy.get('name', '—')}**")
 
 ASSET_OPTIONS = _dedup([*_profile_markets, *curated_assets()]) + [OTHER]
+ASSET_OPTIONS_CORE = [a for a in ASSET_OPTIONS if a != OTHER]
 SETUP_OPTIONS = _dedup([*_profile_setups, *DEFAULT_SETUPS])
 MISTAKE_OPTIONS = ["None"] + _dedup([*_profile_mistakes, *DEFAULT_MISTAKES]) + ["Other"]
 
 _entry_tf = _profile_tf.get("entry")
 _tf_default = TIMEFRAMES.index(_entry_tf) if _entry_tf in TIMEFRAMES else 1
 
-# ── Tabs (steps) — Save lives ONLY on the final Review & Save step ─
+# Drain AI Autofill writes staged on the previous run BEFORE any form widget is
+# instantiated (Streamlit forbids mutating a widget's state after it is created).
+drain_pending_writes()
+
+# ── Tabs (steps) — screenshot-first; Save lives ONLY on Review & Save ─
 tabs = st.tabs(
     [
-        "1 · Timing",
-        "2 · Market Context",
-        "3 · Setup",
-        "4 · Risk & Outcome",
-        "5 · Psychology",
-        "6 · Screenshot",
+        "1 · Screenshot & AI",
+        "2 · Timing",
+        "3 · Market Context",
+        "4 · Setup",
+        "5 · Risk & Outcome",
+        "6 · Psychology",
         "7 · Review & Save",
     ]
 )
 
-# ── Step 1 — Trade Timing ─────────────────────────────────────────
-with tabs[0]:
+# ── Step 2 — Trade Timing ─────────────────────────────────────────
+with tabs[1]:
     c1, c2 = st.columns(2)
     with c1:
         trade_date = st.date_input("Trade Date", value=datetime.date.today())
@@ -183,15 +196,25 @@ with tabs[0]:
     )
     st.caption("Based on your entry time and trading timezone.")
 
-# ── Step 2 — Market Context ───────────────────────────────────────
-with tabs[1]:
+# ── Step 3 — Market Context ───────────────────────────────────────
+with tabs[2]:
     m1, m2 = st.columns(2)
     with m1:
-        asset_choice = st.selectbox("Asset", ASSET_OPTIONS, key="nt_asset_select")
+        asset_choice = st.selectbox(
+            "Asset",
+            ASSET_OPTIONS,
+            key="nt_asset_select",
+            on_change=mark_field_edited,
+            args=("asset",),
+        )
         is_custom_asset = asset_choice == OTHER
         if is_custom_asset:
             asset = st.text_input(
-                "Custom asset", placeholder="e.g., MNQ", key="nt_asset_custom"
+                "Custom asset",
+                placeholder="e.g., MNQ",
+                key="nt_asset_custom",
+                on_change=mark_field_edited,
+                args=("asset",),
             )
             asset_class = st.selectbox(
                 "Asset Class", ASSET_CLASSES, key="nt_class_custom"
@@ -213,20 +236,43 @@ with tabs[1]:
         )
     with m2:
         timeframe = st.selectbox(
-            "Timeframe", TIMEFRAMES, index=_tf_default, key="nt_timeframe"
+            "Timeframe",
+            TIMEFRAMES,
+            index=_tf_default,
+            key="nt_timeframe",
+            on_change=mark_field_edited,
+            args=("timeframe",),
         )
-        htf_bias = st.selectbox("HTF Bias", BIAS_OPTIONS, key="nt_htf")
-        ltf_bias = st.selectbox("LTF Bias", BIAS_OPTIONS, key="nt_ltf")
+        htf_bias = st.selectbox(
+            "HTF Bias",
+            BIAS_OPTIONS,
+            key="nt_htf",
+            on_change=mark_field_edited,
+            args=("htf_bias",),
+        )
+        ltf_bias = st.selectbox(
+            "LTF Bias",
+            BIAS_OPTIONS,
+            key="nt_ltf",
+            on_change=mark_field_edited,
+            args=("ltf_bias",),
+        )
 
-# ── Step 3 — Setup & Confirmation ─────────────────────────────────
-with tabs[2]:
+# ── Step 4 — Setup & Confirmation ─────────────────────────────────
+with tabs[3]:
     setup_type = st.selectbox("Setup Type", SETUP_OPTIONS, key="nt_setup")
     confirmation_model = st.text_input(
         "Confirmation Model",
         placeholder="e.g., 1m IFVG + 5m BOS",
         key="nt_confirm",
     )
-    confluences = st.multiselect("Confluences", CONFLUENCES, key="nt_confluences")
+    confluences = st.multiselect(
+        "Confluences",
+        CONFLUENCES,
+        key="nt_confluences",
+        on_change=mark_field_edited,
+        args=("confluences",),
+    )
     if _strategy and (_strategy.get("setups_avoided") or "").strip():
         st.caption(f"⚠️ Avoid per your profile: {_strategy['setups_avoided']}")
 
@@ -256,8 +302,8 @@ with tabs[2]:
     elif followed_rules == "Yes":
         st.caption("Clean trade — no mistake tag needed.")
 
-# ── Step 4 — Risk & Outcome (quick first, exact prices optional) ──
-with tabs[3]:
+# ── Step 5 — Risk & Outcome (quick first, exact prices optional) ──
+with tabs[4]:
     st.markdown("#### 📊 Risk & Outcome")
     if _strategy and (_strategy.get("risk_rules") or "").strip():
         st.caption(f"Risk plan: {_strategy['risk_rules']}")
@@ -308,8 +354,8 @@ with tabs[3]:
                     "Realized R", f"{abs(exit_price - entry_price) / risk_dist:.2f}R"
                 )
 
-# ── Step 5 — Psychology & Notes ───────────────────────────────────
-with tabs[4]:
+# ── Step 6 — Psychology & Notes ───────────────────────────────────
+with tabs[5]:
     mindset = st.text_area(
         "How were you feeling during this trade?",
         placeholder="e.g., Patient and disciplined — waited for my model.",
@@ -323,10 +369,13 @@ with tabs[4]:
         emo_after = e3.selectbox("After", ["—"] + EMOTIONS, key="nt_emo_after")
     notes = st.text_area("Notes", height=120, key="nt_notes")
 
-# ── Step 6 — Screenshot ───────────────────────────────────────────
-with tabs[5]:
+# ── Step 1 — Screenshot & AI Autofill (screenshot-first) ──────────
+with tabs[0]:
     st.markdown("#### Chart Screenshot")
-    st.caption("Upload your chart screenshot for post-trade AI review (optional).")
+    st.caption(
+        "Start here — add your chart for an optional AI review, then continue "
+        "through the steps."
+    )
     screenshot_file = st.file_uploader(
         "Upload screenshot", type=["png", "jpg", "jpeg", "webp"], key="nt_shot"
     )
@@ -338,6 +387,13 @@ with tabs[5]:
     st.caption(
         "Must be a direct image link (.png, .jpg, .webp). "
         "TradingView public snapshot links work."
+    )
+    st.divider()
+    render_autofill_review(
+        screenshot_file=screenshot_file,
+        screenshot_url=(screenshot_url or "").strip() or None,
+        strategy_profile=_strategy,
+        known_assets=ASSET_OPTIONS_CORE,
     )
 
 
@@ -454,6 +510,9 @@ def _persist(data: dict) -> None:
             save_screenshot_url(trade.id, screenshot_url.strip())
         except Exception:  # noqa: BLE001
             pass
+    # Persist any staged AI screenshot analysis to the now-saved trade so the
+    # Journal shows it without paying for a second vision call.
+    persist_analysis_for_trade(trade.id)
     st.session_state["_nt_saved_id"] = trade.id
 
 
@@ -552,12 +611,26 @@ with tabs[6]:
         )
         if st.button("Log another trade", type="primary"):
             st.session_state.pop("_nt_saved_id", None)
+            clear_autofill_state()  # fresh AI state for the next trade
             st.rerun()
         st.stop()
 
     _data = _build_trade_data()
     for label, value in _summary_rows(_data):
         st.markdown(f"**{label}:** {value}")
+
+    # Minimal Phase-2 surfacing of AI-sourced fields (styled badges are Phase 3).
+    _ai_fields = ai_sourced_fields()
+    if _ai_fields:
+        _labels = [
+            ("asset", "Asset"),
+            ("timeframe", "Timeframe"),
+            ("htf_bias", "HTF Bias"),
+            ("ltf_bias", "LTF Bias"),
+            ("confluences", "Confluences"),
+        ]
+        _names = ", ".join(label for key, label in _labels if key in _ai_fields)
+        st.caption(f"🤖 AI-suggested (still your call to save): {_names}")
 
     _errors = _validate(_data)
     if _errors:
