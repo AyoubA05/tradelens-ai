@@ -206,3 +206,5 @@ if qa2.button("Open Journal", use_container_width=True):
     st.switch_page("pages/2_Trades.py")
 if qa3.button("Review Analytics", use_container_width=True):
     st.switch_page("pages/4_Analytics.py")
+
+st.caption("Build check: June 30 3:20 PM EDT")
