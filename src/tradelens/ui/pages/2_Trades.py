@@ -11,6 +11,11 @@ import datetime  # noqa: E402
 import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 
+from src.tradelens.services.cost import log_ai_usage  # noqa: E402
+from src.tradelens.services.debrief import (  # noqa: E402
+    DebriefError,
+    generate_debrief,
+)
 from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
 from src.tradelens.services.screenshot_service import save_screenshot  # noqa: E402
 from src.tradelens.services.strategy import get_active_strategy  # noqa: E402
@@ -20,8 +25,12 @@ from src.tradelens.services.trade_service import (  # noqa: E402
     get_trades,
     update_trade,
 )
+from src.tradelens.ui.components.ai_review import render_ai_review  # noqa: E402
 from src.tradelens.ui.components.auth import current_user_id, require_auth  # noqa: E402
 from src.tradelens.ui.components.ai_trade_chat import render_ask_ai  # noqa: E402
+from src.tradelens.ui.components.corrections_sidebar import (  # noqa: E402
+    render_corrections_sidebar,
+)
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.screenshot_analyzer import (  # noqa: E402
     render_screenshot_analyzer,
@@ -29,6 +38,7 @@ from src.tradelens.ui.components.screenshot_analyzer import (  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import empty_state, section_header  # noqa: E402
+from src.tradelens.utils.ai_utils import ai_available  # noqa: E402
 from src.tradelens.utils.format import humanize  # noqa: E402
 
 st.set_page_config(page_title="Journal", layout="wide")
@@ -36,6 +46,7 @@ inject_css()
 require_auth()
 render_demo_banner()
 render_sidebar()
+render_corrections_sidebar()
 st.markdown(
     section_header("Journal", "Review, filter, and reflect on your trades"),
     unsafe_allow_html=True,
@@ -201,6 +212,66 @@ with st.expander("Or pick a trade from a list"):
     if picked is not None:
         st.session_state["journal_selected_id"] = picked
 
+# ── AI summary of the filtered trades (multi-trade reflection) ────
+if len(trades) >= 2:
+    with st.expander(f"🤖 AI summary of these {len(trades)} trades"):
+        st.caption(
+            "Patterns across the trades matching your filters — recurring "
+            "mistakes, setup quality, emotions, and rule adherence. Post-trade "
+            "reflection only, never signals."
+        )
+        if not ai_available():
+            st.info(
+                "🤖 AI features are off. Add your Anthropic API key in Settings "
+                "to enable them."
+            )
+        else:
+            _sum_sig = (
+                current_user_id(),
+                str(start_date),
+                str(end_date),
+                asset_filter or "",
+                direction_filter,
+                result_filter,
+                len(trades),
+            )
+            _cached = st.session_state.get("_trades_summary") or {}
+            _is_current = _cached.get("sig") == _sum_sig
+            if _is_current:
+                st.markdown(_cached["review"].get("content_md") or "")
+                _cost = _cached["review"].get("cost_usd")
+                if _cost:
+                    st.caption(f"Generation cost: ${_cost:.4f}")
+            if len(trades) > 40:
+                st.caption("Large selection — the newest 40 trades are included.")
+            _sum_label = (
+                "Regenerate summary"
+                if _is_current
+                else f"Summarize these {len(trades)} trades"
+            )
+            if st.button(_sum_label, key="journal_sum_btn"):
+                with st.spinner("Reviewing these trades with AI…"):
+                    try:
+                        _review, _usage = generate_debrief(
+                            trades,
+                            strategy_profile=get_active_strategy(),
+                            period_label=(
+                                f"Selected trades {start_date} → {end_date} "
+                                f"({len(trades)} trades matching the current "
+                                "Journal filters)"
+                            ),
+                        )
+                        log_ai_usage("Trade Summary", _usage, user_id=current_user_id())
+                        st.session_state["_trades_summary"] = {
+                            "sig": _sum_sig,
+                            "review": _review,
+                        }
+                        st.rerun()
+                    except DebriefError as exc:
+                        st.warning(f"The AI summary couldn't run: {exc}")
+                    except Exception:  # noqa: BLE001 — never crash the Journal
+                        st.warning("The AI summary couldn't run. Please try again.")
+
 selected_id = st.session_state.get("journal_selected_id")
 if selected_id not in ids:
     selected_id = None
@@ -316,6 +387,9 @@ if selected_id is not None:
             st.session_state.pop("journal_selected_id", None)
             st.toast("Trade deleted", icon="✅")
             st.rerun()
+
+    # ── AI Review (journal + process grade) ───────────────────────
+    render_ai_review(trade, get_active_strategy(), user_id=current_user_id())
 
     # ── Ask AI About This Trade ───────────────────────────────────
     render_ask_ai(trade, get_active_strategy())

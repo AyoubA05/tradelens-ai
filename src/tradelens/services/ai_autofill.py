@@ -58,6 +58,8 @@ _CONFLUENCE_FLAGS = (
 )
 
 # Read-only fields surfaced to the trader but never auto-applied to form values.
+# instrument_name is the long chart title (e.g. "Micro E-mini Nasdaq-100 …") — the
+# form only takes the short ticker, so the long name is context, never a prefill.
 _OBSERVATION_KEYS = (
     "trade_quality",
     "possible_mistakes",
@@ -68,6 +70,7 @@ _OBSERVATION_KEYS = (
     "matched_strategy_reason",
     "key_zones",
     "bias_confidence",
+    "instrument_name",
 )
 _LIST_OBSERVATIONS = {"possible_mistakes", "missed_opportunities", "key_zones"}
 

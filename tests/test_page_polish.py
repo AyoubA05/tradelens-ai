@@ -21,13 +21,14 @@ ALL_PAGES = [
     "2_Trades.py",
     "4_Analytics.py",
     "5_Strategy.py",
+    "6_Insights.py",
     "9_Settings.py",
 ]
 
-# Active pages that make AI calls (Analytics hosts pattern detection + the
-# Weekly Review tab).
+# Active pages that make AI calls. Pattern detection + the Weekly Review now live
+# on the merged Insights & Review page (Analytics is pure analytics again).
 AI_PAGES = [
-    "4_Analytics.py",
+    "6_Insights.py",
 ]
 
 # Empty-state phrasing that must live in empty_state(), never a raw st.info().

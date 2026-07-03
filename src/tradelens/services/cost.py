@@ -2,16 +2,20 @@
 AI cost observability.
 
 Aggregates persisted AI spend for a calendar month, grouped by feature, for the
-Settings cost dashboard. The only tables that persist cost are ai_analysis (the
-per-trade vision/journal/grading pipeline) and weekly_reviews. Pattern detection
-and the AI Partner are per-session and not persisted — see Known Issues.
+Settings cost dashboard. Cost comes from three places: ai_analysis (the
+per-trade vision/journal/grading pipeline), weekly_reviews, and ai_usage_log
+(per-call rows for features with no natural persistence row — the AI Partner
+and pattern-card detection log through ``log_ai_usage``).
 
 No Streamlit imports here.
 """
 
+from datetime import datetime, timezone
+from typing import Optional
+
 import pandas as pd
 
-from src.tradelens.db.models import AIAnalysis, WeeklyReview
+from src.tradelens.db.models import AIAnalysis, AIUsageLog, WeeklyReview
 from src.tradelens.db.session import SessionLocal
 
 _COST_COLS = ["feature", "cost_usd", "calls"]
@@ -25,6 +29,35 @@ def _f(value) -> float:
         return float(value) if value is not None else 0.0
     except (TypeError, ValueError):
         return 0.0
+
+
+def log_ai_usage(feature: str, usage, user_id: Optional[int] = None) -> None:
+    """Persist one AI call's usage to ai_usage_log (best-effort; never raises).
+
+    For features with no natural persistence row — the AI Partner chat and
+    pattern-card detection. ``usage`` is an ai_client.Usage; None is ignored.
+    """
+    if usage is None or not feature:
+        return
+    try:
+        db = SessionLocal()
+        try:
+            db.add(
+                AIUsageLog(
+                    feature=feature,
+                    model=getattr(usage, "model", None),
+                    tokens_input=getattr(usage, "tokens_in", None),
+                    tokens_output=getattr(usage, "tokens_out", None),
+                    cost_usd=getattr(usage, "estimated_cost_usd", None),
+                    user_id=user_id,
+                    created_at=datetime.now(timezone.utc).isoformat(),
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 — telemetry must never break an AI feature
+        return
 
 
 def monthly_cost_by_feature(year: int, month: int) -> pd.DataFrame:
@@ -41,6 +74,7 @@ def monthly_cost_by_feature(year: int, month: int) -> pd.DataFrame:
     try:
         analyses = db.query(AIAnalysis).all()
         reviews = db.query(WeeklyReview).all()
+        usage_rows = db.query(AIUsageLog).all()
     finally:
         db.close()
 
@@ -64,6 +98,15 @@ def monthly_cost_by_feature(year: int, month: int) -> pd.DataFrame:
             wr_calls += 1
     if wr_calls:
         rows.append((_WEEKLY_REVIEW, round(wr_cost, 6), wr_calls))
+
+    # Per-call usage log (AI Partner, Pattern Detection, …) grouped by feature.
+    by_feature: dict = {}
+    for u in usage_rows:
+        if str(u.created_at or "").startswith(prefix):
+            cost, calls = by_feature.get(u.feature, (0.0, 0))
+            by_feature[u.feature] = (cost + _f(u.cost_usd), calls + 1)
+    for feature, (cost, calls) in sorted(by_feature.items()):
+        rows.append((feature, round(cost, 6), calls))
 
     df = pd.DataFrame(rows, columns=_COST_COLS)
     if df.empty:

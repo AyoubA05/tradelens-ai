@@ -28,6 +28,18 @@ def main() -> int:
     root, app_path, marker, seed = sys.argv[1:5]
     sys.path.insert(0, root)
 
+    # Isolate from a developer's real .streamlit/secrets.toml BEFORE config is
+    # imported. Streamlit exports top-level secrets into os.environ on first
+    # access, which would otherwise override DEMO_MODE=true and leak a real API
+    # key — letting auto-running AI pages (Insights & Review) make live calls
+    # during a boot test. Pinning _secrets to {} stops the file load entirely.
+    try:
+        import streamlit as st
+
+        st.secrets._secrets = {}
+    except Exception:  # noqa: BLE001 — boot tests must run even if this changes
+        pass
+
     from src.tradelens.db.init_db import init_db
 
     init_db()

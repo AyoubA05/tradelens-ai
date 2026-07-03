@@ -72,13 +72,13 @@ def _run(setup_line: str, call: str):
 
 
 def test_ask_ai_disabled_state():
-    at = _run("chat_mod.is_ai_enabled = lambda: False", "None")
+    at = _run("chat_mod.ai_available = lambda: False", "None")
     assert not at.exception
     text = _all_text(at)
     assert "disabled" in text.lower() or "Settings" in text
 
 
 def test_ask_ai_no_trade_selected():
-    at = _run("chat_mod.is_ai_enabled = lambda: True", "None")
+    at = _run("chat_mod.ai_available = lambda: True", "None")
     assert not at.exception
     assert "Select a trade" in _all_text(at)

@@ -11,14 +11,32 @@ from __future__ import annotations
 import os
 
 
-def is_ai_enabled() -> bool:
-    """True when an Anthropic API key is configured (secrets or environment)."""
+def ai_available() -> bool:
+    """True when AI output is possible: a key is configured OR demo mode is on
+    (demo serves cached fixtures with zero spend). One shared gate so pages and
+    components can't drift apart on whether demo users see AI sections.
+    """
     try:
-        import streamlit as st
+        from src.tradelens.services.demo import is_demo
 
-        key = st.secrets.get("ANTHROPIC_API_KEY")
-        if key:
-            return bool(key)
-    except Exception:  # noqa: BLE001 — no secrets file in tests/CLI is normal
+        if is_demo():
+            return True
+    except Exception:  # noqa: BLE001 — a demo-check failure must not kill the gate
         pass
-    return bool(os.getenv("ANTHROPIC_API_KEY"))
+    return is_ai_enabled()
+
+
+def is_ai_enabled() -> bool:
+    """True when an Anthropic API key is configured (secrets or environment).
+
+    Delegates to the AI client's resolver so the UI availability gate and the
+    actual API call can never disagree — the root of Bug 5, where the gate read
+    ``st.secrets`` but the client read ``settings``/env. Falls back to a bare env
+    check only if the client can't be imported.
+    """
+    try:
+        from src.tradelens.services.ai_client import has_api_key
+
+        return has_api_key()
+    except Exception:  # noqa: BLE001 — keep the gate working even if imports fail
+        return bool(os.getenv("ANTHROPIC_API_KEY"))

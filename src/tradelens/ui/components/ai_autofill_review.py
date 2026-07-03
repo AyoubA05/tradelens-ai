@@ -27,13 +27,19 @@ from typing import Iterable, Optional
 
 from src.tradelens.services.ai_autofill import AutofillResult, map_analysis_to_form
 from src.tradelens.services.ai_overlay import (
+    PROVENANCE_TEXT,
     TradeOverlay,
     descriptive_section,
+    field_provenance,
     parse_trade_overlay,
 )
 from src.tradelens.services.ai_screenshot_service import analyze_source
 from src.tradelens.services.assets import OTHER, normalize_symbol
-from src.tradelens.services.vision import ScreenshotAnalysisError, analyze_screenshot_v3
+from src.tradelens.services.vision import (
+    ScreenshotAnalysisError,
+    analyze_screenshot_v3,
+    check_screenshot_quality,
+)
 
 # Editable suggestion fields, in display order, mapped to their nt_* widget keys.
 # "asset" is handled separately (it may route to the custom-asset text field).
@@ -61,6 +67,16 @@ _APPLIED_KEY = "_nt_ai_applied"  # list[str] applied on the last Apply (transien
 # Public: nt_* writes staged by Apply, drained by the page before widgets render.
 PENDING_WRITES_KEY = "_nt_pending_writes"
 _OVERLAY_KEY = "_nt_ai_overlay"  # TradeOverlay from the last analysis (Phase 3)
+# "Keep reviewing" dismisses the modal but keeps the detection staged for reopen.
+_DIALOG_DISMISSED_KEY = "_nt_ai_dialog_dismissed"
+_QUALITY_KEY = "_nt_ai_quality"  # list[str] pre-check warnings for this analysis
+_ERROR_KEY = "_nt_ai_error"  # analysis failure message (survives the rerun)
+_OUTCOME_KEY = "_nt_ai_outcome"  # "accepted" | "rejected" — the trader's decision
+_EDITED_KEY = "_nt_ai_edited"  # set[str] of AI-applied fields edited afterwards
+
+# Entry/stop pre-check only when the model is confident; everything else opt-in.
+AUTOCHECK_FIELDS = ("entry_price", "stop_price")
+AUTOCHECK_MIN_CONFIDENCE = 0.70
 
 # Overlay price field -> nt_* widget key. Direction is intentionally absent —
 # it's display-only; the form infers direction from the applied entry/stop.
@@ -122,10 +138,12 @@ def build_form_writes(
 
 
 def build_overlay_writes(overlay: TradeOverlay, selected: Iterable[str]) -> dict:
-    """Map accepted overlay PRICES to {nt_key: value}. Never writes direction.
+    """Map accepted overlay PRICES (+ opt-in PnL) to {nt_key: value}.
 
-    Direction is omitted by design (Phase-3 decision 5): the New Trade form infers
-    direction from the applied entry/stop. Only selected, non-null prices write.
+    Never writes direction (Phase-3 decision 5): the form infers direction from the
+    applied entry/stop. PnL is opt-in and, when selected, writes the real ``nt_pnl``
+    key. Risk/reward ratio is cross-check only and is never written (the form
+    derives R from prices). Only selected, non-null values write.
     """
     selected = set(selected)
     writes: dict = {}
@@ -134,7 +152,59 @@ def build_overlay_writes(overlay: TradeOverlay, selected: Iterable[str]) -> dict
             value = getattr(overlay, field, None)
             if value is not None:
                 writes[key] = value
+    if "pnl" in selected and getattr(overlay, "pnl", None) is not None:
+        writes["nt_pnl"] = overlay.pnl
     return writes
+
+
+def should_autocheck(field: str, confidence) -> bool:
+    """Default-checked state for a detected-markup checkbox.
+
+    Only entry/stop auto-check, and only at >= 0.70 confidence — below that the
+    trader must opt in explicitly. Junk/missing confidence never auto-checks.
+    """
+    if field not in AUTOCHECK_FIELDS:
+        return False
+    try:
+        return float(confidence) >= AUTOCHECK_MIN_CONFIDENCE
+    except (TypeError, ValueError):
+        return False
+
+
+def build_review_outcome(outcome, applied_fields, edited_fields) -> Optional[dict]:
+    """The trader's review decision as a persistable record, or None.
+
+    outcome is "accepted" or "rejected" (what the trader clicked); an accept
+    followed by manual edits of AI-applied fields becomes "accepted_with_edits".
+    Returns None when the trader never made a decision (nothing to record).
+    """
+    if not outcome:
+        return None
+    applied = list(applied_fields or [])
+    edited = sorted(set(edited_fields or []))
+    final = "accepted_with_edits" if outcome == "accepted" and edited else outcome
+    return {"outcome": final, "applied_fields": applied, "edited_fields": edited}
+
+
+def observation_summary(observations, max_len: int = 160) -> Optional[str]:
+    """One-line default view of the AI observations (full text stays available).
+
+    Prefers the conversational notes (truncated on a word boundary), falls back
+    to the quality estimate, and returns None when there is nothing to say.
+    """
+    if not isinstance(observations, dict):
+        return None
+    notes = observations.get("notes_to_user")
+    if isinstance(notes, str) and notes.strip():
+        notes = notes.strip()
+        if len(notes) <= max_len:
+            return notes
+        cut = notes[:max_len].rsplit(" ", 1)[0].rstrip(" ,;:.")
+        return f"{cut}…"
+    tq = observations.get("trade_quality")
+    if tq is not None:
+        return f"AI quality estimate: {tq}/10"
+    return None
 
 
 def run_autofill(
@@ -178,6 +248,11 @@ def clear_autofill_state() -> None:
         _USAGE_KEY,
         _FIELDS_KEY,
         _APPLIED_KEY,
+        _DIALOG_DISMISSED_KEY,
+        _QUALITY_KEY,
+        _ERROR_KEY,
+        _OUTCOME_KEY,
+        _EDITED_KEY,
         PENDING_WRITES_KEY,
     ):
         st.session_state.pop(key, None)
@@ -204,12 +279,18 @@ def drain_pending_writes() -> None:
 
 
 def mark_field_edited(field: str) -> None:
-    """on_change callback: a manual edit downgrades a field's AI-sourced marker."""
+    """on_change callback: a manual edit downgrades a field's AI-sourced marker.
+
+    Also records the edit for outcome tracking — an accepted-then-edited field
+    turns the review outcome into "accepted_with_edits" at save time.
+    """
     import streamlit as st
 
     sourced = st.session_state.get(_FIELDS_KEY)
-    if sourced:
+    if sourced and field in sourced:
         sourced.discard(field)
+        edited = st.session_state.setdefault(_EDITED_KEY, set())
+        edited.add(field)
 
 
 def ai_sourced_fields() -> set:
@@ -236,6 +317,16 @@ def persist_analysis_for_trade(trade_id: int) -> None:
         to_persist = dict(descriptive_section(analysis))
         if isinstance(analysis, dict):
             to_persist["trade_overlay"] = analysis.get("trade_overlay", {})
+        # Outcome tracking: how the trader handled the suggestions (accepted /
+        # accepted_with_edits / rejected + which fields changed). Lives inside
+        # raw_response_json — reuses the existing row, no schema change.
+        record = build_review_outcome(
+            st.session_state.get(_OUTCOME_KEY),
+            st.session_state.get(_APPLIED_KEY) or [],
+            st.session_state.get(_EDITED_KEY) or (),
+        )
+        if record:
+            to_persist["review_outcome"] = record
         create_or_update_analysis(
             trade_id, to_persist, usage, prompt_version="screenshot_v3"
         )
@@ -249,16 +340,17 @@ def persist_analysis_for_trade(trade_id: int) -> None:
 
 
 def _ai_available() -> bool:
-    from src.tradelens.services.demo import is_demo
-    from src.tradelens.utils.ai_utils import is_ai_enabled
+    from src.tradelens.utils.ai_utils import ai_available
 
-    return is_ai_enabled() or is_demo()
+    return ai_available()
 
 
 def _analyze(screenshot_file, screenshot_url, strategy_profile, known_assets) -> None:
     """Run analysis on the current source and stage the result in session-state."""
     import streamlit as st
 
+    st.session_state.pop(_ERROR_KEY, None)
+    st.session_state.pop(_QUALITY_KEY, None)
     tmp = None
     try:
         if screenshot_file is not None:
@@ -268,6 +360,17 @@ def _analyze(screenshot_file, screenshot_url, strategy_profile, known_assets) ->
             with os.fdopen(fd, "wb") as fh:
                 fh.write(data)
             source = tmp
+            # Quality pre-check (local, free). Warn on likely-degraded extraction;
+            # block only when the file fundamentally isn't an image. URL sources
+            # skip this — we never fetch URLs ourselves (SSRF hardening).
+            quality = check_screenshot_quality(tmp)
+            if not quality.usable:
+                st.session_state[_ERROR_KEY] = (
+                    "This screenshot can't be analyzed: " + " ".join(quality.warnings)
+                )
+                return
+            if quality.warnings:
+                st.session_state[_QUALITY_KEY] = list(quality.warnings)
         else:
             source = screenshot_url
         result, overlay, analysis, usage = run_autofill(
@@ -278,10 +381,13 @@ def _analyze(screenshot_file, screenshot_url, strategy_profile, known_assets) ->
         st.session_state[_ANALYSIS_KEY] = analysis
         st.session_state[_USAGE_KEY] = usage
         st.session_state.pop(_APPLIED_KEY, None)
+        st.session_state.pop(_OUTCOME_KEY, None)
+        st.session_state.pop(_EDITED_KEY, None)
+        _clear_selection_state()  # fresh defaults for the new detection
     except ScreenshotAnalysisError as exc:
-        st.warning(str(exc))
+        st.session_state[_ERROR_KEY] = str(exc)
     except Exception as exc:  # noqa: BLE001 — never crash the form on analysis
-        st.warning(f"Couldn't analyze that screenshot: {exc}")
+        st.session_state[_ERROR_KEY] = f"Couldn't analyze that screenshot: {exc}"
     finally:
         if tmp is not None:
             try:
@@ -290,44 +396,63 @@ def _analyze(screenshot_file, screenshot_url, strategy_profile, known_assets) ->
                 pass
 
 
-def _apply(result: AutofillResult, selected: list, known_assets) -> None:
-    """Stage selected suggestions as pending nt_* writes and mark them AI-sourced.
+def _clear_selection_state() -> None:
+    import streamlit as st
 
-    The writes are stashed (not applied directly) so the page can drain them at
-    the top of the next run — before the form widgets instantiate, since Streamlit
-    forbids setting a widget's state after it has been created.
+    for key in [
+        k
+        for k in st.session_state
+        if str(k).startswith("_nt_sel_") or str(k).startswith("_nt_ov_")
+    ]:
+        st.session_state.pop(key, None)
+
+
+def _apply_all(
+    result: Optional[AutofillResult],
+    overlay: Optional[TradeOverlay],
+    sel_desc: list,
+    sel_prices: list,
+    known_assets,
+) -> None:
+    """Stage the confirmed descriptive fields AND prices as pending nt_* writes.
+
+    Writes are stashed (not applied directly) so the page drains them at the top
+    of the next run — before the form widgets instantiate, since Streamlit forbids
+    setting a widget's state after it has been created. Direction is never written
+    (Phase-3 decision 5) — the form infers it from the applied entry/stop.
     """
     import streamlit as st
 
-    writes = build_form_writes(result.prefill, selected, known_assets)
+    writes: dict = {}
+    if isinstance(result, AutofillResult):
+        writes.update(build_form_writes(result.prefill, sel_desc, known_assets))
+    if isinstance(overlay, TradeOverlay):
+        writes.update(build_overlay_writes(overlay, sel_prices))
+
     st.session_state[PENDING_WRITES_KEY] = writes
     sourced = st.session_state.get(_FIELDS_KEY) or set()
-    sourced |= set(selected)
+    sourced |= set(sel_desc) | set(sel_prices)
     st.session_state[_FIELDS_KEY] = sourced
-    st.session_state[_APPLIED_KEY] = list(selected)
-    st.session_state.pop(_RESULT_KEY, None)  # collapse the panel; suggestions applied
-    for key in [k for k in st.session_state if str(k).startswith("_nt_sel_")]:
-        st.session_state.pop(key, None)
+    st.session_state[_APPLIED_KEY] = list(sel_desc) + list(sel_prices)
+    # Applying with every suggestion unchecked is a decline, not an accept.
+    st.session_state[_OUTCOME_KEY] = (
+        "accepted" if (sel_desc or sel_prices) else "rejected"
+    )
+    st.session_state.pop(_EDITED_KEY, None)
+    st.session_state.pop(_RESULT_KEY, None)
+    st.session_state.pop(_OVERLAY_KEY, None)
+    st.session_state.pop(_DIALOG_DISMISSED_KEY, None)
+    _clear_selection_state()
 
 
-def _apply_overlay(overlay: TradeOverlay, selected: list) -> None:
-    """Stage selected overlay PRICES as pending nt_* writes (merge, don't clobber).
-
-    Merges with any pending descriptive writes; marks the price fields AI-sourced;
-    collapses the markup panel. Never stages direction (Phase-3 decision 5).
-    """
+def _discard_detection() -> None:
+    """Close the detection dialog without writing anything to the form."""
     import streamlit as st
 
-    writes = build_overlay_writes(overlay, selected)
-    pending = dict(st.session_state.get(PENDING_WRITES_KEY) or {})
-    pending.update(writes)
-    st.session_state[PENDING_WRITES_KEY] = pending
-    sourced = st.session_state.get(_FIELDS_KEY) or set()
-    sourced |= set(selected)
-    st.session_state[_FIELDS_KEY] = sourced
+    st.session_state.pop(_RESULT_KEY, None)
     st.session_state.pop(_OVERLAY_KEY, None)
-    for key in [k for k in st.session_state if str(k).startswith("_nt_ov_")]:
-        st.session_state.pop(key, None)
+    st.session_state.pop(_DIALOG_DISMISSED_KEY, None)
+    _clear_selection_state()
 
 
 def _display_value(field: str, value) -> str:
@@ -353,16 +478,21 @@ def _render_observations(observations: dict) -> None:
     )
     if not has_any:
         return
-    with st.expander("AI observations (read-only — never auto-applied)"):
+    # Compact-first: one summary line by default; the full notes, possible
+    # mistakes, and missed opportunities stay one click away, untruncated.
+    summary = observation_summary(observations)
+    if summary:
+        st.markdown(f"**AI observations:** {summary}")
+    with st.expander("Full AI observations (read-only — never auto-applied)"):
         tq = observations.get("trade_quality")
         if tq is not None:
             st.markdown(f"**AI quality estimate:** {tq}/10")
+        if observations.get("notes_to_user"):
+            st.markdown(f"**Notes:** {observations['notes_to_user']}")
         if observations.get("matched_strategy"):
             st.markdown(f"**Matched strategy:** {observations['matched_strategy']}")
         if observations.get("structure"):
             st.markdown(f"**Structure:** {observations['structure']}")
-        if observations.get("notes_to_user"):
-            st.markdown(f"**Notes:** {observations['notes_to_user']}")
         mistakes = observations.get("possible_mistakes") or []
         if mistakes:
             st.markdown("**Possible mistakes:** " + ", ".join(str(m) for m in mistakes))
@@ -376,86 +506,177 @@ def _render_observations(observations: dict) -> None:
             st.caption(f"{len(zones)} key zone(s) detected.")
 
 
-def _render_review_panel(result: AutofillResult, known_assets) -> None:
-    import streamlit as st
-
-    st.caption(
-        "🤖 AI suggestions — pick which to apply, then edit them in the steps "
-        "below. Nothing is saved until you press Save."
-    )
-
-    present = [f for f in _FIELD_ORDER if f in result.prefill]
-    if not present:
-        st.info("AI didn't find fields it could suggest. Fill the form manually.")
-    selected_default = []
-    for field in present:
-        label = _FIELD_LABELS[field]
-        value = _display_value(field, result.prefill[field])
-        checked = st.checkbox(f"{label}: {value}", value=True, key=f"_nt_sel_{field}")
-        if checked:
-            selected_default.append(field)
-
-    _render_observations(result.observations)
-
-    c1, c2, c3 = st.columns(3)
-    if c1.button("Apply selected", type="primary", key="_nt_ai_apply_sel"):
-        _apply(result, selected_default, known_assets)
-        st.rerun()
-    if c2.button("Apply all", key="_nt_ai_apply_all"):
-        _apply(result, present, known_assets)
-        st.rerun()
-    if c3.button("Dismiss", key="_nt_ai_dismiss"):
-        st.session_state.pop(_RESULT_KEY, None)
-        for key in [k for k in st.session_state if str(k).startswith("_nt_sel_")]:
-            st.session_state.pop(key, None)
-        st.rerun()
-
-
 def _confidence_str(value) -> str:
     return f" · {int(round(value * 100))}%" if value is not None else ""
 
 
-def _render_overlay_panel(overlay: TradeOverlay) -> None:
-    """Render the separate 'Detected from screenshot markup' price section."""
+def _select_descriptive(result: AutofillResult) -> list:
+    """Render descriptive-field checkboxes; return the selected field names."""
     import streamlit as st
 
-    if overlay.source == "none" or not overlay.has_prices():
-        return
+    present = [f for f in _FIELD_ORDER if f in result.prefill]
+    if not present:
+        st.caption("No descriptive fields were detected.")
+        return []
+    selected = []
+    for field in present:
+        label = _FIELD_LABELS[field]
+        value = _display_value(field, result.prefill[field])
+        if st.checkbox(f"{label}: {value}", value=True, key=f"_nt_sel_{field}"):
+            selected.append(field)
+    return selected
 
-    st.markdown("**Detected from screenshot markup**")
+
+def _overlay_has_content(overlay) -> bool:
+    """True when the overlay carries anything worth showing (prices, PnL, RR, …)."""
+    return (
+        isinstance(overlay, TradeOverlay)
+        and overlay.source != "none"
+        and (
+            overlay.has_prices()
+            or overlay.pnl is not None
+            or bool(overlay.risk_reward_ratio)
+            or bool(overlay.direction)
+            or bool(overlay.overall_confidence)
+            or bool(overlay.visible_labels)
+        )
+    )
+
+
+def _select_prices(overlay: TradeOverlay) -> list:
+    """Render the detected-markup checkboxes; return the selected fields.
+
+    Prices and PnL are opt-in (default OFF) and get written on Apply. Direction,
+    risk/reward ratio, overall confidence, and the OCR labels are cross-check
+    context only — never part of the returned selection, so never written.
+    """
+    import streamlit as st
+
+    if not _overlay_has_content(overlay):
+        return []
+    st.markdown("**Detected from chart markup**")
     st.caption(
-        "⚠️ Approximate from the visible trade box / markup — confirm before "
-        "saving. Direction is inferred from the prices you apply, not applied here."
+        "⚠️ Read from your drawn trade box — confirm each value before applying. "
+        "Direction is inferred from the prices you apply, not written here."
     )
     if overlay.direction:
         conf = _confidence_str(overlay.confidence.get("direction"))
         st.caption(
             f"AI sees direction: **{overlay.direction.title()}**{conf} "
-            "(cross-check only — not applied)"
+            "(cross-check only — not written)"
         )
-
     selected = []
+    missing = []
     for field in _OVERLAY_FIELD_TO_KEY:  # entry, stop, tp, exit in order
         value = getattr(overlay, field)
-        if value is None:
-            continue
         label = _OVERLAY_FIELD_LABELS[field]
-        conf = _confidence_str(overlay.confidence.get(field))
-        # Default OFF — price geometry is approximate; the trader opts in per field.
+        if value is None:
+            missing.append(label)
+            continue
+        conf = overlay.confidence.get(field)
+        conf_txt = (
+            f"{int(round(conf * 100))}% confidence"
+            if conf is not None
+            else "confidence unknown"
+        )
+        provenance = PROVENANCE_TEXT[field_provenance(overlay, field)]
+        # Entry/stop pre-check at >= 0.70 confidence; everything else opt-in.
+        # Nothing is written until the trader clicks Apply.
         if st.checkbox(
-            f"{label}: {value}{conf} conf", value=False, key=f"_nt_ov_{field}"
+            f"{label}: {value} · {conf_txt}",
+            value=should_autocheck(field, conf),
+            key=f"_nt_ov_{field}",
+            help=f"This value was {provenance}.",
         ):
             selected.append(field)
+        st.caption(f"↳ {provenance}")
+    if missing:
+        st.caption("Not visible on the chart: " + ", ".join(missing))
+    # PnL: opt-in (default OFF), shown only when a closed P&L was visibly read.
+    if overlay.pnl is not None:
+        if st.checkbox(f"P&L: {overlay.pnl}", value=False, key="_nt_ov_pnl"):
+            selected.append("pnl")
+    # Cross-check context — never written into the form.
+    if overlay.risk_reward_ratio:
+        st.caption(
+            f"AI sees risk/reward ≈ **{overlay.risk_reward_ratio}** "
+            "(cross-check only — R is derived from your prices)"
+        )
+    if overlay.overall_confidence:
+        st.caption(f"Overall extraction confidence: {overlay.overall_confidence}")
+    if overlay.visible_labels:
+        st.caption("Labels read: " + ", ".join(overlay.visible_labels))
+    return selected
 
-    o1, o2 = st.columns(2)
-    if o1.button("Apply detected prices", key="_nt_ov_apply"):
-        _apply_overlay(overlay, selected)
-        st.rerun()
-    if o2.button("Dismiss markup", key="_nt_ov_dismiss"):
-        st.session_state.pop(_OVERLAY_KEY, None)
-        for key in [k for k in st.session_state if str(k).startswith("_nt_ov_")]:
-            st.session_state.pop(key, None)
-        st.rerun()
+
+def _open_detection_dialog(
+    result: Optional[AutofillResult],
+    overlay: Optional[TradeOverlay],
+    known_assets: list,
+) -> None:
+    """Open the 'Here is what the AI detected' confirmation modal (Change A).
+
+    Nothing is written to the form until the trader confirms with Apply — the
+    screenshot auto-detect / user-confirms safety contract.
+    """
+    import streamlit as st
+
+    @st.dialog("This is what the AI detected")
+    def _dlg() -> None:
+        st.caption(
+            "Review what the AI read from your chart, then choose. Nothing is "
+            "written to your form until you apply it — and every field stays "
+            "editable afterward."
+        )
+        for warning in st.session_state.get(_QUALITY_KEY) or []:
+            st.warning(f"Screenshot quality: {warning}")
+        instrument = (
+            (result.observations or {}).get("instrument_name")
+            if isinstance(result, AutofillResult)
+            else None
+        )
+        if instrument:
+            st.caption(f"Instrument: {instrument}")
+        sel_desc = (
+            _select_descriptive(result) if isinstance(result, AutofillResult) else []
+        )
+        if isinstance(result, AutofillResult):
+            _render_observations(result.observations)
+        sel_prices = (
+            _select_prices(overlay) if isinstance(overlay, TradeOverlay) else []
+        )
+        if not _overlay_has_content(overlay):
+            st.caption(
+                "No trade-box markup was visibly detected on this chart, so no "
+                "prices can be suggested. You can still enter them manually."
+            )
+
+        st.divider()
+        c1, c2, c3 = st.columns(3)
+        if c1.button("Apply detected fields", type="primary", key="_nt_ai_apply"):
+            _apply_all(result, overlay, sel_desc, sel_prices, known_assets)
+            st.rerun()
+        if c2.button("Keep reviewing", key="_nt_ai_keep"):
+            # Dismiss the modal but keep the detection staged for reopen.
+            st.session_state[_DIALOG_DISMISSED_KEY] = True
+            st.rerun()
+        if c3.button("Cancel", key="_nt_ai_cancel"):
+            # Outcome tracking: an explicit cancel is a rejection of the
+            # suggestions (the analysis itself still persists with the trade).
+            st.session_state[_OUTCOME_KEY] = "rejected"
+            st.session_state[_APPLIED_KEY] = []
+            _discard_detection()
+            st.rerun()
+
+    _dlg()
+
+
+def _has_detection(result, overlay) -> bool:
+    """True when the AI surfaced anything worth confirming (fields or overlay)."""
+    has_fields = isinstance(result, AutofillResult) and any(
+        f in result.prefill for f in _FIELD_ORDER
+    )
+    return bool(has_fields or _overlay_has_content(overlay))
 
 
 def render_autofill_review(
@@ -465,10 +686,14 @@ def render_autofill_review(
     strategy_profile: Optional[dict],
     known_assets: Iterable[str],
 ) -> None:
-    """Render the analyze button + AI review/apply panel for the New Trade page."""
+    """Render the analyze button and, after analysis, the AI detection dialog."""
     import streamlit as st
 
     st.markdown("**AI Autofill (optional)**")
+    st.caption(
+        "Post-trade chart review — suggestions you confirm before they touch "
+        "the form. Never signals or entries."
+    )
 
     if not _ai_available():
         st.info(
@@ -484,20 +709,38 @@ def render_autofill_review(
 
     applied = st.session_state.get(_APPLIED_KEY)
     if applied:
-        names = ", ".join(_FIELD_LABELS.get(f, f) for f in applied)
+        names = ", ".join(
+            _FIELD_LABELS.get(f, _OVERLAY_FIELD_LABELS.get(f, f)) for f in applied
+        )
         st.success(f"✅ Applied to the form: {names}. Edit them in the steps below.")
 
-    has_result = _RESULT_KEY in st.session_state
+    result = st.session_state.get(_RESULT_KEY)
+    overlay = st.session_state.get(_OVERLAY_KEY)
+    has_result = isinstance(result, AutofillResult)
     label = "Re-analyze screenshot" if has_result else "🔍 Analyze screenshot"
     if st.button(label, key="_nt_ai_analyze"):
         with st.spinner("Analyzing your chart…"):
             _analyze(screenshot_file, screenshot_url, strategy_profile, known_assets)
         st.rerun()
 
-    result = st.session_state.get(_RESULT_KEY)
-    if isinstance(result, AutofillResult):
-        _render_review_panel(result, list(known_assets))
+    # Analysis errors are stashed in session-state so they survive the rerun.
+    error = st.session_state.get(_ERROR_KEY)
+    if error:
+        st.warning(error)
 
+    # Result survives reruns in session_state. The dialog opens whenever a fresh
+    # detection is staged; "Keep reviewing" dismisses it but keeps the detection so
+    # the trader can look at the form and reopen it (Change A).
+    result = st.session_state.get(_RESULT_KEY)
     overlay = st.session_state.get(_OVERLAY_KEY)
-    if isinstance(overlay, TradeOverlay):
-        _render_overlay_panel(overlay)
+    if _has_detection(result, overlay):
+        if st.session_state.get(_DIALOG_DISMISSED_KEY):
+            st.caption("AI detection ready — not yet applied.")
+            if st.button("Review AI detection", key="_nt_ai_reopen"):
+                st.session_state.pop(_DIALOG_DISMISSED_KEY, None)
+                st.rerun()
+        else:
+            _open_detection_dialog(result, overlay, list(known_assets))
+    elif isinstance(result, AutofillResult):
+        st.info("AI didn't find fields it could suggest. Fill the form manually.")
+        _discard_detection()

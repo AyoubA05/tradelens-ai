@@ -157,3 +157,12 @@ def test_components_render_in_apptest():
     )
     at = AppTest.from_string(script).run()
     assert not at.exception
+
+
+def test_error_box_escapes_and_styles():
+    from src.tradelens.ui.components.ui import error_box
+
+    out = error_box("Analysis failed: <script>alert(1)</script>")
+    assert "&lt;script&gt;" in out  # escaped, never raw HTML
+    assert "white-space:pre-wrap" in out
+    assert "#A84B2F" in out  # terra border token

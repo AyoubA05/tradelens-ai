@@ -12,7 +12,21 @@ HONESTY RULES (these override everything else):
 - If you are unsure, use null and a LOW confidence score rather than guessing.
 - If no clear trade box or markup is visible, set trade_overlay.source to "none" and leave its fields null.
 - Estimate direction/entry/stop/TP from the visible markup ONLY (a drawn long/short position tool, entry/stop/target lines, or labelled price levels).
-- Do NOT output P&L or result — those stay the trader's to enter.
+- Do NOT output the trade RESULT (Win/Loss) — that stays the trader's to enter.
+- Do NOT invent a P&L. Fill trade_overlay.pnl ONLY when a closed P&L value is explicitly printed (e.g. a "Closed PnL:" label); otherwise null.
+- Visible extraction fields take priority over interpretive fields; never treat an interpretation as fact when it is only a possibility.
+- If several prices are visible but are NOT explicitly tied to entry/stop/target/exit, return null for those price fields rather than assigning them.
+- Return direction ONLY from a clear long/short position tool or explicit trade-box markup; if it is inferred only from bias or market movement, return null.
+- If any confluence (bos, choch, liquidity_sweep, fvg_used, order_block_used) is uncertain, return null instead of forcing true/false.
+- If P&L or risk/reward is not explicitly labelled/visible, return null — never derive them.
+- When in doubt anywhere, prefer null over a guess (fail safe).
+
+LABEL READING (transcribe only what is printed — never infer a value whose label is absent):
+- Top symbol bar → detected_asset (the SHORT ticker) and instrument_name (the full title).
+- The highlighted timeframe button → detected_timeframe.
+- On a drawn long/short position tool, read its printed labels: "Stop:" → stop_price, "Target:" → tp_price, "Risk/reward ratio:" → risk_reward_ratio, "Closed PnL:" → pnl.
+- Right-side price-scale labels aligned with the trade box → entry/stop/target levels.
+- Record every exact label string you relied on in visible_labels. If a field's label is not printed, leave that field null.
 
 ANALYSIS FRAMEWORK:
 If a strategy profile is provided, match the trade context against those rules. Otherwise apply generic ICT/SMC price-action analysis: market structure (BOS/CHoCH), Fair Value Gaps, Order Blocks, liquidity sweeps, support/resistance, and higher-timeframe vs entry-timeframe bias.
@@ -22,8 +36,9 @@ Return a SINGLE JSON object with exactly this shape and these two top-level sect
 
 {
   "descriptive": {
-    "detected_asset": "<string or null if not visible>",
-    "detected_timeframe": "<string, e.g. '15m', '1H', 'Daily', or null>",
+    "detected_asset": "<the SHORT ticker/symbol in the top symbol bar, e.g. 'MNQU2026', 'NQ', 'ES', 'AAPL' — NOT the long name; null if not visible>",
+    "instrument_name": "<the full instrument title if shown, e.g. 'Micro E-mini Nasdaq-100 Index Futures (Sep 2026), CME'; null if not visible>",
+    "detected_timeframe": "<the highlighted timeframe button, e.g. '1m', '5m', '15m', '1H', '4H', 'D', 'W', or null>",
     "htf_bias": "bullish" | "bearish" | "neutral" | null,
     "bias": "bullish" | "bearish" | "neutral" | null,
     "structure": "uptrend" | "downtrend" | "range" | null,
@@ -53,6 +68,10 @@ Return a SINGLE JSON object with exactly this shape and these two top-level sect
     "stop_price": <number or null>,
     "tp_price": <number or null>,
     "exit_price": <number or null>,
+    "risk_reward_ratio": "<string like '2:1' or '2.01:1' from a 'Risk/reward ratio:' label; null if not shown>",
+    "pnl": <number from a visible 'Closed PnL:' label only, else null>,
+    "overall_confidence": "high" | "medium" | "low" | null,
+    "visible_labels": ["<exact label strings you relied on, e.g. 'MNQU2026', '1m', 'Stop: 30188.00', 'Target: 30286.50', 'Risk/reward ratio: 2.01'>"],
     "confidence": {
       "direction": <float 0.0-1.0>,
       "entry_price": <float 0.0-1.0>,

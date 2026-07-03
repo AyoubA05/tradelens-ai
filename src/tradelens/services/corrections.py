@@ -6,11 +6,31 @@ No Streamlit imports here.
 """
 
 import json
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Optional
 
 from src.tradelens.db.models import Correction
 from src.tradelens.db.session import SessionLocal
+
+# Active user for this script run (multi-user scoping). The UI auth layer sets
+# it once per page run; every correction read/write then defaults to it, so the
+# central few-shot injection in ai_client (which has no user context) can never
+# leak one trader's corrections into another trader's prompts. None = the
+# legacy single user (NULL-owned rows) — the fail-safe default.
+_ACTIVE_USER: ContextVar[Optional[int]] = ContextVar(
+    "tradelens_corrections_user", default=None
+)
+_UNSET = object()  # distinguishes "not passed" from an explicit None (legacy)
+
+
+def set_corrections_user(user_id: Optional[int]) -> None:
+    """Scope subsequent correction reads/writes to `user_id` (None = legacy)."""
+    _ACTIVE_USER.set(user_id)
+
+
+def _resolve_user(user_id) -> Optional[int]:
+    return _ACTIVE_USER.get() if user_id is _UNSET else user_id
 
 
 def _serialize(value) -> Optional[str]:
@@ -35,11 +55,13 @@ def record_correction(
     ai_value,
     user_value,
     user_reason: Optional[str] = None,
+    user_id=_UNSET,
 ) -> Optional[Correction]:
     """
     Write a Correction row only when _serialize(ai_value) != _serialize(user_value).
     Returns the saved ORM row if written, or None if values were equal.
     created_at is always set to the current UTC timestamp.
+    Owned by `user_id` (defaults to the active user set by the auth layer).
     """
     serialized_ai = _serialize(ai_value)
     serialized_user = _serialize(user_value)
@@ -58,6 +80,7 @@ def record_correction(
             user_value=serialized_user,
             user_reason=user_reason,
             created_at=now,
+            user_id=_resolve_user(user_id),
         )
         db.add(row)
         db.commit()
@@ -75,7 +98,9 @@ def _estimate_tokens(text: str) -> int:
     return (len(text) + 3) // 4
 
 
-def build_correction_few_shot(limit: int = 10, scope: Optional[str] = None) -> str:
+def build_correction_few_shot(
+    limit: int = 10, scope: Optional[str] = None, user_id=_UNSET
+) -> str:
     """
     Build a token-budgeted ``<past_corrections>`` block from recent corrections.
 
@@ -95,7 +120,7 @@ def build_correction_few_shot(limit: int = 10, scope: Optional[str] = None) -> s
     if limit <= 0:
         return ""
 
-    pool = get_recent_corrections(limit=max(limit * 5, 50))
+    pool = get_recent_corrections(limit=max(limit * 5, 50), user_id=user_id)
     if scope:
         pool = [c for c in pool if c.get("field") == scope]
     if not pool:
@@ -141,16 +166,20 @@ def build_correction_few_shot(limit: int = 10, scope: Optional[str] = None) -> s
     return "\n".join([header, *lines, footer])
 
 
-def count_corrections() -> int:
-    """Return the total number of recorded corrections (for the 'learned N' badge)."""
+def count_corrections(user_id=_UNSET) -> int:
+    """The user's total recorded corrections (for the 'learned N' badge)."""
     db = SessionLocal()
     try:
-        return db.query(Correction).count()
+        return (
+            db.query(Correction)
+            .filter(Correction.user_id == _resolve_user(user_id))
+            .count()
+        )
     finally:
         db.close()
 
 
-def repeated_corrections(threshold: int = 5) -> list[dict]:
+def repeated_corrections(threshold: int = 5, user_id=_UNSET) -> list[dict]:
     """
     Return corrections the trader has made at least `threshold` times.
 
@@ -161,7 +190,11 @@ def repeated_corrections(threshold: int = 5) -> list[dict]:
     """
     db = SessionLocal()
     try:
-        rows = db.query(Correction).all()
+        rows = (
+            db.query(Correction)
+            .filter(Correction.user_id == _resolve_user(user_id))
+            .all()
+        )
     finally:
         db.close()
 
@@ -184,11 +217,17 @@ def repeated_corrections(threshold: int = 5) -> list[dict]:
     return result
 
 
-def get_recent_corrections(limit: int = 10) -> list[dict]:
-    """Return the most recent corrections as plain dicts, ordered by id DESC."""
+def get_recent_corrections(limit: int = 10, user_id=_UNSET) -> list[dict]:
+    """The user's most recent corrections as plain dicts, ordered by id DESC."""
     db = SessionLocal()
     try:
-        rows = db.query(Correction).order_by(Correction.id.desc()).limit(limit).all()
+        rows = (
+            db.query(Correction)
+            .filter(Correction.user_id == _resolve_user(user_id))
+            .order_by(Correction.id.desc())
+            .limit(limit)
+            .all()
+        )
         return [
             {
                 "id": r.id,
@@ -199,6 +238,7 @@ def get_recent_corrections(limit: int = 10) -> list[dict]:
                 "user_value": r.user_value,
                 "user_reason": r.user_reason,
                 "created_at": r.created_at,
+                "user_id": r.user_id,
             }
             for r in rows
         ]

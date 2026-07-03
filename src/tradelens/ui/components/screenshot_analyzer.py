@@ -24,7 +24,8 @@ from src.tradelens.services.ai_screenshot_service import analyze_source
 from src.tradelens.services.corrections import record_correction
 from src.tradelens.services.trade_service import update_trade
 from src.tradelens.services.vision import ScreenshotAnalysisError
-from src.tradelens.utils.ai_utils import is_ai_enabled
+from src.tradelens.ui.components.ui import error_box
+from src.tradelens.utils.ai_utils import ai_available
 
 _BIAS_OPTIONS = ["Bullish", "Bearish", "Neutral"]
 
@@ -34,11 +35,16 @@ def render_screenshot_analyzer(trade, strategy_profile=None) -> None:
     import streamlit as st
 
     st.markdown("**AI Screenshot Analysis**")
+    st.caption(
+        "Post-trade review of your saved chart — reflection only, never signals."
+    )
 
-    if not is_ai_enabled():
+    # ai_available includes DEMO_MODE (cached fixtures, zero spend) so demo users
+    # see the same panel as the AI Review and Ask-AI sections below it.
+    if not ai_available():
         st.info(
-            "🤖 AI screenshot analysis is disabled. Add your API key in Settings "
-            "to enable post-trade chart review."
+            "🤖 AI features are off. Add your Anthropic API key in Settings to "
+            "enable them."
         )
         return
 
@@ -62,16 +68,19 @@ def render_screenshot_analyzer(trade, strategy_profile=None) -> None:
 
     label = "Re-analyze" if existing else "🔍 Analyze Screenshot"
     if st.button(label, key=f"analyze_{trade.id}"):
-        with st.spinner("Analyzing your chart..."):
+        with st.spinner("Analyzing your chart…"):
             try:
                 result, usage = analyze_source(shot_path, trade_ctx, strategy_profile)
                 create_or_update_analysis(trade.id, result, usage)
                 st.toast("Analysis complete", icon="✅")
                 st.rerun()
             except ScreenshotAnalysisError as exc:
-                st.warning(str(exc))
-            except Exception as exc:  # noqa: BLE001 — surface a clean message
-                st.warning(f"Analysis failed: {exc}")
+                st.markdown(error_box(str(exc)), unsafe_allow_html=True)
+            except Exception:  # noqa: BLE001 — no raw stack traces to the trader
+                st.markdown(
+                    error_box("The analysis couldn't run. Please try again."),
+                    unsafe_allow_html=True,
+                )
 
     if existing is None:
         return

@@ -130,6 +130,56 @@ def detect_killzone(
     return "off_session"
 
 
+# Market-session labels (New Trade "Market Context", Part 2 Change B). Derived
+# automatically from the entry time — there is no manual session input. Windows
+# are the spec's ET ranges; New York Open wins the 09:30–10:00 sliver it shares
+# with the London/NY Overlap so each session keeps a single primary identity.
+SESSION_LABELS = [
+    "Pre-Market",
+    "London/NY Overlap",
+    "New York Open",
+    "Midday",
+    "Power Hour",
+    "After Hours",
+    "Off-Hours",
+]
+
+
+def detect_session(
+    entry_time, trade_date=None, user_timezone: str = "America/New_York"
+) -> str:
+    """Auto-derive the market session from a local entry time (Part 2 Change B).
+
+    The typed entry time is read as the trader's wall-clock (same convention as
+    detect_killzone) and mapped to a session label:
+
+        Pre-Market         06:00–08:00     London/NY Overlap 08:00–09:30*
+        New York Open      09:30–11:30      Midday            11:30–14:00
+        Power Hour         14:00–16:00      After Hours       16:00–18:00
+
+    *The spec lists the Overlap as 08:00–10:00; New York Open is checked first so
+    the shared 09:30–10:00 window resolves to New York Open. Anything outside all
+    windows is "Off-Hours". `trade_date` is accepted for future DST refinement.
+    """
+    t = _coerce_local_time(entry_time, user_timezone)
+    if t is None:
+        return "Off-Hours"
+    m = t.hour * 60 + t.minute
+    if 9 * 60 + 30 <= m < 11 * 60 + 30:
+        return "New York Open"
+    if 11 * 60 + 30 <= m < 14 * 60:
+        return "Midday"
+    if 14 * 60 <= m < 16 * 60:
+        return "Power Hour"
+    if 6 * 60 <= m < 8 * 60:
+        return "Pre-Market"
+    if 16 * 60 <= m < 18 * 60:
+        return "After Hours"
+    if 8 * 60 <= m < 10 * 60:
+        return "London/NY Overlap"
+    return "Off-Hours"
+
+
 def assign_killzone(entry_time_utc: datetime, tz: str = "UTC") -> Optional[str]:
     """Return the ICT killzone name for *entry_time_utc*, or None if off-session.
 

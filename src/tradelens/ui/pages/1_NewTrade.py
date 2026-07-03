@@ -7,7 +7,6 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 import datetime  # noqa: E402
-import html  # noqa: E402
 import json  # noqa: E402
 import logging  # noqa: E402
 
@@ -25,6 +24,7 @@ from src.tradelens.services.screenshot_service import (  # noqa: E402
 )
 from src.tradelens.services.sessions import (  # noqa: E402
     detect_killzone,
+    detect_session,
     parse_time_input,
 )
 from src.tradelens.services.strategy import (  # noqa: E402
@@ -50,20 +50,15 @@ from src.tradelens.ui.components.auth import current_user_id, require_auth  # no
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
-from src.tradelens.ui.components.ui import section_header  # noqa: E402
+from src.tradelens.ui.components.ui import error_box, section_header  # noqa: E402
 from src.tradelens.utils.format import humanize  # noqa: E402
 
 _log = logging.getLogger(__name__)
 
 
 def _error_box(message: str) -> None:
-    """Readable, non-crashing error block (styled markdown — page convention)."""
-    st.markdown(
-        '<div style="background:rgba(168,75,47,0.15);border:1px solid #A84B2F;'
-        'border-radius:8px;padding:10px 14px;color:#e0855f;white-space:pre-wrap">'
-        f"{html.escape(message)}</div>",
-        unsafe_allow_html=True,
-    )
+    """Readable, non-crashing error block (shared ui.error_box builder)."""
+    st.markdown(error_box(message), unsafe_allow_html=True)
 
 
 st.set_page_config(page_title="New Trade")
@@ -77,7 +72,6 @@ st.markdown(
 )
 
 # ── Options ───────────────────────────────────────────────────────
-KILLZONE_KEYS = ["asia", "london_open", "ny_am", "ny_lunch", "ny_pm", "off_session"]
 TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "D"]
 ASSET_CLASSES = ["Futures", "Forex", "Crypto", "Stocks"]
 BIAS_OPTIONS = ["Bullish", "Bearish", "Consolidation"]
@@ -134,6 +128,19 @@ def _time_str(t) -> str:
     return t.strftime("%H:%M") if t else "—"
 
 
+def _ratio_str(r) -> str:
+    """Format an R multiple as a readable risk:reward ratio (Change F).
+
+    2.0 → '2:1', 0.5 → '0.5:1', -1.0 → '-1:1'. None → '—'.
+    """
+    if r is None:
+        return "—"
+    try:
+        return f"{float(r):g}:1"
+    except (TypeError, ValueError):
+        return "—"
+
+
 # ── Strategy Profile autofill (safe, non-trade-specific defaults) ──
 _strategy = get_active_strategy()
 _profile_markets = parse_markets(_strategy)
@@ -159,17 +166,47 @@ drain_pending_writes()
 tabs = st.tabs(
     [
         "1 · Screenshot & AI",
-        "2 · Timing",
-        "3 · Market Context",
-        "4 · Setup",
-        "5 · Risk & Outcome",
-        "6 · Psychology",
-        "7 · Review & Save",
+        "2 · Market Context",
+        "3 · Trade Details",
+        "4 · Psychology",
+        "5 · Review & Save",
     ]
 )
 
-# ── Step 2 — Trade Timing ─────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+# Step 1 — Screenshot & AI Autofill (screenshot-first; Bug 2 + Change A)
+# ══════════════════════════════════════════════════════════════════
+with tabs[0]:
+    st.markdown("#### Start here — add your chart")
+    st.caption(
+        "Upload your TradingView screenshot first. After you analyze it, the AI "
+        "shows what it detected and you confirm before anything fills the form."
+    )
+    screenshot_file = st.file_uploader(
+        "Upload screenshot", type=["png", "jpg", "jpeg", "webp"], key="nt_shot"
+    )
+    if screenshot_file is not None:
+        st.image(screenshot_file, caption="Preview", use_container_width=True)
+    screenshot_url = st.text_input(
+        "Or paste a direct image URL (optional)", key="nt_shot_url"
+    )
+    st.caption(
+        "Must be a direct image link (.png, .jpg, .webp). "
+        "TradingView public snapshot links work."
+    )
+    st.divider()
+    render_autofill_review(
+        screenshot_file=screenshot_file,
+        screenshot_url=(screenshot_url or "").strip() or None,
+        strategy_profile=_strategy,
+        known_assets=ASSET_OPTIONS_CORE,
+    )
+
+# ══════════════════════════════════════════════════════════════════
+# Step 2 — Market Context (Timing + Market Context merged; Change B)
+# ══════════════════════════════════════════════════════════════════
 with tabs[1]:
+    st.markdown("#### Timing")
     c1, c2 = st.columns(2)
     with c1:
         trade_date = st.date_input("Trade Date", value=datetime.date.today())
@@ -183,21 +220,20 @@ with tabs[1]:
     entry_time = parse_time_input(entry_time_raw)
 
     user_tz = get_timezone()
-    st.caption(f"Trading timezone: **{user_tz}** · Change in Settings")
-
-    # Auto-detect killzone from the typed time + saved timezone; keep the
-    # selectbox in sync until the user overrides it.
-    auto_kz = detect_killzone(entry_time, trade_date, user_tz)
-    if st.session_state.get("_nt_last_auto_kz") != auto_kz:
-        st.session_state["_nt_last_auto_kz"] = auto_kz
-        st.session_state["nt_killzone"] = auto_kz
-    killzone = st.selectbox(
-        "Killzone", KILLZONE_KEYS, format_func=humanize, key="nt_killzone"
+    # Session is auto-derived from the entry time — no manual session/killzone input.
+    session = detect_session(entry_time, trade_date, user_tz)
+    killzone = detect_killzone(entry_time, trade_date, user_tz)  # silent, for analytics
+    st.text_input(
+        "Market Session (auto-detected from entry time)",
+        value=session,
+        disabled=True,
     )
-    st.caption("Based on your entry time and trading timezone.")
+    st.caption(
+        f"Switches automatically with your entry time · Timezone: **{user_tz}** (Settings)"
+    )
 
-# ── Step 3 — Market Context ───────────────────────────────────────
-with tabs[2]:
+    st.divider()
+    st.markdown("#### Market Context")
     m1, m2 = st.columns(2)
     with m1:
         asset_choice = st.selectbox(
@@ -231,9 +267,6 @@ with tabs[2]:
                 key="nt_class_locked",
             )
             st.caption("Asset class is detected from selected asset.")
-        session = st.selectbox(
-            "Session", ["London", "New York", "Asian", "Overlap"], key="nt_session"
-        )
     with m2:
         timeframe = st.selectbox(
             "Timeframe",
@@ -258,8 +291,11 @@ with tabs[2]:
             args=("ltf_bias",),
         )
 
-# ── Step 4 — Setup & Confirmation ─────────────────────────────────
-with tabs[3]:
+# ══════════════════════════════════════════════════════════════════
+# Step 3 — Trade Details (Setup + Risk & Outcome merged; Change C)
+# ══════════════════════════════════════════════════════════════════
+with tabs[2]:
+    st.markdown("#### Setup & Confirmation")
     setup_type = st.selectbox("Setup Type", SETUP_OPTIONS, key="nt_setup")
     confirmation_model = st.text_input(
         "Confirmation Model",
@@ -302,32 +338,42 @@ with tabs[3]:
     elif followed_rules == "Yes":
         st.caption("Clean trade — no mistake tag needed.")
 
-# ── Step 5 — Risk & Outcome (quick first, exact prices optional) ──
-with tabs[4]:
-    st.markdown("#### 📊 Risk & Outcome")
+    st.divider()
+    st.markdown("#### Risk & Outcome")
     if _strategy and (_strategy.get("risk_rules") or "").strip():
         st.caption(f"Risk plan: {_strategy['risk_rules']}")
 
-    q1, q2, q3 = st.columns(3)
-    result = q1.selectbox("Result", ["Win", "Loss", "Breakeven"], key="nt_result")
-    pnl = q2.number_input(
+    result = st.selectbox("Result", ["Win", "Loss", "Breakeven"], key="nt_result")
+
+    # Change E — P&L and Risk in the same row, side by side.
+    pr1, pr2 = st.columns(2)
+    pnl = pr1.number_input(
         "P&L ($)", value=None, placeholder="e.g., 250.00", key="nt_pnl"
     )
-    manual_r = q3.number_input(
-        "R Multiple", value=None, placeholder="e.g., 2.0", key="nt_r"
+    risk_amount = pr2.number_input(
+        "Risk ($)", value=None, placeholder="e.g., 125.00", key="nt_risk"
     )
-    q4, q5 = st.columns(2)
-    risk_amount = q4.number_input(
-        "Risk ($)", value=None, placeholder="optional", key="nt_risk"
+
+    o1, o2 = st.columns(2)
+    # Change D — position size is a whole number only (integer, no decimals).
+    position_size = o1.number_input(
+        "Position size",
+        value=None,
+        min_value=0,
+        step=1,
+        format="%d",
+        placeholder="e.g., 3",
+        key="nt_size",
     )
-    position_size = q5.number_input(
-        "Position size", value=None, placeholder="optional", key="nt_size"
+    manual_r = o2.number_input(
+        "R Multiple (optional)", value=None, placeholder="e.g., 2.0", key="nt_r"
     )
 
     entry_price = stop_price = tp_price = exit_price = None
-    with st.expander("Add exact price levels"):
+    with st.expander("Exact price levels (markup) — optional"):
         st.caption(
-            "Use exact prices if you want TradeLens to calculate planned/realized R."
+            "Use exact prices for precise R, or apply the AI's detected markup "
+            "prices from Step 1. Direction is inferred from entry vs. stop."
         )
         e1, e2 = st.columns(2)
         entry_price = e1.number_input(
@@ -362,20 +408,37 @@ with tabs[4]:
             on_change=mark_field_edited,
             args=("exit_price",),
         )
-        if entry_price and stop_price and abs(entry_price - stop_price) > 0:
-            risk_dist = abs(entry_price - stop_price)
-            pr1, pr2 = st.columns(2)
-            if tp_price:
-                pr1.metric(
-                    "Planned R", f"{abs(tp_price - entry_price) / risk_dist:.2f}R"
-                )
-            if exit_price:
-                pr2.metric(
-                    "Realized R", f"{abs(exit_price - entry_price) / risk_dist:.2f}R"
-                )
 
-# ── Step 6 — Psychology & Notes ───────────────────────────────────
-with tabs[5]:
+
+def _derived_r() -> "float | None":
+    """Best available R multiple: exact prices → manual R → P&L / risk (Change F)."""
+    if entry_price and stop_price and exit_price and abs(entry_price - stop_price) > 0:
+        risk_dist = abs(entry_price - stop_price)
+        return round(abs(exit_price - entry_price) / risk_dist, 2)
+    if manual_r is not None:
+        return float(manual_r)
+    if pnl is not None and risk_amount:
+        try:
+            return round(pnl / risk_amount, 2)
+        except ZeroDivisionError:
+            return None
+    return None
+
+
+# Change F — read-only T-Multiple (risk:reward) display, below P&L and Risk.
+with tabs[2]:
+    _r_now = _derived_r()
+    st.markdown(
+        f"**T-Multiple (R:R):** `{_ratio_str(_r_now)}` "
+        "&nbsp;·&nbsp; <span style='opacity:0.7'>auto-derived from risk &amp; "
+        "reward — read only</span>",
+        unsafe_allow_html=True,
+    )
+
+# ══════════════════════════════════════════════════════════════════
+# Step 4 — Psychology (Change G — Notes field removed)
+# ══════════════════════════════════════════════════════════════════
+with tabs[3]:
     mindset = st.text_area(
         "How were you feeling during this trade?",
         placeholder="e.g., Patient and disciplined — waited for my model.",
@@ -383,38 +446,10 @@ with tabs[5]:
     )
     emo_before = emo_during = emo_after = None
     with st.expander("Advanced emotion log (optional)"):
-        e1, e2, e3 = st.columns(3)
-        emo_before = e1.selectbox("Before", ["—"] + EMOTIONS, key="nt_emo_before")
-        emo_during = e2.selectbox("During", ["—"] + EMOTIONS, key="nt_emo_during")
-        emo_after = e3.selectbox("After", ["—"] + EMOTIONS, key="nt_emo_after")
-    notes = st.text_area("Notes", height=120, key="nt_notes")
-
-# ── Step 1 — Screenshot & AI Autofill (screenshot-first) ──────────
-with tabs[0]:
-    st.markdown("#### Chart Screenshot")
-    st.caption(
-        "Start here — add your chart for an optional AI review, then continue "
-        "through the steps."
-    )
-    screenshot_file = st.file_uploader(
-        "Upload screenshot", type=["png", "jpg", "jpeg", "webp"], key="nt_shot"
-    )
-    if screenshot_file is not None:
-        st.image(screenshot_file, caption="Preview", use_container_width=True)
-    screenshot_url = st.text_input(
-        "Or paste a direct image URL (optional)", key="nt_shot_url"
-    )
-    st.caption(
-        "Must be a direct image link (.png, .jpg, .webp). "
-        "TradingView public snapshot links work."
-    )
-    st.divider()
-    render_autofill_review(
-        screenshot_file=screenshot_file,
-        screenshot_url=(screenshot_url or "").strip() or None,
-        strategy_profile=_strategy,
-        known_assets=ASSET_OPTIONS_CORE,
-    )
+        ec1, ec2, ec3 = st.columns(3)
+        emo_before = ec1.selectbox("Before", ["—"] + EMOTIONS, key="nt_emo_before")
+        emo_during = ec2.selectbox("During", ["—"] + EMOTIONS, key="nt_emo_during")
+        emo_after = ec3.selectbox("After", ["—"] + EMOTIONS, key="nt_emo_after")
 
 
 # ── Assemble trade payload ────────────────────────────────────────
@@ -443,13 +478,13 @@ def _build_trade_data() -> dict:
             mistake_other.strip() if mistake_tag == "Other" else mistake_tag
         )
 
-    extra_notes = notes.strip()
+    # Notes are no longer collected in Psychology (Change G); the only note we
+    # keep is the rule-break description from the Setup section.
+    extra_notes = ""
     if rule_broken.strip():
-        extra_notes = (
-            f"{extra_notes}\nRule broken: {rule_broken.strip()}"
-            if extra_notes
-            else f"Rule broken: {rule_broken.strip()}"
-        )
+        extra_notes = f"Rule broken: {rule_broken.strip()}"
+
+    size = int(position_size) if position_size is not None else None
 
     return {
         "trade_date": str(trade_date),
@@ -478,7 +513,7 @@ def _build_trade_data() -> dict:
         "stop_price": stop_price,
         "tp_price": tp_price,
         "exit_price": exit_price,
-        "position_size": position_size,
+        "position_size": size,
         "risk_amount": risk_amount,
         # create_trade recomputes rr_realized from prices when entry/stop/exit
         # are present; otherwise the manually entered R is kept.
@@ -499,10 +534,10 @@ def _validate(data: dict) -> list:
     if not data["asset"]:
         errors.append("Asset is required (Market Context).")
     if entry_time is None:
-        errors.append("Enter time like 09:30 or 9:30 AM (Timing).")
+        errors.append("Enter time like 09:30 or 9:30 AM (Market Context).")
     e, s = data["entry_price"], data["stop_price"]
     if e is not None and s is not None and e == s:
-        errors.append("Entry and stop price can't be equal (Risk & Outcome).")
+        errors.append("Entry and stop price can't be equal (Trade Details).")
     return errors
 
 
@@ -512,7 +547,7 @@ def _soft_warnings() -> list:
     if not mindset.strip():
         w.append("Psychology — add how you felt (recommended).")
     if followed_rules is None:
-        w.append("Setup — answer 'Followed your rules?' (recommended).")
+        w.append("Trade Details — answer 'Followed your rules?' (recommended).")
     if not (screenshot_file is not None or (screenshot_url or "").strip()):
         w.append("Screenshot — optional, not attached.")
     return w
@@ -578,17 +613,25 @@ def _realized_r_str(data: dict) -> str:
 
 def _summary_rows(data: dict) -> list:
     pnl_str = f"${data['pnl']:,.2f}" if data["pnl"] is not None else "—"
+    risk_str = (
+        f"${data['risk_amount']:,.2f}" if data["risk_amount"] is not None else "—"
+    )
     bias = f"{humanize(data['htf_bias'])} / {humanize(data['bias'])}"
     mistakes = json.loads(data["mistake_tags"] or "[]")
     fr = {1: "Yes", 0: "No", None: "—"}.get(data["followed_rules"])
+    size_str = str(data["position_size"]) if data["position_size"] is not None else "—"
 
     # Outcome first — that's what traders care about.
     rows = [
-        ("Result · P&L · R", f"{data['result']} · {pnl_str} · {_realized_r_str(data)}"),
+        (
+            "Result · P&L · Risk · R:R",
+            f"{data['result']} · {pnl_str} · {risk_str} · {_ratio_str(data['rr_realized'])}",
+        ),
         ("Date / Time", f"{data['trade_date']} {_time_str(entry_time)}"),
         ("Asset / Class", f"{data['asset'] or '—'} ({data['asset_class']})"),
-        ("Session / Killzone", f"{data['session']} · {humanize(data['killzone'])}"),
+        ("Market Session", data["session"]),
         ("Timeframe", data["timeframe"]),
+        ("Position size", size_str),
         ("HTF / LTF Bias", bias),
         ("Setup", data["setup_type"]),
         ("Confirmation", data["confirmation_model"] or "—"),
@@ -618,8 +661,10 @@ def _summary_rows(data: dict) -> list:
     return rows
 
 
-# ── Step 7 — Review & Save ────────────────────────────────────────
-with tabs[6]:
+# ══════════════════════════════════════════════════════════════════
+# Step 5 — Review & Save
+# ══════════════════════════════════════════════════════════════════
+with tabs[4]:
     st.markdown("#### Review & Save")
 
     if st.session_state.get("_nt_saved_id"):
@@ -639,7 +684,7 @@ with tabs[6]:
     for label, value in _summary_rows(_data):
         st.markdown(f"**{label}:** {value}")
 
-    # Minimal Phase-2 surfacing of AI-sourced fields (styled badges are Phase 3).
+    # Surface which fields the AI suggested (still the trader's call to save).
     _ai_fields = ai_sourced_fields()
     if _ai_fields:
         _labels = [
@@ -654,7 +699,8 @@ with tabs[6]:
             ("exit_price", "Exit"),
         ]
         _names = ", ".join(label for key, label in _labels if key in _ai_fields)
-        st.caption(f"🤖 AI-suggested (still your call to save): {_names}")
+        if _names:
+            st.caption(f"🤖 AI-suggested (still your call to save): {_names}")
 
     _errors = _validate(_data)
     if _errors:

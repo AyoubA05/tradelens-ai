@@ -20,6 +20,7 @@ from src.tradelens.ui.components.theme import (
     MONO_FONT,
     TEAL,
     TERRA,
+    TERRA_SOFT,
     TEXT_MUTED,
 )
 
@@ -97,6 +98,19 @@ def killzone_badge(killzone: Optional[str]) -> str:
     key = str(killzone).strip().lower()
     label = KILLZONE_LABELS.get(key, key.replace("_", " ").title())
     return f'<span class="tl-killzone-badge">{html.escape(label)}</span>'
+
+
+def error_box(message: str) -> str:
+    """Persistent inline error block (terra glass box). Escapes the message.
+
+    One shared builder so AI failures render identically everywhere — a lasting,
+    readable message rather than a transient toast/warning.
+    """
+    return (
+        f'<div style="background:{TERRA_SOFT};border:1px solid {TERRA};'
+        'border-radius:8px;padding:10px 14px;color:#e0855f;white-space:pre-wrap">'
+        f"{html.escape(str(message))}</div>"
+    )
 
 
 def section_header(title: str, subtitle: Optional[str] = None) -> str:

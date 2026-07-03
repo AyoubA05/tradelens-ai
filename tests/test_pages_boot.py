@@ -27,11 +27,12 @@ ALL_PAGES = [
     "2_Trades.py",
     "4_Analytics.py",
     "5_Strategy.py",
+    "6_Insights.py",
     "9_Settings.py",
 ]
 
 # Read-only data pages worth booting with rows present.
-SEED_PAGES = ["2_Trades.py", "4_Analytics.py"]
+SEED_PAGES = ["2_Trades.py", "4_Analytics.py", "6_Insights.py"]
 
 
 def _boot(page: str, db_path: Path, seed: str):

@@ -399,6 +399,192 @@ def setup_breakdown_chart(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def _pnl_bar(labels, values, hover_label: str) -> go.Figure:
+    """Vertical P&L bar chart — positive teal, negative terra (shared helper)."""
+    colors = [_TEAL if float(v) >= 0 else _RED for v in values]
+    fig = go.Figure(
+        go.Bar(
+            x=list(labels),
+            y=list(values),
+            marker_color=colors,
+            hovertemplate=(
+                f"{hover_label}: %{{x}}<br>P/L: $%{{y:,.2f}}<extra></extra>"
+            ),
+        )
+    )
+    fig.update_layout(
+        **_BASE_LAYOUT,
+        hovermode="closest",
+        xaxis=dict(title=None),
+        yaxis=dict(title=None, tickprefix="$", gridcolor="rgba(128, 128, 128, 0.2)"),
+    )
+    return fig
+
+
+def pnl_by_session_chart(df: pd.DataFrame) -> go.Figure:
+    """Total P&L by market session. Input: compute_breakdown(df, "session")."""
+    if df is None or df.empty:
+        return _empty_figure("No session data yet.")
+    return _pnl_bar(
+        df["session"].astype(str).tolist(), df["total_pnl"].tolist(), "Session"
+    )
+
+
+def pnl_by_dow_chart(df: pd.DataFrame) -> go.Figure:
+    """Total P&L by day of week. Input: by_day_of_week(df)."""
+    if df is None or df.empty:
+        return _empty_figure("No day-of-week data yet.")
+    return _pnl_bar(
+        [str(d) for d in df["day_of_week"]], df["total_pnl"].tolist(), "Day"
+    )
+
+
+def pnl_by_emotion_chart(df: pd.DataFrame) -> go.Figure:
+    """Total P&L by pre-trade emotional state (horizontal bars).
+
+    Input: compute_breakdown(df, "emotions_before") — columns include
+    emotions_before, total_pnl, trades.
+    """
+    if df is None or df.empty:
+        return _empty_figure("No emotional-state tags yet.")
+    colors = [_TEAL if float(v) >= 0 else _RED for v in df["total_pnl"]]
+    fig = go.Figure(
+        go.Bar(
+            y=df["emotions_before"].astype(str),
+            x=df["total_pnl"],
+            orientation="h",
+            marker_color=colors,
+            customdata=df["trades"],
+            hovertemplate=(
+                "Emotion: %{y}<br>P/L: $%{x:,.2f}<br>"
+                "Trades: %{customdata}<extra></extra>"
+            ),
+        )
+    )
+    fig.update_layout(
+        **_BASE_LAYOUT,
+        hovermode="closest",
+        xaxis=dict(title=None, tickprefix="$"),
+        yaxis=dict(title=None, autorange="reversed"),
+    )
+    return fig
+
+
+def risk_over_time_chart(df: pd.DataFrame) -> go.Figure:
+    """Risk ($) per trade over time (line + markers).
+
+    Input: a trades DataFrame with trade_date and risk_amount columns.
+    """
+    if df is None or df.empty or "risk_amount" not in df.columns:
+        return _empty_figure("No risk-per-trade data logged.")
+    work = df.dropna(subset=["risk_amount"]).copy()
+    if work.empty:
+        return _empty_figure("No risk-per-trade data logged.")
+    work = work.sort_values("trade_date")
+    fig = go.Figure(
+        go.Scatter(
+            x=work["trade_date"],
+            y=pd.to_numeric(work["risk_amount"], errors="coerce"),
+            mode="lines+markers",
+            line=dict(color=_TEAL, width=2),
+            marker=dict(size=5, color=_TEAL),
+            hovertemplate="Date: %{x}<br>Risk: $%{y:,.2f}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        **_BASE_LAYOUT,
+        hovermode="x unified",
+        xaxis=dict(showgrid=False, title=None, type="date", tickformat="%Y-%m-%d"),
+        yaxis=dict(title=None, tickprefix="$", gridcolor="rgba(128, 128, 128, 0.2)"),
+    )
+    return fig
+
+
+def win_rate_rules_chart(
+    followed_wr: float, broke_wr: float, followed_n: int, broke_n: int
+) -> go.Figure:
+    """Win rate when following rules vs. breaking them (two bars)."""
+    fig = go.Figure(
+        go.Bar(
+            x=["Followed rules", "Broke rules"],
+            y=[followed_wr, broke_wr],
+            marker_color=[_TEAL, _RED],
+            customdata=[followed_n, broke_n],
+            hovertemplate=(
+                "%{x}<br>Win rate: %{y:.1%}<br>Trades: %{customdata}<extra></extra>"
+            ),
+        )
+    )
+    fig.update_layout(
+        **_BASE_LAYOUT,
+        hovermode="closest",
+        xaxis=dict(title=None),
+        yaxis=dict(tickformat=".0%", title=None, gridcolor="rgba(128, 128, 128, 0.2)"),
+    )
+    return fig
+
+
+def session_dow_heatmap(df: pd.DataFrame) -> go.Figure:
+    """Net P&L heatmap across session (rows) × day of week (cols).
+
+    Stands in for a "time of day" heatmap using the session bucket, since the
+    entry hour is not stored. Red→teal diverging scale centered at $0.
+    """
+    if (
+        df is None
+        or df.empty
+        or "session" not in df.columns
+        or "day_of_week" not in df.columns
+    ):
+        return _empty_figure("No session/day data yet.")
+    work = df.dropna(subset=["session", "day_of_week"]).copy()
+    if work.empty:
+        return _empty_figure("No session/day data yet.")
+    work["pnl"] = pd.to_numeric(work.get("pnl"), errors="coerce").fillna(0.0)
+    piv = work.pivot_table(
+        index="session",
+        columns="day_of_week",
+        values="pnl",
+        aggfunc="sum",
+        fill_value=0,
+    )
+    order = [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+    ]
+    cols = [d for d in order if d in piv.columns]
+    if not cols:
+        return _empty_figure("No session/day data yet.")
+    piv = piv[cols]
+    cmax = max(float(abs(piv.values).max()), 1.0)
+    fig = go.Figure(
+        go.Heatmap(
+            z=piv.values,
+            x=[c[:3] for c in piv.columns],
+            y=list(piv.index),
+            colorscale=[[0.0, _RED], [0.5, "#2b2b2b"], [1.0, _TEAL]],
+            zmid=0,
+            zmin=-cmax,
+            zmax=cmax,
+            hovertemplate=(
+                "Session: %{y}<br>Day: %{x}<br>P/L: $%{z:,.2f}<extra></extra>"
+            ),
+            xgap=3,
+            ygap=3,
+            colorbar=dict(title="Net $"),
+        )
+    )
+    fig.update_layout(
+        **_BASE_LAYOUT, height=320, xaxis=dict(title=None), yaxis=dict(title=None)
+    )
+    return fig
+
+
 def calendar_heatmap_chart(daily: pd.DataFrame, year: int, month: int) -> go.Figure:
     """Month-grid heatmap of net daily P&L.
 

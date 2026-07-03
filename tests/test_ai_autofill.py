@@ -309,3 +309,31 @@ def test_map_asset_in_list_false_with_empty_known_assets():
 def test_map_bias_strips_whitespace():
     result = map_analysis_to_form({"bias": "  bearish  "})
     assert result.prefill["ltf_bias"] == "Bearish"
+
+
+# ---------------------------------------------------------------------------
+# instrument_name — read-only observation, never a prefill (no form field)
+# ---------------------------------------------------------------------------
+
+
+def test_map_surfaces_instrument_name_as_observation():
+    name = "Micro E-mini Nasdaq-100 Index Futures (Sep 2026), CME"
+    result = map_analysis_to_form({"instrument_name": name})
+    assert result.observations["instrument_name"] == name
+
+
+def test_map_instrument_name_never_prefilled():
+    # asset (short ticker) is the only symbol that fills the form; the long
+    # instrument name is context only and must never leak into prefill.
+    result = map_analysis_to_form(
+        {"instrument_name": "Micro E-mini Nasdaq-100", "detected_asset": "MNQU2026"}
+    )
+    assert "instrument_name" not in result.prefill
+    assert result.prefill["asset"] == "MNQU2026"
+
+
+def test_map_instrument_name_defaults_none_when_absent():
+    assert (
+        map_analysis_to_form({"bias": "bullish"}).observations["instrument_name"]
+        is None
+    )

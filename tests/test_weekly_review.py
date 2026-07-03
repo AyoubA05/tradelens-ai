@@ -1,15 +1,15 @@
 """
-AI Weekly Coach (Session D2): user-scoped persistence + post-trade-only prompt.
+Weekly review persistence: user-scoped save/retrieve on the weekly_reviews table.
+(The dead "AI Weekly Coach" generator this file once covered was removed — it
+had no UI path and duplicated generate_weekly_review, which test_weekly.py covers.)
 """
 
 import pytest
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
-import src.tradelens.services.ai_client as ai_client
 import src.tradelens.services.weekly as weekly
 from src.tradelens.db.models import Base
-from src.tradelens.services.weekly import _AI_COACH_SYSTEM
 
 
 @pytest.fixture
@@ -57,14 +57,11 @@ def test_weekly_review_user_scoping(in_memory_db):
     assert [r["content_md"] for r in b] == ["User B"]
 
 
-def test_weekly_ai_system_prompt():
-    prompt = _AI_COACH_SYSTEM.lower()
+def test_weekly_prompt_file_is_post_trade_only():
+    """The live weekly prompt must keep its reflective, no-signals framing."""
+    from src.tradelens.services.ai_client import load_prompt
+
+    prompt = load_prompt("weekly_v2").lower()
     assert "signal" in prompt
     assert "predict" in prompt or "prediction" in prompt
     assert "never" in prompt
-
-
-def test_weekly_review_small_sample(monkeypatch):
-    monkeypatch.setattr(ai_client.settings, "demo_mode", True)
-    text = weekly.generate_ai_weekly_review({"trades": 2, "total_pnl": 100.0})
-    assert isinstance(text, str) and text.strip()

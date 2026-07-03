@@ -24,6 +24,12 @@ _NAV = [
     ("pages/1_NewTrade.py", "/NewTrade", "New Trade", ":material/add_chart:"),
     ("pages/2_Trades.py", "/Trades", "Journal", ":material/menu_book:"),
     ("pages/4_Analytics.py", "/Analytics", "Analytics", ":material/analytics:"),
+    (
+        "pages/6_Insights.py",
+        "/Insights",
+        "Insights & Review",
+        ":material/psychology:",
+    ),
     ("pages/5_Strategy.py", "/Strategy", "Strategy Profile", ":material/flag:"),
     ("pages/9_Settings.py", "/Settings", "Settings", ":material/settings:"),
 ]

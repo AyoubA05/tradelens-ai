@@ -59,28 +59,10 @@ _DEMO_REVIEW_MD = "\n\n".join(
 )
 
 
-# System prompt for the lightweight "AI Weekly Coach" summary (Session D2).
-# Post-trade only — explicitly forbids live signals/predictions.
-_AI_COACH_SYSTEM = (
-    "You are a weekly trading coach for a day trader using a post-trade journal. "
-    "Review the trader's performance stats for the past week and provide honest, "
-    "constructive coaching. You must NEVER give live signals, entry/exit "
-    "recommendations, or market predictions. Focus on: what worked, what needs "
-    "discipline improvement, key patterns observed, and one clear focus for next "
-    "week. Keep your response to 3-4 paragraphs. Be direct, data-driven, and "
-    "encouraging but honest. If data is insufficient (fewer than 3 trades), "
-    "acknowledge that and encourage consistent logging."
-)
-
-_DEMO_COACH_REVIEW = (
-    "This week was a small but useful sample. Your discipline around waiting for "
-    "the NY AM killzone and HTF-bias alignment held up, and your winners came from "
-    "your A+ setups — a sign your process is sound when you stick to it.\n\n"
-    "Where it slipped was exit quality and a couple of off-plan entries that leaked "
-    "edge. Those are the trades to study: the setup was fine, the management wasn't.\n\n"
-    "Next week, pick one focus — trail to the next liquidity level rather than "
-    "closing at the first sign of strength — and keep logging every trade so the "
-    "patterns sharpen."
+_NO_PROFILE_BLOCK = (
+    "No strategy profile provided — use the generic SMC/ICT process framework "
+    "(price action, risk management, entry quality, exit quality, "
+    "emotional discipline, journaling quality)."
 )
 
 
@@ -142,13 +124,25 @@ def _week_stats(df: pd.DataFrame) -> dict:
     }
 
 
-def _build_user_message(monday: str, sunday: str, stats: dict, candidates: dict) -> str:
+def _build_user_message(
+    monday: str,
+    sunday: str,
+    stats: dict,
+    candidates: dict,
+    strategy_profile: Optional[dict] = None,
+) -> str:
+    strategy_block = (
+        json.dumps(strategy_profile, indent=2, default=str)
+        if strategy_profile
+        else _NO_PROFILE_BLOCK
+    )
     return (
         "WEEKLY REVIEW REQUEST\n\n"
         f"Week: {monday} (Mon) to {sunday} (Sun)\n\n"
         f"Headline stats:\n{json.dumps(stats, indent=2, default=str)}\n\n"
         "Deterministic pattern statistics for the week:\n"
         f"{json.dumps(candidates, indent=2, default=str)}\n\n"
+        f"Strategy profile:\n{strategy_block}\n\n"
         "Write the 5-section weekly review now."
     )
 
@@ -173,10 +167,16 @@ def _validate_sections(markdown: str) -> None:
 
 def generate_weekly_review(
     week_start: Union[str, dt.date, dt.datetime],
+    user_id: Optional[int] = None,
+    strategy_profile: Optional[dict] = None,
 ) -> tuple[dict, Usage]:
     """
     Generate (but do not persist) the weekly review for the week containing
     `week_start`. A zero-trade week returns an empty result WITHOUT any API call.
+
+    Only `user_id`'s trades feed the review (None = legacy NULL-owner trades).
+    When a Strategy Profile is provided, discipline is judged against those
+    rules; otherwise the generic process framework applies.
 
     Returns (review_dict, usage). review_dict keys: week_start (ISO Monday),
     empty, content_md, thinking_summary, stats, cost_usd.
@@ -186,7 +186,7 @@ def generate_weekly_review(
         WeeklyReviewError: AI unavailable or response missing required sections.
     """
     monday, sunday = week_bounds(week_start)
-    trades = get_trades(start_date=monday, end_date=sunday)
+    trades = get_trades(start_date=monday, end_date=sunday, user_id=user_id)
     df = _trades_to_df(trades)
     stats = _week_stats(df)
 
@@ -206,7 +206,9 @@ def generate_weekly_review(
     candidates = compute_candidates(df)
 
     system_message = load_prompt("weekly_v2")
-    user_message = _build_user_message(monday, sunday, stats, candidates)
+    user_message = _build_user_message(
+        monday, sunday, stats, candidates, strategy_profile
+    )
 
     # Past corrections are injected centrally by ai_client for every call.
     content, usage = chat(
@@ -231,36 +233,6 @@ def generate_weekly_review(
         },
         usage,
     )
-
-
-def generate_ai_weekly_review(
-    stats: dict, strategy_profile: Optional[dict] = None
-) -> str:
-    """Return a 3–4 paragraph coaching summary for a week's stats.
-
-    Post-trade only (no signals/predictions — enforced by the system prompt).
-    Routes through ai_client.chat with effort="high"; DEMO_MODE returns a canned
-    summary with zero spend. Raises WeeklyReviewError if the AI is unavailable.
-    """
-    user_message = (
-        "WEEKLY COACHING REQUEST\n\n"
-        f"This week's stats:\n{json.dumps(stats, indent=2, default=str)}\n"
-    )
-    if strategy_profile:
-        user_message += "\nActive strategy profile:\n" + json.dumps(
-            strategy_profile, indent=2, default=str
-        )
-
-    content, _usage = chat(
-        user_message=user_message,
-        system_message=_AI_COACH_SYSTEM,
-        cache_system=True,
-        effort="high",
-        demo_response=_DEMO_COACH_REVIEW,
-    )
-    if isinstance(content, AIUnavailable):
-        raise WeeklyReviewError(content.reason)
-    return content
 
 
 # ---------------------------------------------------------------------------

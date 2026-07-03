@@ -18,7 +18,7 @@ from src.tradelens.services.partner import (
     build_trade_context,
     partner_reply,
 )
-from src.tradelens.utils.ai_utils import is_ai_enabled
+from src.tradelens.utils.ai_utils import ai_available
 
 _PROMPT_CHIPS = [
     "What did I do well?",
@@ -39,11 +39,18 @@ def _send(st, chat_key: str, trade, strategy_profile, user_message: str) -> None
     history = st.session_state.setdefault(chat_key, [])
     history.append({"role": "user", "content": user_message})
     try:
-        reply, _usage = partner_reply(
-            history,
-            trade_context=build_trade_context(trade),
-            strategy_profile=strategy_profile,
-        )
+        with st.spinner("Reflecting on this trade…"):
+            reply, usage = partner_reply(
+                history,
+                trade_context=build_trade_context(trade),
+                strategy_profile=strategy_profile,
+            )
+        # Cost telemetry: partner chat has no persistence row of its own, so log
+        # the call to ai_usage_log (best-effort) for the Settings dashboard.
+        from src.tradelens.services.cost import log_ai_usage
+        from src.tradelens.ui.components.auth import current_user_id
+
+        log_ai_usage("AI Partner", usage, user_id=current_user_id())
     except PartnerError:
         reply = _UNAVAILABLE
     except Exception:  # noqa: BLE001 — never leak a stack trace to the chat
@@ -61,8 +68,11 @@ def render_ask_ai(trade, strategy_profile=None) -> None:
     st.subheader("🤖 Ask AI About This Trade")
     st.caption("AI reflects on past trades only — no live signals.")
 
-    if not is_ai_enabled():
-        st.info("🤖 AI features disabled. Add your ANTHROPIC_API_KEY in Settings.")
+    if not ai_available():
+        st.info(
+            "🤖 AI features are off. Add your Anthropic API key in Settings to "
+            "enable them."
+        )
         return
 
     if trade is None:

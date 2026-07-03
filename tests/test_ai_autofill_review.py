@@ -160,3 +160,116 @@ def test_build_overlay_writes_never_writes_direction():
     assert "direction" not in w
     assert all(not str(k).startswith("nt_dir") for k in w)
     assert w == {"nt_entry": 100.0}
+
+
+# ---------------------------------------------------------------------------
+# build_overlay_writes — PnL is opt-in and wired to the real nt_pnl form key;
+# risk/reward ratio is cross-check only and never written.
+# ---------------------------------------------------------------------------
+
+
+def test_build_overlay_writes_maps_pnl_when_selected():
+    ov = TradeOverlay(entry_price=100.0, pnl=172.25)
+    w = comp.build_overlay_writes(ov, ["entry_price", "pnl"])
+    assert w == {"nt_entry": 100.0, "nt_pnl": 172.25}
+
+
+def test_build_overlay_writes_pnl_only_written_when_selected():
+    ov = TradeOverlay(pnl=172.25)
+    assert comp.build_overlay_writes(ov, ["entry_price"]) == {}
+
+
+def test_build_overlay_writes_pnl_none_skipped():
+    assert comp.build_overlay_writes(TradeOverlay(pnl=None), ["pnl"]) == {}
+
+
+def test_build_overlay_writes_never_writes_rr():
+    ov = TradeOverlay(entry_price=100.0, risk_reward_ratio="2.01:1", pnl=50.0)
+    w = comp.build_overlay_writes(ov, ["entry_price", "risk_reward_ratio", "pnl"])
+    assert w == {"nt_entry": 100.0, "nt_pnl": 50.0}
+    assert "nt_r" not in w
+
+
+# ---------------------------------------------------------------------------
+# should_autocheck — confidence-gated defaults for the detected-markup boxes.
+# Entry/stop pre-check at >= 0.70 confidence; everything else stays opt-in.
+# ---------------------------------------------------------------------------
+
+
+def test_autocheck_entry_and_stop_at_threshold():
+    assert comp.should_autocheck("entry_price", 0.70) is True
+    assert comp.should_autocheck("stop_price", 0.95) is True
+
+
+def test_autocheck_below_threshold_stays_unchecked():
+    assert comp.should_autocheck("entry_price", 0.69) is False
+    assert comp.should_autocheck("stop_price", 0.0) is False
+
+
+def test_autocheck_never_for_tp_exit_or_pnl():
+    assert comp.should_autocheck("tp_price", 0.99) is False
+    assert comp.should_autocheck("exit_price", 0.99) is False
+    assert comp.should_autocheck("pnl", 0.99) is False
+
+
+def test_autocheck_missing_or_junk_confidence_stays_unchecked():
+    assert comp.should_autocheck("entry_price", None) is False
+    assert comp.should_autocheck("entry_price", "high") is False
+
+
+# ---------------------------------------------------------------------------
+# build_review_outcome — accepted / accepted_with_edits / rejected record that
+# persists with the analysis (inside raw_response_json; no schema change).
+# ---------------------------------------------------------------------------
+
+
+def test_review_outcome_accepted_as_is():
+    rec = comp.build_review_outcome("accepted", ["entry_price", "timeframe"], [])
+    assert rec == {
+        "outcome": "accepted",
+        "applied_fields": ["entry_price", "timeframe"],
+        "edited_fields": [],
+    }
+
+
+def test_review_outcome_accepted_with_edits():
+    rec = comp.build_review_outcome("accepted", ["entry_price"], {"entry_price"})
+    assert rec["outcome"] == "accepted_with_edits"
+    assert rec["edited_fields"] == ["entry_price"]
+
+
+def test_review_outcome_rejected():
+    rec = comp.build_review_outcome("rejected", [], [])
+    assert rec == {"outcome": "rejected", "applied_fields": [], "edited_fields": []}
+
+
+def test_review_outcome_none_when_trader_never_decided():
+    assert comp.build_review_outcome(None, ["entry_price"], []) is None
+    assert comp.build_review_outcome("", [], []) is None
+
+
+# ---------------------------------------------------------------------------
+# observation_summary — compact-first AI observations (full text preserved in
+# the expander; the summary never destroys information).
+# ---------------------------------------------------------------------------
+
+
+def test_observation_summary_uses_notes_first():
+    obs = {"notes_to_user": "Solid entry off the FVG.", "trade_quality": 7}
+    assert comp.observation_summary(obs) == "Solid entry off the FVG."
+
+
+def test_observation_summary_truncates_long_notes_on_word_boundary():
+    obs = {"notes_to_user": "word " * 80}
+    s = comp.observation_summary(obs, max_len=60)
+    assert len(s) <= 61  # 60 + ellipsis char
+    assert s.endswith("…")
+
+
+def test_observation_summary_falls_back_to_quality():
+    assert comp.observation_summary({"trade_quality": 6}) == "AI quality estimate: 6/10"
+
+
+def test_observation_summary_none_when_nothing_to_say():
+    assert comp.observation_summary({}) is None
+    assert comp.observation_summary({"notes_to_user": "  "}) is None

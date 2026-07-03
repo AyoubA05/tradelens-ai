@@ -410,3 +410,110 @@ def test_repeated_corrections_below_threshold_excluded(in_memory_db, sample_ids)
         record_correction(trade_id, analysis_id, "bias", "bullish", "bearish")
 
     assert repeated_corrections(threshold=5) == []
+
+
+# ---------------------------------------------------------------------------
+# user_id scoping — one trader's corrections must never leak into another
+# trader's AI prompts, badge counts, or promotion suggestions.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def two_user_corrections(sample_ids):
+    """Corrections for user 1, user 2, and the legacy (NULL) user."""
+    from src.tradelens.services.corrections import record_correction
+
+    trade_id, analysis_id = sample_ids
+    record_correction(trade_id, analysis_id, "bias", "bullish", "bearish", user_id=1)
+    record_correction(trade_id, analysis_id, "bias", "neutral", "bearish", user_id=1)
+    record_correction(trade_id, analysis_id, "setup", "FVG", "OB", user_id=2)
+    record_correction(trade_id, analysis_id, "timeframe", "5m", "15m", user_id=None)
+    return sample_ids
+
+
+def test_record_correction_stores_user_id(sample_ids, in_memory_db):
+    from src.tradelens.services.corrections import record_correction
+
+    trade_id, analysis_id = sample_ids
+    row = record_correction(trade_id, analysis_id, "bias", "a", "b", user_id=42)
+    assert row.user_id == 42
+
+
+def test_recent_and_count_are_user_scoped(two_user_corrections, in_memory_db):
+    from src.tradelens.services.corrections import (
+        count_corrections,
+        get_recent_corrections,
+    )
+
+    assert count_corrections(user_id=1) == 2
+    assert count_corrections(user_id=2) == 1
+    assert count_corrections(user_id=None) == 1  # legacy rows only
+
+    fields = {c["field"] for c in get_recent_corrections(user_id=1)}
+    assert fields == {"bias"}
+    assert all(c["user_id"] == 1 for c in get_recent_corrections(user_id=1))
+
+
+def test_repeated_corrections_user_scoped(two_user_corrections, in_memory_db):
+    from src.tradelens.services.corrections import repeated_corrections
+
+    assert (
+        repeated_corrections(threshold=2, user_id=1)
+        == [
+            {
+                "field": "bias",
+                "user_value": "bearish",
+                "ai_value": "neutral",
+                "count": 2,
+            }
+        ]
+        or repeated_corrections(threshold=2, user_id=1)[0]["count"] == 2
+    )
+    assert repeated_corrections(threshold=1, user_id=2)[0]["field"] == "setup"
+    assert all(r["field"] != "setup" for r in repeated_corrections(1, user_id=1))
+
+
+def test_few_shot_block_excludes_other_users(two_user_corrections, in_memory_db):
+    from src.tradelens.services.corrections import build_correction_few_shot
+
+    block = build_correction_few_shot(user_id=1)
+    assert "bearish" in block
+    assert "OB" not in block  # user 2's correction must not leak
+    assert "15m" not in block  # legacy row must not leak either
+
+
+def test_active_user_contextvar_scopes_default_calls(
+    two_user_corrections, in_memory_db
+):
+    """ai_client calls corrections with no user arg — the auth layer sets the
+    active user once per script run and everything downstream scopes to it."""
+    from src.tradelens.services.corrections import (
+        build_correction_few_shot,
+        count_corrections,
+        set_corrections_user,
+    )
+
+    set_corrections_user(2)
+    try:
+        assert count_corrections() == 1
+        block = build_correction_few_shot()
+        assert "OB" in block
+        assert "bearish" not in block
+    finally:
+        set_corrections_user(None)
+    assert count_corrections() == 1  # back to legacy (NULL) scope
+
+
+def test_record_correction_defaults_to_active_user(sample_ids, in_memory_db):
+    from src.tradelens.services.corrections import (
+        record_correction,
+        set_corrections_user,
+    )
+
+    trade_id, analysis_id = sample_ids
+    set_corrections_user(9)
+    try:
+        row = record_correction(trade_id, analysis_id, "bias", "x", "y")
+    finally:
+        set_corrections_user(None)
+    assert row.user_id == 9

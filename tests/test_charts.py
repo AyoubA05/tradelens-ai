@@ -12,9 +12,11 @@ import plotly.graph_objects as go
 from src.tradelens.services.demo import get_demo_df
 from src.tradelens.services.metrics import (
     by_day_of_week,
+    by_session,
     by_setup_type,
     by_strategy,
     calendar_daily_pnl,
+    compute_breakdown,
     compute_profit_factor_raw,
     drawdown_series,
     emotion_vs_rr,
@@ -26,11 +28,17 @@ from src.tradelens.ui.components.charts import (
     drawdown_chart,
     emotion_vs_rr_chart,
     equity_curve_chart,
+    pnl_by_dow_chart,
+    pnl_by_emotion_chart,
+    pnl_by_session_chart,
     pnl_by_strategy_chart,
     profit_factor_gauge,
     r_multiple_histogram,
+    risk_over_time_chart,
+    session_dow_heatmap,
     setup_breakdown_chart,
     win_rate_by_dow_chart,
+    win_rate_rules_chart,
 )
 
 _DF = get_demo_df()
@@ -84,6 +92,33 @@ def test_calendar_heatmap_chart_renders():
     _is_fig(calendar_heatmap_chart(calendar_daily_pnl(_DF, 2026, 6), 2026, 6))
 
 
+# --- Part 4 Analytics-redesign charts -----------------------------------------
+
+
+def test_pnl_by_session_chart_renders():
+    _is_fig(pnl_by_session_chart(by_session(_DF)))
+
+
+def test_pnl_by_dow_chart_renders():
+    _is_fig(pnl_by_dow_chart(by_day_of_week(_DF)))
+
+
+def test_pnl_by_emotion_chart_renders():
+    _is_fig(pnl_by_emotion_chart(compute_breakdown(_DF, "emotions_before")))
+
+
+def test_risk_over_time_chart_renders():
+    _is_fig(risk_over_time_chart(_DF))
+
+
+def test_win_rate_rules_chart_renders():
+    _is_fig(win_rate_rules_chart(0.62, 0.31, 40, 12))
+
+
+def test_session_dow_heatmap_renders():
+    _is_fig(session_dow_heatmap(_DF))
+
+
 # --- Empty inputs (designed empty figure, never an exception) ------------------
 
 
@@ -97,3 +132,8 @@ def test_all_charts_handle_empty_input():
     _is_fig(emotion_vs_rr_chart(_EMPTY))
     _is_fig(setup_breakdown_chart(_EMPTY))
     _is_fig(calendar_heatmap_chart(calendar_daily_pnl(_EMPTY, 2026, 1), 2026, 1))
+    _is_fig(pnl_by_session_chart(_EMPTY))
+    _is_fig(pnl_by_dow_chart(_EMPTY))
+    _is_fig(pnl_by_emotion_chart(_EMPTY))
+    _is_fig(risk_over_time_chart(_EMPTY))
+    _is_fig(session_dow_heatmap(_EMPTY))

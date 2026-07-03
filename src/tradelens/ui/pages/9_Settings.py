@@ -18,6 +18,7 @@ from src.tradelens.services.app_settings import (  # noqa: E402
     set_timezone,
 )
 from src.tradelens.services.cost import monthly_cost_by_feature  # noqa: E402
+from src.tradelens.services.demo import is_demo  # noqa: E402
 from src.tradelens.services.csvio import (  # noqa: E402
     CSV_COLUMNS,
     export_trades_csv,
@@ -54,6 +55,14 @@ if has_api_key():
         "✅ <strong>AI Enabled</strong> — API key is configured.</div>",
         unsafe_allow_html=True,
     )
+elif is_demo():
+    st.markdown(
+        '<div style="background:rgba(32,128,141,0.15);border:1px solid #20808D;'
+        'border-radius:8px;padding:10px 14px;color:#7fc9d3">'
+        "🔬 <strong>Demo mode</strong> — AI sections run on cached sample "
+        "responses. No key needed, zero spend.</div>",
+        unsafe_allow_html=True,
+    )
 else:
     st.markdown(
         '<div style="background:rgba(168,75,47,0.15);border:1px solid #A84B2F;'
@@ -65,7 +74,7 @@ else:
 with st.expander("How to enable AI"):
     st.markdown(
         """
-To enable AI screenshot analysis:
+To enable AI features (screenshot review, journal, grading, debriefs, chat):
 
 1. Get an API key from **Anthropic** (console.anthropic.com).
 2. In **Streamlit Cloud**: go to **App Settings → Secrets** and add:

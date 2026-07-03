@@ -22,14 +22,16 @@ from __future__ import annotations
 
 import base64
 import io
-import os
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
 
-from src.tradelens.config import settings
+from src.tradelens.config import resolve_anthropic_key, settings
 from src.tradelens.services.corrections import build_correction_few_shot
+
+_log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Cost table — per 1,000,000 tokens
@@ -97,8 +99,36 @@ class AIParseError(Exception):
 # ---------------------------------------------------------------------------
 
 
+def _is_transient_error(exc: Exception) -> bool:
+    """True only for retryable transport failures (network, timeout, rate limit, 5xx).
+
+    Those degrade gracefully to a friendly "temporarily unavailable" message.
+    Everything else — a bad kwarg, an invalid model, an auth/config problem, or an
+    unexpected SDK break — is a real bug and must surface, not be disguised as a
+    transient outage. A swallowed ``TypeError`` from a stale SDK (an unexpected
+    ``output_config`` kwarg) is exactly what once hid the vision call failing.
+    """
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    try:
+        import anthropic
+    except Exception:  # noqa: BLE001 — a missing/broken package is not transient
+        return False
+    if isinstance(
+        exc,
+        (
+            anthropic.APIConnectionError,  # includes APITimeoutError
+            anthropic.RateLimitError,  # 429
+            anthropic.InternalServerError,  # 5xx / overloaded
+        ),
+    ):
+        return True
+    status = getattr(exc, "status_code", None)
+    return isinstance(status, int) and (status == 429 or status >= 500)
+
+
 def _has_key() -> bool:
-    return bool(settings.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY"))
+    return bool(resolve_anthropic_key())
 
 
 def has_api_key() -> bool:
@@ -116,7 +146,7 @@ def _get_client():
     import anthropic
 
     return anthropic.Anthropic(
-        api_key=settings.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY"),
+        api_key=resolve_anthropic_key(),
         timeout=settings.anthropic_timeout,
         max_retries=settings.anthropic_max_retries,
     )
@@ -247,7 +277,13 @@ def _complete(
             return _extract_text(resp), _build_usage(resp, settings.model_fallback, t0)
 
         return _extract_text(resp), _build_usage(resp, chosen, t0)
-    except Exception as exc:  # noqa: BLE001 — any transport/API error → typed result
+    except Exception as exc:  # noqa: BLE001 — classify, then degrade or surface
+        _log.exception("AI call failed (model=%s)", chosen)
+        # Only genuine transport failures degrade to a friendly typed result.
+        # Real bugs (bad kwarg, invalid model, auth/config) re-raise so they are
+        # immediately visible instead of masquerading as a transient outage.
+        if not _is_transient_error(exc):
+            raise
         return (
             AIUnavailable(
                 "The AI service is temporarily unavailable "

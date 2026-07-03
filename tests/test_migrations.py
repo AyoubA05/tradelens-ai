@@ -268,3 +268,39 @@ def test_trade_hash_migration_round_trip(tmp_path):
         mig.upgrade()  # idempotent re-run
         mig.downgrade()
         assert "trade_hash" not in _columns(conn)
+
+
+def test_corrections_user_id_migration_round_trip(tmp_path):
+    """corrections.user_id: upgrade adds column + index; downgrade removes both."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'corr_user.db'}")
+    mig = _load_mig("n4o5p6q7r8s9_add_user_id_to_corrections.py")
+    with engine.connect() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE corrections (id INTEGER PRIMARY KEY, field TEXT)"
+        )
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()
+        assert "user_id" in _columns_of(conn, "corrections")
+        idx = {i["name"] for i in inspect(conn).get_indexes("corrections")}
+        assert "ix_corrections_user_id" in idx
+        mig.upgrade()  # idempotent re-run
+        mig.downgrade()
+        assert "user_id" not in _columns_of(conn, "corrections")
+
+
+def test_ai_usage_log_migration_round_trip(tmp_path):
+    """ai_usage_log: upgrade creates table + index; downgrade drops it."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'ai_usage.db'}")
+    mig = _load_mig("o5p6q7r8s9t0_add_ai_usage_log.py")
+    with engine.connect() as conn:
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()
+        assert "ai_usage_log" in _tables(conn)
+        assert {"feature", "cost_usd", "user_id"} <= _columns_of(conn, "ai_usage_log")
+        mig.upgrade()  # idempotent re-run
+        mig.downgrade()
+        assert "ai_usage_log" not in _tables(conn)
