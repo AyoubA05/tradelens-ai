@@ -46,3 +46,21 @@ def humanize(value) -> str:
     if key in _LABELS:
         return _LABELS[key]
     return text.replace("_", " ").title() if ("_" in text or text.islower()) else text
+
+
+def parse_price(text) -> "float | None":
+    """Exact-precision price parse for the text price inputs (Item 7).
+
+    Streamlit's number_input rounds typed values to its step/format precision,
+    which silently corrupted prices like NG 3.3765 — so price fields are text
+    inputs parsed here. Tolerates commas/whitespace; empty or junk → None.
+    """
+    if text is None:
+        return None
+    s = str(text).strip().replace(",", "")
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None

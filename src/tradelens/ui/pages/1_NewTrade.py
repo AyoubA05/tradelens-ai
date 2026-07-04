@@ -51,7 +51,7 @@ from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: 
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import error_box, section_header  # noqa: E402
-from src.tradelens.utils.format import humanize  # noqa: E402
+from src.tradelens.utils.format import humanize, parse_price  # noqa: E402
 
 _log = logging.getLogger(__name__)
 
@@ -361,45 +361,53 @@ with tabs[2]:
         "R Multiple (optional)", value=None, placeholder="e.g., 2.0", key="nt_r"
     )
 
-    entry_price = stop_price = tp_price = exit_price = None
+    # Item 7: prices are TEXT inputs parsed exactly — st.number_input rounds
+    # typed values to its step/format precision (NG 3.3765 became 3.38).
     with st.expander("Exact price levels (markup) — optional"):
         st.caption(
             "Use exact prices for precise R, or apply the AI's detected markup "
-            "prices from Step 1. Direction is inferred from entry vs. stop."
+            "prices from Step 1. Direction is inferred from entry vs. stop. "
+            "Any decimal precision is kept exactly as typed (e.g. 3.3765)."
         )
         e1, e2 = st.columns(2)
-        entry_price = e1.number_input(
+        entry_price_raw = e1.text_input(
             "Entry Price",
-            value=None,
             placeholder="e.g., 19850.25",
             key="nt_entry",
             on_change=mark_field_edited,
             args=("entry_price",),
         )
-        stop_price = e1.number_input(
+        stop_price_raw = e1.text_input(
             "Stop Price",
-            value=None,
-            placeholder="e.g., 19820.00",
+            placeholder="e.g., 3.3765",
             key="nt_stop",
             on_change=mark_field_edited,
             args=("stop_price",),
         )
-        tp_price = e2.number_input(
+        tp_price_raw = e2.text_input(
             "Take Profit",
-            value=None,
             placeholder="e.g., 19920.00",
             key="nt_tp",
             on_change=mark_field_edited,
             args=("tp_price",),
         )
-        exit_price = e2.number_input(
+        exit_price_raw = e2.text_input(
             "Exit Price",
-            value=None,
             placeholder="e.g., 19905.00",
             key="nt_exit",
             on_change=mark_field_edited,
             args=("exit_price",),
         )
+    entry_price = parse_price(entry_price_raw)
+    stop_price = parse_price(stop_price_raw)
+    tp_price = parse_price(tp_price_raw)
+    exit_price = parse_price(exit_price_raw)
+    _PRICE_INPUTS = (
+        ("Entry Price", entry_price_raw, entry_price),
+        ("Stop Price", stop_price_raw, stop_price),
+        ("Take Profit", tp_price_raw, tp_price),
+        ("Exit Price", exit_price_raw, exit_price),
+    )
 
 
 def _derived_r() -> "float | None":
@@ -530,6 +538,9 @@ def _validate(data: dict) -> list:
     e, s = data["entry_price"], data["stop_price"]
     if e is not None and s is not None and e == s:
         errors.append("Entry and stop price can't be equal (Trade Details).")
+    for label, raw, parsed in _PRICE_INPUTS:
+        if str(raw or "").strip() and parsed is None:
+            errors.append(f"{label} isn't a number (Trade Details).")
     return errors
 
 

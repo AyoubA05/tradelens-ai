@@ -157,7 +157,10 @@ def build_overlay_writes(overlay: TradeOverlay, selected: Iterable[str]) -> dict
         if field in selected:
             value = getattr(overlay, field, None)
             if value is not None:
-                writes[key] = value
+                # Item 7: the form's price fields are exact-precision TEXT
+                # inputs, so applied prices are written as strings. str() keeps
+                # the full value (%g would truncate 30433.25 to 6 sig figs).
+                writes[key] = str(value)
     if "pnl" in selected and getattr(overlay, "pnl", None) is not None:
         writes["nt_pnl"] = overlay.pnl
     # Item 4: approximate entry time — opt-in like the prices.

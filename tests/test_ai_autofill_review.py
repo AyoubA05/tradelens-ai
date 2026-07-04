@@ -139,19 +139,19 @@ def test_run_autofill_extracts_descriptive_and_overlay_from_v3(monkeypatch):
 def test_build_overlay_writes_maps_selected_prices():
     ov = TradeOverlay(entry_price=100.0, stop_price=95.0, source="visible_trade_box")
     w = comp.build_overlay_writes(ov, ["entry_price", "stop_price"])
-    assert w == {"nt_entry": 100.0, "nt_stop": 95.0}
+    assert w == {"nt_entry": "100.0", "nt_stop": "95.0"}
 
 
 def test_build_overlay_writes_only_selected():
     ov = TradeOverlay(entry_price=100.0, stop_price=95.0, tp_price=110.0)
     w = comp.build_overlay_writes(ov, ["tp_price"])
-    assert w == {"nt_tp": 110.0}
+    assert w == {"nt_tp": "110.0"}
 
 
 def test_build_overlay_writes_skips_none_prices():
     ov = TradeOverlay(entry_price=None, exit_price=110.0)
     w = comp.build_overlay_writes(ov, ["entry_price", "exit_price"])
-    assert w == {"nt_exit": 110.0}
+    assert w == {"nt_exit": "110.0"}
 
 
 def test_build_overlay_writes_never_writes_direction():
@@ -159,7 +159,7 @@ def test_build_overlay_writes_never_writes_direction():
     w = comp.build_overlay_writes(ov, ["direction", "entry_price"])
     assert "direction" not in w
     assert all(not str(k).startswith("nt_dir") for k in w)
-    assert w == {"nt_entry": 100.0}
+    assert w == {"nt_entry": "100.0"}
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +171,7 @@ def test_build_overlay_writes_never_writes_direction():
 def test_build_overlay_writes_maps_pnl_when_selected():
     ov = TradeOverlay(entry_price=100.0, pnl=172.25)
     w = comp.build_overlay_writes(ov, ["entry_price", "pnl"])
-    assert w == {"nt_entry": 100.0, "nt_pnl": 172.25}
+    assert w == {"nt_entry": "100.0", "nt_pnl": 172.25}
 
 
 def test_build_overlay_writes_pnl_only_written_when_selected():
@@ -186,7 +186,7 @@ def test_build_overlay_writes_pnl_none_skipped():
 def test_build_overlay_writes_never_writes_rr():
     ov = TradeOverlay(entry_price=100.0, risk_reward_ratio="2.01:1", pnl=50.0)
     w = comp.build_overlay_writes(ov, ["entry_price", "risk_reward_ratio", "pnl"])
-    assert w == {"nt_entry": 100.0, "nt_pnl": 50.0}
+    assert w == {"nt_entry": "100.0", "nt_pnl": 50.0}
     assert "nt_r" not in w
 
 
@@ -368,3 +368,10 @@ def test_entry_time_write_respects_trader_typed_value():
     assert comp.entry_time_write_allowed("") is True
     assert comp.entry_time_write_allowed("09:30") is True  # page default
     assert comp.entry_time_write_allowed("10:15") is False  # trader typed
+
+
+def test_overlay_price_writes_are_exact_precision_strings():
+    """Item 7: applied prices keep full precision as text — no %g truncation."""
+    ov = TradeOverlay(entry_price=30433.25, stop_price=3.3765)
+    w = comp.build_overlay_writes(ov, ["entry_price", "stop_price"])
+    assert w == {"nt_entry": "30433.25", "nt_stop": "3.3765"}

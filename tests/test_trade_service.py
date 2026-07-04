@@ -213,3 +213,25 @@ def test_get_primary_screenshot_returns_path(in_memory_db):
     db.commit()
     db.close()
     assert trade_service.get_primary_screenshot(t.id) == "/tmp/shot.png"
+
+
+def test_prices_store_and_retrieve_without_precision_loss(in_memory_db):
+    """Item 7: 3.496 and 3.3765 must round-trip unmodified (no rounding/cap)."""
+    from src.tradelens.services.trade_service import create_trade, get_trade
+
+    trade = create_trade(
+        {
+            "trade_date": "2026-07-03",
+            "asset": "NG",
+            "result": "Win",
+            "entry_price": 3.496,
+            "stop_price": 3.3765,
+            "tp_price": 3.5125,
+            "exit_price": 3.4995,
+        }
+    )
+    row = get_trade(trade.id)
+    assert row.entry_price == 3.496
+    assert row.stop_price == 3.3765
+    assert row.tp_price == 3.5125
+    assert row.exit_price == 3.4995
