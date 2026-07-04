@@ -270,3 +270,91 @@ def _fake_usage():
     from src.tradelens.services.ai_client import Usage
 
     return Usage("claude-fable-5", 0, 0, 0, 0.0, 0.0)
+
+
+# ---------------------------------------------------------------------------
+# Item 9 — per-trade Q&A grounded in the SAVED AI observations.
+# ---------------------------------------------------------------------------
+
+
+def test_per_trade_qa_system_prompt_wording(monkeypatch):
+    from src.tradelens.services import partner
+
+    monkeypatch.setattr(partner, "load_prompt", lambda name: "BASE")
+    system = partner.build_partner_system(per_trade_qa=True)
+    assert (
+        "You are reviewing a specific completed trade from the trader's journal."
+        in system
+    )
+    assert (
+        "Answer their question based only on this trade's data and your original "
+        "observations." in system
+    )
+    assert "Do not give live trading signals. Reflection and analysis only." in system
+    # The always-on scope guard stays too.
+    assert "STRICT SCOPE" in system
+
+
+def test_per_trade_qa_off_by_default(monkeypatch):
+    from src.tradelens.services import partner
+
+    monkeypatch.setattr(partner, "load_prompt", lambda name: "BASE")
+    assert "specific completed trade" not in partner.build_partner_system()
+
+
+def test_trade_context_includes_saved_observations_and_process_notes():
+    from types import SimpleNamespace
+
+    from src.tradelens.services.partner import build_trade_context
+
+    trade = SimpleNamespace(
+        asset="MNQ",
+        result="Win",
+        trade_process_notes="Moved to BE after the 2nd IFVG break.",
+    )
+    analysis = SimpleNamespace(
+        bias="bullish",
+        detected_setup=None,
+        trade_quality=7,
+        matched_strategy=None,
+        mistakes_json='["Late entry"]',
+        missed_opps_json="[]",
+        raw_response_json=(
+            '{"notes_to_user": "Entry aligned with the sweep.", '
+            '"structure": "downtrend", '
+            '"possible_mistakes": ["Late entry"], '
+            '"missed_opportunities": ["Earlier FVG"]}'
+        ),
+    )
+    ctx = build_trade_context(trade, analysis)
+    assert "Moved to BE after the 2nd IFVG break." in ctx
+    assert "Entry aligned with the sweep." in ctx  # saved observation text
+    assert "ORIGINAL AI OBSERVATIONS" in ctx
+    assert "downtrend" in ctx
+
+
+def test_trade_context_tolerates_junk_raw_json():
+    from types import SimpleNamespace
+
+    from src.tradelens.services.partner import build_trade_context
+
+    analysis = SimpleNamespace(raw_response_json="not json")
+    ctx = build_trade_context(SimpleNamespace(asset="NQ"), analysis)
+    assert "NQ" in ctx  # never raises
+
+
+def test_ask_ai_panel_has_coach_notes_and_qa_input():
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "tradelens"
+        / "ui"
+        / "components"
+        / "ai_trade_chat.py"
+    ).read_text(encoding="utf-8")
+    assert "AI Coach Notes" in src
+    assert "Ask the AI about this trade…" in src
+    assert "per_trade_qa=True" in src
+    assert "get_analysis_for_trade" in src  # saved observations feed the context

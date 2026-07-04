@@ -34,16 +34,21 @@ def _chat_key(trade_id) -> str:
     return f"trade_chat_{trade_id}"
 
 
-def _send(st, chat_key: str, trade, strategy_profile, user_message: str) -> None:
-    """Append the user turn, call the partner, append the reply, and rerun."""
+def _send(st, chat_key: str, trade, strategy_profile, user_message, analysis) -> None:
+    """Append the user turn, call the partner, append the reply, and rerun.
+
+    Item 9: the saved AI observations (analysis row) ground the answer, and the
+    per-trade Q&A preamble scopes it to this one completed trade.
+    """
     history = st.session_state.setdefault(chat_key, [])
     history.append({"role": "user", "content": user_message})
     try:
         with st.spinner("Reflecting on this trade…"):
             reply, usage = partner_reply(
                 history,
-                trade_context=build_trade_context(trade),
+                trade_context=build_trade_context(trade, analysis),
                 strategy_profile=strategy_profile,
+                per_trade_qa=True,
             )
         # Cost telemetry: partner chat has no persistence row of its own, so log
         # the call to ai_usage_log (best-effort) for the Settings dashboard.
@@ -58,6 +63,42 @@ def _send(st, chat_key: str, trade, strategy_profile, user_message: str) -> None
     history.append({"role": "assistant", "content": reply})
     st.session_state[chat_key] = history
     st.rerun()
+
+
+def _render_coach_notes(st, analysis) -> None:
+    """Item 9: read-only, collapsed view of the AI observations saved with the
+    trade — notes, quality estimate, mistakes, missed opportunities, structure."""
+    import json
+
+    if analysis is None or not getattr(analysis, "raw_response_json", None):
+        return
+    try:
+        saved = json.loads(analysis.raw_response_json)
+    except (json.JSONDecodeError, TypeError):
+        return
+    if not isinstance(saved, dict):
+        return
+    notes = saved.get("notes_to_user")
+    quality = saved.get("trade_quality")
+    mistakes = saved.get("possible_mistakes") or []
+    missed = saved.get("missed_opportunities") or []
+    structure = saved.get("structure")
+    if not any((notes, quality, mistakes, missed, structure)):
+        return
+    with st.expander("AI Coach Notes", expanded=False):
+        st.caption("Saved from the original screenshot review — read-only.")
+        if quality is not None:
+            st.markdown(f"**AI quality estimate:** {quality}/10")
+        if structure:
+            st.markdown(f"**Structure:** {structure}")
+        if notes:
+            st.markdown(f"**Notes:** {notes}")
+        if mistakes:
+            st.markdown("**Possible mistakes:** " + ", ".join(str(m) for m in mistakes))
+        if missed:
+            st.markdown(
+                "**Missed opportunities:** " + ", ".join(str(m) for m in missed)
+            )
 
 
 def render_ask_ai(trade, strategy_profile=None) -> None:
@@ -78,6 +119,16 @@ def render_ask_ai(trade, strategy_profile=None) -> None:
     if trade is None:
         st.info("Select a trade above to ask AI about it.")
         return
+
+    # Item 9: the saved AI observations render read-only above the Q&A and
+    # ground its answers. Best-effort — a DB hiccup must not kill the chat.
+    try:
+        from src.tradelens.services.ai_analysis_service import get_analysis_for_trade
+
+        analysis = get_analysis_for_trade(trade.id)
+    except Exception:  # noqa: BLE001
+        analysis = None
+    _render_coach_notes(st, analysis)
 
     chat_key = _chat_key(trade.id)
     history = st.session_state.setdefault(chat_key, [])
@@ -100,16 +151,16 @@ def render_ask_ai(trade, strategy_profile=None) -> None:
     # ── Input ─────────────────────────────────────────────────────
     with st.form(f"{chat_key}_form", clear_on_submit=True):
         typed = st.text_input(
-            "Ask something about this trade...",
+            "Ask the AI about this trade…",
             key=f"{chat_key}_input",
             label_visibility="collapsed",
-            placeholder="Ask something about this trade...",
+            placeholder="Ask the AI about this trade…",
         )
         sent = st.form_submit_button("Send", use_container_width=True)
 
     user_message = pending or (typed.strip() if sent and typed.strip() else None)
     if user_message:
-        _send(st, chat_key, trade, strategy_profile, user_message)
+        _send(st, chat_key, trade, strategy_profile, user_message, analysis)
 
     if history and st.button("Clear chat", type="secondary", key=f"{chat_key}_clear"):
         st.session_state[chat_key] = []

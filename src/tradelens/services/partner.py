@@ -29,6 +29,22 @@ _SCOPE_GUARD = (
     "This is post-trade reflection and education — not financial advice."
 )
 
+# Item 9: per-trade Q&A framing — the saved journal trade + its original AI
+# observations are the ONLY ground truth for answers.
+_PER_TRADE_QA_PREAMBLE = (
+    "You are reviewing a specific completed trade from the trader's journal. "
+    "Answer their question based only on this trade's data and your original "
+    "observations. Do not give live trading signals. Reflection and analysis only."
+)
+
+# Item 9 — per-trade Q&A grounding: the chat under a saved trade's AI Coach
+# Notes answers ONLY from that trade's data and the original observations.
+_PER_TRADE_QA_PREAMBLE = (
+    "You are reviewing a specific completed trade from the trader's journal. "
+    "Answer their question based only on this trade's data and your original "
+    "observations. Do not give live trading signals. Reflection and analysis only."
+)
+
 _REDIRECT_MESSAGE = (
     "I'm your post-trade review partner — I only analyze trades you've already taken "
     "and the quality of your process. I can't give signals, predictions, or tell you "
@@ -93,7 +109,18 @@ _SMC_TRADE_FIELDS = [
     "stop_price",
     "exit_price",
     "notes",
+    "trade_process_notes",
 ]
+
+# Observation text persisted with the analysis (raw_response_json) that the
+# per-trade Q&A grounds its answers in (Item 9).
+_OBSERVATION_KEYS = (
+    "notes_to_user",
+    "structure",
+    "trade_quality",
+    "possible_mistakes",
+    "missed_opportunities",
+)
 
 _ANALYSIS_FIELDS = [
     "bias",
@@ -116,10 +143,14 @@ def _get(obj, key):
 
 
 def build_partner_system(
-    strategy_profile: Optional[dict] = None, running_summary: Optional[str] = None
+    strategy_profile: Optional[dict] = None,
+    running_summary: Optional[str] = None,
+    per_trade_qa: bool = False,
 ) -> str:
     """Assemble the system prompt. The scope guard is ALWAYS included."""
     parts = [load_prompt("partner_v2"), _SCOPE_GUARD]
+    if per_trade_qa:
+        parts.append(_PER_TRADE_QA_PREAMBLE)
     if strategy_profile:
         parts.append(
             "ACTIVE STRATEGY PROFILE:\n"
@@ -146,6 +177,22 @@ def build_trade_context(trade, analysis=None) -> str:
         if analysis_lines:
             lines.append("AI ANALYSIS ON RECORD:")
             lines.extend(analysis_lines)
+        # Item 9: the full saved observation text (persisted with the trade in
+        # raw_response_json) grounds the per-trade Q&A. Junk JSON fails safe.
+        raw = _get(analysis, "raw_response_json")
+        try:
+            saved = json.loads(raw) if raw else {}
+        except (json.JSONDecodeError, TypeError):
+            saved = {}
+        if isinstance(saved, dict):
+            obs_lines = []
+            for key in _OBSERVATION_KEYS:
+                val = saved.get(key)
+                if val not in (None, "", []):
+                    obs_lines.append(f"- {key}: {val}")
+            if obs_lines:
+                lines.append("ORIGINAL AI OBSERVATIONS:")
+                lines.extend(obs_lines)
     return "\n".join(lines)
 
 
@@ -228,6 +275,7 @@ def partner_reply(
     trade_context: str = "",
     strategy_profile: Optional[dict] = None,
     image_b64: Optional[str] = None,
+    per_trade_qa: bool = False,
 ) -> tuple[str, Usage]:
     """
     Produce the partner's next reply for a multi-turn trade review.
@@ -242,7 +290,9 @@ def partner_reply(
     post-check. Raises PartnerError if the AI is unavailable.
     """
     trimmed, summary = trim_history(messages)
-    system_message = build_partner_system(strategy_profile, running_summary=summary)
+    system_message = build_partner_system(
+        strategy_profile, running_summary=summary, per_trade_qa=per_trade_qa
+    )
     if trade_context:
         system_message = f"{system_message}\n\n{trade_context}"
 
