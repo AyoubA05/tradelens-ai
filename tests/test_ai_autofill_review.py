@@ -375,3 +375,98 @@ def test_overlay_price_writes_are_exact_precision_strings():
     ov = TradeOverlay(entry_price=30433.25, stop_price=3.3765)
     w = comp.build_overlay_writes(ov, ["entry_price", "stop_price"])
     assert w == {"nt_entry": "30433.25", "nt_stop": "3.3765"}
+
+
+# ---------------------------------------------------------------------------
+# Item 13 — direction is cross-check only. A FULL AI response including a
+# high-confidence direction must never produce a direction write anywhere in
+# the apply pipeline (mapper prefill -> descriptive writes -> overlay writes).
+# ---------------------------------------------------------------------------
+
+
+def _full_v3_with_direction() -> dict:
+    return {
+        "descriptive": {
+            "detected_asset": "MNQ",
+            "detected_timeframe": "1m",
+            "htf_bias": "bullish",
+            "bias": "bearish",
+            "fvg_used": True,
+            "bos": True,
+        },
+        "trade_overlay": {
+            "direction": "short",
+            "entry_price": 30433.25,
+            "stop_price": 30532.25,
+            "tp_price": 30298.25,
+            "exit_price": 30310.0,
+            "pnl": 172.25,
+            "entry_time_approx": "09:31",
+            "confidence": {
+                "direction": 0.95,
+                "entry_price": 0.9,
+                "stop_price": 0.9,
+                "tp_price": 0.9,
+                "exit_price": 0.9,
+                "entry_time": 0.9,
+            },
+            "source": "visible_trade_box",
+        },
+    }
+
+
+def test_direction_never_written_even_when_everything_is_applied():
+    from src.tradelens.services.ai_autofill import map_analysis_to_form
+    from src.tradelens.services.ai_overlay import (
+        descriptive_section,
+        parse_trade_overlay,
+    )
+
+    v3 = _full_v3_with_direction()
+    result = map_analysis_to_form(descriptive_section(v3), known_assets=["MNQ"])
+    overlay = parse_trade_overlay(v3)
+    assert overlay.direction == "short"  # parsed for the cross-check caption…
+
+    writes = {}
+    writes.update(
+        comp.build_form_writes(result.prefill, list(result.prefill), ["MNQ"])
+    )
+    # Deliberately "select" direction too — the writer must ignore it.
+    writes.update(
+        comp.build_overlay_writes(
+            overlay,
+            [
+                "direction",
+                "entry_price",
+                "stop_price",
+                "tp_price",
+                "exit_price",
+                "pnl",
+                "entry_time",
+            ],
+        )
+    )
+
+    assert "direction" not in result.prefill  # mapper never proposes it
+    assert "direction" not in writes
+    assert not any("dir" in str(k).lower() for k in writes)  # no nt_direction key
+    # The prices themselves still applied normally.
+    assert writes["nt_entry"] == "30433.25"
+
+
+def test_direction_checkbox_never_offered_for_selection():
+    """The dialog renders direction as a caption ('cross-check only — not
+    written'), never as a selectable checkbox."""
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "tradelens"
+        / "ui"
+        / "components"
+        / "ai_autofill_review.py"
+    ).read_text(encoding="utf-8")
+    assert "cross-check only — not written" in src
+    assert '"_nt_ov_direction"' not in src  # no direction checkbox key
+    assert "direction" not in comp._OVERLAY_FIELD_TO_KEY  # no write mapping
