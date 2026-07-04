@@ -52,9 +52,22 @@ _TIMEFRAME_MAP = {
 _CONFLUENCE_FLAGS = (
     ("liquidity_sweep", "Liquidity Sweep"),
     ("fvg_used", "FVG"),
+    ("ifvg_used", "IFVG"),
     ("order_block_used", "OB Retest"),
     ("bos", "BOS"),
     ("choch", "MSS/CHOCH"),
+)
+
+# Zone-description words that mean price already entered/broke the FVG (Item 6).
+# Deliberately tight — "broke structure" alone must not remap an FVG.
+_MITIGATION_MARKERS = (
+    "mitigat",
+    "invert",
+    "traded through",
+    "traded into",
+    "broken through",
+    "broke through",
+    "filled",
 )
 
 # Read-only fields surfaced to the trader but never auto-applied to form values.
@@ -131,13 +144,44 @@ def _is_truthy_flag(value) -> bool:
     return False
 
 
+def _fvg_traded_through(analysis: dict) -> bool:
+    """Evidence in the response that an FVG zone was entered/broken (Item 6).
+
+    True when a key zone is typed "ifvg", or an "fvg" zone's description says
+    price mitigated/inverted/traded through it — i.e. the FVG is really an IFVG.
+    """
+    zones = analysis.get("key_zones")
+    if not isinstance(zones, list):
+        return False
+    for zone in zones:
+        if not isinstance(zone, dict):
+            continue
+        ztype = str(zone.get("type") or "").strip().lower()
+        if ztype == "ifvg":
+            return True
+        desc = str(zone.get("description") or "").lower()
+        if ztype == "fvg" and any(m in desc for m in _MITIGATION_MARKERS):
+            return True
+    return False
+
+
 def confluences_from_analysis(analysis: Optional[dict]) -> list:
-    """Confluence labels for the true-like SMC flags in a vision analysis."""
+    """Confluence labels for the true-like SMC flags in a vision analysis.
+
+    Item 6: a FVG that price has since traded into or through is an IFVG, not
+    an FVG — when the response's own zones show mitigation, FVG remaps to IFVG.
+    """
     if not isinstance(analysis, dict):
         return []
-    return [
+    labels = [
         label for key, label in _CONFLUENCE_FLAGS if _is_truthy_flag(analysis.get(key))
     ]
+    if "FVG" in labels and _fvg_traded_through(analysis):
+        idx = labels.index("FVG")
+        labels.remove("FVG")
+        if "IFVG" not in labels:
+            labels.insert(idx, "IFVG")
+    return labels
 
 
 def _extract_observations(analysis: dict) -> dict:

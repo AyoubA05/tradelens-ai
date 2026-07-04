@@ -353,3 +353,75 @@ def test_mapper_strips_contract_month_before_form():
     result = map_analysis_to_form({"detected_asset": "NGG2026"}, known_assets=["NG"])
     assert result.prefill["asset"] == "NG"
     assert result.asset_in_list is True
+
+
+# ---------------------------------------------------------------------------
+# Item 6 — a mitigated/broken FVG is an IFVG. The prompt teaches the rule and
+# the mapper enforces it: FVG remaps to IFVG when the response itself shows
+# price traded into/through the zone.
+# ---------------------------------------------------------------------------
+
+
+def test_ifvg_used_flag_maps_to_ifvg_confluence():
+    from src.tradelens.services.ai_autofill import confluences_from_analysis
+
+    assert confluences_from_analysis({"ifvg_used": True}) == ["IFVG"]
+
+
+def test_fvg_remaps_to_ifvg_when_zone_was_traded_through():
+    from src.tradelens.services.ai_autofill import confluences_from_analysis
+
+    analysis = {
+        "fvg_used": True,
+        "key_zones": [
+            {
+                "type": "fvg",
+                "description": "Price traded through and inverted the gap",
+            }
+        ],
+    }
+    assert confluences_from_analysis(analysis) == ["IFVG"]
+
+
+def test_fvg_remaps_when_a_zone_is_typed_ifvg():
+    from src.tradelens.services.ai_autofill import confluences_from_analysis
+
+    analysis = {
+        "fvg_used": True,
+        "key_zones": [{"type": "ifvg", "description": "Inversion zone at entry"}],
+    }
+    assert confluences_from_analysis(analysis) == ["IFVG"]
+
+
+def test_unmitigated_fvg_stays_fvg():
+    from src.tradelens.services.ai_autofill import confluences_from_analysis
+
+    analysis = {
+        "fvg_used": True,
+        "key_zones": [
+            {"type": "fvg", "description": "Price approaching the gap from above"}
+        ],
+    }
+    assert confluences_from_analysis(analysis) == ["FVG"]
+
+
+def test_fvg_plus_ifvg_flags_dedupe_to_single_ifvg_when_mitigated():
+    from src.tradelens.services.ai_autofill import confluences_from_analysis
+
+    analysis = {
+        "fvg_used": True,
+        "ifvg_used": True,
+        "key_zones": [{"type": "fvg", "description": "mitigated, broke through"}],
+    }
+    assert confluences_from_analysis(analysis) == ["IFVG"]
+
+
+def test_v3_prompt_teaches_ifvg_rule_and_contract():
+    from pathlib import Path
+
+    text = (
+        Path(__file__).resolve().parents[1] / "prompts" / "screenshot_v3.txt"
+    ).read_text(encoding="utf-8")
+    assert "ifvg_used" in text
+    assert "IFVG" in text
+    assert "unmitigated" in text.lower()

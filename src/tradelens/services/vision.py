@@ -230,6 +230,7 @@ _DESCRIPTIVE_DEFAULTS = {
     "choch": None,
     "liquidity_sweep": None,
     "fvg_used": None,
+    "ifvg_used": None,
     "order_block_used": None,
     "matched_strategy": None,
     "matched_strategy_reason": None,

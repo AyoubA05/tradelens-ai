@@ -32,6 +32,8 @@ LABEL READING (transcribe only what is printed — never infer a value whose lab
 ANALYSIS FRAMEWORK:
 If a strategy profile is provided, match the trade context against those rules. Otherwise apply generic ICT/SMC price-action analysis: market structure (BOS/CHoCH), Fair Value Gaps, Order Blocks, liquidity sweeps, support/resistance, and higher-timeframe vs entry-timeframe bias.
 
+FVG vs IFVG (classification rule): If you see a zone labeled FVG where candlestick price action has since traded into or through the zone, classify it as IFVG, not FVG. An unmitigated FVG has price approaching but not entering. A mitigated or broken FVG is an IFVG. Report an IFVG with ifvg_used = true and a key_zones entry of type "ifvg"; reserve fvg_used = true and type "fvg" for unmitigated gaps.
+
 OUTPUT REQUIREMENTS:
 Return a SINGLE JSON object with exactly this shape and these two top-level sections. Do not include any text outside the JSON object.
 
@@ -47,6 +49,7 @@ Return a SINGLE JSON object with exactly this shape and these two top-level sect
     "choch": <true | false | null>,
     "liquidity_sweep": <true | false | null>,
     "fvg_used": <true | false | null>,
+    "ifvg_used": <true | false | null>,
     "order_block_used": <true | false | null>,
     "matched_strategy": <true | false | null>,
     "matched_strategy_reason": "<string explaining the match, or null>",
@@ -55,7 +58,7 @@ Return a SINGLE JSON object with exactly this shape and these two top-level sect
     "missed_opportunities": "<string, or null>",
     "key_zones": [
       {
-        "type": "support" | "resistance" | "fvg" | "order_block" | "liquidity_sweep" | "other",
+        "type": "support" | "resistance" | "fvg" | "ifvg" | "order_block" | "liquidity_sweep" | "other",
         "description": "<string>",
         "approx_price": <number or null if not readable>,
         "confidence": <float 0.0-1.0>
