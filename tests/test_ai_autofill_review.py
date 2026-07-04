@@ -273,3 +273,70 @@ def test_observation_summary_falls_back_to_quality():
 def test_observation_summary_none_when_nothing_to_say():
     assert comp.observation_summary({}) is None
     assert comp.observation_summary({"notes_to_user": "  "}) is None
+
+
+# ---------------------------------------------------------------------------
+# Item 2 — autofill auto-triggers on a new screenshot source (no button press).
+# ---------------------------------------------------------------------------
+
+
+def test_source_signature_distinguishes_sources():
+    from types import SimpleNamespace
+
+    f = SimpleNamespace(name="chart.png", size=123, file_id="abc")
+    assert comp._source_signature(f, None) == ("file", "abc")
+    assert comp._source_signature(None, "https://x.com/a.png") == (
+        "url",
+        "https://x.com/a.png",
+    )
+    assert comp._source_signature(None, None) is None
+    # file wins over URL when both are present (matches _analyze precedence)
+    assert comp._source_signature(f, "https://x.com/a.png")[0] == "file"
+
+
+def test_source_signature_falls_back_to_name_size():
+    from types import SimpleNamespace
+
+    f = SimpleNamespace(name="chart.png", size=123)
+    assert comp._source_signature(f, None) == ("file", ("chart.png", 123))
+
+
+def _autotrigger_apptest(run_count: int):
+    """AppTest: render with a file present, _analyze patched to count calls."""
+    from pathlib import Path
+
+    from streamlit.testing.v1 import AppTest
+
+    root = Path(__file__).resolve().parents[1]
+    script = (
+        "import sys\n"
+        f'sys.path.insert(0, r"{root}")\n'
+        "from types import SimpleNamespace\n"
+        "import streamlit as st\n"
+        "import src.tradelens.ui.components.ai_autofill_review as comp\n"
+        "comp._ai_available = lambda: True\n"
+        "st.session_state.setdefault('_calls', 0)\n"
+        "def _fake_analyze(*a, **k):\n"
+        "    st.session_state['_calls'] += 1\n"
+        "comp._analyze = _fake_analyze\n"
+        "f = SimpleNamespace(name='chart.png', size=9, file_id='f1')\n"
+        "comp.render_autofill_review(screenshot_file=f, screenshot_url=None, "
+        "strategy_profile=None, known_assets=['NQ'])\n"
+    )
+    at = AppTest.from_string(script)
+    at.run()
+    for _ in range(run_count - 1):
+        at.run()
+    return at
+
+
+def test_analysis_autoruns_once_without_button_press():
+    at = _autotrigger_apptest(run_count=1)
+    assert not at.exception
+    assert at.session_state["_calls"] == 1  # ran with zero button clicks
+
+
+def test_same_source_does_not_retrigger_on_rerun():
+    at = _autotrigger_apptest(run_count=3)
+    assert not at.exception
+    assert at.session_state["_calls"] == 1  # signature blocks repeat runs

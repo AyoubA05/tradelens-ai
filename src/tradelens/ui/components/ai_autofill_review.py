@@ -71,6 +71,7 @@ _OVERLAY_KEY = "_nt_ai_overlay"  # TradeOverlay from the last analysis (Phase 3)
 _DIALOG_DISMISSED_KEY = "_nt_ai_dialog_dismissed"
 _QUALITY_KEY = "_nt_ai_quality"  # list[str] pre-check warnings for this analysis
 _ERROR_KEY = "_nt_ai_error"  # analysis failure message (survives the rerun)
+_SRC_SIG_KEY = "_nt_ai_src_sig"  # last auto-analyzed source (Item 2 auto-trigger)
 _OUTCOME_KEY = "_nt_ai_outcome"  # "accepted" | "rejected" — the trader's decision
 _EDITED_KEY = "_nt_ai_edited"  # set[str] of AI-applied fields edited afterwards
 
@@ -251,6 +252,7 @@ def clear_autofill_state() -> None:
         _DIALOG_DISMISSED_KEY,
         _QUALITY_KEY,
         _ERROR_KEY,
+        _SRC_SIG_KEY,
         _OUTCOME_KEY,
         _EDITED_KEY,
         PENDING_WRITES_KEY,
@@ -679,6 +681,21 @@ def _has_detection(result, overlay) -> bool:
     return bool(has_fields or _overlay_has_content(overlay))
 
 
+def _source_signature(screenshot_file, screenshot_url):
+    """Identity of the current screenshot source, for the auto-trigger (Item 2).
+
+    A new signature means a new file/URL the trader just provided — analysis
+    starts automatically, exactly once per source (an error never loops).
+    The file wins over the URL, matching _analyze's precedence.
+    """
+    if screenshot_file is not None:
+        fid = getattr(screenshot_file, "file_id", None)
+        return ("file", fid or (screenshot_file.name, screenshot_file.size))
+    if screenshot_url:
+        return ("url", screenshot_url)
+    return None
+
+
 def render_autofill_review(
     *,
     screenshot_file,
@@ -686,7 +703,7 @@ def render_autofill_review(
     strategy_profile: Optional[dict],
     known_assets: Iterable[str],
 ) -> None:
-    """Render the analyze button and, after analysis, the AI detection dialog."""
+    """Render the auto-running analysis and, after it, the AI detection dialog."""
     import streamlit as st
 
     st.markdown("**AI Autofill (optional)**")
@@ -714,11 +731,24 @@ def render_autofill_review(
         )
         st.success(f"✅ Applied to the form: {names}. Edit them in the steps below.")
 
-    result = st.session_state.get(_RESULT_KEY)
-    overlay = st.session_state.get(_OVERLAY_KEY)
-    has_result = isinstance(result, AutofillResult)
-    label = "Re-analyze screenshot" if has_result else "🔍 Analyze screenshot"
-    if st.button(label, key="_nt_ai_analyze"):
+    # Auto-trigger (Item 2): analysis starts the moment a new source appears —
+    # file drop, file browse, or committed URL paste — with no button press.
+    # The signature marks the attempt first, so a completed run or an error
+    # never re-triggers for the same source. The spinner renders right here,
+    # where the results will appear; the upload area above is untouched.
+    sig = _source_signature(screenshot_file, screenshot_url)
+    if sig is not None and st.session_state.get(_SRC_SIG_KEY) != sig:
+        st.session_state[_SRC_SIG_KEY] = sig
+        with st.spinner("Analyzing your chart…"):
+            _analyze(screenshot_file, screenshot_url, strategy_profile, known_assets)
+        st.rerun()
+
+    # Manual re-run stays available once a result or error exists (e.g. after
+    # the trader redraws markup and re-uploads the same file).
+    has_activity = isinstance(
+        st.session_state.get(_RESULT_KEY), AutofillResult
+    ) or st.session_state.get(_ERROR_KEY)
+    if has_activity and st.button("Re-analyze screenshot", key="_nt_ai_analyze"):
         with st.spinner("Analyzing your chart…"):
             _analyze(screenshot_file, screenshot_url, strategy_profile, known_assets)
         st.rerun()
