@@ -18,8 +18,12 @@ consulted as a fallback the same way config.py bridges ANTHROPIC_API_KEY.
 
 from __future__ import annotations
 
+import base64
 import hmac
+import json
 import os
+import secrets as _pysecrets
+import time
 
 from src.tradelens.ui.components.theme import (
     BORDER,
@@ -45,6 +49,97 @@ _ERROR_KEY = "_login_error"
 _MODE_KEY = "_auth_mode"  # "login" | "signup"
 _SIGNUP_ERR = "_signup_error"
 _SIGNUP_OK = "_signup_ok"
+
+# Reload-persistent session token (Item 1). st.session_state is wiped on a full
+# browser reload, which used to boot the trader back to the login page ("the
+# dashboard logged me out"). A signed, expiring token in the URL query params
+# survives the reload and restores the session in require_auth().
+#
+# Security tradeoff (acknowledged): Streamlit has no native cookie-write API, so
+# the token rides in the URL, where it could leak via copied links or browser
+# history. Mitigations: HMAC-signed (unforgeable), short 24h TTL with sliding
+# rotation for active sessions, revoked on logout, and dead after any server
+# restart unless TRADELENS_SESSION_SECRET is configured.
+_TOKEN_PARAM = "auth"
+_TOKEN_KEY = "_auth_token"
+_TOKEN_TTL_S = 24 * 3600  # short-lived; rotated while the trader stays active
+_PROCESS_SECRET: bytes | None = None
+
+
+def _session_secret() -> bytes:
+    """Signing key for session tokens.
+
+    Set TRADELENS_SESSION_SECRET (env/secrets) to keep sessions valid across app
+    restarts; otherwise a random per-process key is used, so a server restart
+    simply requires signing in again (tokens can never be forged offline).
+    """
+    global _PROCESS_SECRET
+    configured = _read_secret("TRADELENS_SESSION_SECRET", "")
+    if configured:
+        return configured.encode()
+    if _PROCESS_SECRET is None:
+        _PROCESS_SECRET = _pysecrets.token_bytes(32)
+    return _PROCESS_SECRET
+
+
+def _issue_token(username, user_id, now: float | None = None) -> str:
+    """Signed `payload.signature` token carrying (username, user_id, expiry)."""
+    payload = {
+        "u": username,
+        "i": user_id,
+        "e": int((now if now is not None else time.time()) + _TOKEN_TTL_S),
+    }
+    raw = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":")).encode()
+    ).decode()
+    sig = hmac.new(_session_secret(), raw.encode(), "sha256").hexdigest()
+    return f"{raw}.{sig}"
+
+
+def _verify_token(token, now: float | None = None):
+    """Return (username, user_id) for a valid, unexpired token — else None."""
+    if not token or "." not in str(token):
+        return None
+    raw, _, sig = str(token).rpartition(".")
+    expected = hmac.new(_session_secret(), raw.encode(), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return None
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(raw.encode()))
+    except Exception:  # noqa: BLE001 — any malformed payload is just invalid
+        return None
+    if int(payload.get("e", 0)) < (now if now is not None else time.time()):
+        return None
+    return payload.get("u"), payload.get("i")
+
+
+def _try_restore(st) -> None:
+    """Rebuild the session from the signed URL token after a full page reload."""
+    verified = _verify_token(st.query_params.get(_TOKEN_PARAM))
+    if verified is None:
+        return
+    username, uid = verified
+    st.session_state[_AUTH_KEY] = True
+    st.session_state[_USER_KEY] = username
+    st.session_state[_UID_KEY] = uid
+    st.session_state[_TOKEN_KEY] = st.query_params.get(_TOKEN_PARAM)
+
+
+def _persist_token(st) -> None:
+    """Keep the current URL carrying a valid token so any reload survives.
+
+    Sliding rotation: a token inside its last half-TTL is re-issued, so an
+    active trader never expires mid-session while an abandoned/leaked URL
+    dies within 24h.
+    """
+    token = st.session_state.get(_TOKEN_KEY)
+    if not token or _verify_token(token, now=time.time() + _TOKEN_TTL_S / 2) is None:
+        token = _issue_token(
+            st.session_state.get(_USER_KEY), st.session_state.get(_UID_KEY)
+        )
+        st.session_state[_TOKEN_KEY] = token
+    if st.query_params.get(_TOKEN_PARAM) != token:
+        st.query_params[_TOKEN_PARAM] = token
 
 
 def _read_secret(name: str, default: str) -> str:
@@ -430,12 +525,16 @@ def require_auth() -> None:
     """
     import streamlit as st
 
+    if not is_authenticated():
+        # A full reload wipes st.session_state — the signed URL token survives.
+        _try_restore(st)
     if is_authenticated():
         # Scope correction memory to the signed-in user for this script run, so
         # the few-shot injection in ai_client never mixes traders' corrections.
         from src.tradelens.services.corrections import set_corrections_user
 
         set_corrections_user(st.session_state.get(_UID_KEY))
+        _persist_token(st)
         return
     _render_login()
     st.stop()
@@ -447,8 +546,9 @@ def render_logout_button() -> None:
 
     if st.button("Sign out", key="tl_logout", use_container_width=True):
         st.session_state[_AUTH_KEY] = False
-        for key in (_USER_KEY, _UID_KEY, _ERROR_KEY, _MODE_KEY):
+        for key in (_USER_KEY, _UID_KEY, _ERROR_KEY, _MODE_KEY, _TOKEN_KEY):
             st.session_state.pop(key, None)
+        st.query_params.pop(_TOKEN_PARAM, None)
         st.rerun()
 
 
