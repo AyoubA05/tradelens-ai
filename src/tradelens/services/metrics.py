@@ -1463,3 +1463,33 @@ def daily_equity_curve(df: pd.DataFrame) -> pd.DataFrame:
     )
     grouped["cumulative_pnl"] = grouped["pnl"].cumsum()
     return grouped[["trade_date", "pnl", "cumulative_pnl"]]
+
+
+def daily_outcomes(df: Optional[pd.DataFrame]) -> dict:
+    """Net P&L per trading day for the dashboard calendar (Item 12).
+
+    Returns {"YYYY-MM-DD": {"pnl": float, "trades": int, "outcome":
+    "positive" | "negative" | "breakeven"}}. Missing P&L counts as 0; rows
+    without a trade_date are dropped. Empty/None input yields {}.
+    """
+    if df is None or df.empty or "trade_date" not in df.columns:
+        return {}
+    d = df[df["trade_date"].notna() & (df["trade_date"] != "")]
+    if d.empty:
+        return {}
+    pnl = (
+        pd.to_numeric(d["pnl"], errors="coerce").fillna(0.0)
+        if "pnl" in d.columns
+        else pd.Series(0.0, index=d.index)
+    )
+    grouped = d.assign(_pnl=pnl).groupby("trade_date")["_pnl"].agg(["sum", "count"])
+    out: dict = {}
+    for date, row in grouped.iterrows():
+        total = float(row["sum"])
+        outcome = "positive" if total > 0 else "negative" if total < 0 else "breakeven"
+        out[str(date)[:10]] = {
+            "pnl": total,
+            "trades": int(row["count"]),
+            "outcome": outcome,
+        }
+    return out

@@ -37,6 +37,9 @@ from src.tradelens.ui.components.auth import (  # noqa: E402
 from src.tradelens.ui.components.charts import equity_curve_chart  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
+from src.tradelens.ui.components.trade_calendar import (  # noqa: E402
+    render_trade_calendar,
+)
 from src.tradelens.ui.components.theme import (  # noqa: E402
     PLOTLY_TEMPLATE,
     TEAL,
@@ -123,6 +126,21 @@ if df.empty:
         unsafe_allow_html=True,
     )
     st.stop()
+
+# ── Asset filter (Item 12) — scopes every stat and chart below ────
+# Options come from the trader's actual history, never a static list.
+_traded_assets = sorted({str(a) for a in df["asset"].dropna() if str(a).strip()})
+asset_choice = st.selectbox(
+    "Asset filter", ["All assets", *_traded_assets], key="dash_asset"
+)
+if asset_choice != "All assets":
+    df = df[df["asset"].astype(str) == asset_choice].reset_index(drop=True)
+
+# ── Trade calendar (Item 12) — top-of-dashboard month view ────────
+st.markdown(section_header("Trade Calendar"), unsafe_allow_html=True)
+render_trade_calendar(df)
+
+st.markdown("")
 
 m = compute_basic_metrics(df)
 t_pnl = today_pnl(df)
