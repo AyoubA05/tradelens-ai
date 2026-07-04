@@ -1,12 +1,12 @@
 """
-Insights & Review (Session F) — Pattern Insights + Weekly Review on one page.
+Insights & Review — Pattern Insights + the unified Weekly Recap (Item 10).
 
-Merges the two former Analytics tabs into a single destination where Claude runs
-automatically on page load (no button to click): deeper AI pattern cards and the
-weekly AI review are generated in the background and cached in session_state so
-they do not re-run on every widget interaction. A saved weekly review is reused
-instead of paying for a new call. Failures surface a specific inline reason —
-never a generic "AI unavailable".
+One destination for reflection: deterministic Pattern Insights (no AI call),
+the unified Weekly Recap — ONE AI call that receives both the weekly trade data
+and the deterministic pattern statistics and returns performance/process review
+plus pattern signals — and the on-demand Daily Debrief. The recap auto-runs on
+page load and a saved recap is reused instead of paying for a new call.
+Failures surface a specific inline reason — never a generic "AI unavailable".
 
 This is post-trade reflection only — never live signals, predictions, or advice.
 """
@@ -29,11 +29,9 @@ from src.tradelens.services.debrief import (  # noqa: E402
 )
 from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
 from src.tradelens.services.patterns import (  # noqa: E402
-    detect_patterns,
     generate_insights,
 )
 from src.tradelens.services.strategy import (  # noqa: E402
-    append_insight,
     get_active_strategy,
 )
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
@@ -115,14 +113,6 @@ if df.empty and is_demo():
 _strategy = get_active_strategy()
 _ai_on = is_ai_enabled() or is_demo()
 
-# Invalidate cached AI output when the underlying data changes (cheap signature),
-# so widget interactions never re-run the AI but new trades do.
-_sig = (current_user_id(), int(len(df)))
-if st.session_state.get("_ins_sig") != _sig:
-    st.session_state["_ins_sig"] = _sig
-    for k in ("_ins_cards", "_ins_cards_err"):
-        st.session_state.pop(k, None)
-
 if df.empty:
     st.markdown(
         empty_state(
@@ -136,63 +126,11 @@ if df.empty:
 
 
 # ══════════════════════════════════════════════════════════════════
-# PATTERN INSIGHTS  (deterministic always; AI cards auto-run + cached)
+# PATTERN INSIGHTS  (deterministic, always on — no AI call)
 # ══════════════════════════════════════════════════════════════════
-def _auto_run_pattern_cards() -> None:
-    """Run AI pattern detection once per data-signature, caching the result."""
-    if not _ai_on:
-        return
-    if "_ins_cards" in st.session_state or "_ins_cards_err" in st.session_state:
-        return
-    with st.spinner("Analyzing your trading patterns with AI…"):
-        try:
-            cards, usage = detect_patterns(df)
-            st.session_state["_ins_cards"] = cards
-            # Cost telemetry: pattern cards have no persistence row of their
-            # own, so log the call (best-effort) for the Settings dashboard.
-            from src.tradelens.services.cost import log_ai_usage
-
-            log_ai_usage("Pattern Detection", usage, user_id=current_user_id())
-        except Exception as exc:  # noqa: BLE001 — surface a specific reason inline
-            st.session_state["_ins_cards_err"] = str(exc)
-
-
-def _render_pattern_cards() -> None:
-    if not _ai_on:
-        st.info(
-            "Add your Anthropic API key in Settings to auto-generate AI pattern "
-            "cards. The deterministic insights above always work without a key."
-        )
-        return
-    err = st.session_state.get("_ins_cards_err")
-    if err:
-        _error_box(f"AI pattern detection couldn't run: {err}")
-        if st.button("Retry pattern detection", key="ins_retry_cards"):
-            st.session_state.pop("_ins_cards_err", None)
-            st.rerun()
-        return
-    cards = st.session_state.get("_ins_cards") or []
-    if not cards:
-        st.caption("No additional AI patterns surfaced for this sample.")
-        return
-    for i, card in enumerate(cards):
-        with st.container(border=True):
-            st.markdown(f"**{card.get('insight', '—')}**")
-            if card.get("evidence_stat"):
-                st.markdown(f"**Evidence:** {card['evidence_stat']}")
-            st.caption(
-                f"Impact: {card.get('impact', '—')} · "
-                f"Sample: {card.get('sample_size', '—')} trades · "
-                f"Confidence: {card.get('confidence', '—')}"
-            )
-            rule = card.get("suggested_rule", "")
-            if rule:
-                st.markdown(f"*Suggested rule:* {rule}")
-                if st.button("Add to Strategy Profile", key=f"ins_add_rule_{i}"):
-                    append_insight(rule)
-                    st.toast("Added to your Strategy Profile", icon="✅")
-
-
+# Item 10: the former separate AI pattern-cards section (which made its own
+# second AI call) is retired — pattern signals now come from the single Weekly
+# Recap call below, which receives the weekly stats AND the pattern statistics.
 st.markdown(section_header("Pattern Insights"), unsafe_allow_html=True)
 st.caption("Reflection only — these describe what already happened in your journal.")
 
@@ -211,13 +149,9 @@ if det_insights:
                 st.markdown(ins["body"])
                 st.caption(f"{conf_labels.get(ins['confidence'], 'Low')} confidence")
 
-st.markdown("**Deeper AI patterns**")
-_auto_run_pattern_cards()
-_render_pattern_cards()
-
 
 # ══════════════════════════════════════════════════════════════════
-# WEEKLY REVIEW  (auto-run for the most recent week with trades; cached)
+# WEEKLY RECAP  (one AI call: review + pattern signals; auto-run; cached)
 # ══════════════════════════════════════════════════════════════════
 def _default_week(frame: pd.DataFrame) -> datetime.date:
     """Week of the latest trade, so the page opens on a week worth reviewing."""
@@ -263,7 +197,7 @@ def _auto_run_weekly(monday: str, uid) -> None:
         return  # already saved — reuse, no API call
     if not _ai_on:
         return
-    with st.spinner("Writing this week's AI review…"):
+    with st.spinner("Writing this week's recap…"):
         try:
             review, _usage = generate_weekly_review(
                 monday, user_id=uid, strategy_profile=_strategy
@@ -277,8 +211,11 @@ def _auto_run_weekly(monday: str, uid) -> None:
 
 
 st.divider()
-st.markdown(section_header("Weekly Review"), unsafe_allow_html=True)
-st.caption("Post-trade reflection on a completed week — not signals or advice.")
+st.markdown(section_header("Weekly Recap"), unsafe_allow_html=True)
+st.caption(
+    "One unified recap of a completed week — performance, what worked, pattern "
+    "signals, and rule adherence. Reflection only, never signals or advice."
+)
 
 uid = current_user_id()
 picked = st.date_input(

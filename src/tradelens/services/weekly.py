@@ -29,10 +29,12 @@ from src.tradelens.services.metrics import (
 from src.tradelens.services.patterns import compute_candidates
 from src.tradelens.services.trade_service import get_trades
 
+# Item 10 — unified Weekly Recap: one AI call covers the review AND the
+# pattern signals (the app renders the performance snapshot from stats).
 _REQUIRED_SECTIONS = [
     "### What Worked",
     "### What Didn't",
-    "### Killzone Review",
+    "### Pattern Signals",
     "### Rule Adherence",
     "### Focus for Next Week",
 ]
@@ -205,7 +207,7 @@ def generate_weekly_review(
 
     candidates = compute_candidates(df)
 
-    system_message = load_prompt("weekly_v2")
+    system_message = load_prompt("weekly_recap_v1")
     user_message = _build_user_message(
         monday, sunday, stats, candidates, strategy_profile
     )

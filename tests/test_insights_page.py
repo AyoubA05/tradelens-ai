@@ -31,14 +31,13 @@ def test_page_exists():
 def test_merges_patterns_and_weekly():
     src = _src()
     assert "Insights & Review" in src
-    assert "Pattern Insights" in src and "Weekly Review" in src
+    assert "Pattern Insights" in src and "Weekly Recap" in src
 
 
 def test_ai_runs_automatically_not_button_gated():
     """The deeper AI patterns and the weekly review must auto-run on load."""
     src = _src()
-    # Auto-run helpers exist and are called at module scope (not behind a click).
-    assert "_auto_run_pattern_cards()" in src
+    # The recap auto-run helper exists and is called at module scope.
     assert "_auto_run_weekly(" in src
     # No "Detect deeper patterns with AI" button gate (the old click-to-run UX).
     assert "Detect deeper patterns with AI" not in src
@@ -51,8 +50,8 @@ def test_uses_spinner_loading_indicator():
 
 def test_caches_ai_result_in_session_state():
     src = _src()
-    assert "_ins_cards" in src  # cached pattern cards
-    assert "_ins_sig" in src  # data-signature cache invalidation
+    assert "_wk_err_" in src  # per-week error cache (no retry loop)
+    assert "get_weekly_review(monday, uid)" in src  # saved recap reused, no re-spend
 
 
 def test_specific_inline_error_not_generic_unavailable():
@@ -60,3 +59,36 @@ def test_specific_inline_error_not_generic_unavailable():
     # Errors surface the actual reason; never the generic "AI is unavailable".
     assert "AI is unavailable" not in src
     assert "couldn't run:" in src or "Could not" in src
+
+
+# ---------------------------------------------------------------------------
+# Item 10 — one unified Weekly Recap (single AI call), separate sections retired.
+# ---------------------------------------------------------------------------
+
+
+def test_weekly_recap_replaces_patterns_and_review_sections():
+    src = _src()
+    assert "Weekly Recap" in src
+    assert "Deeper AI patterns" not in src  # retired UI section
+    assert "detect_patterns" not in src  # no second AI call from this page
+    assert 'section_header("Weekly Review")' not in src  # retired UI section
+    # Kept as their own sections, per spec:
+    assert "Pattern Insights" in src
+    assert "Daily Debrief" in src
+
+
+def test_recap_is_one_call_with_pattern_data():
+    """The recap service call receives the pattern statistics in the SAME call
+    (compute_candidates feeds the user message) and requires Pattern Signals."""
+    from src.tradelens.services import weekly
+
+    assert "### Pattern Signals" in weekly._REQUIRED_SECTIONS
+    service_src = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "tradelens"
+        / "services"
+        / "weekly.py"
+    ).read_text(encoding="utf-8")
+    assert "compute_candidates(df)" in service_src
+    assert 'load_prompt("weekly_recap_v1")' in service_src

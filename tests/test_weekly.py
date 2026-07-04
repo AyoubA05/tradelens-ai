@@ -66,7 +66,7 @@ def _fake_trades():
 _REQUIRED_SECTIONS = [
     "### What Worked",
     "### What Didn't",
-    "### Killzone Review",
+    "### Pattern Signals",
     "### Rule Adherence",
     "### Focus for Next Week",
 ]
