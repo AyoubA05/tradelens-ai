@@ -24,6 +24,7 @@ context and are never written into the form.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -53,6 +54,11 @@ class TradeOverlay:
     pnl: Optional[float] = None
     overall_confidence: Optional[str] = None
     visible_labels: list = field(default_factory=list)
+    # Item 4: approximate entry time read from the chart (time axis nearest the
+    # markup, the timestamp bar, or a visible annotation). Opt-in downstream and
+    # never written over a value the trader already typed.
+    entry_time_approx: Optional[str] = None  # "HH:MM" (24h) or None
+    entry_time_source: str = "not_visible"
 
     def has_prices(self) -> bool:
         return any(getattr(self, f) is not None for f in OVERLAY_PRICE_FIELDS)
@@ -78,6 +84,20 @@ def _as_price(value) -> Optional[float]:
 
 
 _CONFIDENCE_LEVELS = {"high", "medium", "low"}
+_TIME_SOURCES = {"time_axis", "timestamp_bar", "markup_annotation", "not_visible"}
+
+
+def _as_time_hhmm(value) -> Optional[str]:
+    """A normalized 24h "HH:MM" string ("9:31" -> "09:31"), or None."""
+    if not isinstance(value, str):
+        return None
+    m = re.match(r"^(\d{1,2}):(\d{2})$", value.strip())
+    if not m:
+        return None
+    hour, minute = int(m.group(1)), int(m.group(2))
+    if hour > 23 or minute > 59:
+        return None
+    return f"{hour:02d}:{minute:02d}"
 
 
 def _as_number(value) -> Optional[float]:
@@ -187,6 +207,17 @@ def parse_trade_overlay(analysis, min_confidence: float = 0.0) -> TradeOverlay:
         overlay.visible_labels = [
             s.strip() for s in labels if isinstance(s, str) and s.strip()
         ]
+
+    # Item 4: approximate entry time — format-validated, confidence-gated.
+    entry_time = _as_time_hhmm(section.get("entry_time_approx"))
+    if entry_time is not None:
+        c = _clamp01(conf_in.get("entry_time"))
+        if c >= min_confidence:
+            overlay.entry_time_approx = entry_time
+            overlay.confidence["entry_time"] = c
+    time_src = section.get("entry_time_source")
+    if time_src in _TIME_SOURCES:
+        overlay.entry_time_source = time_src
 
     return overlay
 

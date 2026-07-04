@@ -216,6 +216,8 @@ with tabs[1]:
             value="09:30",
             placeholder="e.g., 09:30 or 9:30 AM",
             key="nt_entry_time",
+            on_change=mark_field_edited,
+            args=("entry_time",),
         )
     entry_time = parse_time_input(entry_time_raw)
 
@@ -697,6 +699,7 @@ with tabs[4]:
             ("stop_price", "Stop"),
             ("tp_price", "TP"),
             ("exit_price", "Exit"),
+            ("entry_time", "Entry Time"),
         ]
         _names = ", ".join(label for key, label in _labels if key in _ai_fields)
         if _names:

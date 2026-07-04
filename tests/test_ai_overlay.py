@@ -335,3 +335,45 @@ def test_provenance_text_covers_all_states():
     from src.tradelens.services.ai_overlay import PROVENANCE_TEXT
 
     assert set(PROVENANCE_TEXT) == {"label", "markup", "none"}
+
+
+# ---------------------------------------------------------------------------
+# Item 4 — entry_time_approx extraction ("HH:MM" + confidence + source).
+# ---------------------------------------------------------------------------
+
+
+def test_parse_entry_time_valid_and_normalized():
+    from src.tradelens.services.ai_overlay import parse_trade_overlay
+
+    ov = parse_trade_overlay(
+        {
+            "trade_overlay": {
+                "entry_time_approx": "9:31",
+                "entry_time_source": "time_axis",
+                "confidence": {"entry_time": 0.6},
+                "source": "visible_trade_box",
+            }
+        }
+    )
+    assert ov.entry_time_approx == "09:31"  # zero-padded HH:MM
+    assert ov.entry_time_source == "time_axis"
+    assert ov.confidence["entry_time"] == 0.6
+
+
+def test_parse_entry_time_invalid_values_fail_safe():
+    from src.tradelens.services.ai_overlay import parse_trade_overlay
+
+    for bad in ("25:00", "9:75", "half past", 931, True, None, ""):
+        ov = parse_trade_overlay({"trade_overlay": {"entry_time_approx": bad}})
+        assert ov.entry_time_approx is None, bad
+
+
+def test_parse_entry_time_source_defaults_to_not_visible():
+    from src.tradelens.services.ai_overlay import parse_trade_overlay
+
+    assert (
+        parse_trade_overlay({"trade_overlay": {}}).entry_time_source == "not_visible"
+    )
+    ov = parse_trade_overlay({"trade_overlay": {"entry_time_source": "made_up"}})
+    assert ov.entry_time_source == "not_visible"
+    assert parse_trade_overlay({}).entry_time_source == "not_visible"

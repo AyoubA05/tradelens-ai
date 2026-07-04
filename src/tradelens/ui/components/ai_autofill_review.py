@@ -93,7 +93,12 @@ _OVERLAY_FIELD_LABELS = {
     "stop_price": "Stop",
     "tp_price": "Take Profit",
     "exit_price": "Exit",
+    "entry_time": "Entry Time",
 }
+
+# Keep in sync with the Entry Time default in pages/1_NewTrade.py — an untouched
+# default (or empty) may accept the AI's estimate; anything else the trader typed.
+_ENTRY_TIME_DEFAULT = "09:30"
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +160,22 @@ def build_overlay_writes(overlay: TradeOverlay, selected: Iterable[str]) -> dict
                 writes[key] = value
     if "pnl" in selected and getattr(overlay, "pnl", None) is not None:
         writes["nt_pnl"] = overlay.pnl
+    # Item 4: approximate entry time — opt-in like the prices.
+    if "entry_time" in selected and getattr(overlay, "entry_time_approx", None):
+        writes["nt_entry_time"] = overlay.entry_time_approx
     return writes
+
+
+def entry_time_write_allowed(current_value) -> bool:
+    """Item 4: never overwrite an entry time the trader already typed.
+
+    The field starts at the page default; an empty or untouched-default value
+    may accept the AI estimate, anything else is the trader's and wins.
+    """
+    if current_value is None:
+        return True
+    s = str(current_value).strip()
+    return not s or s == _ENTRY_TIME_DEFAULT
 
 
 def should_autocheck(field: str, confidence) -> bool:
@@ -430,6 +450,11 @@ def _apply_all(
         writes.update(build_form_writes(result.prefill, sel_desc, known_assets))
     if isinstance(overlay, TradeOverlay):
         writes.update(build_overlay_writes(overlay, sel_prices))
+    # Item 4: an entry time the trader already typed always wins over the AI's.
+    if "nt_entry_time" in writes and not entry_time_write_allowed(
+        st.session_state.get("nt_entry_time")
+    ):
+        writes.pop("nt_entry_time")
 
     st.session_state[PENDING_WRITES_KEY] = writes
     sourced = st.session_state.get(_FIELDS_KEY) or set()
@@ -541,6 +566,7 @@ def _overlay_has_content(overlay) -> bool:
             or bool(overlay.direction)
             or bool(overlay.overall_confidence)
             or bool(overlay.visible_labels)
+            or bool(overlay.entry_time_approx)
         )
     )
 
@@ -592,6 +618,24 @@ def _select_prices(overlay: TradeOverlay) -> list:
         ):
             selected.append(field)
         st.caption(f"↳ {provenance}")
+    # Item 4: approximate entry time — opt-in (never auto-checked), clearly
+    # badged as an estimate, and never applied over a trader-typed time.
+    if overlay.entry_time_approx:
+        conf = overlay.confidence.get("entry_time")
+        conf_txt = (
+            f"{int(round(conf * 100))}% confidence"
+            if conf is not None
+            else "confidence unknown"
+        )
+        if st.checkbox(
+            f"Entry Time: {overlay.entry_time_approx} · {conf_txt}",
+            value=False,
+            key="_nt_ov_entry_time",
+            help="Approximate time read from the chart's time axis or timestamp "
+            "bar. It never replaces a time you typed yourself.",
+        ):
+            selected.append("entry_time")
+        st.caption("↳ Estimated from chart")
     if missing:
         st.caption("Not visible on the chart: " + ", ".join(missing))
     # PnL: opt-in (default OFF), shown only when a closed P&L was visibly read.

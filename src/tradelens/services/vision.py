@@ -245,6 +245,8 @@ _OVERLAY_DEFAULTS = {
     "stop_price": None,
     "tp_price": None,
     "exit_price": None,
+    "entry_time_approx": None,
+    "entry_time_source": "not_visible",
     "risk_reward_ratio": None,
     "pnl": None,
     "overall_confidence": None,

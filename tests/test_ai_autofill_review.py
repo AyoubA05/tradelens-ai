@@ -340,3 +340,31 @@ def test_same_source_does_not_retrigger_on_rerun():
     at = _autotrigger_apptest(run_count=3)
     assert not at.exception
     assert at.session_state["_calls"] == 1  # signature blocks repeat runs
+
+
+# ---------------------------------------------------------------------------
+# Item 4 — entry time maps to nt_entry_time, opt-in only, never over a value
+# the trader already typed.
+# ---------------------------------------------------------------------------
+
+
+def test_overlay_writes_map_entry_time_when_selected():
+    ov = TradeOverlay(entry_time_approx="09:31")
+    assert comp.build_overlay_writes(ov, ["entry_time"]) == {"nt_entry_time": "09:31"}
+
+
+def test_overlay_writes_entry_time_needs_selection_and_value():
+    assert comp.build_overlay_writes(TradeOverlay(entry_time_approx="09:31"), []) == {}
+    assert comp.build_overlay_writes(TradeOverlay(), ["entry_time"]) == {}
+
+
+def test_entry_time_never_autochecks():
+    assert comp.should_autocheck("entry_time", 0.99) is False
+
+
+def test_entry_time_write_respects_trader_typed_value():
+    # Untouched default / empty -> AI value may apply; anything typed wins.
+    assert comp.entry_time_write_allowed(None) is True
+    assert comp.entry_time_write_allowed("") is True
+    assert comp.entry_time_write_allowed("09:30") is True  # page default
+    assert comp.entry_time_write_allowed("10:15") is False  # trader typed

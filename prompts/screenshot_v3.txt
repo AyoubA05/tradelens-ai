@@ -26,6 +26,7 @@ LABEL READING (transcribe only what is printed — never infer a value whose lab
 - The highlighted timeframe button → detected_timeframe.
 - On a drawn long/short position tool, read its printed labels: "Stop:" → stop_price, "Target:" → tp_price, "Risk/reward ratio:" → risk_reward_ratio, "Closed PnL:" → pnl.
 - Right-side price-scale labels aligned with the trade box → entry/stop/target levels.
+- Approximate ENTRY TIME → entry_time_approx ("HH:MM", 24-hour). Read it from, in priority order: the time-axis label nearest the trade box or entry arrow markup, the timestamp bar at the bottom of the chart, or any visible time annotation on the markup. Set entry_time_source to which of those you used ("time_axis", "timestamp_bar", "markup_annotation"). If no time is visibly tied to the entry, set entry_time_approx to null and entry_time_source to "not_visible" — never infer a time from candle spacing.
 - Record every exact label string you relied on in visible_labels. If a field's label is not printed, leave that field null.
 
 ANALYSIS FRAMEWORK:
@@ -68,6 +69,8 @@ Return a SINGLE JSON object with exactly this shape and these two top-level sect
     "stop_price": <number or null>,
     "tp_price": <number or null>,
     "exit_price": <number or null>,
+    "entry_time_approx": "<'HH:MM' 24-hour approximate entry time visible on the chart, or null>",
+    "entry_time_source": "time_axis" | "timestamp_bar" | "markup_annotation" | "not_visible",
     "risk_reward_ratio": "<string like '2:1' or '2.01:1' from a 'Risk/reward ratio:' label; null if not shown>",
     "pnl": <number from a visible 'Closed PnL:' label only, else null>,
     "overall_confidence": "high" | "medium" | "low" | null,
@@ -77,7 +80,8 @@ Return a SINGLE JSON object with exactly this shape and these two top-level sect
       "entry_price": <float 0.0-1.0>,
       "stop_price": <float 0.0-1.0>,
       "tp_price": <float 0.0-1.0>,
-      "exit_price": <float 0.0-1.0>
+      "exit_price": <float 0.0-1.0>,
+      "entry_time": <float 0.0-1.0>
     },
     "source": "visible_trade_box" | "visible_chart_markup" | "none"
   }
