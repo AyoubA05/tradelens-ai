@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
-from src.tradelens.services.assets import normalize_symbol
+from src.tradelens.services.assets import normalize_symbol, strip_contract_month
 
 # Vision bias vocabulary -> New Trade BIAS_OPTIONS (Bullish/Bearish/Consolidation).
 _BIAS_MAP = {
@@ -172,11 +172,13 @@ def map_analysis_to_form(
 
     result.observations = _extract_observations(analysis)
 
-    # asset (normalized so 'gbp/usd' matches the curated 'GBPUSD').
+    # asset (normalized so 'gbp/usd' matches the curated 'GBPUSD'; futures
+    # contract month/year suffixes are stripped here in the mapper — Item 3 —
+    # so 'MNQU2026' reaches the form as 'MNQ').
     # Non-string values (a malformed model response) fail safe: omit the asset.
     detected_asset = analysis.get("detected_asset")
     if isinstance(detected_asset, str) and detected_asset.strip():
-        asset = normalize_symbol(detected_asset)
+        asset = strip_contract_month(detected_asset)
         if asset:
             result.prefill["asset"] = asset
             result.ai_fields.append("asset")

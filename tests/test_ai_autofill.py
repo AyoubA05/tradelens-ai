@@ -329,7 +329,8 @@ def test_map_instrument_name_never_prefilled():
         {"instrument_name": "Micro E-mini Nasdaq-100", "detected_asset": "MNQU2026"}
     )
     assert "instrument_name" not in result.prefill
-    assert result.prefill["asset"] == "MNQU2026"
+    # Item 3: the mapper strips the contract month/year — MNQU2026 → MNQ.
+    assert result.prefill["asset"] == "MNQ"
 
 
 def test_map_instrument_name_defaults_none_when_absent():
@@ -337,3 +338,18 @@ def test_map_instrument_name_defaults_none_when_absent():
         map_analysis_to_form({"bias": "bullish"}).observations["instrument_name"]
         is None
     )
+
+
+def test_mapper_strips_contract_month_before_form():
+    """Item 3: normalization happens in the mapper layer, not the prompt."""
+    from src.tradelens.services.ai_autofill import map_analysis_to_form
+
+    result = map_analysis_to_form(
+        {"detected_asset": "MNQU2026"}, known_assets=["MNQ", "NQ"]
+    )
+    assert result.prefill["asset"] == "MNQ"
+    assert result.asset_in_list is True
+
+    result = map_analysis_to_form({"detected_asset": "NGG2026"}, known_assets=["NG"])
+    assert result.prefill["asset"] == "NG"
+    assert result.asset_in_list is True

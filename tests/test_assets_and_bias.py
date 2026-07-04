@@ -45,3 +45,48 @@ def test_legacy_neutral_bias_displays_as_consolidation():
 def test_other_bias_values_unchanged():
     assert humanize("bullish") == "Bullish"
     assert humanize("bearish") == "Bearish"
+
+
+# ---------------------------------------------------------------------------
+# Item 3 — futures contract month-code stripping (mapper-layer normalization).
+# Month codes: F G H J K M N Q U V X Z, with optional 2- or 4-digit years.
+# ---------------------------------------------------------------------------
+
+
+def test_strip_contract_month_examples():
+    from src.tradelens.services.assets import strip_contract_month
+
+    cases = {
+        "MNQU": "MNQ",  # month code stripped
+        "MNQZ": "MNQ",
+        "ESZ": "ES",
+        "NQH": "NQ",
+        "ESHU": "ESH",  # spread qualifier kept — base ES has it by convention
+        "NGG2026": "NG",  # the reported bug case
+        "NGGU2026": "NG",
+        "MNQU2026": "MNQ",
+        "MNQH26": "MNQ",  # 2-digit year (TradingView short form)
+        "NGX2026": "NG",
+        "6EZ": "6E",
+        "MCLF2026": "MCL",
+    }
+    for raw, expected in cases.items():
+        assert strip_contract_month(raw) == expected, raw
+
+
+def test_strip_never_removes_base_ticker_letters():
+    from src.tradelens.services.assets import strip_contract_month
+
+    # Known bases ending in a month-code letter must NOT be stripped.
+    for base in ("MNQ", "NQ", "NG", "ES", "M2K", "HG", "ZN"):
+        assert strip_contract_month(base) == base
+
+
+def test_strip_leaves_forex_and_unknown_tickers_alone():
+    from src.tradelens.services.assets import strip_contract_month
+
+    assert strip_contract_month("EURUSD") == "EURUSD"
+    assert strip_contract_month("gbp/usd") == "GBPUSD"  # normalization preserved
+    assert strip_contract_month("AMZN") == "AMZN"  # ends in N (month code) — kept
+    assert strip_contract_month("") == ""
+    assert strip_contract_month(None) == ""
