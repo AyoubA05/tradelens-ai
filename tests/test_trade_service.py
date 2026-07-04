@@ -252,3 +252,23 @@ def test_trade_process_notes_stores_and_retrieves(in_memory_db):
     )
     row = get_trade(trade.id)
     assert row.trade_process_notes == note
+
+
+def test_get_trade_relationships_usable_after_session_closes(in_memory_db):
+    """Item 11 regression: get_trade closes its session, so screenshots AND
+    ai_analysis must be eager-loaded — touching them later must not raise
+    DetachedInstanceError (the Journal detail-panel error)."""
+    from src.tradelens.db.models import AIAnalysis
+    from src.tradelens.services.trade_service import create_trade, get_trade
+
+    trade = create_trade({"trade_date": "2026-07-03", "asset": "MNQ", "result": "Win"})
+    db = trade_service.SessionLocal()  # the fixture's monkeypatched sessionmaker
+    db.add(AIAnalysis(trade_id=trade.id, bias="bullish", trade_quality=7))
+    db.commit()
+    db.close()
+
+    row = get_trade(trade.id)
+    assert row.screenshots == []  # off-session access must not raise
+    analysis = row.ai_analysis  # was DetachedInstanceError before the fix
+    assert analysis is not None
+    assert analysis.bias == "bullish"
