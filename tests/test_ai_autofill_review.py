@@ -470,3 +470,35 @@ def test_direction_checkbox_never_offered_for_selection():
     assert "cross-check only — not written" in src
     assert '"_nt_ov_direction"' not in src  # no direction checkbox key
     assert "direction" not in comp._OVERLAY_FIELD_TO_KEY  # no write mapping
+
+
+# ---------------------------------------------------------------------------
+# Item 14 — Apply never writes an asset-class value; normalization (Item 3)
+# sets the Asset field only.
+# ---------------------------------------------------------------------------
+
+
+def test_apply_never_writes_asset_class():
+    from src.tradelens.services.ai_autofill import map_analysis_to_form
+    from src.tradelens.services.ai_overlay import descriptive_section
+
+    v3 = _full_v3_with_direction()
+    v3["descriptive"]["detected_asset"] = "MNQU2026"  # contract-coded label
+    result = map_analysis_to_form(descriptive_section(v3), known_assets=["MNQ"])
+    writes = comp.build_form_writes(result.prefill, list(result.prefill), ["MNQ"])
+
+    assert writes["nt_asset_select"] == "MNQ"  # Item 3 normalization → Asset only
+    assert not any("class" in str(k).lower() for k in writes)
+    assert not any("class" in str(k).lower() for k in result.prefill)
+    # And the form no longer even has an asset-class widget to write to (Item 5).
+    from pathlib import Path
+
+    page = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "tradelens"
+        / "ui"
+        / "pages"
+        / "1_NewTrade.py"
+    ).read_text(encoding="utf-8")
+    assert "nt_class_custom" not in page and "nt_class_locked" not in page
