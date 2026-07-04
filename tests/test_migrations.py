@@ -304,3 +304,21 @@ def test_ai_usage_log_migration_round_trip(tmp_path):
         mig.upgrade()  # idempotent re-run
         mig.downgrade()
         assert "ai_usage_log" not in _tables(conn)
+
+
+def test_trade_process_notes_migration_round_trip(tmp_path):
+    """Item 8: trades.trade_process_notes — add on upgrade, drop on downgrade."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'proc_notes.db'}")
+    mig = _load_mig("p6q7r8s9t0u1_add_trade_process_notes.py")
+    with engine.connect() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE trades (id INTEGER PRIMARY KEY, asset VARCHAR)"
+        )
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()
+        assert "trade_process_notes" in _columns(conn)
+        mig.upgrade()  # idempotent re-run
+        mig.downgrade()
+        assert "trade_process_notes" not in _columns(conn)

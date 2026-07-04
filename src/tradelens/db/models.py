@@ -74,6 +74,9 @@ class Trade(Base):
     emotions_during: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     emotions_after: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Item 8: mechanical process notes ("what the chart/trader did"), distinct
+    # from the emotional mindset fields. Feeds the per-trade AI review context.
+    trade_process_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     ai_grade: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     user_grade: Mapped[Optional[str]] = mapped_column(String, nullable=True)

@@ -156,3 +156,22 @@ def test_emotion_picker_uses_existing_columns():
     src = _src("1_NewTrade.py")
     for col in ("emotions_before", "emotions_during", "emotions_after"):
         assert col in src, f"emotion column {col} missing from New Trade form"
+
+
+def test_psychology_step_has_process_notes_field():
+    """Item 8: dedicated 'What happened during this trade?' process-notes field."""
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "tradelens"
+        / "ui"
+        / "pages"
+        / "1_NewTrade.py"
+    ).read_text(encoding="utf-8")
+    assert "What happened during this trade?" in src
+    assert "nt_process_notes" in src
+    assert '"trade_process_notes": process_notes' in src  # saved as its own field
+    # Emotional field remains separate and untouched.
+    assert "How were you feeling during this trade?" in src

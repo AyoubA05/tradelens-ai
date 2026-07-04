@@ -444,6 +444,16 @@ with tabs[3]:
         placeholder="e.g., Patient and disciplined — waited for my model.",
         key="nt_mindset",
     )
+    # Item 8: mechanical process notes — what the chart did and what the trader
+    # did, separate from emotional state. Feeds the per-trade AI review.
+    process_notes = st.text_area(
+        "What happened during this trade?",
+        placeholder=(
+            "e.g., Price swept liquidity, broke structure, I moved to "
+            "break-even after the 2nd IFVG break, then hit TP."
+        ),
+        key="nt_process_notes",
+    )
     emo_before = emo_during = emo_after = None
     with st.expander("Advanced emotion log (optional)"):
         ec1, ec2, ec3 = st.columns(3)
@@ -524,6 +534,7 @@ def _build_trade_data() -> dict:
         "emotions_during": final_during,
         "emotions_after": emo_after if emo_after and emo_after != "—" else None,
         "notes": extra_notes or None,
+        "trade_process_notes": process_notes.strip() or None,
         "user_id": current_user_id(),
     }
 

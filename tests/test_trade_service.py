@@ -235,3 +235,20 @@ def test_prices_store_and_retrieve_without_precision_loss(in_memory_db):
     assert row.stop_price == 3.3765
     assert row.tp_price == 3.5125
     assert row.exit_price == 3.4995
+
+
+def test_trade_process_notes_stores_and_retrieves(in_memory_db):
+    """Item 8: the mechanical process notes persist as their own field."""
+    from src.tradelens.services.trade_service import create_trade, get_trade
+
+    note = "Swept liquidity, broke structure, moved to BE after 2nd IFVG break."
+    trade = create_trade(
+        {
+            "trade_date": "2026-07-03",
+            "asset": "MNQ",
+            "result": "Win",
+            "trade_process_notes": note,
+        }
+    )
+    row = get_trade(trade.id)
+    assert row.trade_process_notes == note
