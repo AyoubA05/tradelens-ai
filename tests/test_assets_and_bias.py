@@ -90,3 +90,36 @@ def test_strip_leaves_forex_and_unknown_tickers_alone():
     assert strip_contract_month("AMZN") == "AMZN"  # ends in N (month code) — kept
     assert strip_contract_month("") == ""
     assert strip_contract_month(None) == ""
+
+
+# ---------------------------------------------------------------------------
+# Item 5 — the New Trade asset scope is futures + forex only.
+# ---------------------------------------------------------------------------
+
+
+def test_tradable_assets_futures_and_forex_only():
+    from src.tradelens.services.assets import FOREX, FUTURES, tradable_assets
+
+    options = tradable_assets()
+    assert options == [*FUTURES, *FOREX]
+    assert all(detect_asset_class(a) in ("Futures", "Forex") for a in options)
+    assert "BTCUSD" not in options  # crypto no longer offered
+
+
+def test_new_trade_page_has_no_asset_class_input():
+    """Item 5: Asset Class is derived, never a form input."""
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "tradelens"
+        / "ui"
+        / "pages"
+        / "1_NewTrade.py"
+    ).read_text(encoding="utf-8")
+    assert '"Asset Class"' not in src  # no selectbox label
+    assert "nt_class_custom" not in src and "nt_class_locked" not in src
+    assert "ASSET_CLASSES" not in src  # user-pickable class list removed
+    assert "tradable_assets()" in src  # futures+forex options source
+    assert 'detect_asset_class(asset) or "Futures"' in src  # derived at save

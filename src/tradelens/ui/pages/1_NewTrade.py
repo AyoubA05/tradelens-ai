@@ -15,8 +15,8 @@ import streamlit as st  # noqa: E402
 from src.tradelens.services.app_settings import get_timezone  # noqa: E402
 from src.tradelens.services.assets import (  # noqa: E402
     OTHER,
-    curated_assets,
     detect_asset_class,
+    tradable_assets,
 )
 from src.tradelens.services.screenshot_service import (  # noqa: E402
     save_screenshot,
@@ -73,7 +73,6 @@ st.markdown(
 
 # ── Options ───────────────────────────────────────────────────────
 TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "D"]
-ASSET_CLASSES = ["Futures", "Forex", "Crypto", "Stocks"]
 BIAS_OPTIONS = ["Bullish", "Bearish", "Consolidation"]
 DEFAULT_SETUPS = [
     "FVG",
@@ -150,7 +149,8 @@ _profile_tf = parse_timeframes(_strategy)
 if _strategy:
     st.caption(f"Defaults from Strategy Profile: **{_strategy.get('name', '—')}**")
 
-ASSET_OPTIONS = _dedup([*_profile_markets, *curated_assets()]) + [OTHER]
+# Item 5: futures + forex only (plus the trader's own profile markets).
+ASSET_OPTIONS = _dedup([*_profile_markets, *tradable_assets()]) + [OTHER]
 ASSET_OPTIONS_CORE = [a for a in ASSET_OPTIONS if a != OTHER]
 SETUP_OPTIONS = _dedup([*_profile_setups, *DEFAULT_SETUPS])
 MISTAKE_OPTIONS = ["None"] + _dedup([*_profile_mistakes, *DEFAULT_MISTAKES]) + ["Other"]
@@ -254,21 +254,11 @@ with tabs[1]:
                 on_change=mark_field_edited,
                 args=("asset",),
             )
-            asset_class = st.selectbox(
-                "Asset Class", ASSET_CLASSES, key="nt_class_custom"
-            )
-            st.caption("Asset class is detected from selected asset — set it here.")
         else:
             asset = asset_choice
-            detected = detect_asset_class(asset_choice) or "Futures"
-            asset_class = st.selectbox(
-                "Asset Class",
-                ASSET_CLASSES,
-                index=ASSET_CLASSES.index(detected),
-                disabled=True,
-                key="nt_class_locked",
-            )
-            st.caption("Asset class is detected from selected asset.")
+        # Item 5: asset class is no longer a form input — it is derived from
+        # the symbol (futures/forex scope; unknown customs default to Futures).
+        asset_class = detect_asset_class(asset) or "Futures"
     with m2:
         timeframe = st.selectbox(
             "Timeframe",

@@ -156,3 +156,10 @@ def detect_asset_class(symbol: Optional[str]) -> Optional[str]:
 def curated_assets() -> list:
     """All curated symbols in display order (Futures → Forex → Crypto)."""
     return [*FUTURES, *FOREX, *CRYPTO]
+
+
+def tradable_assets() -> list:
+    """Symbols offered in the New Trade asset dropdown: futures and forex only
+    (Item 5 — the journal's supported scope). Crypto stays recognizable to the
+    classifier for legacy rows but is no longer offered for new trades."""
+    return [*FUTURES, *FOREX]
