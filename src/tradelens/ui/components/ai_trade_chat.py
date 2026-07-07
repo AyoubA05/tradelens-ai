@@ -106,12 +106,12 @@ def render_ask_ai(trade, strategy_profile=None) -> None:
     import streamlit as st
 
     st.divider()
-    st.subheader("🤖 Ask AI About This Trade")
+    st.subheader("Ask AI About This Trade")
     st.caption("AI reflects on past trades only — no live signals.")
 
     if not ai_available():
         st.info(
-            "🤖 AI features are off. Add your Anthropic API key in Settings to "
+            "AI features are off. Add your Anthropic API key in Settings to "
             "enable them."
         )
         return

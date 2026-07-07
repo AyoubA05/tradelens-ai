@@ -81,7 +81,7 @@ def _strategy_badge_html(strategy_name: str | None) -> str:
     return (
         f'<div style="background:rgba(168,75,47,0.12);border:1px solid {TERRA};'
         "border-radius:8px;padding:8px 10px;margin:6px 0;font-size:0.8rem;"
-        f'color:{TERRA}">⚠️ No active strategy. Add one in Strategy Profile.</div>'
+        f'color:{TERRA}">No active strategy. Add one in Strategy Profile.</div>'
     )
 
 

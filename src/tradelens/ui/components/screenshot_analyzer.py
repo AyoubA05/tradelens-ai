@@ -43,7 +43,7 @@ def render_screenshot_analyzer(trade, strategy_profile=None) -> None:
     # see the same panel as the AI Review and Ask-AI sections below it.
     if not ai_available():
         st.info(
-            "🤖 AI features are off. Add your Anthropic API key in Settings to "
+            "AI features are off. Add your Anthropic API key in Settings to "
             "enable them."
         )
         return
@@ -90,7 +90,7 @@ def render_screenshot_analyzer(trade, strategy_profile=None) -> None:
     except (json.JSONDecodeError, TypeError):
         ai = {}
 
-    st.caption("🤖 AI detected — edit any field, then Apply. Changes are remembered.")
+    st.caption("AI detected — edit any field, then Apply. Changes are remembered.")
     c1, c2 = st.columns(2)
     cur_bias = (ai.get("bias") or "").title()
     bias = c1.selectbox(

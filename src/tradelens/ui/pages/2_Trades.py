@@ -106,7 +106,7 @@ if direction_filter != "All":
 
 # Demo banner when sample trades are present.
 if any(getattr(t, "is_sample", 0) for t in trades):
-    st.info("🔬 Demo data is active. These are sample trades.")
+    st.info("Demo data is active. These are sample trades.")
 
 # ── Empty states ──────────────────────────────────────────────────
 if not trades:
@@ -165,7 +165,7 @@ for t in trades:
             "P&L": _fmt_money(t.pnl),
             "R": f"{t.rr_realized:.2f}R" if t.rr_realized is not None else "—",
             "Grade": t.user_grade or t.ai_grade or "—",
-            "Screenshot": "📷" if t.screenshots else "—",
+            "Screenshot": "Yes" if t.screenshots else "—",
             "Notes": ((t.notes or "")[:50] or "—"),
         }
     )
@@ -214,7 +214,7 @@ with st.expander("Or pick a trade from a list"):
 
 # ── AI summary of the filtered trades (multi-trade reflection) ────
 if len(trades) >= 2:
-    with st.expander(f"🤖 AI summary of these {len(trades)} trades"):
+    with st.expander(f"AI summary of these {len(trades)} trades"):
         st.caption(
             "Patterns across the trades matching your filters — recurring "
             "mistakes, setup quality, emotions, and rule adherence. Post-trade "
@@ -222,7 +222,7 @@ if len(trades) >= 2:
         )
         if not ai_available():
             st.info(
-                "🤖 AI features are off. Add your Anthropic API key in Settings "
+                "AI features are off. Add your Anthropic API key in Settings "
                 "to enable them."
             )
         else:
@@ -267,10 +267,12 @@ if len(trades) >= 2:
                             "review": _review,
                         }
                         st.rerun()
-                    except DebriefError as exc:
-                        st.warning(f"The AI summary couldn't run: {exc}")
+                    except DebriefError:
+                        st.warning(
+                            "The AI summary didn't finish. Try again in a moment."
+                        )
                     except Exception:  # noqa: BLE001 — never crash the Journal
-                        st.warning("The AI summary couldn't run. Please try again.")
+                        st.warning("The AI summary didn't finish. Try again.")
 
 selected_id = st.session_state.get("journal_selected_id")
 if selected_id not in ids:
@@ -328,7 +330,7 @@ if selected_id is not None:
         )
         shown = _render_screenshot(shots[0].file_path) if shots else False
         if not shown:
-            st.info("📷 No screenshot.")
+            st.info("No screenshot.")
             up = st.file_uploader(
                 "Add screenshot", type=["png", "jpg", "jpeg", "webp"], key="detail_shot"
             )
@@ -379,10 +381,10 @@ if selected_id is not None:
             st.toast("Trade updated", icon="✅")
             st.rerun()
 
-    with st.expander("Delete Trade"):
-        st.warning("This permanently deletes the trade.")
+    with st.expander("Delete trade"):
+        st.warning("Deleting this trade can't be undone.")
         confirm = st.checkbox("I'm sure", key="delete_confirm")
-        if st.button("Delete Trade", disabled=not confirm, key="delete_btn"):
+        if st.button("Delete trade", disabled=not confirm, key="delete_btn"):
             delete_trade(trade.id)
             st.session_state.pop("journal_selected_id", None)
             st.toast("Trade deleted", icon="✅")

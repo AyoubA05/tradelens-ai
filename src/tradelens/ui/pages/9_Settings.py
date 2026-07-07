@@ -211,7 +211,7 @@ else:
 st.divider()
 
 # ── Login / Secrets ───────────────────────────────────────────────
-st.subheader("Login & Secrets")
+st.subheader("Login")
 st.caption(
     "Credentials are managed via Streamlit secrets "
     "(`TRADELENS_USERNAME` / `TRADELENS_PASSWORD`). "

@@ -255,7 +255,7 @@ with rc2:
             _styled(drawdown_chart(dd_df)), use_container_width=True, key="an_dd"
         )
     else:
-        st.caption("No drawdown data available.")
+        st.caption("No drawdown yet — log a few more trades to chart it.")
 
 
 # ══════════════════════════════════════════════════════════════════

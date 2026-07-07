@@ -24,7 +24,7 @@ _BASE_LAYOUT = dict(
 )
 
 
-def _empty_figure(message: str = "No trades in this period.") -> go.Figure:
+def _empty_figure(message: str = "No trades in this period yet.") -> go.Figure:
     fig = go.Figure()
     fig.add_annotation(
         text=message,
@@ -476,10 +476,10 @@ def risk_over_time_chart(df: pd.DataFrame) -> go.Figure:
     Input: a trades DataFrame with trade_date and risk_amount columns.
     """
     if df is None or df.empty or "risk_amount" not in df.columns:
-        return _empty_figure("No risk-per-trade data logged.")
+        return _empty_figure("No risk data yet.")
     work = df.dropna(subset=["risk_amount"]).copy()
     if work.empty:
-        return _empty_figure("No risk-per-trade data logged.")
+        return _empty_figure("No risk data yet.")
     work = work.sort_values("trade_date")
     fig = go.Figure(
         go.Scatter(

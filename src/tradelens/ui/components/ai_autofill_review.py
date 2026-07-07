@@ -587,7 +587,7 @@ def _select_prices(overlay: TradeOverlay) -> list:
         return []
     st.markdown("**Detected from chart markup**")
     st.caption(
-        "⚠️ Read from your drawn trade box — confirm each value before applying. "
+        "Read from your drawn trade box — confirm each value before applying. "
         "Direction is inferred from the prices you apply, not written here."
     )
     if overlay.direction:
@@ -761,7 +761,7 @@ def render_autofill_review(
 
     if not _ai_available():
         st.info(
-            "🤖 AI autofill is off. Add your Anthropic API key in Settings to get "
+            "AI autofill is off. Add your Anthropic API key in Settings to get "
             "post-trade chart suggestions. You can still fill the form manually."
         )
         return

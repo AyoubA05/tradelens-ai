@@ -149,7 +149,7 @@ def render_ai_review(trade, strategy_profile=None, user_id=None) -> None:
 
     if not ai_available():
         st.info(
-            "🤖 AI features are off. Add your Anthropic API key in Settings to "
+            "AI features are off. Add your Anthropic API key in Settings to "
             "enable them."
         )
         return

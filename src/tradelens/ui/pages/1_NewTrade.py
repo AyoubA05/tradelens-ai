@@ -302,7 +302,7 @@ with tabs[2]:
         args=("confluences",),
     )
     if _strategy and (_strategy.get("setups_avoided") or "").strip():
-        st.caption(f"⚠️ Avoid per your profile: {_strategy['setups_avoided']}")
+        st.caption(f"Avoid per your profile: {_strategy['setups_avoided']}")
 
     st.markdown("**Followed your rules?**")
     followed_rules = st.radio(
@@ -572,8 +572,11 @@ def _persist(data: dict) -> None:
     if screenshot_file is not None:
         try:
             save_screenshot(trade.id, screenshot_file)
-        except Exception as exc:  # noqa: BLE001 — screenshot is best-effort
-            st.warning(f"Trade saved, but the screenshot upload failed: {exc}")
+        except Exception:  # noqa: BLE001 — screenshot is best-effort
+            st.warning(
+                "Trade saved. The screenshot didn't upload — "
+                "add it later from the trade's page."
+            )
     if (screenshot_url or "").strip():
         try:
             save_screenshot_url(trade.id, screenshot_url.strip())
@@ -587,7 +590,7 @@ def _persist(data: dict) -> None:
 
 def _do_save(override: bool) -> None:
     if st.session_state.get("trade_submit_in_progress"):
-        st.warning("Trade is already being saved. Please wait.")
+        st.warning("This trade is already saving.")
         return
 
     data = _build_trade_data()
@@ -715,14 +718,14 @@ with tabs[4]:
         ]
         _names = ", ".join(label for key, label in _labels if key in _ai_fields)
         if _names:
-            st.caption(f"🤖 AI-suggested (still your call to save): {_names}")
+            st.caption(f"AI-suggested (still your call to save): {_names}")
 
     _errors = _validate(_data)
     if _errors:
         _error_box("Fix before saving:\n" + "\n".join(f"• {e}" for e in _errors))
     _warnings = _soft_warnings()
     if _warnings:
-        st.caption("Recommended (won't block save):")
+        st.caption("Recommended — you can still save without these:")
         for _w in _warnings:
             st.caption(f"• {_w}")
 
@@ -738,5 +741,5 @@ with tabs[4]:
         if d2.button("No, save it anyway", use_container_width=True):
             st.session_state.pop("_nt_dup_pending", None)
             _do_save(override=True)
-    elif st.button("Save Trade", type="primary", use_container_width=True):
+    elif st.button("Save trade", type="primary", use_container_width=True):
         _do_save(override=False)

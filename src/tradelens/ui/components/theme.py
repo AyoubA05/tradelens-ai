@@ -141,12 +141,18 @@ def _build_css() -> str:
     border: 1px solid {TEAL};
     border-radius: {RADIUS_SM};
     font-weight: 600;
-    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    transition: transform 0.15s ease-out, box-shadow 0.15s ease-out, background 0.15s ease-out;
 }}
-.stButton > button:hover {{
-    background: {TEAL_HOVER};
-    box-shadow: 0 0 16px {TEAL_SOFT};
-    transform: translateY(-1px);
+@media (hover: hover) and (pointer: fine) {{
+    .stButton > button:hover {{
+        background: {TEAL_HOVER};
+        box-shadow: 0 0 16px {TEAL_SOFT};
+        transform: translateY(-1px);
+    }}
+}}
+.stButton > button:focus-visible {{
+    outline: 2px solid {TEAL};
+    outline-offset: 2px;
 }}
 .tl-kpi-card {{
     background: {SURFACE};
@@ -154,13 +160,15 @@ def _build_css() -> str:
     border-radius: {RADIUS_MD};
     padding: 16px 16px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.25);
-    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    transition: transform 0.18s ease-out, box-shadow 0.18s ease-out, border-color 0.18s ease-out;
     overflow: visible;
 }}
-.tl-kpi-card:hover {{
-    transform: translateY(-2px);
-    border-color: {TEAL};
-    box-shadow: 0 0 18px {TEAL_SOFT};
+@media (hover: hover) and (pointer: fine) {{
+    .tl-kpi-card:hover {{
+        transform: translateY(-2px);
+        border-color: {TEAL};
+        box-shadow: 0 0 18px {TEAL_SOFT};
+    }}
 }}
 .tl-kpi-label {{
     color: {TEXT_MUTED};
@@ -254,6 +262,16 @@ def _build_css() -> str:
     border-radius: {RADIUS_MD};
     padding: 10px 14px;
     margin: 6px 12% 6px 0;
+}}
+@media (prefers-reduced-motion: reduce) {{
+    .stButton > button,
+    .tl-kpi-card {{
+        transition: none;
+    }}
+    .stButton > button:hover,
+    .tl-kpi-card:hover {{
+        transform: none;
+    }}
 }}
 </style>"""
 
