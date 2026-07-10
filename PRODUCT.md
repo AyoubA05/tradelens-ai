@@ -1,5 +1,9 @@
 # PRODUCT.md — TradeLens AI
 
+Design/product contract for all UI work. Every UI change must comply.
+(Maintained manually — Impeccable is not installed in this environment;
+audits are performed manually against this file plus tests/.)
+
 ## Register
 
 **Product** (design SERVES the product). TradeLens AI is an app — a post-trade
@@ -22,29 +26,47 @@ use: at a desk, after the session, on a wide monitor, in focus mode — reviewin
 not trading. Often dark rooms / low ambient light (the dark theme is deliberate,
 not decorative).
 
-## Brand personality
+## Identity
 
-Three words: **disciplined, precise, calm.** A trading-performance lab, not a
-hype machine. Confident and data-honest. Numerals are monospaced; copy is direct
-and never promissory.
+- **Product:** TradeLens AI
+- **Category:** Financial analytics dashboard / trading journal
+- **Tone:** Professional, dark, data-dense, premium fintech
+- **Brand personality:** disciplined, precise, calm. A trading-performance lab,
+  not a hype machine. Numerals monospaced; copy direct and never promissory.
 
-## Anti-references
+## Palette (2026-07 UI polish pass — supersedes previous palette)
 
-- **TradeZella / hype SaaS landing pages**: gradient hero washes, glassmorphism
-  cards, "Meet Your AI Trading Partner", icon-in-colored-circle feature grids,
-  centered-everything, "100K+ traders" social-proof theater. We borrow the
-  *polish*, not the slop.
-- Anything that implies signals, predictions, or guaranteed returns.
-- Neon "crypto bro" aesthetics; bouncy/elastic motion; emoji as icons.
+Teal `#00c2b2` accent on deep charcoal blacks (`#0d0f11` bg, `#13161a` surface).
+Success `#22c55e`, danger `#ef4444`, warning `#f59e0b`.
+Full token set lives in `src/tradelens/ui/design_system.py` — **the source of
+truth**. Never override tokens inline; never re-type hex values in pages.
+(Previous source of truth `components/theme.py` is being migrated.)
 
-## Strategic design principles
+## Anti-patterns to block
 
-- **Honest, not promissory.** No predictive language anywhere in UI copy (enforced
-  by tests). The product reviews the past; it never forecasts.
-- **Dark, data-dense, legible.** Background #0E1117, teal #20808D accent, terra
-  #A84B2F for losses. Space Grotesk headings, JetBrains Mono numerals, Inter body.
-- **Identity preservation.** A committed design system already exists in
-  `components/theme.py`; reuse its tokens, never reinvent colors locally.
+- Colored side borders on cards¹
+- Gradient buttons
+- Icon circles / icon-in-colored-circle feature grids
+- Centered everything
+- Purple/violet gradients
+- Emoji as design elements
+- Hype SaaS patterns: glassmorphism cards, social-proof theater, bouncy motion
+
+¹ Known conflict: the Phase 1C spec defines `.tl-insight-card.strength/.leak/.neutral`
+with 3px colored left borders. Owner decision pending — flag at Phase 1.
+
+## Language rules
+
+Blocked everywhere (code, UI copy, prompts): "entry signal", "live trade",
+"buy now", "go long", "go short", "trade this", "signal", "alert".
+AI output is read-only, reflection-only, never auto-applied. The product
+reviews the past; it never forecasts.
+
+## Provenance & confidence (screenshot AI)
+
+- Badges: "Read from label" / "Estimated from markup" / "Not visible"
+- Confidence ≥ 0.70 → auto-checked; < 0.70 → unchecked
+- Red is for errors only — never for checkbox states
 
 ## Accessibility
 

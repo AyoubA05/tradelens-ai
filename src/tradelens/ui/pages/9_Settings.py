@@ -38,9 +38,11 @@ from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: 
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import section_header  # noqa: E402
+from src.tradelens.ui.design_system import inject_design_system  # noqa: E402
 
 st.set_page_config(page_title="Settings")
 inject_css()
+inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
 render_demo_banner()
 render_sidebar()
@@ -50,23 +52,26 @@ st.markdown(section_header("Settings"), unsafe_allow_html=True)
 st.subheader("AI Status")
 if has_api_key():
     st.markdown(
-        '<div style="background:rgba(46,125,50,0.15);border:1px solid #2e7d32;'
-        'border-radius:8px;padding:10px 14px;color:#7bd88f">'
+        '<div style="background:var(--tl-success-dim);'
+        "border:1px solid var(--tl-success);"
+        'border-radius:8px;padding:10px 14px;color:var(--tl-success)">'
         "✅ <strong>AI Enabled</strong> — API key is configured.</div>",
         unsafe_allow_html=True,
     )
 elif is_demo():
     st.markdown(
-        '<div style="background:rgba(32,128,141,0.15);border:1px solid #20808D;'
-        'border-radius:8px;padding:10px 14px;color:#7fc9d3">'
+        '<div style="background:var(--tl-primary-dim);'
+        "border:1px solid var(--tl-primary);"
+        'border-radius:8px;padding:10px 14px;color:var(--tl-primary)">'
         "🔬 <strong>Demo mode</strong> — AI sections run on cached sample "
         "responses. No key needed, zero spend.</div>",
         unsafe_allow_html=True,
     )
 else:
     st.markdown(
-        '<div style="background:rgba(168,75,47,0.15);border:1px solid #A84B2F;'
-        'border-radius:8px;padding:10px 14px;color:#e0855f">'
+        '<div style="background:var(--tl-danger-dim);'
+        "border:1px solid var(--tl-danger);"
+        'border-radius:8px;padding:10px 14px;color:var(--tl-danger)">'
         "❌ <strong>AI Disabled</strong> — API key not found.</div>",
         unsafe_allow_html=True,
     )
@@ -181,8 +186,9 @@ with clear_col:
 if st.session_state.get("_sample_loaded_n"):
     n_loaded = st.session_state.pop("_sample_loaded_n")
     st.markdown(
-        '<div style="background:rgba(46,125,50,0.15);border:1px solid #2e7d32;'
-        'border-radius:8px;padding:10px 14px;color:#7bd88f">'
+        '<div style="background:var(--tl-success-dim);'
+        "border:1px solid var(--tl-success);"
+        'border-radius:8px;padding:10px 14px;color:var(--tl-success)">'
         f"✅ Loaded {n_loaded} sample trades. Go to Dashboard to view analytics."
         "</div>",
         unsafe_allow_html=True,

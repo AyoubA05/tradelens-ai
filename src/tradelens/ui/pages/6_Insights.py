@@ -13,6 +13,7 @@ This is post-trade reflection only — never live signals, predictions, or advic
 
 import sys
 import datetime
+from html import escape
 from pathlib import Path
 
 # parents[4] of src/tradelens/ui/pages/*.py  →  project root
@@ -46,20 +47,26 @@ from src.tradelens.ui.components.auth import current_user_id, require_auth  # no
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
-from src.tradelens.ui.components.ui import (  # noqa: E402
-    empty_state,
-    error_box,
-    section_header,
+from src.tradelens.ui.components.ui import error_box  # noqa: E402
+from src.tradelens.ui.design_system import (  # noqa: E402
+    get_asset_as_base64,
+    inject_design_system,
+    render_badge,
+    render_banner,
+    render_empty_state,
+    render_kpi_card,
+    render_section_header,
 )
 from src.tradelens.utils.ai_utils import is_ai_enabled  # noqa: E402
 
 st.set_page_config(page_title="Insights & Review", layout="wide")
 inject_css()
+inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
 render_demo_banner()
 render_sidebar()
 st.markdown(
-    section_header(
+    render_section_header(
         "Insights & Review",
         "AI reviews your journal automatically — patterns and a weekly review, "
         "reflection only, never signals or advice.",
@@ -115,13 +122,22 @@ _ai_on = is_ai_enabled() or is_demo()
 
 if df.empty:
     st.markdown(
-        empty_state(
-            "No trades yet — log a few and the AI will start reviewing your journal.",
-            cta_label="Log a trade",
-            cta_href="/NewTrade",
+        render_empty_state(
+            "",
+            "No trades yet",
+            "Log a few trades and the AI will start reviewing your journal.",
         ),
         unsafe_allow_html=True,
     )
+    # page_link needs the multipage registry, which standalone AppTest boots
+    # don't build — degrade to a plain slug link (sidebar pattern).
+    try:
+        st.page_link("pages/1_NewTrade.py", label="Log a trade →")
+    except Exception:  # noqa: BLE001 — registry-less boots/tests only
+        st.markdown(
+            '<a href="/NewTrade" target="_self">Log a trade →</a>',
+            unsafe_allow_html=True,
+        )
     st.stop()
 
 
@@ -131,23 +147,58 @@ if df.empty:
 # Item 10: the former separate AI pattern-cards section (which made its own
 # second AI call) is retired — pattern signals now come from the single Weekly
 # Recap call below, which receives the weekly stats AND the pattern statistics.
-st.markdown(section_header("Pattern Insights"), unsafe_allow_html=True)
+st.markdown(render_section_header("Pattern Insights"), unsafe_allow_html=True)
 st.caption("Reflection only — these describe what already happened in your journal.")
+st.markdown(
+    render_banner("Reflective insights only, not trade signals.", "info"),
+    unsafe_allow_html=True,
+)
 
 if len(df) < 5:
     st.info(f"Log 5+ trades for richer pattern insights. Current: {len(df)} trades.")
 
-icons = {"positive": "🟢", "negative": "🔴", "neutral": "⚪"}
-conf_labels = {"low": "Low", "medium": "Medium", "high": "High"}
+# Insight-type → card variant / marker glyph (geometric shapes, not emoji).
+_VARIANT_BY_TYPE = {"positive": "strength", "negative": "leak", "neutral": "neutral"}
+_ICON_BY_VARIANT = {"strength": "▲", "leak": "▼", "neutral": "◆"}
+_CONF_LABEL = {"low": "Low", "medium": "Medium", "high": "High"}
+
+
+def _insight_card_html(ins: dict, sample_n: int) -> str:
+    """tl-insight-card with a CATEGORICAL confidence badge top-right.
+
+    The deterministic pattern engine reports confidence as low/medium/high —
+    design_system.render_insight_card would render a percentage, which implies
+    a precision the engine doesn't have, so the card is composed here from the
+    same CSS classes with render_badge(confidence-<tier>) instead.
+    """
+    variant = _VARIANT_BY_TYPE.get(str(ins.get("type")), "neutral")
+    icon = _ICON_BY_VARIANT[variant]
+    level = str(ins.get("confidence", "low"))
+    if level not in _CONF_LABEL:
+        level = "low"
+    badge = render_badge(f"{_CONF_LABEL[level]} confidence", f"confidence-{level}")
+    title = escape(str(ins.get("title", "")))
+    body = escape(str(ins.get("body", "")))
+    return (
+        f'<div class="tl-insight-card {variant}">'
+        '<div class="tl-insight-head">'
+        f'<span class="tl-insight-icon">{icon}</span>'
+        f'<span class="tl-insight-title">{title}</span>'
+        f"{badge}</div>"
+        f'<p class="tl-insight-body">{body}</p>'
+        '<p class="tl-insight-evidence">'
+        f"Evidence: based on {sample_n} journaled trades</p>"
+        "</div>"
+    )
+
+
 det_insights = generate_insights(df, _strategy)
 if det_insights:
     dcols = st.columns(2)
     for i, ins in enumerate(det_insights):
-        with dcols[i % 2]:
-            with st.container(border=True):
-                st.markdown(f"{icons.get(ins['type'], '⚪')} **{ins['title']}**")
-                st.markdown(ins["body"])
-                st.caption(f"{conf_labels.get(ins['confidence'], 'Low')} confidence")
+        dcols[i % 2].markdown(
+            _insight_card_html(ins, len(df)), unsafe_allow_html=True
+        )
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -164,19 +215,49 @@ def _default_week(frame: pd.DataFrame) -> datetime.date:
     return datetime.date.today()
 
 
+# Performance snapshot backdrop: recap_bg.png + rgba overlay (hero pattern).
+_recap_b64 = get_asset_as_base64("recap_bg.png")
+_RECAP_STYLE = (
+    "background-image: linear-gradient(rgba(13,15,17,0.72), "
+    f"rgba(13,15,17,0.72)), url(data:image/png;base64,{_recap_b64});"
+    if _recap_b64
+    else ""
+)
+
+
 def _render_week_stats(stats: dict) -> None:
+    """KPI snapshot row above the AI text (recap_bg + overlay wrapper)."""
     if not stats:
         return
-    s1, s2, s3, s4, s5 = st.columns(5)
-    s1.metric("Trades", stats.get("trades", 0))
-    s2.metric("Win Rate", f"{stats.get('win_rate', 0.0):.1%}")
-    s3.metric("Net P/L", f"${stats.get('total_pnl', 0.0):,.2f}")
     pf = stats.get("profit_factor")
-    s4.metric("Profit Factor", "∞" if pf is None else f"{pf:.2f}")
-    s5.metric("Edge Leak", f"${stats.get('total_edge_leak', 0.0):,.2f}")
+    if not stats.get("trades"):
+        pf_val = None  # nothing traded — N/A, not ∞
+    elif pf is None:
+        pf_val = float("inf")  # no losing trades this week
+    else:
+        pf_val = pf
+    cards = "".join(
+        [
+            render_kpi_card("Trades", stats.get("trades", 0), format="number"),
+            render_kpi_card(
+                "Win Rate", (stats.get("win_rate") or 0.0) * 100, format="percent"
+            ),
+            render_kpi_card("Net P&L", stats.get("total_pnl", 0.0)),
+            render_kpi_card("Profit Factor", pf_val, format="ratio"),
+            # Sign preserved by the service: negative = rule-breaking cost money.
+            render_kpi_card("Edge Leak", stats.get("total_edge_leak", 0.0)),
+        ]
+    )
+    st.markdown(
+        f'<div class="tl-hero-wrap" style="{_RECAP_STYLE}">'
+        f'<div class="tl-kpi-row">{cards}</div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _render_review_body(review: dict) -> None:
+    # Render the COMPLETE markdown once — never st.write() on a generator and
+    # never render partial chunks mid-stream (character-by-character bug).
     if review.get("content_md"):
         st.markdown(review["content_md"])
     thinking = review.get("thinking_summary")
@@ -211,7 +292,7 @@ def _auto_run_weekly(monday: str, uid) -> None:
 
 
 st.divider()
-st.markdown(section_header("Weekly Recap"), unsafe_allow_html=True)
+st.markdown(render_section_header("Weekly Recap"), unsafe_allow_html=True)
 st.caption(
     "One unified recap of a completed week — performance, what worked, pattern "
     "signals, and rule adherence. Reflection only, never signals or advice."
@@ -289,7 +370,7 @@ def _run_daily_debrief(day_iso: str, day_trades: list, cache_key: str) -> None:
 
 
 st.divider()
-st.markdown(section_header("Daily Debrief"), unsafe_allow_html=True)
+st.markdown(render_section_header("Daily Debrief"), unsafe_allow_html=True)
 st.caption(
     "A coach-like review of one completed trading day — reflection only, "
     "never signals or advice."

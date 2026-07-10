@@ -1,6 +1,7 @@
 import sys
 import math
 import datetime
+from html import escape
 from pathlib import Path
 
 # parents[4] of src/tradelens/ui/pages/*.py  →  project root
@@ -41,15 +42,25 @@ from src.tradelens.ui.components.charts import (  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import PLOTLY_TEMPLATE, inject_css  # noqa: E402
-from src.tradelens.ui.components.ui import empty_state, section_header  # noqa: E402
+from src.tradelens.ui.design_system import (  # noqa: E402
+    TL_BORDER,
+    TL_SURFACE,
+    TL_TEXT,
+    inject_design_system,
+    render_empty_state,
+    render_section_header,
+)
 
 st.set_page_config(page_title="Analytics", layout="wide")
 inject_css()
+inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
 render_demo_banner()
 render_sidebar()
 st.markdown(
-    section_header("Analytics", "Your trading performance, sectioned for clarity"),
+    render_section_header(
+        "Analytics", "Your trading performance, sectioned for clarity"
+    ),
     unsafe_allow_html=True,
 )
 
@@ -72,14 +83,42 @@ def _ratio(v) -> str:
 
 
 def _styled(fig):
-    fig.update_layout(template=PLOTLY_TEMPLATE)
+    """Dark-theme chart layout (design-system tokens; params confirmed on the
+    current Plotly API — update_layout merges, per-chart axis settings kept)."""
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        plot_bgcolor=TL_SURFACE,
+        paper_bgcolor=TL_SURFACE,
+        font=dict(color=TL_TEXT),
+        xaxis=dict(gridcolor=TL_BORDER, showgrid=True),
+        yaxis=dict(gridcolor=TL_BORDER, showgrid=True),
+        margin=dict(l=16, r=16, t=32, b=16),
+    )
     return fig
+
+
+def _chart(fig, key: str, title: str = "") -> None:
+    """Card-wrapped chart. st.container(border=True) is the version-safe
+    tl-form-card equivalent (stPlotlyChart is not in the proven-selector
+    set, and Streamlit elements can't sit inside an HTML string wrapper)."""
+    with st.container(border=True):
+        if title:
+            st.markdown(f"**{title}**")
+        st.plotly_chart(
+            _styled(fig),
+            use_container_width=True,
+            key=key,
+            config={"displayModeBar": False},
+        )
+
+
+def _empty(icon: str, title: str, body: str) -> None:
+    st.markdown(render_empty_state(icon, title, body), unsafe_allow_html=True)
 
 
 def _section(title: str, description: str) -> None:
     st.divider()
-    st.markdown(section_header(title), unsafe_allow_html=True)
-    st.caption(description)
+    st.markdown(render_section_header(title, description), unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=60)
@@ -143,14 +182,18 @@ if not df_raw.empty:
             df_raw[_col] = pd.NA
 
 if df_raw.empty:
-    st.markdown(
-        empty_state(
-            "No trades in this range yet — log a trade to unlock your analytics.",
-            cta_label="Log a trade",
-            cta_href="/NewTrade",
-        ),
-        unsafe_allow_html=True,
+    _empty(
+        "◆",
+        "No trades in this range yet",
+        "Log a trade to unlock your analytics.",
     )
+    try:
+        st.page_link("pages/1_NewTrade.py", label="Log a trade →")
+    except Exception:  # noqa: BLE001 — registry-less boots (AppTest) raise
+        st.markdown(
+            '<a href="/NewTrade" target="_self">Log a trade →</a>',
+            unsafe_allow_html=True,
+        )
     st.stop()
 
 fc1, fc2, fc3 = st.columns(3)
@@ -180,7 +223,7 @@ if sel_strats:
     df = df[df["strategy_used"].isin(sel_strats)]
 
 if df.empty:
-    st.warning("No trades match the selected filters. Adjust the range or filters.")
+    _empty("◆", "No matching trades", "Adjust the date range or filters.")
     st.stop()
 
 
@@ -203,10 +246,9 @@ k8.metric("Largest Loss", f"${m['worst_trade']:,.2f}")
 
 eq_df = equity_curve_series(df)
 if not eq_df.empty:
-    st.markdown("**Equity Curve**")
-    st.plotly_chart(
-        _styled(equity_curve_chart(eq_df)), use_container_width=True, key="an_eq"
-    )
+    _chart(equity_curve_chart(eq_df), "an_eq", "Equity Curve")
+else:
+    _empty("📈", "Equity curve not available", "Log P&L on trades to chart it.")
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -233,29 +275,34 @@ if best_sess is not None:
     )
 
 if worst_sess is not None:
+    # Danger reads only for truly negative outcomes: a positive "worst"
+    # session is just the lowest — neutral label, neutral delta color.
+    _worst_pnl = float(worst_sess["total_pnl"])
+    _worst_label = "Worst Session" if _worst_pnl < 0 else "Lowest Session"
     bw1, _bw2 = st.columns([1, 3])
     bw1.metric(
-        "Worst Session", str(worst_sess["session"]), f"${worst_sess['total_pnl']:,.0f}"
+        _worst_label,
+        str(worst_sess["session"]),
+        f"${_worst_pnl:,.0f}",
+        delta_color="normal" if _worst_pnl < 0 else "off",
     )
 
 rc1, rc2 = st.columns(2)
 with rc1:
-    st.markdown("**Risk ($) per Trade Over Time**")
     if df["risk_amount"].notna().any():
-        st.plotly_chart(
-            _styled(risk_over_time_chart(df)), use_container_width=True, key="an_risk"
-        )
+        _chart(risk_over_time_chart(df), "an_risk", "Risk ($) per Trade Over Time")
     else:
-        st.caption("Log a Risk ($) on your trades to see this trend.")
+        _empty("📏", "Risk trend not available", "Log Risk ($) to unlock.")
 with rc2:
-    st.markdown("**Drawdown**")
     dd_df = drawdown_series(df)
     if not dd_df.empty:
-        st.plotly_chart(
-            _styled(drawdown_chart(dd_df)), use_container_width=True, key="an_dd"
-        )
+        _chart(drawdown_chart(dd_df), "an_dd", "Drawdown")
     else:
-        st.caption("No drawdown yet — log a few more trades to chart it.")
+        _empty(
+            "📉",
+            "Drawdown not available",
+            "Log a few more trades to chart it.",
+        )
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -268,28 +315,35 @@ _section(
 dow_df = by_day_of_week(df)
 ts1, ts2 = st.columns(2)
 with ts1:
-    st.markdown("**P&L by Session**")
     if not sess_df.empty:
-        st.plotly_chart(
-            _styled(pnl_by_session_chart(sess_df)),
-            use_container_width=True,
-            key="an_sess",
-        )
+        _chart(pnl_by_session_chart(sess_df), "an_sess", "P&L by Session")
     else:
-        st.caption("Sessions are auto-detected from entry time on new trades.")
+        _empty(
+            "🕐",
+            "Session data not available",
+            "Sessions are auto-detected from entry time on new trades.",
+        )
 with ts2:
-    st.markdown("**P&L by Day of Week**")
     if not dow_df.empty:
-        st.plotly_chart(
-            _styled(pnl_by_dow_chart(dow_df)), use_container_width=True, key="an_dow"
-        )
+        _chart(pnl_by_dow_chart(dow_df), "an_dow", "P&L by Day of Week")
     else:
-        st.caption("Log more trades to see day-of-week trends.")
+        _empty(
+            "📅",
+            "Day-of-week data not available",
+            "Log more trades to see day-of-week trends.",
+        )
 
 if not sess_df.empty and not dow_df.empty:
-    st.markdown("**Net P&L Heatmap — Session × Day of Week**")
-    st.plotly_chart(
-        _styled(session_dow_heatmap(df)), use_container_width=True, key="an_heat"
+    _chart(
+        session_dow_heatmap(df),
+        "an_heat",
+        "Net P&L Heatmap — Session × Day of Week",
+    )
+else:
+    _empty(
+        "🗓",
+        "Heatmap not available",
+        "Needs both session and day-of-week data.",
     )
 
 
@@ -298,40 +352,48 @@ if not sess_df.empty and not dow_df.empty:
 # ══════════════════════════════════════════════════════════════════
 _section(
     "Setup Performance",
-    "Which setups carry your edge — sortable by any column (click a header).",
+    "Which setups carry your edge — ranked by total P&L.",
 )
 setup_df = compute_breakdown(df, "setup_type")
 if setup_df.empty:
-    st.caption("Assign setup types to trades to see this breakdown.")
+    _empty(
+        "🧩",
+        "Setup data not available",
+        "Assign setup types to trades to see this leaderboard.",
+    )
 else:
-    setup_df = setup_df.copy()
-    setup_df["profit_factor"] = setup_df["setup_type"].map(
-        lambda s: compute_profit_factor_raw(df[df["setup_type"] == s])
-    )
-    table = setup_df[
-        ["setup_type", "trades", "win_rate", "avg_pnl", "profit_factor", "total_pnl"]
-    ].rename(
-        columns={
-            "setup_type": "Setup",
-            "trades": "Trades",
-            "win_rate": "Win Rate",
-            "avg_pnl": "Avg P&L",
-            "profit_factor": "Profit Factor",
-            "total_pnl": "Total P&L",
-        }
-    )
-    table["Profit Factor"] = table["Profit Factor"].map(_fmt_pf)
-    # NumberColumn percent format expects 0–100; win_rate is a 0–1 fraction.
-    table["Win Rate"] = (table["Win Rate"] * 100).round(1)
-    st.dataframe(
-        table,
-        hide_index=True,
-        use_container_width=True,
-        column_config={
-            "Win Rate": st.column_config.NumberColumn("Win Rate", format="%.1f%%"),
-            "Avg P&L": st.column_config.NumberColumn("Avg P&L", format="$%.2f"),
-            "Total P&L": st.column_config.NumberColumn("Total P&L", format="$%.2f"),
-        },
+    # compute_breakdown returns rows sorted by total_pnl desc → rank order.
+    _lb_rows = []
+    for _rank, _r in enumerate(setup_df.itertuples(index=False), start=1):
+        _pf = compute_profit_factor_raw(df[df["setup_type"] == _r.setup_type])
+        _wr = float(_r.win_rate or 0.0)
+        _wr_cls = " pnl-pos" if _wr >= 0.5 else ""
+        try:
+            _avg = float(_r.avg_pnl)
+        except (TypeError, ValueError):
+            _avg = None
+        if _avg is None or pd.isna(_avg):
+            _avg_cls, _avg_txt = "", "—"
+        else:
+            _avg_cls = " pnl-pos" if _avg > 0 else (" pnl-neg" if _avg < 0 else "")
+            _avg_txt = f"-${abs(_avg):,.2f}" if _avg < 0 else f"${_avg:,.2f}"
+        _lb_rows.append(
+            "<tr>"
+            f'<td class="mono">{_rank}</td>'
+            f"<td>{escape(str(_r.setup_type))}</td>"
+            f'<td class="mono">{int(_r.trades)}</td>'
+            f'<td class="mono{_wr_cls}">{_wr:.1%}</td>'
+            f'<td class="mono{_avg_cls}">{_avg_txt}</td>'
+            f'<td class="mono">{_fmt_pf(_pf)}</td>'
+            "</tr>"
+        )
+    st.markdown(
+        '<div class="tl-form-card"><div class="tl-table-wrap">'
+        '<table class="tl-table"><thead><tr>'
+        "<th>Rank</th><th>Setup</th><th>Trades</th>"
+        "<th>Win Rate</th><th>Avg P&amp;L</th><th>PF</th>"
+        f'</tr></thead><tbody>{"".join(_lb_rows)}</tbody></table></div></div>',
+        unsafe_allow_html=True,
     )
 
 
@@ -355,31 +417,34 @@ foll_n, broke_n = int(foll_mask.sum()), int(broke_mask.sum())
 
 ep1, ep2 = st.columns(2)
 with ep1:
-    st.markdown("**Win Rate — Followed Rules vs Broke Rules**")
     if foll_n or broke_n:
         foll_wr = float(win[foll_mask].mean()) if foll_n else 0.0
         broke_wr = float(win[broke_mask].mean()) if broke_n else 0.0
-        st.plotly_chart(
-            _styled(win_rate_rules_chart(foll_wr, broke_wr, foll_n, broke_n)),
-            use_container_width=True,
-            key="an_rules",
+        _chart(
+            win_rate_rules_chart(foll_wr, broke_wr, foll_n, broke_n),
+            "an_rules",
+            "Win Rate — Followed Rules vs Broke Rules",
         )
     else:
-        st.caption("Answer 'Followed your rules?' on trades to see this.")
+        _empty(
+            "📐",
+            "Rule data not available",
+            "Answer 'Followed your rules?' when logging to see this.",
+        )
 with ep2:
-    st.markdown("**P&L by Emotional State**")
     emo_df = compute_breakdown(df, "emotions_before")
     if not emo_df.empty:
-        st.plotly_chart(
-            _styled(pnl_by_emotion_chart(emo_df)),
-            use_container_width=True,
-            key="an_emo",
-        )
+        _chart(pnl_by_emotion_chart(emo_df), "an_emo", "P&L by Emotional State")
     else:
-        st.caption("Tag your pre-trade emotion to see this breakdown.")
+        _empty(
+            "🧠",
+            "Emotion data not available",
+            "Fill Psychology section when logging.",
+        )
 
 
-# ── Calendar (kept, secondary) ────────────────────────────────────
-st.divider()
-with st.expander("📅 Calendar view"):
-    render_calendar(df_raw)
+# ══════════════════════════════════════════════════════════════════
+# 6 · CALENDAR VIEW
+# ══════════════════════════════════════════════════════════════════
+_section("Calendar View", "Daily P&L across the month, at a glance.")
+render_calendar(df_raw)

@@ -1,9 +1,10 @@
 [theme]
 base = "dark"
-primaryColor = "#20808D"
-backgroundColor = "#0E1117"
-secondaryBackgroundColor = "#161B22"
-textColor = "#E8EAED"
+# Palette source of truth: src/tradelens/ui/design_system.py (2026-07 polish pass)
+primaryColor = "#00c2b2"
+backgroundColor = "#0d0f11"
+secondaryBackgroundColor = "#13161a"
+textColor = "#e8eaed"
 font = "sans serif"
 
 [server]
@@ -17,3 +18,7 @@ gatherUsageStats = false
 # Hide Streamlit's auto page nav — TradeLens renders its own labeled menu
 # (components/sidebar.py) so the sidebar shows exactly six destinations.
 showSidebarNavigation = false
+# Config-first chrome suppression (verified valid on streamlit==1.50.0 via
+# docs): hides deploy button + dev menu without CSS hacks on unproven
+# selectors like stToolbar/stDecoration.
+toolbarMode = "minimal"

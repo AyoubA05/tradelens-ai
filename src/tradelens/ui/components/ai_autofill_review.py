@@ -67,7 +67,8 @@ _APPLIED_KEY = "_nt_ai_applied"  # list[str] applied on the last Apply (transien
 # Public: nt_* writes staged by Apply, drained by the page before widgets render.
 PENDING_WRITES_KEY = "_nt_pending_writes"
 _OVERLAY_KEY = "_nt_ai_overlay"  # TradeOverlay from the last analysis (Phase 3)
-# "Keep reviewing" dismisses the modal but keeps the detection staged for reopen.
+# Legacy dialog-dismiss flag (pre-Phase-4 modal). Kept in the clear lists so
+# stale state from an old session can never linger.
 _DIALOG_DISMISSED_KEY = "_nt_ai_dialog_dismissed"
 _QUALITY_KEY = "_nt_ai_quality"  # list[str] pre-check warnings for this analysis
 _ERROR_KEY = "_nt_ai_error"  # analysis failure message (survives the rerun)
@@ -554,6 +555,12 @@ def _select_descriptive(result: AutofillResult) -> list:
         value = _display_value(field, result.prefill[field])
         if st.checkbox(f"{label}: {value}", value=True, key=f"_nt_sel_{field}"):
             selected.append(field)
+        if field == "confluences" and result.prefill[field]:
+            from src.tradelens.ui.design_system import render_chip_row
+
+            st.markdown(
+                render_chip_row(list(result.prefill[field])), unsafe_allow_html=True
+            )
     return selected
 
 
@@ -658,66 +665,106 @@ def _select_prices(overlay: TradeOverlay) -> list:
     return selected
 
 
-def _open_detection_dialog(
+def _render_scanning_video() -> None:
+    """Ambient 'AI reviewing your chart' loop shown while analysis runs.
+
+    Best-effort: silently skipped when the asset hasn't been generated yet.
+    """
+    import streamlit as st
+
+    try:
+        from src.tradelens.ui.design_system import ASSETS_DIR
+
+        path = ASSETS_DIR / "ai_scanning.mp4"
+        if path.is_file():
+            st.video(str(path), loop=True, autoplay=True, muted=True)
+    except Exception:  # noqa: BLE001 — a missing asset must never block analysis
+        pass
+
+
+def _identity_chips(result: AutofillResult) -> list:
+    """Chart-identity chip texts (instrument + descriptive singles, no lists)."""
+    chips = []
+    instrument = (result.observations or {}).get("instrument_name")
+    if instrument:
+        chips.append(str(instrument))
+    for field in ("asset", "timeframe", "htf_bias", "ltf_bias"):
+        value = result.prefill.get(field)
+        if value is not None:
+            chips.append(f"{_FIELD_LABELS[field]}: {value}")
+    return chips
+
+
+def _render_detection_panel(
     result: Optional[AutofillResult],
     overlay: Optional[TradeOverlay],
+    screenshot_file,
+    screenshot_url: Optional[str],
     known_assets: list,
 ) -> None:
-    """Open the 'Here is what the AI detected' confirmation modal (Change A).
+    """Two-panel detection review: chart left, AI reading right (Phase 4).
 
     Nothing is written to the form until the trader confirms with Apply — the
     screenshot auto-detect / user-confirms safety contract.
     """
     import streamlit as st
 
-    @st.dialog("This is what the AI detected")
-    def _dlg() -> None:
-        st.caption(
-            "Review what the AI read from your chart, then choose. Nothing is "
-            "written to your form until you apply it — and every field stays "
-            "editable afterward."
-        )
-        for warning in st.session_state.get(_QUALITY_KEY) or []:
-            st.warning(f"Screenshot quality: {warning}")
-        instrument = (
-            (result.observations or {}).get("instrument_name")
-            if isinstance(result, AutofillResult)
-            else None
-        )
-        if instrument:
-            st.caption(f"Instrument: {instrument}")
-        sel_desc = (
-            _select_descriptive(result) if isinstance(result, AutofillResult) else []
-        )
-        if isinstance(result, AutofillResult):
-            _render_observations(result.observations)
-        sel_prices = (
-            _select_prices(overlay) if isinstance(overlay, TradeOverlay) else []
-        )
-        if not _overlay_has_content(overlay):
-            st.caption(
-                "No trade-box markup was visibly detected on this chart, so no "
-                "prices can be suggested. You can still enter them manually."
+    from src.tradelens.ui.design_system import render_badge, render_chip_row
+
+    left, right = st.columns([1, 1])
+    with left:
+        if screenshot_file is not None:
+            st.image(screenshot_file, caption="Your chart", use_container_width=True)
+        elif screenshot_url:
+            st.image(screenshot_url, caption="Your chart", use_container_width=True)
+    with right:
+        with st.container(border=True):
+            st.markdown(
+                render_badge("AI chart review", "primary"), unsafe_allow_html=True
             )
+            st.caption(
+                "Nothing is written to your form until you apply it — and "
+                "every field stays editable afterward."
+            )
+            for warning in st.session_state.get(_QUALITY_KEY) or []:
+                st.warning(f"Screenshot quality: {warning}")
+            if isinstance(result, AutofillResult):
+                chips = _identity_chips(result)
+                if chips:
+                    st.markdown(render_chip_row(chips), unsafe_allow_html=True)
+            sel_desc = (
+                _select_descriptive(result)
+                if isinstance(result, AutofillResult)
+                else []
+            )
+            if isinstance(result, AutofillResult):
+                _render_observations(result.observations)
+            sel_prices = (
+                _select_prices(overlay) if isinstance(overlay, TradeOverlay) else []
+            )
+            if not _overlay_has_content(overlay):
+                st.caption(
+                    "No trade-box markup was visibly detected on this chart, so "
+                    "no prices can be suggested. You can still enter them "
+                    "manually."
+                )
 
-        st.divider()
-        c1, c2, c3 = st.columns(3)
-        if c1.button("Apply detected fields", type="primary", key="_nt_ai_apply"):
-            _apply_all(result, overlay, sel_desc, sel_prices, known_assets)
-            st.rerun()
-        if c2.button("Keep reviewing", key="_nt_ai_keep"):
-            # Dismiss the modal but keep the detection staged for reopen.
-            st.session_state[_DIALOG_DISMISSED_KEY] = True
-            st.rerun()
-        if c3.button("Cancel", key="_nt_ai_cancel"):
-            # Outcome tracking: an explicit cancel is a rejection of the
-            # suggestions (the analysis itself still persists with the trade).
-            st.session_state[_OUTCOME_KEY] = "rejected"
-            st.session_state[_APPLIED_KEY] = []
-            _discard_detection()
-            st.rerun()
-
-    _dlg()
+    c1, c2 = st.columns(2)
+    if c1.button(
+        "Apply detected fields →",
+        type="primary",
+        key="_nt_ai_apply",
+        use_container_width=True,
+    ):
+        _apply_all(result, overlay, sel_desc, sel_prices, known_assets)
+        st.rerun()
+    if c2.button("Skip AI →", key="_nt_ai_cancel", use_container_width=True):
+        # Outcome tracking: an explicit skip is a rejection of the
+        # suggestions (the analysis itself still persists with the trade).
+        st.session_state[_OUTCOME_KEY] = "rejected"
+        st.session_state[_APPLIED_KEY] = []
+        _discard_detection()
+        st.rerun()
 
 
 def _has_detection(result, overlay) -> bool:
@@ -743,6 +790,16 @@ def _source_signature(screenshot_file, screenshot_url):
     return None
 
 
+def has_staged_detection() -> bool:
+    """True when an unapplied AI detection is staged (the page hides its own
+    screenshot preview then — the two-panel review shows the chart instead)."""
+    import streamlit as st
+
+    return _has_detection(
+        st.session_state.get(_RESULT_KEY), st.session_state.get(_OVERLAY_KEY)
+    )
+
+
 def render_autofill_review(
     *,
     screenshot_file,
@@ -750,19 +807,14 @@ def render_autofill_review(
     strategy_profile: Optional[dict],
     known_assets: Iterable[str],
 ) -> None:
-    """Render the auto-running analysis and, after it, the AI detection dialog."""
+    """Render the auto-running analysis and, after it, the detection review."""
     import streamlit as st
-
-    st.markdown("**AI Autofill (optional)**")
-    st.caption(
-        "Post-trade chart review — suggestions you confirm before they touch "
-        "the form. Never signals or entries."
-    )
 
     if not _ai_available():
         st.info(
-            "AI autofill is off. Add your Anthropic API key in Settings to get "
-            "post-trade chart suggestions. You can still fill the form manually."
+            "AI chart review is off. Add your Anthropic API key in Settings to "
+            "get post-trade chart suggestions. You can still fill the form "
+            "manually."
         )
         return
 
@@ -786,6 +838,7 @@ def render_autofill_review(
     sig = _source_signature(screenshot_file, screenshot_url)
     if sig is not None and st.session_state.get(_SRC_SIG_KEY) != sig:
         st.session_state[_SRC_SIG_KEY] = sig
+        _render_scanning_video()
         with st.spinner("Analyzing your chart…"):
             _analyze(screenshot_file, screenshot_url, strategy_profile, known_assets)
         st.rerun()
@@ -796,6 +849,7 @@ def render_autofill_review(
         st.session_state.get(_RESULT_KEY), AutofillResult
     ) or st.session_state.get(_ERROR_KEY)
     if has_activity and st.button("Re-analyze screenshot", key="_nt_ai_analyze"):
+        _render_scanning_video()
         with st.spinner("Analyzing your chart…"):
             _analyze(screenshot_file, screenshot_url, strategy_profile, known_assets)
         st.rerun()
@@ -805,19 +859,14 @@ def render_autofill_review(
     if error:
         st.warning(error)
 
-    # Result survives reruns in session_state. The dialog opens whenever a fresh
-    # detection is staged; "Keep reviewing" dismisses it but keeps the detection so
-    # the trader can look at the form and reopen it (Change A).
+    # Result survives reruns in session_state. The two-panel review renders
+    # whenever a detection is staged, until it is applied or skipped (Phase 4).
     result = st.session_state.get(_RESULT_KEY)
     overlay = st.session_state.get(_OVERLAY_KEY)
     if _has_detection(result, overlay):
-        if st.session_state.get(_DIALOG_DISMISSED_KEY):
-            st.caption("AI detection ready — not yet applied.")
-            if st.button("Review AI detection", key="_nt_ai_reopen"):
-                st.session_state.pop(_DIALOG_DISMISSED_KEY, None)
-                st.rerun()
-        else:
-            _open_detection_dialog(result, overlay, list(known_assets))
+        _render_detection_panel(
+            result, overlay, screenshot_file, screenshot_url, list(known_assets)
+        )
     elif isinstance(result, AutofillResult):
         st.info("AI didn't find fields it could suggest. Fill the form manually.")
         _discard_detection()

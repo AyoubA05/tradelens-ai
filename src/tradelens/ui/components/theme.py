@@ -154,43 +154,9 @@ def _build_css() -> str:
     outline: 2px solid {TEAL};
     outline-offset: 2px;
 }}
-.tl-kpi-card {{
-    background: {SURFACE};
-    border: 1px solid {BORDER};
-    border-radius: {RADIUS_MD};
-    padding: 16px 16px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
-    transition: transform 0.18s ease-out, box-shadow 0.18s ease-out, border-color 0.18s ease-out;
-    overflow: visible;
-}}
-@media (hover: hover) and (pointer: fine) {{
-    .tl-kpi-card:hover {{
-        transform: translateY(-2px);
-        border-color: {TEAL};
-        box-shadow: 0 0 18px {TEAL_SOFT};
-    }}
-}}
-.tl-kpi-label {{
-    color: {TEXT_MUTED};
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-}}
-.tl-kpi-value {{
-    font-family: '{MONO_FONT}', monospace;
-    /* Responsive so a six-card KPI row never clips values like "$2,800.00". */
-    font-size: clamp(1.05rem, 1.5vw, 1.55rem);
-    font-weight: 600;
-    color: {TEXT_PRIMARY};
-    white-space: nowrap;
-    overflow: visible;
-    line-height: 1.25;
-}}
-.tl-kpi-delta {{
-    font-family: '{MONO_FONT}', monospace;
-    font-size: 0.85rem;
-    margin-top: 2px;
-}}
+/* .tl-kpi-* and .tl-section-* rules moved to design_system.py (Phase 9
+   dedupe) — design_system is injected after theme on every page that
+   renders those classes, so it is the single source of truth. */
 .tl-grade-chip {{
     display: inline-block;
     padding: 2px 10px;
@@ -209,19 +175,6 @@ def _build_css() -> str:
     color: {TEXT_SECONDARY};
     font-size: 0.78rem;
     font-weight: 500;
-}}
-.tl-section-header {{
-    margin: 10px 0 6px 0;
-}}
-.tl-section-title {{
-    font-family: '{HEADING_FONT}', sans-serif;
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: {TEXT_PRIMARY};
-}}
-.tl-section-subtitle {{
-    color: {TEXT_MUTED};
-    font-size: 0.9rem;
 }}
 .tl-empty-state {{
     background: {SURFACE};
@@ -264,12 +217,10 @@ def _build_css() -> str:
     margin: 6px 12% 6px 0;
 }}
 @media (prefers-reduced-motion: reduce) {{
-    .stButton > button,
-    .tl-kpi-card {{
+    .stButton > button {{
         transition: none;
     }}
-    .stButton > button:hover,
-    .tl-kpi-card:hover {{
+    .stButton > button:hover {{
         transform: none;
     }}
 }}
