@@ -238,3 +238,4 @@ data/
 
 # Installed skills (npx skills)
 .agents/
+.claude/settings.local.json
