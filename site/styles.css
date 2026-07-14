@@ -1,0 +1,150 @@
+/* ============================================================
+   TradeLens AI — marketing site
+   Dark cinematic, product-matched. Tokens mirror the app UI.
+   ============================================================ */
+
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-2: #1c232b;
+  --border: #252a32;
+  --text: #e8eaed;
+  --muted: #9aa4b2;
+  --accent: #00e5cc;
+  --accent-dim: rgba(0, 229, 204, 0.12);
+
+  --font-display: 'Schibsted Grotesk', 'Inter', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --container: 1140px;
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+* { margin: 0; }
+
+html {
+  scroll-padding-top: 88px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+img, video { max-width: 100%; display: block; }
+
+a { color: inherit; }
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  font-weight: 650;
+  text-wrap: balance;
+}
+
+h1 { font-size: clamp(2.5rem, 6.5vw, 4.6rem); }
+h2 { font-size: clamp(1.8rem, 3.6vw, 2.75rem); }
+h3 { font-size: 1.125rem; font-weight: 600; }
+
+p { text-wrap: pretty; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+::selection { background: var(--accent-dim); color: var(--text); }
+
+/* ---- layout utilities ---- */
+
+.container {
+  max-width: var(--container);
+  margin-inline: auto;
+  padding-inline: 24px;
+}
+
+.section {
+  padding-block: clamp(72px, 10vw, 140px);
+  position: relative;
+}
+
+.kicker {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* signature: rising-candles glyph beside every kicker (echoes the logo) */
+.kicker .candles { flex: none; opacity: 0.9; }
+
+.lead {
+  color: var(--muted);
+  font-size: 1.0625rem;
+  max-width: 56ch;
+}
+
+/* ---- ambience ---- */
+
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+.glow {
+  position: fixed;
+  z-index: 0;
+  pointer-events: none;
+  width: 640px;
+  height: 640px;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.13;
+  background: radial-gradient(circle, var(--accent) 0%, transparent 65%);
+}
+
+.glow-a { top: -280px; left: -180px; }
+.glow-b { bottom: -320px; right: -200px; opacity: 0.09; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .glow-a { animation: drift-a 26s ease-in-out infinite alternate; }
+  .glow-b { animation: drift-b 32s ease-in-out infinite alternate; }
+}
+
+@keyframes drift-a {
+  from { transform: translate(0, 0); }
+  to   { transform: translate(90px, 60px); }
+}
+
+@keyframes drift-b {
+  from { transform: translate(0, 0); }
+  to   { transform: translate(-70px, -80px); }
+}
+
+main { position: relative; z-index: 1; }

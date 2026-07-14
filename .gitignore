@@ -164,8 +164,7 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs documentation
-/site
+# mkdocs documentation (rule removed: site/ is the tracked marketing website)
 
 # mypy
 .mypy_cache/
