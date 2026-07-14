@@ -173,11 +173,78 @@
     </section>
 
     <section class="section" id="how">
-      <!-- Task 6: how it works -->
+      <div class="container">
+        <header class="section-head" data-reveal>
+          <p class="kicker">
+            <svg class="candles" width="20" height="16" viewBox="0 0 20 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3.5" y1="6" x2="3.5" y2="15.5"></line><rect x="1.5" y="8" width="4" height="5"></rect>
+              <line x1="10" y1="3" x2="10" y2="13.5"></line><rect x="8" y="5" width="4" height="5.5"></rect>
+              <line x1="16.5" y1="0.5" x2="16.5" y2="10.5"></line><rect x="14.5" y="2" width="4" height="6"></rect>
+            </svg>
+            How it works
+          </p>
+          <h2>Three steps. Every trade.</h2>
+        </header>
+
+        <ol class="steps">
+          <li class="step" data-reveal style="--i:0">
+            <span class="step-mark" aria-hidden="true"><svg width="20" height="16" viewBox="0 0 20 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><line x1="3.5" y1="6" x2="3.5" y2="15.5"></line><rect x="1.5" y="8" width="4" height="5"></rect></svg></span>
+            <h3>Log your trade</h3>
+            <p>Upload your chart screenshot after the trade. The AI reads the context so you don't start from a blank form.</p>
+          </li>
+          <li class="step" data-reveal style="--i:1">
+            <span class="step-mark" aria-hidden="true"><svg width="20" height="16" viewBox="0 0 20 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><line x1="3.5" y1="6" x2="3.5" y2="15.5"></line><rect x="1.5" y="8" width="4" height="5"></rect><line x1="10" y1="3" x2="10" y2="13.0"></line><rect x="8" y="5" width="4" height="5.5"></rect></svg></span>
+            <h3>AI reviews your setup</h3>
+            <p>Your entry is compared against your own Strategy Profile. Rule breaks get flagged, honestly.</p>
+          </li>
+          <li class="step" data-reveal style="--i:2">
+            <span class="step-mark" aria-hidden="true"><svg width="20" height="16" viewBox="0 0 20 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><line x1="3.5" y1="6" x2="3.5" y2="15.5"></line><rect x="1.5" y="8" width="4" height="5"></rect><line x1="10" y1="3" x2="10" y2="13.0"></line><rect x="8" y="5" width="4" height="5.5"></rect><line x1="16.5" y1="0" x2="16.5" y2="10.5"></line><rect x="14.5" y="2" width="4" height="6"></rect></svg></span>
+            <h3>Track your patterns</h3>
+            <p>See which setups win, when you break rules, and why. The journal turns hindsight into next week's discipline.</p>
+          </li>
+        </ol>
+      </div>
     </section>
 
     <section class="section section-band" id="ai">
-      <!-- Task 6: AI deep dive -->
+      <video class="band-video" autoplay muted loop playsinline preload="metadata"
+             poster="assets/poster-ai.webp" aria-hidden="true">
+        <source src="assets/ai-loop.mp4" type="video/mp4">
+      </video>
+      <div class="band-scrim" aria-hidden="true"></div>
+      <div class="container band-content">
+        <header class="section-head" data-reveal>
+          <p class="kicker">
+            <svg class="candles" width="20" height="16" viewBox="0 0 20 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3.5" y1="6" x2="3.5" y2="15.5"></line><rect x="1.5" y="8" width="4" height="5"></rect>
+              <line x1="10" y1="3" x2="10" y2="13.5"></line><rect x="8" y="5" width="4" height="5.5"></rect>
+              <line x1="16.5" y1="0.5" x2="16.5" y2="10.5"></line><rect x="14.5" y="2" width="4" height="6"></rect>
+            </svg>
+            The AI layer
+          </p>
+          <h2>A second set of eyes on every trade — after you take it.</h2>
+          <p class="lead">Five guided steps turn a raw screenshot into a structured, reviewable journal entry.</p>
+        </header>
+
+        <div class="ai-layout">
+          <ol class="wizard-rail" data-reveal>
+            <li class="wizard-chip"><span class="chip-num">1</span> Screenshot &amp; AI</li>
+            <li class="wizard-chip"><span class="chip-num">2</span> Market Context</li>
+            <li class="wizard-chip"><span class="chip-num">3</span> Trade Details</li>
+            <li class="wizard-chip"><span class="chip-num">4</span> Psychology</li>
+            <li class="wizard-chip"><span class="chip-num">5</span> Review &amp; Save</li>
+          </ol>
+          <figure class="shot-frame ai-shot" data-reveal>
+            <span class="frame-dots" aria-hidden="true"></span>
+            <img src="assets/shot-newtrade.webp" alt="The New Trade wizard's first step with the five-step rail and screenshot upload" width="1400" height="933" loading="lazy">
+          </figure>
+        </div>
+
+        <aside class="compliance-note" data-reveal>
+          <p class="compliance-label">Post-trade only</p>
+          <p>Reflection, not signals. TradeLens reviews trades you've already taken — it never tells you what to trade.</p>
+        </aside>
+      </div>
     </section>
 
     <section class="section" id="pricing">
