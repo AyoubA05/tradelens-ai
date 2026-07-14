@@ -54,6 +54,81 @@ if (smallScreen || reducedMotion || saveData) {
   });
 }
 
+/* ---- scroll reveals ---- */
+
+if (!reducedMotion && "IntersectionObserver" in window) {
+  document.documentElement.classList.add("reveals-armed");
+  const io = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("revealed");
+          io.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.15, rootMargin: "0px 0px -8% 0px" }
+  );
+  document.querySelectorAll("[data-reveal]").forEach((el) => io.observe(el));
+}
+
+/* ---- tilt showcase: card straightens as it scrolls into view ---- */
+
+const tiltCard = document.querySelector(".tilt-card");
+
+if (tiltCard && !reducedMotion) {
+  let tiltTicking = false;
+  const updateTilt = () => {
+    const rect = tiltCard.getBoundingClientRect();
+    const vh = window.innerHeight;
+    // progress 0 → 1 as the card travels from below the fold to 10% up the viewport
+    const raw = (vh - rect.top) / (vh * 0.9);
+    const p = Math.min(1, Math.max(0, raw));
+    const eased = 1 - Math.pow(1 - p, 3); // ease-out cubic
+    tiltCard.style.setProperty("--tilt", `${16 * (1 - eased)}deg`);
+    tiltCard.style.setProperty("--tilt-scale", String(0.96 + 0.04 * eased));
+  };
+  updateTilt();
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (tiltTicking) return;
+      tiltTicking = true;
+      requestAnimationFrame(() => {
+        updateTilt();
+        tiltTicking = false;
+      });
+    },
+    { passive: true }
+  );
+}
+
+/* ---- CTA band: gentle backdrop parallax (desktop only) ---- */
+
+const ctaBackdrop = document.querySelector(".cta-backdrop");
+
+if (ctaBackdrop && !reducedMotion && !smallScreen) {
+  let ctaTicking = false;
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (ctaTicking) return;
+      ctaTicking = true;
+      requestAnimationFrame(() => {
+        const band = ctaBackdrop.parentElement;
+        const rect = band.getBoundingClientRect();
+        if (rect.bottom > 0 && rect.top < window.innerHeight) {
+          const mid = rect.top + rect.height / 2 - window.innerHeight / 2;
+          const shift = Math.max(-24, Math.min(24, -mid * 0.06));
+          ctaBackdrop.style.transform = `translateY(${shift}px)`;
+        }
+        ctaTicking = false;
+      });
+    },
+    { passive: true }
+  );
+}
+
 /* ---- hero entrance: word-split stagger ---- */
 
 const hero = document.querySelector(".hero");

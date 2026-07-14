@@ -6,6 +6,7 @@
   <title>TradeLens AI — Post-Trade Journal. AI-Powered Growth.</title>
   <meta name="description" content="TradeLens AI is an AI-powered post-trade journal that analyzes your setups, psychology, and performance — so you can trade better tomorrow.">
   <link rel="icon" href="assets/favicon.png">
+  <link rel="preload" as="image" href="assets/poster-hero.webp" fetchpriority="high">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -64,6 +65,19 @@
           <a class="btn btn-ghost" href="#features">See How It Works</a>
         </div>
         <p class="hero-note">Built by a trader, for traders.</p>
+      </div>
+    </section>
+
+    <section class="showcase" id="showcase" aria-label="Product overview">
+      <div class="container">
+        <div class="tilt-wrap">
+          <figure class="shot-frame tilt-card">
+            <span class="frame-dots" aria-hidden="true"></span>
+            <img src="assets/shot-dashboard-wide.webp"
+                 alt="The TradeLens dashboard with trading calendar, equity curve, and recent trades"
+                 width="1600" height="1000" loading="lazy">
+          </figure>
+        </div>
       </div>
     </section>
 
@@ -248,20 +262,112 @@
     </section>
 
     <section class="section" id="pricing">
-      <!-- Task 7: pricing -->
+      <div class="container">
+        <header class="section-head" data-reveal>
+          <p class="kicker">
+            <svg class="candles" width="20" height="16" viewBox="0 0 20 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3.5" y1="6" x2="3.5" y2="15.5"></line><rect x="1.5" y="8" width="4" height="5"></rect>
+              <line x1="10" y1="3" x2="10" y2="13.5"></line><rect x="8" y="5" width="4" height="5.5"></rect>
+              <line x1="16.5" y1="0.5" x2="16.5" y2="10.5"></line><rect x="14.5" y="2" width="4" height="6"></rect>
+            </svg>
+            Pricing
+          </p>
+          <h2>Free while in beta.</h2>
+          <p class="lead">Full access while TradeLens grows with its first traders. Paid tiers arrive later; your journal stays yours.</p>
+        </header>
+
+        <div class="tier-grid">
+          <div class="card tier-card" data-reveal>
+            <p class="tier-name">Beta access</p>
+            <p class="tier-price"><span class="price-num">$0</span> <span class="price-per">during beta</span></p>
+            <ul class="tier-list">
+              <li>Unlimited trade journaling</li>
+              <li>AI chart review &amp; autofill</li>
+              <li>Performance analytics</li>
+              <li>Trading calendar</li>
+              <li>Strategy profile &amp; honest review</li>
+            </ul>
+            <a class="btn btn-primary tier-cta" data-app-link href="https://app.tradelens.example">Open TradeLens</a>
+            <p class="tier-fine">No card required.</p>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="section" id="faq">
-      <!-- Task 7: FAQ -->
+      <div class="container">
+        <header class="section-head" data-reveal>
+          <p class="kicker">
+            <svg class="candles" width="20" height="16" viewBox="0 0 20 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">
+              <line x1="3.5" y1="6" x2="3.5" y2="15.5"></line><rect x="1.5" y="8" width="4" height="5"></rect>
+              <line x1="10" y1="3" x2="10" y2="13.5"></line><rect x="8" y="5" width="4" height="5.5"></rect>
+              <line x1="16.5" y1="0.5" x2="16.5" y2="10.5"></line><rect x="14.5" y="2" width="4" height="6"></rect>
+            </svg>
+            FAQ
+          </p>
+          <h2>Fair questions.</h2>
+        </header>
+
+        <div class="faq-list" data-reveal>
+          <details class="faq-item">
+            <summary>Is this a signal service?</summary>
+            <p>No. TradeLens is a post-trade reflection journal. It analyzes trades you've already taken and never generates trade ideas, predictions, or signals.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Which markets and instruments does it support?</summary>
+            <p>Any market you journal — futures, forex, indices, equities. The workflow is built around SMC/ICT day-trading concepts like killzones, sessions, and setup tagging.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Does the AI see my broker account?</summary>
+            <p>No. There is no broker connection. You log trades and upload chart screenshots yourself; TradeLens only sees what you give it.</p>
+          </details>
+          <details class="faq-item">
+            <summary>What do I need to get started?</summary>
+            <p>A browser and your recent trades. Log your first trade with a chart screenshot and the journal starts building your history from there.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Is my journal private?</summary>
+            <p>Yes. Your entries belong to you and are used only to generate your own reviews and analytics. Never shared, never pooled.</p>
+          </details>
+          <details class="faq-item">
+            <summary>Does it understand SMC/ICT concepts?</summary>
+            <p>Yes. Killzones, sessions, liquidity sweeps, order blocks, and FVG setups are first-class fields in the journal and in every AI review.</p>
+          </details>
+        </div>
+      </div>
     </section>
 
     <section class="section section-band" id="cta">
-      <!-- Task 7: CTA band -->
+      <div class="cta-backdrop" aria-hidden="true"></div>
+      <div class="container cta-content" data-reveal>
+        <h2>Trade better tomorrow.</h2>
+        <p class="lead">Your next session deserves a journal that tells you the truth about this one.</p>
+        <a class="btn btn-primary" data-app-link href="https://app.tradelens.example">Open TradeLens</a>
+      </div>
     </section>
   </main>
 
   <footer class="footer">
-    <!-- Task 7: footer -->
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <a class="brand" href="#top">
+          <img src="assets/logo.png" alt="TradeLens AI logo" width="26" height="26">
+          <span class="brand-name">TradeLens&nbsp;<em>AI</em></span>
+        </a>
+        <p class="footer-tag">Post-Trade Journal. AI-Powered Growth.</p>
+      </div>
+      <nav class="footer-nav" aria-label="Footer">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#ai">AI</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+    </div>
+    <div class="container footer-legal">
+      <p>TradeLens AI is a post-trade reflection journal. It does not provide trade signals, predictions, or financial advice. Trading involves risk; past performance in your journal does not guarantee future results.</p>
+      <p>© 2026 TradeLens AI</p>
+    </div>
   </footer>
 </body>
 </html>
