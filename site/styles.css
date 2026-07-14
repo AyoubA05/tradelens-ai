@@ -957,4 +957,10 @@ main { position: relative; z-index: 1; }
     border-radius: 12px 12px 0 0;
     border-right: 1px solid var(--border);
   }
+
+  /* stacked layout has no grid stretch to size against — restore intrinsic ratio */
+  .card-full .shot-frame img {
+    height: auto;
+    aspect-ratio: 3 / 2;
+  }
 }
