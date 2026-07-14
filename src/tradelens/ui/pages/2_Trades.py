@@ -153,7 +153,7 @@ with st.container(border=True):
         st.button(
             "Clear Filters",
             on_click=_clear_filters,
-            use_container_width=True,
+            width="stretch",
             key="jf_clear",
         )
 
@@ -189,7 +189,7 @@ if not trades:
                 "pnl",
             ]
         ]
-        st.dataframe(ddf, hide_index=True, use_container_width=True)
+        st.dataframe(ddf, hide_index=True, width="stretch")
         st.stop()
     if trades_all:
         st.markdown(
@@ -274,11 +274,14 @@ def _row_style(row):
     return styles
 
 
-st.caption(f"{len(trades)} trades")
+st.markdown(
+    render_badge(f"{len(trades)} trades", "neutral"),
+    unsafe_allow_html=True,
+)
 event = st.dataframe(
     df.style.apply(_row_style, axis=1),
     hide_index=True,
-    use_container_width=True,
+    width="stretch",
     on_select="rerun",
     selection_mode="single-row",
     key="journal_table",

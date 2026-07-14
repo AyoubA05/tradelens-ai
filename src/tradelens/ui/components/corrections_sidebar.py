@@ -49,6 +49,6 @@ def render_corrections_sidebar() -> None:
                 f"(corrected {r['count']}x in review)"
             )
             label = f"➕ Add '{r['user_value']}' to Strategy Profile"
-            if st.button(label, key=f"corr_apply_{i}", use_container_width=True):
+            if st.button(label, key=f"corr_apply_{i}", width="stretch"):
                 append_insight(rule)
                 st.success("Added to your Strategy Profile (risk rules).")

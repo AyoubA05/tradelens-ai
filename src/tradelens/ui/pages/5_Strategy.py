@@ -202,8 +202,7 @@ with st.form("strategy_form"):
             height=80,
             label_visibility="collapsed",
             placeholder=(
-                "e.g. Max 1% per trade, max 2 trades per session, "
-                "1:2 R:R minimum"
+                "e.g. Max 1% per trade, max 2 trades per session, " "1:2 R:R minimum"
             ),
         )
 
@@ -248,7 +247,7 @@ with st.form("strategy_form"):
         _chips(_mistakes, "warning")
 
     submitted = st.form_submit_button(
-        "Save Strategy Profile", type="primary", use_container_width=True
+        "Save Strategy Profile", type="primary", width="stretch"
     )
 
 if submitted:

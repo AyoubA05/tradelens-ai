@@ -137,7 +137,7 @@ def render_ask_ai(trade, strategy_profile=None) -> None:
     pending = None
     chip_cols = st.columns(len(_PROMPT_CHIPS))
     for i, (col, chip) in enumerate(zip(chip_cols, _PROMPT_CHIPS)):
-        if col.button(chip, key=f"{chat_key}_chip_{i}", use_container_width=True):
+        if col.button(chip, key=f"{chat_key}_chip_{i}", width="stretch"):
             pending = chip
 
     # ── Conversation ──────────────────────────────────────────────
@@ -156,7 +156,7 @@ def render_ask_ai(trade, strategy_profile=None) -> None:
             label_visibility="collapsed",
             placeholder="Ask the AI about this trade…",
         )
-        sent = st.form_submit_button("Send", use_container_width=True)
+        sent = st.form_submit_button("Send", width="stretch")
 
     user_message = pending or (typed.strip() if sent and typed.strip() else None)
     if user_message:

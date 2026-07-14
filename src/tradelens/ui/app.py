@@ -49,9 +49,6 @@ from src.tradelens.ui.components.theme import (  # noqa: E402
     inject_css,
 )
 from src.tradelens.ui.design_system import (  # noqa: E402
-    TL_BORDER,
-    TL_SURFACE,
-    TL_TEXT,
     get_asset_as_base64,
     inject_design_system,
     render_badge,
@@ -108,7 +105,8 @@ def _recent_table(recent: pd.DataFrame) -> str:
     """Pure HTML for the Recent Trades table (rendering only, all text escaped)."""
     head = (
         "<tr><th>Date</th><th>Asset</th><th>Session</th><th>Setup</th>"
-        "<th>Result</th><th>P&amp;L</th><th>R Multiple</th></tr>"
+        '<th>Result</th><th class="num">P&amp;L</th>'
+        '<th class="num">R Multiple</th></tr>'
     )
     rows = []
     for r in recent.to_dict("records"):
@@ -133,8 +131,8 @@ def _recent_table(recent: pd.DataFrame) -> str:
             f"<td>{escape(session)}</td>"
             f'<td>{escape(str(r.get("setup_type") or "—"))}</td>'
             f"<td>{badge}</td>"
-            f'<td class="{pnl_cls}">{pnl_txt}</td>'
-            f'<td class="mono">{rr_txt}</td>'
+            f'<td class="{pnl_cls} num">{pnl_txt}</td>'
+            f'<td class="mono num">{rr_txt}</td>'
             "</tr>"
         )
     return (
@@ -188,9 +186,7 @@ if df.empty:
             f'src="data:image/png;base64,{_welcome_b64}" />'
         )
     _parts.append('<h2 class="tl-welcome-title">Welcome to TradeLens AI</h2>')
-    _parts.append(
-        '<p class="tl-welcome-sub">Your AI-powered post-trade journal.</p>'
-    )
+    _parts.append('<p class="tl-welcome-sub">Your AI-powered post-trade journal.</p>')
     if _cta_b64:
         _parts.append(
             '<img class="tl-welcome-cta-img" alt="" '
@@ -209,7 +205,8 @@ if df.empty:
 # ── Asset filter (Item 12) — scopes every stat and chart below ────
 # Options come from the trader's actual history, never a static list.
 _traded_assets = sorted({str(a) for a in df["asset"].dropna() if str(a).strip()})
-asset_choice = st.selectbox(
+_fcol, _ = st.columns([1, 3])
+asset_choice = _fcol.selectbox(
     "Asset filter", ["All assets", *_traded_assets], key="dash_asset"
 )
 if asset_choice != "All assets":
@@ -220,6 +217,9 @@ t_pnl = today_pnl(df)
 w_pnl = current_week_pnl(df)
 exp = compute_expectancy(m)
 pf_raw = compute_profit_factor_raw(df)  # inf → "∞" via ratio format
+if m["total_trades"] == 0 or (pf_raw == 0.0 and m["total_pnl"] == 0.0):
+    # 0/0 (no trades or breakeven-only) is undefined — "N/A", not "0.0x".
+    pf_raw = None
 
 # ── Row 1: KPI hero row (hero_bg + 0.65 overlay, 6 cards) ─────────
 # One HTML flex row instead of st.columns(6): the hero background must
@@ -251,23 +251,19 @@ st.markdown(
 st.markdown(render_section_header("Trading Calendar"), unsafe_allow_html=True)
 render_trade_calendar(df)
 
-st.markdown("")
 
 # ── Row 2: Equity curve (full width) ──────────────────────────────
 st.markdown(render_section_header("Equity Curve"), unsafe_allow_html=True)
 eq = daily_equity_curve(df)
 if not eq.empty:
     fig = equity_curve_chart(eq)
+    # Colors/grid/fonts come from the shared template (plotly default);
+    # only size and margins are page-specific.
     fig.update_layout(
         template=PLOTLY_TEMPLATE,
-        plot_bgcolor=TL_SURFACE,
-        paper_bgcolor=TL_SURFACE,
-        font_color=TL_TEXT,
         height=320,
         margin=dict(l=8, r=8, t=8, b=8),
     )
-    fig.update_xaxes(gridcolor=TL_BORDER)
-    fig.update_yaxes(gridcolor=TL_BORDER)
     # Hover: date, cumulative P&L, and how many trades that day.
     _day_counts = df.groupby("trade_date").size()
     fig.update_traces(
@@ -277,9 +273,10 @@ if not eq.empty:
             "<br>Trades: %{customdata}<extra></extra>"
         ),
     )
-    st.plotly_chart(
-        fig, use_container_width=True, config={"displayModeBar": False}
-    )
+    with st.container(border=True):
+        # plotly_chart has no width= on streamlit 1.50 — use_container_width
+        # stays here until the pin bumps (unlike buttons/images/dataframes).
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 else:
     st.markdown(
         render_empty_state(
@@ -288,7 +285,6 @@ else:
         unsafe_allow_html=True,
     )
 
-st.markdown("")
 
 # ── Row 3: Recent trades (last 10) ────────────────────────────────
 _rt_head, _rt_link = st.columns([5, 1])
@@ -308,7 +304,6 @@ if recent.empty:
 else:
     st.markdown(_recent_table(recent), unsafe_allow_html=True)
 
-st.markdown("")
 
 # ── Row 4: Quick actions ──────────────────────────────────────────
 st.markdown(render_section_header("Quick Actions"), unsafe_allow_html=True)
@@ -317,13 +312,15 @@ _ACTIONS = [
     ("📖", "Open Journal", "Revisit and reflect on past trades", "/Trades"),
     ("📊", "View Analytics", "Study your performance by setup", "/Analytics"),
 ]
+# Inner elements are spans (styled display:block) — block tags inside an
+# inline <a> get re-parsed by the markdown renderer and break the card.
 for _col, (_icon, _title, _sub, _href) in zip(st.columns(3), _ACTIONS):
     _col.markdown(
         f'<a class="tl-action-link" href="{_href}" target="_self">'
-        '<div class="tl-action-card">'
-        f'<div class="tl-action-title">{_icon} {escape(_title)}</div>'
-        f'<div class="tl-action-sub">{escape(_sub)}</div>'
-        '<div class="tl-action-go">Go →</div>'
-        "</div></a>",
+        '<span class="tl-action-card">'
+        f'<span class="tl-action-title">{_icon} {escape(_title)}</span>'
+        f'<span class="tl-action-sub">{escape(_sub)}</span>'
+        '<span class="tl-action-go">Go →</span>'
+        "</span></a>",
         unsafe_allow_html=True,
     )

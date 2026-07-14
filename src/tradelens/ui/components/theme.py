@@ -17,7 +17,14 @@ tags (p, div, input, button, ...) — that breaks Streamlit widgets and contrast
 
 from __future__ import annotations
 
-import plotly.graph_objects as go
+from src.tradelens.ui.design_system import (
+    PLOTLY_TEMPLATE as _DS_PLOTLY_TEMPLATE,
+    TL_GRADE_A as _DS_GRADE_A,
+    TL_GRADE_B as _DS_GRADE_B,
+    TL_GRADE_C as _DS_GRADE_C,
+    TL_GRADE_D as _DS_GRADE_D,
+    TL_GRADE_F as _DS_GRADE_F,
+)
 
 # ── Surfaces ──────────────────────────────────────────────────────
 BG = "#0E1117"
@@ -54,12 +61,13 @@ _FONT_IMPORT = (
     "family=JetBrains+Mono:wght@400;500;600&display=swap"
 )
 
-# ── Grade scale: A-tier teal → F terra (semantic, not decorative) ──
-_GRADE_A = TEAL
-_GRADE_B = "#4C9A8A"
-_GRADE_C = "#9A8E5C"
-_GRADE_D = "#B5613F"
-_GRADE_F = TERRA
+# ── Grade scale: A success-green → F danger-red (design_system ramp;
+#    matches the outcome semantics used by charts, tables, and KPIs) ──
+_GRADE_A = _DS_GRADE_A
+_GRADE_B = _DS_GRADE_B
+_GRADE_C = _DS_GRADE_C
+_GRADE_D = _DS_GRADE_D
+_GRADE_F = _DS_GRADE_F
 GRADE_COLORS = {
     "A+": _GRADE_A,
     "A": _GRADE_A,
@@ -88,17 +96,10 @@ KILLZONE_LABELS = {
 }
 
 # ── Plotly template ───────────────────────────────────────────────
-PLOTLY_TEMPLATE = go.layout.Template(
-    layout=go.Layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family=f"{BODY_FONT}, sans-serif", color=TEXT_PRIMARY),
-        colorway=[TEAL, TERRA, _GRADE_B, _GRADE_C, TEXT_MUTED],
-        xaxis=dict(gridcolor=BORDER, zerolinecolor=BORDER),
-        yaxis=dict(gridcolor=BORDER, zerolinecolor=BORDER),
-        hoverlabel=dict(font=dict(family=f"{MONO_FONT}, monospace")),
-    )
-)
+# Now defined in design_system.py (single source of truth, unified teal
+# colorway) and registered there as the plotly default. Re-exported here
+# so existing `from theme import PLOTLY_TEMPLATE` call sites keep working.
+PLOTLY_TEMPLATE = _DS_PLOTLY_TEMPLATE
 
 
 def _build_css() -> str:

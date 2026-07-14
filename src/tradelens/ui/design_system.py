@@ -40,6 +40,9 @@ from html import escape
 from pathlib import Path
 from typing import Optional
 
+import plotly.graph_objects as go
+import plotly.io as pio
+
 # =========================================================================
 # COLOR TOKENS (authoritative — PRODUCT.md palette)
 # =========================================================================
@@ -65,6 +68,15 @@ TL_WARNING_DIM = "rgba(245,158,11,0.12)"
 TL_NEUTRAL = "#374151"
 TL_NEUTRAL_DIM = "rgba(55,65,81,0.3)"
 
+# Grade scale (A → F): success green through amber to danger red. The two
+# intermediate steps are the same Tailwind-500 family as the semantic
+# tokens above (lime-500, orange-500), so the ramp reads as one system.
+TL_GRADE_A = TL_SUCCESS
+TL_GRADE_B = "#84cc16"
+TL_GRADE_C = TL_WARNING
+TL_GRADE_D = "#f97316"
+TL_GRADE_F = TL_DANGER
+
 # =========================================================================
 # TYPOGRAPHY TOKENS (body stack for headings too — owner decision)
 # =========================================================================
@@ -80,6 +92,53 @@ _FONT_IMPORT = (
 
 # Assets generated via Higgsfield live next to this module.
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+
+# =========================================================================
+# PLOTLY TEMPLATE (single source of truth for chart theming)
+# =========================================================================
+# Transparent backgrounds so charts sit on whatever surface frames them
+# (page background or a bordered container). Registered as the plotly
+# default below, so every figure inherits this styling even when a call
+# site forgets to pass `template=`.
+PLOTLY_TEMPLATE = go.layout.Template(
+    layout=go.Layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family=TL_FONT_BODY, color=TL_TEXT, size=12),
+        title=dict(font=dict(size=14, color=TL_TEXT), x=0.0, xanchor="left"),
+        colorway=[
+            TL_PRIMARY,
+            TL_WARNING,
+            TL_SUCCESS,
+            TL_TEXT_MUTED,
+            TL_DANGER,
+            TL_NEUTRAL,
+        ],
+        xaxis=dict(
+            gridcolor=TL_BORDER,
+            zerolinecolor=TL_BORDER,
+            tickfont=dict(color=TL_TEXT_MUTED, size=11),
+            title=dict(font=dict(color=TL_TEXT_MUTED, size=12)),
+        ),
+        yaxis=dict(
+            gridcolor=TL_BORDER,
+            zerolinecolor=TL_BORDER,
+            tickfont=dict(color=TL_TEXT_MUTED, size=11),
+            title=dict(font=dict(color=TL_TEXT_MUTED, size=12)),
+        ),
+        legend=dict(
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(color=TL_TEXT_MUTED, size=11),
+        ),
+        hoverlabel=dict(
+            bgcolor=TL_SURFACE_2,
+            bordercolor=TL_BORDER,
+            font=dict(family=TL_FONT_MONO, color=TL_TEXT, size=12),
+        ),
+    )
+)
+pio.templates["tradelens"] = PLOTLY_TEMPLATE
+pio.templates.default = "tradelens"
 
 _BADGE_VARIANTS = {
     "success",
@@ -164,6 +223,63 @@ def build_css() -> str:
   background: var(--tl-surface);
   border-right: 1px solid var(--tl-border);
 }}
+/* Nav links (st.page_link renders an anchor): quiet rest state, surface
+   hover, visible keyboard focus. */
+[data-testid="stSidebar"] a {{
+  border-radius: var(--tl-radius-sm);
+  transition: background 0.15s ease-out;
+}}
+@media (hover: hover) and (pointer: fine) {{
+  [data-testid="stSidebar"] a:hover {{
+    background: var(--tl-surface-2);
+  }}
+}}
+[data-testid="stSidebar"] a:focus-visible {{
+  outline: 2px solid var(--tl-primary);
+  outline-offset: 2px;
+}}
+/* Sidebar brand block + status note (replaces inline styles in sidebar.py) */
+.tl-side-brand {{
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+}}
+.tl-side-brand-name {{
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+  color: var(--tl-text);
+}}
+.tl-side-brand-sub {{
+  color: var(--tl-text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  margin: 2px 0 var(--tl-space-3) 28px;
+}}
+.tl-side-note {{
+  border: 1px solid var(--tl-border);
+  background: var(--tl-surface-2);
+  border-radius: var(--tl-radius-sm);
+  padding: var(--tl-space-2) var(--tl-space-3);
+  margin: var(--tl-space-3) 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--tl-text-muted);
+}}
+.tl-side-note b {{
+  color: var(--tl-text);
+  font-weight: 600;
+}}
+.tl-side-note.active {{
+  border-color: rgba(0,194,178,0.3);
+  background: var(--tl-primary-dim);
+  color: var(--tl-primary);
+}}
+.tl-side-note.active b {{
+  color: var(--tl-primary);
+}}
 
 /* === NATIVE METRICS (proven stMetric* set; replaces the legacy
        'metric-container' selector from the spec) === */
@@ -175,6 +291,7 @@ def build_css() -> str:
 }}
 .stMetric [data-testid="stMetricValue"] {{
   font-family: var(--tl-font-mono);
+  font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--tl-text);
 }}
@@ -185,8 +302,11 @@ def build_css() -> str:
   color: var(--tl-text-muted);
 }}
 
-/* === BUTTONS (all states: rest, hover, focus, active) === */
-.stButton > button {{
+/* === BUTTONS (all states: rest, hover, focus, active) ===
+   Form submit buttons (Sign In, Save Trade, …) are primary actions too —
+   they get the identical treatment as .stButton. */
+.stButton > button,
+.stFormSubmitButton > button {{
   background: var(--tl-primary);
   color: #ffffff;
   border: 1px solid var(--tl-primary);
@@ -195,17 +315,20 @@ def build_css() -> str:
   transition: background 0.15s ease-out, box-shadow 0.15s ease-out;
 }}
 @media (hover: hover) and (pointer: fine) {{
-  .stButton > button:hover {{
+  .stButton > button:hover,
+  .stFormSubmitButton > button:hover {{
     background: var(--tl-primary-hover);
     border-color: var(--tl-primary-hover);
     box-shadow: 0 0 16px var(--tl-primary-dim);
   }}
 }}
-.stButton > button:focus-visible {{
+.stButton > button:focus-visible,
+.stFormSubmitButton > button:focus-visible {{
   outline: 2px solid var(--tl-primary);
   outline-offset: 2px;
 }}
-.stButton > button:active {{
+.stButton > button:active,
+.stFormSubmitButton > button:active {{
   background: var(--tl-primary-hover);
 }}
 
@@ -214,7 +337,7 @@ def build_css() -> str:
   background: var(--tl-surface);
   border: 1px solid var(--tl-border);
   border-radius: var(--tl-radius-md);
-  padding: var(--tl-space-4) var(--tl-space-6);
+  padding: var(--tl-space-4);
   box-shadow: var(--tl-shadow-sm);
 }}
 .tl-kpi-label {{
@@ -225,9 +348,12 @@ def build_css() -> str:
   color: var(--tl-text-muted);
 }}
 .tl-kpi-value {{
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 700;
   font-family: var(--tl-font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
   color: var(--tl-text);
   line-height: 1.1;
   margin-top: 4px;
@@ -393,17 +519,39 @@ def build_css() -> str:
   align-items: center;
 }}
 
-/* === SECTION HEADER === */
-.tl-section-header {{ margin-bottom: var(--tl-space-4); }}
+/* === SECTION HEADER ===
+   Signature mark: the short teal top-rule (same motif as the landing
+   feature cards) replaces generic dividers as the section break. */
+.tl-section-header {{
+  margin: var(--tl-space-6) 0 var(--tl-space-4) 0;
+}}
+.tl-section-header::before {{
+  content: '';
+  display: block;
+  width: 20px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--tl-primary);
+  margin-bottom: var(--tl-space-2);
+}}
 .tl-section-title {{
   font-size: 18px;
   font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--tl-text);
 }}
 .tl-section-subtitle {{
   font-size: 13px;
   color: var(--tl-text-muted);
   margin-top: 2px;
+}}
+/* Chart card title (analytics) — one quiet weight below section titles. */
+.tl-chart-title {{
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--tl-text);
+  margin: 0 0 var(--tl-space-2) 0;
 }}
 
 /* === BANNERS === */
@@ -476,6 +624,7 @@ def build_css() -> str:
 
 /* === QUICK ACTION CARD (rest, hover, focus-within states) === */
 .tl-action-card {{
+  display: block;
   background: var(--tl-surface);
   border: 1px solid var(--tl-border);
   border-radius: var(--tl-radius-md);
@@ -531,15 +680,20 @@ def build_css() -> str:
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--tl-text-muted);
-  padding: var(--tl-space-2) var(--tl-space-3);
+  padding: 10px var(--tl-space-3);
   border-bottom: 1px solid var(--tl-border);
 }}
 .tl-table td {{
-  padding: var(--tl-space-2) var(--tl-space-3);
+  padding: 10px var(--tl-space-3);
   border-bottom: 1px solid var(--tl-border-subtle);
   color: var(--tl-text);
+  transition: background 0.15s ease-out;
 }}
-.tl-table td.mono {{ font-family: var(--tl-font-mono); }}
+.tl-table td.mono {{
+  font-family: var(--tl-font-mono);
+  font-variant-numeric: tabular-nums;
+}}
+.tl-table th.num, .tl-table td.num {{ text-align: right; }}
 .tl-table td.pnl-pos {{ color: var(--tl-success); }}
 .tl-table td.pnl-neg {{ color: var(--tl-danger); }}
 .tl-table tr:hover td {{ background: var(--tl-surface-2); }}
@@ -573,20 +727,31 @@ def build_css() -> str:
   display: block;
 }}
 
-/* === QUICK ACTION CARD CONTENT === */
-.tl-action-link {{ text-decoration: none; display: block; }}
+/* === QUICK ACTION CARD CONTENT ===
+   Inner elements are SPANS forced to display:block — block tags inside an
+   inline <a> get re-parsed by the markdown renderer and break the card.
+   The testid-anchored selector outranks Streamlit's own markdown-anchor
+   color/underline rules. */
+[data-testid="stAppViewContainer"] a.tl-action-link {{
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}}
 .tl-action-title {{
+  display: block;
   font-size: 14px;
   font-weight: 600;
   color: var(--tl-text);
   margin-bottom: 2px;
 }}
 .tl-action-sub {{
+  display: block;
   font-size: 12px;
   color: var(--tl-text-muted);
   margin-bottom: var(--tl-space-2);
 }}
 .tl-action-go {{
+  display: block;
   font-size: 13px;
   font-weight: 600;
   color: var(--tl-primary);
@@ -599,10 +764,79 @@ def build_css() -> str:
    stToolbar / stDecoration / metric-container — those selectors are not
    proven in this repo. */
 
+/* === INLINE CODE (markdown) ===
+   Streamlit's default renders code spans red — red is reserved for
+   errors. Recolor onto the brand teal over an elevated surface. */
+[data-testid="stAppViewContainer"] code {{
+  color: var(--tl-primary);
+  background: var(--tl-surface-2);
+  border-radius: 4px;
+}}
+
+/* === AI REVIEW BODY (Insights & Review) ===
+   The model's markdown ## / ### headings must sit BELOW the page's
+   18px section titles — inside the keyed tl_review_* containers they
+   render at body-plus scale instead of full H2/H3 size. */
+[class*="st-key-tl_review_"] h1,
+[class*="st-key-tl_review_"] h2,
+[class*="st-key-tl_review_"] h3 {{
+  font-size: 1.05rem;
+  font-weight: 600;
+  padding-top: var(--tl-space-2);
+  padding-bottom: 0;
+}}
+
+/* === TRADE CALENDAR (dashboard month view) ===
+   Flat outcome dots — green net-positive, red net-negative, muted gray
+   breakeven — replacing emoji markers. The outcome rides in the widget
+   key, so the st-key-… container class carries it; the descendant
+   selector tolerates the tooltip wrapper around buttons with help=. */
+[class*="st-key-calday_"] button::before {{
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--tl-radius-full);
+  margin-right: 6px;
+  vertical-align: 1px;
+  background: var(--tl-text-muted);
+}}
+[class*="st-key-calday_"][class*="_positive"] button::before {{
+  background: var(--tl-success);
+}}
+[class*="st-key-calday_"][class*="_negative"] button::before {{
+  background: var(--tl-danger);
+}}
+.tl-cal-legend {{
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--tl-space-4);
+  font-size: 12px;
+  color: var(--tl-text-muted);
+  margin: var(--tl-space-2) 0 var(--tl-space-3) 0;
+}}
+.tl-cal-key {{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}}
+.tl-cal-dot {{
+  width: 7px;
+  height: 7px;
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-text-muted);
+  display: inline-block;
+}}
+.tl-cal-dot.positive {{ background: var(--tl-success); }}
+.tl-cal-dot.negative {{ background: var(--tl-danger); }}
+
 /* === MOTION (accessibility — PRODUCT.md) === */
 @media (prefers-reduced-motion: reduce) {{
   .tl-action-card,
-  .stButton > button {{
+  .stButton > button,
+  .tl-table td,
+  [data-testid="stSidebar"] a {{
     transition: none;
   }}
 }}
@@ -787,9 +1021,7 @@ def render_banner(text: str, variant: str = "warning") -> str:
 
 def render_section_header(title: str, subtitle: Optional[str] = None) -> str:
     sub = (
-        f'<div class="tl-section-subtitle">{escape(subtitle)}</div>'
-        if subtitle
-        else ""
+        f'<div class="tl-section-subtitle">{escape(subtitle)}</div>' if subtitle else ""
     )
     return (
         '<div class="tl-section-header">'

@@ -94,12 +94,14 @@ def test_no_side_stripe_accent_borders():
 
 
 def test_dark_theme_tokens_used_not_hardcoded_palette():
-    # Colors come from theme.py tokens (interpolated), so the page can never drift
-    # from the app shell. The accent teal appears via the token value.
-    from src.tradelens.ui.components.theme import TEAL, TEXT_PRIMARY
+    # Colors come from shared tokens (interpolated), so the page can never drift
+    # from the app shell. The accent teal is the design-system primary — the
+    # same teal the in-app buttons and badges use (brand unification).
+    from src.tradelens.ui.components.theme import TEXT_PRIMARY
+    from src.tradelens.ui.design_system import TL_PRIMARY
 
     css = auth._landing_css()
-    assert TEAL in css and TEXT_PRIMARY in css
+    assert TL_PRIMARY in css and TEXT_PRIMARY in css
 
 
 def test_respects_reduced_motion():

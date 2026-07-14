@@ -196,9 +196,7 @@ det_insights = generate_insights(df, _strategy)
 if det_insights:
     dcols = st.columns(2)
     for i, ins in enumerate(det_insights):
-        dcols[i % 2].markdown(
-            _insight_card_html(ins, len(df)), unsafe_allow_html=True
-        )
+        dcols[i % 2].markdown(_insight_card_html(ins, len(df)), unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -229,11 +227,15 @@ def _render_week_stats(stats: dict) -> None:
     """KPI snapshot row above the AI text (recap_bg + overlay wrapper)."""
     if not stats:
         return
+    # PF convention (app-wide): wins/no losses → ∞; no wins AND no losses
+    # (breakeven-only period, 0/0) → N/A; otherwise the numeric ratio.
     pf = stats.get("profit_factor")
     if not stats.get("trades"):
         pf_val = None  # nothing traded — N/A, not ∞
     elif pf is None:
-        pf_val = float("inf")  # no losing trades this week
+        pf_val = float("inf")  # wins, no losing trades
+    elif pf == 0.0 and not stats.get("total_pnl"):
+        pf_val = None  # breakeven-only: 0/0 is undefined — N/A, not 0.0x
     else:
         pf_val = pf
     cards = "".join(
@@ -255,18 +257,27 @@ def _render_week_stats(stats: dict) -> None:
     )
 
 
-def _render_review_body(review: dict) -> None:
+def _md_safe(text: str) -> str:
+    # Escape $ so paired dollar amounts ("$1,000 ... $500") aren't parsed
+    # as LaTeX math delimiters by st.markdown (garbled-italics bug).
+    return text.replace("\\$", "$").replace("$", "\\$")
+
+
+def _render_review_body(review: dict, key: str) -> None:
     # Render the COMPLETE markdown once — never st.write() on a generator and
     # never render partial chunks mid-stream (character-by-character bug).
-    if review.get("content_md"):
-        st.markdown(review["content_md"])
-    thinking = review.get("thinking_summary")
-    if thinking:
-        with st.expander("How the AI reasoned"):
-            st.markdown(thinking)
-    cost = review.get("cost_usd")
-    if cost:
-        st.caption(f"Generation cost: ${cost:.4f}")
+    # The keyed container scopes the tl_review_* heading CSS (design_system)
+    # so the AI's ## headings sit below the page's section titles.
+    with st.container(key=key):
+        if review.get("content_md"):
+            st.markdown(_md_safe(review["content_md"]))
+        thinking = review.get("thinking_summary")
+        if thinking:
+            with st.expander("How the AI reasoned"):
+                st.markdown(_md_safe(thinking))
+        cost = review.get("cost_usd")
+        if cost:
+            st.caption(f"Generation cost: ${cost:.4f}")
 
 
 def _auto_run_weekly(monday: str, uid) -> None:
@@ -291,7 +302,7 @@ def _auto_run_weekly(monday: str, uid) -> None:
             st.session_state[err_key] = str(exc)
 
 
-st.divider()
+# The section header's teal top-rule is the visual break — no divider.
 st.markdown(render_section_header("Weekly Recap"), unsafe_allow_html=True)
 st.caption(
     "One unified recap of a completed week — performance, what worked, pattern "
@@ -303,7 +314,7 @@ picked = st.date_input(
     "Pick any day in the week to review", value=_default_week(df), key="ins_wk_pick"
 )
 monday, sunday = week_bounds(picked)
-st.subheader(f"Week of {monday} → {sunday}")
+st.markdown(f"**Week of {monday} → {sunday}**")
 
 _auto_run_weekly(monday, uid)
 existing = get_weekly_review(monday, uid)
@@ -311,7 +322,7 @@ _render_week_stats(existing["stats"] if existing else {})
 
 _wk_err = st.session_state.get(f"_wk_err_{monday}")
 if existing is not None:
-    _render_review_body(existing)
+    _render_review_body(existing, key="tl_review_wk")
     if (existing.get("stats") or {}).get("trades", 0) < 3:
         st.caption("Based on a small sample. Log more trades for stronger insights.")
     if _ai_on and st.button("Regenerate this week", key="ins_wk_regen"):
@@ -369,7 +380,6 @@ def _run_daily_debrief(day_iso: str, day_trades: list, cache_key: str) -> None:
             st.session_state[cache_key + "_err"] = str(exc)
 
 
-st.divider()
 st.markdown(render_section_header("Daily Debrief"), unsafe_allow_html=True)
 st.caption(
     "A coach-like review of one completed trading day — reflection only, "
@@ -395,7 +405,7 @@ else:
     _dbf_review = st.session_state.get(_dbf_key)
     if _dbf_review is not None:
         _render_week_stats(_dbf_review.get("stats") or {})
-        _render_review_body(_dbf_review)
+        _render_review_body(_dbf_review, key="tl_review_dbf")
         if st.button("Regenerate debrief", key="ins_dbf_regen"):
             st.session_state.pop(_dbf_key, None)
             st.session_state.pop(_dbf_key + "_err", None)

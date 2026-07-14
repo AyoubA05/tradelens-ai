@@ -56,12 +56,16 @@ def test_kpi_card_no_delta_renders():
 # ---------------------------------------------------------------------------
 
 
-def test_grade_chip_a_plus_is_teal():
-    assert theme.TEAL in grade_chip("A+")
+def test_grade_chip_a_plus_is_success_green():
+    from src.tradelens.ui import design_system as ds
+
+    assert ds.TL_GRADE_A in grade_chip("A+")
 
 
-def test_grade_chip_f_is_terra():
-    assert theme.TERRA in grade_chip("F")
+def test_grade_chip_f_is_danger_red():
+    from src.tradelens.ui import design_system as ds
+
+    assert ds.TL_GRADE_F in grade_chip("F")
 
 
 def test_grade_chip_unknown_grade_is_safe():

@@ -11,11 +11,9 @@ RENDER-ONLY: every value comes from a service; no DB queries or business logic.
 
 from __future__ import annotations
 
-from src.tradelens.ui.components.theme import (
-    TEAL,
-    TERRA,
-    TEXT_MUTED,
-)
+from html import escape
+
+from src.tradelens.ui.design_system import TL_PRIMARY
 
 # Custom nav: (page path relative to the entrypoint, URL slug, label, Material
 # icon). Paths/slugs keep the existing files — only the labels are friendly.
@@ -52,36 +50,36 @@ def _nav_link(st, path: str, slug: str, label: str, icon: str) -> None:
 
 _WORDMARK_SVG = (
     '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" '
-    f'stroke="{TEAL}" stroke-width="2" stroke-linecap="round" '
+    f'stroke="{TL_PRIMARY}" stroke-width="2" stroke-linecap="round" '
     'stroke-linejoin="round" style="vertical-align:middle">'
     '<path d="M3 17 l5 -6 l4 3 l6 -8"/><path d="M3 21 h18"/></svg>'
 )
 
 
-def _brand_html() -> str:
+def _brand_html(logo_b64: str = "") -> str:
+    mark = (
+        f'<img src="data:image/png;base64,{logo_b64}" alt="" width="20" height="20" '
+        'style="border-radius:5px;vertical-align:middle;display:inline-block" />'
+        if logo_b64
+        else _WORDMARK_SVG
+    )
     return (
-        '<div style="margin-bottom:10px">'
-        '<div style="display:flex;align-items:center;gap:8px">'
-        f"{_WORDMARK_SVG}"
-        "<span style=\"font-family:'Space Grotesk',sans-serif;font-weight:700;"
-        'font-size:1.15rem;letter-spacing:-0.01em">TradeLens AI</span></div>'
-        f'<div style="color:{TEXT_MUTED};font-size:0.75rem;margin-left:28px">'
-        "Post-Trade Journal</div></div>"
+        '<div class="tl-side-brand">'
+        f"{mark}"
+        '<span class="tl-side-brand-name">TradeLens AI</span></div>'
+        '<div class="tl-side-brand-sub">Post-Trade Journal</div>'
     )
 
 
 def _strategy_badge_html(strategy_name: str | None) -> str:
     if strategy_name:
         return (
-            f'<div style="background:rgba(32,128,141,0.12);border:1px solid {TEAL};'
-            "border-radius:8px;padding:8px 10px;margin:6px 0;font-size:0.8rem;"
-            f'color:{TEAL}">🎯 Active Strategy: '
-            f"<strong>{strategy_name}</strong></div>"
+            '<div class="tl-side-note active">Active strategy: '
+            f"<b>{escape(strategy_name)}</b></div>"
         )
     return (
-        f'<div style="background:rgba(168,75,47,0.12);border:1px solid {TERRA};'
-        "border-radius:8px;padding:8px 10px;margin:6px 0;font-size:0.8rem;"
-        f'color:{TERRA}">No active strategy. Add one in Strategy Profile.</div>'
+        '<div class="tl-side-note">No active strategy. '
+        "Add one in Strategy Profile.</div>"
     )
 
 
@@ -95,12 +93,15 @@ def render_sidebar(df=None, today=None) -> None:
 
     from src.tradelens.services.strategy import get_active_strategy
     from src.tradelens.ui.components.auth import current_user, render_logout_button
+    from src.tradelens.ui.design_system import get_asset_as_base64
 
     strategy = get_active_strategy()
     strategy_name = (strategy or {}).get("name")
 
     with st.sidebar:
-        st.markdown(_brand_html(), unsafe_allow_html=True)
+        st.markdown(
+            _brand_html(get_asset_as_base64("logo_mark.png")), unsafe_allow_html=True
+        )
 
         for path, slug, label, icon in _NAV:
             _nav_link(st, path, slug, label, icon)

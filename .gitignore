@@ -238,3 +238,7 @@ data/
 # Installed skills (npx skills)
 .agents/
 .claude/settings.local.json
+
+# OS / editor local noise
+.DS_Store
+.vscode/

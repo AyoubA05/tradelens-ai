@@ -1,10 +1,13 @@
 """
 Compact monthly trade calendar for the Dashboard (Item 12).
 
-Each day the trader traded shows a colored dot — 🟢 net-positive day, 🔴
-net-negative, ⚪ breakeven — matching the result badges already used on the
-Journal page. Clicking a day opens a mini-panel listing that day's trades.
-Pure helpers are Streamlit-free; rendering imports Streamlit lazily.
+Each day the trader traded shows a flat design-system dot — green
+net-positive, red net-negative, muted gray breakeven — matching the
+outcome colors used on the Journal page and in the charts. The dot is
+drawn in CSS (design_system.py): the day's outcome rides in the button
+key, so the st-key-calday_… container class selects the color. Clicking
+a day opens a mini-panel listing that day's trades. Pure helpers are
+Streamlit-free; rendering imports Streamlit lazily.
 """
 
 from __future__ import annotations
@@ -12,7 +15,6 @@ from __future__ import annotations
 import calendar as _cal
 import datetime
 
-_DOTS = {"positive": "🟢", "negative": "🔴", "breakeven": "⚪"}
 _WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 _SELECTED_KEY = "dash_cal_day"
 
@@ -72,11 +74,11 @@ def render_trade_calendar(df) -> None:
             key = day_key(year, month, day)
             info = daily.get(key)
             if info:
-                dot = _DOTS.get(info["outcome"], "⚪")
+                # Outcome suffix feeds the CSS dot color (design_system.py).
                 if cols[i].button(
-                    f"{dot} {day}",
-                    key=f"dash_cal_{key}",
-                    use_container_width=True,
+                    str(day),
+                    key=f"calday_{key}_{info['outcome']}",
+                    width="stretch",
                     help=f"{info['trades']} trade(s) · net ${info['pnl']:,.2f}",
                 ):
                     st.session_state[_SELECTED_KEY] = key
@@ -86,7 +88,17 @@ def render_trade_calendar(df) -> None:
                     unsafe_allow_html=True,
                 )
 
-    st.caption("🟢 net positive day · 🔴 net negative · ⚪ breakeven — click a day")
+    st.markdown(
+        '<div class="tl-cal-legend">'
+        '<span class="tl-cal-key">'
+        '<span class="tl-cal-dot positive"></span>net positive day</span>'
+        '<span class="tl-cal-key">'
+        '<span class="tl-cal-dot negative"></span>net negative</span>'
+        '<span class="tl-cal-key">'
+        '<span class="tl-cal-dot"></span>breakeven</span>'
+        "<span>click a day to review it</span></div>",
+        unsafe_allow_html=True,
+    )
 
     selected = st.session_state.get(_SELECTED_KEY)
     if selected and selected in daily:
@@ -111,7 +123,7 @@ def render_trade_calendar(df) -> None:
                 }
             ),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
         if st.button("Close day view", key="dash_cal_close"):
             st.session_state.pop(_SELECTED_KEY, None)

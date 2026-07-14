@@ -43,10 +43,8 @@ from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: 
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import PLOTLY_TEMPLATE, inject_css  # noqa: E402
 from src.tradelens.ui.design_system import (  # noqa: E402
-    TL_BORDER,
-    TL_SURFACE,
-    TL_TEXT,
     inject_design_system,
+    render_badge,
     render_empty_state,
     render_section_header,
 )
@@ -65,12 +63,21 @@ st.markdown(
 )
 
 _active_strategy = get_active_strategy()
-if _active_strategy:
-    st.caption(f"Strategy: {_active_strategy.get('name', '—')}")
+if _active_strategy and _active_strategy.get("name"):
+    st.markdown(
+        render_badge(_active_strategy["name"], "primary"),
+        unsafe_allow_html=True,
+    )
 
 
-def _fmt_pf(v) -> str:
-    return "∞" if isinstance(v, float) and math.isinf(v) else f"{float(v):.2f}"
+def _fmt_pf(v, total_pnl=None) -> str:
+    """PF display convention (app-wide): wins with no losses → '∞';
+    a breakeven-only slice (0 wins / 0 losses = undefined) → 'N/A'."""
+    if isinstance(v, float) and math.isinf(v):
+        return "∞"
+    if float(v) == 0.0 and total_pnl is not None and float(total_pnl) == 0.0:
+        return "N/A"
+    return f"{float(v):.2f}"
 
 
 def _ratio(v) -> str:
@@ -79,20 +86,25 @@ def _ratio(v) -> str:
         f = float(v)
     except (TypeError, ValueError):
         return "—"
+    if math.isnan(f):
+        return "—"
     return f"{f:g}:1" if f else "—"
 
 
+def _money(v) -> str:
+    """App-wide money convention: -$301.00, never $-301.00 (matches
+    Journal _fmt_money and the KPI-card formatter)."""
+    v = float(v)
+    return f"-${abs(v):,.2f}" if v < 0 else f"${v:,.2f}"
+
+
 def _styled(fig):
-    """Dark-theme chart layout (design-system tokens; params confirmed on the
-    current Plotly API — update_layout merges, per-chart axis settings kept)."""
+    """Apply the shared TradeLens template (colors, grid, fonts, tooltips
+    all come from design_system.PLOTLY_TEMPLATE); margins are the only
+    page-specific setting."""
     fig.update_layout(
         template=PLOTLY_TEMPLATE,
-        plot_bgcolor=TL_SURFACE,
-        paper_bgcolor=TL_SURFACE,
-        font=dict(color=TL_TEXT),
-        xaxis=dict(gridcolor=TL_BORDER, showgrid=True),
-        yaxis=dict(gridcolor=TL_BORDER, showgrid=True),
-        margin=dict(l=16, r=16, t=32, b=16),
+        margin=dict(l=16, r=16, t=16, b=16),
     )
     return fig
 
@@ -103,7 +115,12 @@ def _chart(fig, key: str, title: str = "") -> None:
     set, and Streamlit elements can't sit inside an HTML string wrapper)."""
     with st.container(border=True):
         if title:
-            st.markdown(f"**{title}**")
+            st.markdown(
+                f'<div class="tl-chart-title">{escape(title)}</div>',
+                unsafe_allow_html=True,
+            )
+        # plotly_chart has no width= on streamlit 1.50 — use_container_width
+        # stays here until the pin bumps (unlike buttons/images/dataframes).
         st.plotly_chart(
             _styled(fig),
             use_container_width=True,
@@ -117,7 +134,7 @@ def _empty(icon: str, title: str, body: str) -> None:
 
 
 def _section(title: str, description: str) -> None:
-    st.divider()
+    # The section header's teal top-rule is the visual break — no divider.
     st.markdown(render_section_header(title, description), unsafe_allow_html=True)
 
 
@@ -234,15 +251,15 @@ _section("Performance Overview", "Headline results across the selected period.")
 m = compute_basic_metrics(df)
 pf = compute_profit_factor_raw(df)
 k1, k2, k3, k4 = st.columns(4)
-k1.metric("Total P&L", f"${m['total_pnl']:,.2f}")
+k1.metric("Total P&L", _money(m["total_pnl"]))
 k2.metric("Win Rate", f"{m['win_rate']:.1%}")
-k3.metric("Profit Factor", _fmt_pf(pf))
-k4.metric("Expectancy", f"${compute_expectancy(m):,.2f}")
+k3.metric("Profit Factor", _fmt_pf(pf, m["total_pnl"]))
+k4.metric("Expectancy", _money(compute_expectancy(m)))
 k5, k6, k7, k8 = st.columns(4)
-k5.metric("Avg Win", f"${m['avg_win']:,.2f}")
-k6.metric("Avg Loss", f"${m['avg_loss']:,.2f}")
-k7.metric("Largest Win", f"${m['best_trade']:,.2f}")
-k8.metric("Largest Loss", f"${m['worst_trade']:,.2f}")
+k5.metric("Avg Win", _money(m["avg_win"]))
+k6.metric("Avg Loss", _money(m["avg_loss"]))
+k7.metric("Largest Win", _money(m["best_trade"]))
+k8.metric("Largest Loss", _money(m["worst_trade"]))
 
 eq_df = equity_curve_series(df)
 if not eq_df.empty:
@@ -265,10 +282,11 @@ if not sess_df.empty:
     worst_sess = sess_df.loc[sess_df["total_pnl"].idxmin()]
 max_dd = compute_max_drawdown(compute_equity_curve(df))
 
+_median_rr = pd.to_numeric(df["rr_realized"], errors="coerce").dropna().median()
 r1, r2, r3, r4 = st.columns(4)
 r1.metric("Avg R:R", _ratio(m.get("avg_rr_realized")))
-r2.metric("Avg T-Multiple", _ratio(m.get("avg_rr_realized")))
-r3.metric("Max Drawdown", f"${max_dd:,.2f}")
+r2.metric("Median R:R", _ratio(_median_rr))
+r3.metric("Max Drawdown", _money(max_dd))
 if best_sess is not None:
     r4.metric(
         "Best Session", str(best_sess["session"]), f"${best_sess['total_pnl']:,.0f}"
@@ -381,17 +399,18 @@ else:
             "<tr>"
             f'<td class="mono">{_rank}</td>'
             f"<td>{escape(str(_r.setup_type))}</td>"
-            f'<td class="mono">{int(_r.trades)}</td>'
-            f'<td class="mono{_wr_cls}">{_wr:.1%}</td>'
-            f'<td class="mono{_avg_cls}">{_avg_txt}</td>'
-            f'<td class="mono">{_fmt_pf(_pf)}</td>'
+            f'<td class="mono num">{int(_r.trades)}</td>'
+            f'<td class="mono num{_wr_cls}">{_wr:.1%}</td>'
+            f'<td class="mono num{_avg_cls}">{_avg_txt}</td>'
+            f'<td class="mono num">{_fmt_pf(_pf, _r.total_pnl)}</td>'
             "</tr>"
         )
     st.markdown(
         '<div class="tl-form-card"><div class="tl-table-wrap">'
         '<table class="tl-table"><thead><tr>'
-        "<th>Rank</th><th>Setup</th><th>Trades</th>"
-        "<th>Win Rate</th><th>Avg P&amp;L</th><th>PF</th>"
+        '<th>Rank</th><th>Setup</th><th class="num">Trades</th>'
+        '<th class="num">Win Rate</th><th class="num">Avg P&amp;L</th>'
+        '<th class="num">PF</th>'
         f'</tr></thead><tbody>{"".join(_lb_rows)}</tbody></table></div></div>',
         unsafe_allow_html=True,
     )

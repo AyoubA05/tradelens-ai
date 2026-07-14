@@ -196,7 +196,7 @@ with tabs[0]:
     # The two-panel AI review shows the chart itself; only preview here when
     # no detection is staged (avoids rendering the same screenshot twice).
     if screenshot_file is not None and not has_staged_detection():
-        st.image(screenshot_file, caption="Preview", use_container_width=True)
+        st.image(screenshot_file, caption="Preview", width="stretch")
     screenshot_url = st.text_input(
         "Or paste a direct image URL (optional)", key="nt_shot_url"
     )
@@ -290,6 +290,7 @@ with tabs[1]:
             on_change=mark_field_edited,
             args=("ltf_bias",),
         )
+
 
 # ══════════════════════════════════════════════════════════════════
 # Step 3 — Trade Details (Setup + Risk & Outcome merged; Change C)
@@ -895,7 +896,7 @@ with tabs[4]:
         )
         s1, s2, s3 = st.columns(3)
         s1.page_link("pages/2_Trades.py", label="View in Journal →")
-        if s2.button("Log Another Trade", use_container_width=True):
+        if s2.button("Log Another Trade", width="stretch"):
             st.session_state.pop("just_saved_trade_id", None)
             clear_autofill_state()  # fresh AI state for the next trade
             # Clear the wizard fields so the next trade starts blank at Step 1.
@@ -918,11 +919,11 @@ with tabs[4]:
             "A trade with identical details was just saved. Is this a duplicate?"
         )
         d1, d2 = st.columns(2)
-        if d1.button("Yes, skip it", use_container_width=True):
+        if d1.button("Yes, skip it", width="stretch"):
             st.session_state.pop("_nt_dup_pending", None)
             st.rerun()
-        if d2.button("No, save it anyway", use_container_width=True):
+        if d2.button("No, save it anyway", width="stretch"):
             st.session_state.pop("_nt_dup_pending", None)
             _do_save(override=True)
-    elif st.button("Save Trade ✓", type="primary", use_container_width=True):
+    elif st.button("Save Trade ✓", type="primary", width="stretch"):
         _do_save(override=False)

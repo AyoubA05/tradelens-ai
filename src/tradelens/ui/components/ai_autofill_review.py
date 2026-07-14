@@ -714,9 +714,9 @@ def _render_detection_panel(
     left, right = st.columns([1, 1])
     with left:
         if screenshot_file is not None:
-            st.image(screenshot_file, caption="Your chart", use_container_width=True)
+            st.image(screenshot_file, caption="Your chart", width="stretch")
         elif screenshot_url:
-            st.image(screenshot_url, caption="Your chart", use_container_width=True)
+            st.image(screenshot_url, caption="Your chart", width="stretch")
     with right:
         with st.container(border=True):
             st.markdown(
@@ -754,11 +754,11 @@ def _render_detection_panel(
         "Apply detected fields →",
         type="primary",
         key="_nt_ai_apply",
-        use_container_width=True,
+        width="stretch",
     ):
         _apply_all(result, overlay, sel_desc, sel_prices, known_assets)
         st.rerun()
-    if c2.button("Skip AI →", key="_nt_ai_cancel", use_container_width=True):
+    if c2.button("Skip AI →", key="_nt_ai_cancel", width="stretch"):
         # Outcome tracking: an explicit skip is a rejection of the
         # suggestions (the analysis itself still persists with the trade).
         st.session_state[_OUTCOME_KEY] = "rejected"

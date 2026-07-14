@@ -138,7 +138,7 @@ with exp_col:
         data=csv_bytes,
         file_name="trades.csv",
         mime="text/csv",
-        use_container_width=True,
+        width="stretch",
     )
 with imp_col:
     st.markdown("**Import trades**")
@@ -170,13 +170,13 @@ st.caption(
 )
 load_col, clear_col = st.columns(2)
 with load_col:
-    if st.button("Load sample trades", use_container_width=True):
+    if st.button("Load sample trades", width="stretch"):
         st.session_state["_sample_loaded_n"] = load_sample_trades(current_user_id())
         st.rerun()
 with clear_col:
     if st.button(
         "Clear sample trades",
-        use_container_width=True,
+        width="stretch",
         disabled=sample_count == 0,
     ):
         removed = clear_sample_trades(current_user_id())
@@ -211,7 +211,7 @@ else:
     _disp = _disp.rename(
         columns={"feature": "Feature", "cost_usd": "Cost", "calls": "Calls"}
     )
-    st.dataframe(_disp, hide_index=True, use_container_width=True)
+    st.dataframe(_disp, hide_index=True, width="stretch")
     st.caption(f"Total this month: ${_total:.4f}")
 
 st.divider()
