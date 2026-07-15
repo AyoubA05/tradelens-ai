@@ -67,7 +67,7 @@ STARTER_TEMPLATE = {
 profile = get_active_strategy()
 
 if st.session_state.pop("_strategy_saved", False):
-    st.toast("Strategy Profile saved — AI reviews will now use your rules.", icon="✓")
+    st.toast("Strategy Profile saved — AI reviews will now use your rules.", icon="✅")
 
 # ── Active strategy banner (strategy_banner.png + overlay) ────────
 _banner_b64 = get_asset_as_base64("strategy_banner.png")
@@ -111,7 +111,7 @@ if st.button(
     type="secondary" if profile else "primary",
 ):
     upsert_strategy_profile(**STARTER_TEMPLATE)
-    st.toast("Starter template loaded — review and save.", icon="✓")
+    st.toast("Starter template loaded — review and save.", icon="✅")
     st.rerun()
 
 st.markdown("---")
@@ -252,7 +252,7 @@ with st.form("strategy_form"):
 
 if submitted:
     if not name.strip():
-        st.toast("Strategy Name is required.", icon="✕")
+        st.toast("Strategy Name is required.", icon="❌")
     else:
         try:
             upsert_strategy_profile(
@@ -272,4 +272,4 @@ if submitted:
             st.session_state["_strategy_saved"] = True
             st.rerun()
         except Exception as exc:  # noqa: BLE001 — surface, never crash the form
-            st.toast(f"Failed to save strategy profile: {exc}", icon="✕")
+            st.toast(f"Failed to save strategy profile: {exc}", icon="❌")
