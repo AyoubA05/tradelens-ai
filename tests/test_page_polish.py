@@ -80,12 +80,16 @@ def test_exactly_one_inject_css(page):
 
 @pytest.mark.parametrize("page", ALL_PAGES)
 def test_no_bare_st_error(page):
-    assert "st.error(" not in _src(page), f"{page}: use st.toast(msg, icon='✕')"
+    # icon='✕' (U+2715) looks right but fails Streamlit's validate_icon_or_emoji;
+    # use '❌' (U+274C) — see test_toast_icons.py for the full story.
+    assert "st.error(" not in _src(page), f"{page}: use st.toast(msg, icon='❌')"
 
 
 @pytest.mark.parametrize("page", ALL_PAGES)
 def test_no_bare_st_success(page):
-    assert "st.success(" not in _src(page), f"{page}: use st.toast(msg, icon='✓')"
+    # icon='✓' (U+2713) looks right but fails Streamlit's validate_icon_or_emoji;
+    # use '✅' (U+2705) — see test_toast_icons.py for the full story.
+    assert "st.success(" not in _src(page), f"{page}: use st.toast(msg, icon='✅')"
 
 
 # ---------------------------------------------------------------------------

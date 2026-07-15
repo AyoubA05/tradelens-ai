@@ -499,7 +499,7 @@ if selected_id is not None:
             )
             if up is not None:
                 save_screenshot(trade.id, up)
-                st.toast("Screenshot added", icon="✓")
+                st.toast("Screenshot added", icon="✅")
                 st.rerun()
         render_screenshot_analyzer(trade, get_active_strategy())
 
@@ -599,7 +599,7 @@ if selected_id is not None:
                 user_grade=None if new_grade == "—" else new_grade,
                 notes=new_notes.strip() or None,
             )
-            st.toast("Trade updated", icon="✓")
+            st.toast("Trade updated", icon="✅")
             st.rerun()
 
     with st.expander("Delete trade"):
@@ -608,7 +608,7 @@ if selected_id is not None:
         if st.button("Delete trade", disabled=not confirm, key="delete_btn"):
             delete_trade(trade.id)
             st.session_state.pop("selected_trade_id", None)
-            st.toast("Trade deleted", icon="✓")
+            st.toast("Trade deleted", icon="✅")
             st.rerun()
 
     # ── AI Review (journal + process grade) ───────────────────────
