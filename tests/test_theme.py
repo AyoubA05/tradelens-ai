@@ -55,6 +55,8 @@ _FORBIDDEN_BARE = {
 def _top_level_selectors(css: str) -> list[str]:
     """Extract each selector group (text before a `{`), dropping at-rules."""
     css = css.replace("<style>", "").replace("</style>", "")
+    # strip /* ... */ comments so they never merge into the next selector
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     # strip whole @import url(...); — the font URL contains internal semicolons
     css = re.sub(r"@import\s+url\([^)]*\)\s*;", "", css)
     groups = re.findall(r"([^{}]+)\{", css)
@@ -97,9 +99,15 @@ def test_font_stacks_defined():
     assert theme.MONO_FONT == "JetBrains Mono"
 
 
-def test_grade_colors_span_teal_to_terra():
-    assert theme.GRADE_COLORS["A+"] == theme.TEAL
-    assert theme.GRADE_COLORS["F"] == theme.TERRA
+def test_grade_colors_span_success_to_danger():
+    # Grade ramp comes from design_system (outcome semantics): A-tier is
+    # success green, F is danger red — never the legacy teal/terra pair.
+    from src.tradelens.ui import design_system as ds
+
+    assert theme.GRADE_COLORS["A+"] == ds.TL_SUCCESS
+    assert theme.GRADE_COLORS["F"] == ds.TL_DANGER
+    assert theme.GRADE_COLORS["A+"] != theme.TEAL
+    assert theme.GRADE_COLORS["F"] != theme.TERRA
 
 
 def test_killzone_labels_present():
@@ -168,8 +176,16 @@ def test_inject_css_runs_in_apptest():
 # ---------------------------------------------------------------------------
 
 
-def test_charts_pull_brand_colors_from_theme():
+def test_charts_pull_brand_colors_from_design_system():
+    # Charts draw from design_system tokens, never the legacy theme.py
+    # teal/terra pair and never hardcoded hex. Semantics: teal = brand
+    # trajectory lines; green/red = positive/negative outcomes (matches
+    # the KPI cards and table pnl-pos/pnl-neg colors).
     from src.tradelens.ui.components import charts
+    from src.tradelens.ui import design_system as ds
 
-    assert charts._TEAL == theme.TEAL
-    assert charts._RED == theme.TERRA
+    assert charts._TEAL == ds.TL_PRIMARY
+    assert charts._POS == ds.TL_SUCCESS
+    assert charts._NEG == ds.TL_DANGER
+    assert charts._TEAL != theme.TEAL
+    assert charts._NEG != theme.TERRA

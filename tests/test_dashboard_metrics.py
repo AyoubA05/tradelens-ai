@@ -120,3 +120,53 @@ def test_today_pnl_sums_only_today():
 
 def test_today_pnl_empty_is_zero():
     assert today_pnl(pd.DataFrame(), today=dt.date(2026, 6, 24)) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Item 12 — daily_outcomes feeds the dashboard trade calendar.
+# ---------------------------------------------------------------------------
+
+
+def test_daily_outcomes_groups_and_classifies_days():
+    import pandas as pd
+
+    from src.tradelens.services.metrics import daily_outcomes
+
+    df = pd.DataFrame(
+        [
+            {"trade_date": "2026-07-01", "pnl": 150.0},
+            {"trade_date": "2026-07-01", "pnl": -50.0},
+            {"trade_date": "2026-07-02", "pnl": -75.0},
+            {"trade_date": "2026-07-03", "pnl": 25.0},
+            {"trade_date": "2026-07-03", "pnl": -25.0},
+        ]
+    )
+    daily = daily_outcomes(df)
+    assert daily["2026-07-01"] == {"pnl": 100.0, "trades": 2, "outcome": "positive"}
+    assert daily["2026-07-02"]["outcome"] == "negative"
+    assert daily["2026-07-03"] == {"pnl": 0.0, "trades": 2, "outcome": "breakeven"}
+
+
+def test_daily_outcomes_tolerates_missing_pnl_and_dates():
+    import pandas as pd
+
+    from src.tradelens.services.metrics import daily_outcomes
+
+    df = pd.DataFrame(
+        [
+            {"trade_date": "2026-07-01", "pnl": None},  # None pnl counts as 0
+            {"trade_date": None, "pnl": 100.0},  # dropped
+            {"trade_date": "", "pnl": 100.0},  # dropped
+        ]
+    )
+    daily = daily_outcomes(df)
+    assert daily == {"2026-07-01": {"pnl": 0.0, "trades": 1, "outcome": "breakeven"}}
+
+
+def test_daily_outcomes_empty_df():
+    import pandas as pd
+
+    from src.tradelens.services.metrics import daily_outcomes
+
+    assert daily_outcomes(pd.DataFrame()) == {}
+    assert daily_outcomes(None) == {}

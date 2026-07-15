@@ -74,6 +74,9 @@ class Trade(Base):
     emotions_during: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     emotions_after: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Item 8: mechanical process notes ("what the chart/trader did"), distinct
+    # from the emotional mindset fields. Feeds the per-trade AI review context.
+    trade_process_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     ai_grade: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     user_grade: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -176,6 +179,29 @@ class Correction(Base):
     ai_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     user_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     user_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Owning user (multi-user). NULL = legacy single-user corrections.
+    user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+
+
+class AIUsageLog(Base):
+    """Per-call AI usage for features with no natural persistence row
+    (AI Partner chat, pattern-card detection) — powers the cost dashboard."""
+
+    __tablename__ = "ai_usage_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    feature: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    tokens_input: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    tokens_output: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    cost_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Owning user (multi-user). NULL = legacy single-user calls.
+    user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
     created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 

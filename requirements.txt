@@ -6,8 +6,11 @@ numpy==2.0.2
 plotly==6.7.0
 sqlalchemy==2.0.49
 python-dotenv==1.2.1
-anthropic==0.69.0
+anthropic==0.115.1
 pillow==11.3.0
 pydantic-settings==2.11.0
 alembic==1.16.5
 bcrypt==4.2.1
+# IANA timezone database for zoneinfo — required on minimal Streamlit Cloud
+# containers that lack a system tz database (services/sessions.py uses ZoneInfo).
+tzdata==2026.2

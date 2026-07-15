@@ -197,12 +197,20 @@ def get_trades(
 
 
 def get_trade(trade_id: int) -> Optional[Trade]:
-    """Return a single trade (with screenshots eager-loaded), or None."""
+    """Return a single trade (relationships eager-loaded), or None.
+
+    Root cause of the Journal-page error (Item 11): this returned the Trade
+    with only `screenshots` eager-loaded and then closed the session — so any
+    consumer touching `trade.ai_analysis` afterwards raised
+    DetachedInstanceError ("lazy load operation of attribute 'ai_analysis'
+    cannot proceed"). Every relationship the detail panel can reach is now
+    loaded before the session closes.
+    """
     db: Session = SessionLocal()
     try:
         return (
             db.query(Trade)
-            .options(selectinload(Trade.screenshots))
+            .options(selectinload(Trade.screenshots), selectinload(Trade.ai_analysis))
             .filter(Trade.id == trade_id)
             .first()
         )

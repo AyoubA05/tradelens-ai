@@ -17,7 +17,14 @@ tags (p, div, input, button, ...) — that breaks Streamlit widgets and contrast
 
 from __future__ import annotations
 
-import plotly.graph_objects as go
+from src.tradelens.ui.design_system import (
+    PLOTLY_TEMPLATE as _DS_PLOTLY_TEMPLATE,
+    TL_GRADE_A as _DS_GRADE_A,
+    TL_GRADE_B as _DS_GRADE_B,
+    TL_GRADE_C as _DS_GRADE_C,
+    TL_GRADE_D as _DS_GRADE_D,
+    TL_GRADE_F as _DS_GRADE_F,
+)
 
 # ── Surfaces ──────────────────────────────────────────────────────
 BG = "#0E1117"
@@ -54,12 +61,13 @@ _FONT_IMPORT = (
     "family=JetBrains+Mono:wght@400;500;600&display=swap"
 )
 
-# ── Grade scale: A-tier teal → F terra (semantic, not decorative) ──
-_GRADE_A = TEAL
-_GRADE_B = "#4C9A8A"
-_GRADE_C = "#9A8E5C"
-_GRADE_D = "#B5613F"
-_GRADE_F = TERRA
+# ── Grade scale: A success-green → F danger-red (design_system ramp;
+#    matches the outcome semantics used by charts, tables, and KPIs) ──
+_GRADE_A = _DS_GRADE_A
+_GRADE_B = _DS_GRADE_B
+_GRADE_C = _DS_GRADE_C
+_GRADE_D = _DS_GRADE_D
+_GRADE_F = _DS_GRADE_F
 GRADE_COLORS = {
     "A+": _GRADE_A,
     "A": _GRADE_A,
@@ -88,17 +96,10 @@ KILLZONE_LABELS = {
 }
 
 # ── Plotly template ───────────────────────────────────────────────
-PLOTLY_TEMPLATE = go.layout.Template(
-    layout=go.Layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family=f"{BODY_FONT}, sans-serif", color=TEXT_PRIMARY),
-        colorway=[TEAL, TERRA, _GRADE_B, _GRADE_C, TEXT_MUTED],
-        xaxis=dict(gridcolor=BORDER, zerolinecolor=BORDER),
-        yaxis=dict(gridcolor=BORDER, zerolinecolor=BORDER),
-        hoverlabel=dict(font=dict(family=f"{MONO_FONT}, monospace")),
-    )
-)
+# Now defined in design_system.py (single source of truth, unified teal
+# colorway) and registered there as the plotly default. Re-exported here
+# so existing `from theme import PLOTLY_TEMPLATE` call sites keep working.
+PLOTLY_TEMPLATE = _DS_PLOTLY_TEMPLATE
 
 
 def _build_css() -> str:
@@ -141,48 +142,22 @@ def _build_css() -> str:
     border: 1px solid {TEAL};
     border-radius: {RADIUS_SM};
     font-weight: 600;
-    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    transition: transform 0.15s ease-out, box-shadow 0.15s ease-out, background 0.15s ease-out;
 }}
-.stButton > button:hover {{
-    background: {TEAL_HOVER};
-    box-shadow: 0 0 16px {TEAL_SOFT};
-    transform: translateY(-1px);
+@media (hover: hover) and (pointer: fine) {{
+    .stButton > button:hover {{
+        background: {TEAL_HOVER};
+        box-shadow: 0 0 16px {TEAL_SOFT};
+        transform: translateY(-1px);
+    }}
 }}
-.tl-kpi-card {{
-    background: {SURFACE};
-    border: 1px solid {BORDER};
-    border-radius: {RADIUS_MD};
-    padding: 16px 16px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
-    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-    overflow: visible;
+.stButton > button:focus-visible {{
+    outline: 2px solid {TEAL};
+    outline-offset: 2px;
 }}
-.tl-kpi-card:hover {{
-    transform: translateY(-2px);
-    border-color: {TEAL};
-    box-shadow: 0 0 18px {TEAL_SOFT};
-}}
-.tl-kpi-label {{
-    color: {TEXT_MUTED};
-    font-size: 0.78rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-}}
-.tl-kpi-value {{
-    font-family: '{MONO_FONT}', monospace;
-    /* Responsive so a six-card KPI row never clips values like "$2,800.00". */
-    font-size: clamp(1.05rem, 1.5vw, 1.55rem);
-    font-weight: 600;
-    color: {TEXT_PRIMARY};
-    white-space: nowrap;
-    overflow: visible;
-    line-height: 1.25;
-}}
-.tl-kpi-delta {{
-    font-family: '{MONO_FONT}', monospace;
-    font-size: 0.85rem;
-    margin-top: 2px;
-}}
+/* .tl-kpi-* and .tl-section-* rules moved to design_system.py (Phase 9
+   dedupe) — design_system is injected after theme on every page that
+   renders those classes, so it is the single source of truth. */
 .tl-grade-chip {{
     display: inline-block;
     padding: 2px 10px;
@@ -201,19 +176,6 @@ def _build_css() -> str:
     color: {TEXT_SECONDARY};
     font-size: 0.78rem;
     font-weight: 500;
-}}
-.tl-section-header {{
-    margin: 10px 0 6px 0;
-}}
-.tl-section-title {{
-    font-family: '{HEADING_FONT}', sans-serif;
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: {TEXT_PRIMARY};
-}}
-.tl-section-subtitle {{
-    color: {TEXT_MUTED};
-    font-size: 0.9rem;
 }}
 .tl-empty-state {{
     background: {SURFACE};
@@ -254,6 +216,14 @@ def _build_css() -> str:
     border-radius: {RADIUS_MD};
     padding: 10px 14px;
     margin: 6px 12% 6px 0;
+}}
+@media (prefers-reduced-motion: reduce) {{
+    .stButton > button {{
+        transition: none;
+    }}
+    .stButton > button:hover {{
+        transform: none;
+    }}
 }}
 </style>"""
 

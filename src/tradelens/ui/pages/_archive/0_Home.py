@@ -161,7 +161,7 @@ st.markdown("---")
 
 # ── Honest scope note ─────────────────────────────────────────────
 st.markdown(
-    f'<div style="background:{SURFACE};border-left:3px solid {TERRA};'
+    f'<div style="background:{SURFACE};border:1px solid {TERRA};'
     'border-radius:8px;padding:14px 18px">'
     f"<span style='color:{TEXT_SECONDARY}'>"
     "<strong>Scope:</strong> TradeLens AI is a post-trade reflection journal. "

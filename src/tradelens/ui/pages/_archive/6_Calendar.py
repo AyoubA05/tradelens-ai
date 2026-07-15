@@ -91,9 +91,9 @@ def _shift_month(delta: int) -> None:
 
 nav_prev, nav_title, nav_next = st.columns([1, 3, 1])
 with nav_prev:
-    st.button("◀ Prev", on_click=_shift_month, args=(-1,), use_container_width=True)
+    st.button("◀ Prev", on_click=_shift_month, args=(-1,), width="stretch")
 with nav_next:
-    st.button("Next ▶", on_click=_shift_month, args=(1,), use_container_width=True)
+    st.button("Next ▶", on_click=_shift_month, args=(1,), width="stretch")
 
 year = st.session_state["cal_year"]
 month = st.session_state["cal_month"]

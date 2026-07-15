@@ -1,4 +1,5 @@
 import sys
+from html import escape
 from pathlib import Path
 
 _root = str(Path(__file__).resolve().parents[4])
@@ -9,23 +10,37 @@ import streamlit as st  # noqa: E402
 
 from src.tradelens.services.strategy import (  # noqa: E402
     get_active_strategy,
+    parse_list,
+    parse_markets,
+    parse_mistakes,
+    parse_setups,
+    parse_timeframes,
     upsert_strategy_profile,
 )
 from src.tradelens.ui.components.auth import require_auth  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
-from src.tradelens.ui.components.ui import section_header  # noqa: E402
+from src.tradelens.ui.design_system import (  # noqa: E402
+    get_asset_as_base64,
+    inject_design_system,
+    render_badge,
+    render_banner,
+    render_chip_row,
+    render_section_header,
+)
 
 st.set_page_config(page_title="Strategy Profile")
 inject_css()
+inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
 render_demo_banner()
 render_sidebar()
 st.markdown(
-    section_header(
+    render_section_header(
         "Strategy Profile",
-        "Define your strategy so AI analysis, journal, and grading are strategy-aware.",
+        "Define your strategy so AI analysis, journal, and grading are "
+        "strategy-aware.",
     ),
     unsafe_allow_html=True,
 )
@@ -51,44 +66,77 @@ STARTER_TEMPLATE = {
 # Load active profile (if any)
 profile = get_active_strategy()
 
-st.caption(
-    "Your AI reviews become stronger when they know your exact rules. "
-    "Fill this in to get strategy-aware insights."
+if st.session_state.pop("_strategy_saved", False):
+    st.toast("Strategy Profile saved — AI reviews will now use your rules.", icon="✓")
+
+# ── Active strategy banner (strategy_banner.png + overlay) ────────
+_banner_b64 = get_asset_as_base64("strategy_banner.png")
+_BANNER_STYLE = (
+    (
+        "background-image: linear-gradient(rgba(13,15,17,0.75), "
+        f"rgba(13,15,17,0.75)), url(data:image/png;base64,{_banner_b64}); "
+        "background-size: cover; background-position: center;"
+    )
+    if _banner_b64
+    else ""
 )
 
-if st.session_state.pop("_strategy_saved", False):
-    st.markdown(
-        '<div style="background:rgba(46,125,50,0.15);border:1px solid #2e7d32;'
-        'border-radius:8px;padding:10px 14px;color:#7bd88f">'
-        "✅ <strong>Strategy Profile saved.</strong> AI reviews will now use your "
-        "rules.</div>",
-        unsafe_allow_html=True,
-    )
-
 if profile:
-    updated = (profile.get("updated_at") or "")[:10] or "—"
+    _updated = (profile.get("updated_at") or "")[:10] or "—"
+    _pname = escape(str(profile.get("name") or "—"))
     st.markdown(
-        '<div style="background:rgba(32,128,141,0.12);border:1px solid #20808D;'
-        'border-radius:10px;padding:12px 14px;margin:8px 0">'
-        f"✅ <strong>Active Strategy: {profile.get('name', '—')}</strong><br>"
-        f"<span style='color:#B4B8BD;font-size:0.85rem'>"
-        f"Markets: {profile.get('markets') or '—'} &nbsp;|&nbsp; "
-        f"Timeframes: {profile.get('timeframes') or '—'} &nbsp;|&nbsp; "
-        f"Last updated: {updated}</span></div>",
+        f'<div class="tl-ai-card" style="{_BANNER_STYLE}">'
+        '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+        f'<span style="font-size:1.35rem;font-weight:600">{_pname}</span>'
+        f"{render_badge('Active', 'success')}"
+        '<span style="color:var(--tl-text-muted);font-size:0.85rem;'
+        f'margin-left:auto">Last updated: {escape(_updated)}</span>'
+        "</div></div>",
         unsafe_allow_html=True,
     )
 else:
-    st.caption("No active profile yet — use the starter template or fill the form.")
+    st.markdown(
+        render_banner(
+            "No strategy profile yet. Fill this in to unlock "
+            "strategy-aware AI analysis.",
+            "info",
+        ),
+        unsafe_allow_html=True,
+    )
 
-if st.button("Use ICT/SMC Starter Template", key="strategy_starter"):
+# Primary CTA while empty; quiet secondary once a profile exists.
+if st.button(
+    "Use ICT/SMC Starter Template",
+    key="strategy_starter",
+    type="secondary" if profile else "primary",
+):
     upsert_strategy_profile(**STARTER_TEMPLATE)
-    st.toast("Starter template loaded — review and save.", icon="✅")
+    st.toast("Starter template loaded — review and save.", icon="✓")
     st.rerun()
 
 st.markdown("---")
 
-# Pre-fill form with existing values
+# Pre-fill form with existing values; chips preview the SAVED profile.
 p = profile or {}
+_markets = parse_markets(p)
+_tf = parse_timeframes(p)
+_tf_chips = [
+    f"{label} {val}"
+    for label, val in (("Entry", _tf.get("entry")), ("HTF", _tf.get("htf")))
+    if val
+]
+_setups = parse_setups(p)
+_avoided = parse_list(p.get("setups_avoided"))
+_mistakes = parse_mistakes(p)
+
+
+def _chips(items: list, variant: str) -> None:
+    if items:
+        st.markdown(
+            render_chip_row(items, {c: variant for c in items}),
+            unsafe_allow_html=True,
+        )
+
 
 with st.form("strategy_form"):
     st.markdown("### Identity")
@@ -113,73 +161,98 @@ with st.form("strategy_form"):
             value=p.get("markets") or "",
             placeholder="e.g. NQ, ES, BTCUSD, EURUSD",
         )
+        _chips(_markets, "primary")
     with col4:
         timeframes = st.text_input(
             "Timeframes",
             value=p.get("timeframes") or "",
             placeholder="e.g. 15m, 1H, 4H",
         )
+        _chips(_tf_chips, "neutral")
 
     st.markdown("### Rules")
-    entry_rules = st.text_area(
-        "Entry Rules",
-        value=p.get("entry_rules") or "",
-        height=100,
-        placeholder="e.g. BOS + OB retest on 15m, CHoCH confirmation required",
-    )
-    stop_rules = st.text_area(
-        "Stop Loss Rules",
-        value=p.get("stop_rules") or "",
-        height=80,
-        placeholder="e.g. Behind the OB wick, no more than 10 points away",
-    )
-    take_profit_rules = st.text_area(
-        "Take Profit Rules",
-        value=p.get("take_profit_rules") or "",
-        height=80,
-        placeholder="e.g. Next opposing OB, 50% at 1:1 R, runner to 1:3",
-    )
-    risk_rules = st.text_area(
-        "Risk Rules",
-        value=p.get("risk_rules") or "",
-        height=80,
-        placeholder="e.g. Max 1% per trade, max 2 trades per session, 1:2 R:R minimum",
-    )
+    with st.expander("Entry Rules", expanded=True):
+        entry_rules = st.text_area(
+            "Entry Rules",
+            value=p.get("entry_rules") or "",
+            height=100,
+            label_visibility="collapsed",
+            placeholder="e.g. BOS + OB retest on 15m, CHoCH confirmation required",
+        )
+    with st.expander("Stop Loss Rules"):
+        stop_rules = st.text_area(
+            "Stop Loss Rules",
+            value=p.get("stop_rules") or "",
+            height=80,
+            label_visibility="collapsed",
+            placeholder="e.g. Behind the OB wick, no more than 10 points away",
+        )
+    with st.expander("Take Profit Rules"):
+        take_profit_rules = st.text_area(
+            "Take Profit Rules",
+            value=p.get("take_profit_rules") or "",
+            height=80,
+            label_visibility="collapsed",
+            placeholder="e.g. Next opposing OB, 50% at 1:1 R, runner to 1:3",
+        )
+    with st.expander("Risk Rules"):
+        risk_rules = st.text_area(
+            "Risk Rules",
+            value=p.get("risk_rules") or "",
+            height=80,
+            label_visibility="collapsed",
+            placeholder=(
+                "e.g. Max 1% per trade, max 2 trades per session, " "1:2 R:R minimum"
+            ),
+        )
 
     st.markdown("### Setups & Filters")
-    setups_traded = st.text_area(
-        "Setups I Trade",
-        value=p.get("setups_traded") or "",
-        height=80,
-        placeholder="e.g. OB retest, FVG fill, liquidity sweep + reversal",
-    )
-    setups_avoided = st.text_area(
-        "Setups I Avoid",
-        value=p.get("setups_avoided") or "",
-        height=80,
-        placeholder="e.g. Counter-trend, news events, choppy consolidation",
-    )
-    news_session_rules = st.text_input(
-        "News / Session Rules",
-        value=p.get("news_session_rules") or "",
-        placeholder="e.g. No trades 30 min before/after high-impact news; NY AM only",
-    )
+    with st.expander("Setups I Trade"):
+        setups_traded = st.text_area(
+            "Setups I Trade",
+            value=p.get("setups_traded") or "",
+            height=80,
+            label_visibility="collapsed",
+            placeholder="e.g. OB retest, FVG fill, liquidity sweep + reversal",
+        )
+        _chips(_setups, "primary")
+    with st.expander("Setups I Avoid"):
+        setups_avoided = st.text_area(
+            "Setups I Avoid",
+            value=p.get("setups_avoided") or "",
+            height=80,
+            label_visibility="collapsed",
+            placeholder="e.g. Counter-trend, news events, choppy consolidation",
+        )
+        _chips(_avoided, "danger")
+    with st.expander("News / Session Rules"):
+        news_session_rules = st.text_input(
+            "News / Session Rules",
+            value=p.get("news_session_rules") or "",
+            label_visibility="collapsed",
+            placeholder=(
+                "e.g. No trades 30 min before/after high-impact news; NY AM only"
+            ),
+        )
 
     st.markdown("### Self-Awareness")
-    common_mistakes = st.text_area(
-        "Common Mistakes to Watch For",
-        value=p.get("common_mistakes") or "",
-        height=100,
-        placeholder="e.g. Entering too early before confirmation, revenge trading",
-    )
+    with st.expander("Common Mistakes to Watch For"):
+        common_mistakes = st.text_area(
+            "Common Mistakes to Watch For",
+            value=p.get("common_mistakes") or "",
+            height=100,
+            label_visibility="collapsed",
+            placeholder="e.g. Entering too early before confirmation, revenge trading",
+        )
+        _chips(_mistakes, "warning")
 
     submitted = st.form_submit_button(
-        "Save Strategy Profile", type="primary", use_container_width=True
+        "Save Strategy Profile", type="primary", width="stretch"
     )
 
 if submitted:
     if not name.strip():
-        st.toast("Strategy Name is required.", icon="❌")
+        st.toast("Strategy Name is required.", icon="✕")
     else:
         try:
             upsert_strategy_profile(
@@ -198,5 +271,5 @@ if submitted:
             )
             st.session_state["_strategy_saved"] = True
             st.rerun()
-        except Exception as exc:
-            st.toast(f"Failed to save strategy profile: {exc}", icon="❌")
+        except Exception as exc:  # noqa: BLE001 — surface, never crash the form
+            st.toast(f"Failed to save strategy profile: {exc}", icon="✕")

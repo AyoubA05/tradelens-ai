@@ -213,3 +213,62 @@ def test_get_primary_screenshot_returns_path(in_memory_db):
     db.commit()
     db.close()
     assert trade_service.get_primary_screenshot(t.id) == "/tmp/shot.png"
+
+
+def test_prices_store_and_retrieve_without_precision_loss(in_memory_db):
+    """Item 7: 3.496 and 3.3765 must round-trip unmodified (no rounding/cap)."""
+    from src.tradelens.services.trade_service import create_trade, get_trade
+
+    trade = create_trade(
+        {
+            "trade_date": "2026-07-03",
+            "asset": "NG",
+            "result": "Win",
+            "entry_price": 3.496,
+            "stop_price": 3.3765,
+            "tp_price": 3.5125,
+            "exit_price": 3.4995,
+        }
+    )
+    row = get_trade(trade.id)
+    assert row.entry_price == 3.496
+    assert row.stop_price == 3.3765
+    assert row.tp_price == 3.5125
+    assert row.exit_price == 3.4995
+
+
+def test_trade_process_notes_stores_and_retrieves(in_memory_db):
+    """Item 8: the mechanical process notes persist as their own field."""
+    from src.tradelens.services.trade_service import create_trade, get_trade
+
+    note = "Swept liquidity, broke structure, moved to BE after 2nd IFVG break."
+    trade = create_trade(
+        {
+            "trade_date": "2026-07-03",
+            "asset": "MNQ",
+            "result": "Win",
+            "trade_process_notes": note,
+        }
+    )
+    row = get_trade(trade.id)
+    assert row.trade_process_notes == note
+
+
+def test_get_trade_relationships_usable_after_session_closes(in_memory_db):
+    """Item 11 regression: get_trade closes its session, so screenshots AND
+    ai_analysis must be eager-loaded — touching them later must not raise
+    DetachedInstanceError (the Journal detail-panel error)."""
+    from src.tradelens.db.models import AIAnalysis
+    from src.tradelens.services.trade_service import create_trade, get_trade
+
+    trade = create_trade({"trade_date": "2026-07-03", "asset": "MNQ", "result": "Win"})
+    db = trade_service.SessionLocal()  # the fixture's monkeypatched sessionmaker
+    db.add(AIAnalysis(trade_id=trade.id, bias="bullish", trade_quality=7))
+    db.commit()
+    db.close()
+
+    row = get_trade(trade.id)
+    assert row.screenshots == []  # off-session access must not raise
+    analysis = row.ai_analysis  # was DetachedInstanceError before the fix
+    assert analysis is not None
+    assert analysis.bias == "bullish"

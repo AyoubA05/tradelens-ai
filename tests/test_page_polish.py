@@ -21,13 +21,14 @@ ALL_PAGES = [
     "2_Trades.py",
     "4_Analytics.py",
     "5_Strategy.py",
+    "6_Insights.py",
     "9_Settings.py",
 ]
 
-# Active pages that make AI calls (Analytics hosts pattern detection + the
-# Weekly Review tab).
+# Active pages that make AI calls. Pattern detection + the Weekly Review now live
+# on the merged Insights & Review page (Analytics is pure analytics again).
 AI_PAGES = [
-    "4_Analytics.py",
+    "6_Insights.py",
 ]
 
 # Empty-state phrasing that must live in empty_state(), never a raw st.info().
@@ -155,3 +156,22 @@ def test_emotion_picker_uses_existing_columns():
     src = _src("1_NewTrade.py")
     for col in ("emotions_before", "emotions_during", "emotions_after"):
         assert col in src, f"emotion column {col} missing from New Trade form"
+
+
+def test_psychology_step_has_process_notes_field():
+    """Item 8: dedicated 'What happened during this trade?' process-notes field."""
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "tradelens"
+        / "ui"
+        / "pages"
+        / "1_NewTrade.py"
+    ).read_text(encoding="utf-8")
+    assert "What happened during this trade?" in src
+    assert "nt_process_notes" in src
+    assert '"trade_process_notes": process_notes' in src  # saved as its own field
+    # Emotional field remains separate and untouched.
+    assert "How were you feeling during this trade?" in src

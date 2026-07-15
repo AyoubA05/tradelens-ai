@@ -226,3 +226,47 @@ def test_app_boots_empty_db_shows_empty_state(tmp_path):
 def test_app_boots_with_seed_data(tmp_path):
     # redesigned KPI glass cards must render
     _run_boot(tmp_path / "seed.db", "tl-kpi-card", "1")
+
+
+# ---------------------------------------------------------------------------
+# Item 12 — trade calendar + asset filter.
+# ---------------------------------------------------------------------------
+
+
+def test_calendar_month_helpers():
+    from src.tradelens.ui.components.trade_calendar import (
+        day_key,
+        month_label,
+        month_options,
+    )
+
+    daily = {
+        "2026-07-01": {"pnl": 1.0, "trades": 1, "outcome": "positive"},
+        "2026-07-15": {"pnl": -1.0, "trades": 1, "outcome": "negative"},
+        "2026-06-30": {"pnl": 0.0, "trades": 1, "outcome": "breakeven"},
+    }
+    assert month_options(daily) == ["2026-07", "2026-06"]  # newest first
+    assert month_label("2026-07") == "July 2026"
+    assert day_key(2026, 7, 3) == "2026-07-03"
+
+
+def test_dashboard_has_asset_filter_and_calendar():
+    """Item 12 contract: dynamic asset filter above the KPIs, calendar section,
+    KPI cards intact, equity curve chart type unchanged."""
+    src = APP_PATH.read_text(encoding="utf-8")
+    assert '"All assets"' in src  # default option
+    assert "_traded_assets" in src and 'df["asset"].dropna()' in src  # dynamic
+    assert "render_trade_calendar(df)" in src
+    # Filter is applied to the frame every stat below derives from.
+    assert 'df["asset"].astype(str) == asset_choice' in src
+    # Existing KPI cards and the equity curve stay untouched.
+    for kpi in (
+        "Today's P&L",
+        "This Week's P&L",
+        "Win Rate",
+        "Total Trades",
+        "Profit Factor",
+        "Expectancy",
+    ):
+        assert kpi in src, kpi
+    assert "equity_curve_chart(eq)" in src

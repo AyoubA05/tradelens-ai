@@ -257,3 +257,112 @@ def test_analyze_screenshot_ai_unavailable_raises(tmp_path):
     ):
         with pytest.raises(ScreenshotAnalysisError, match="AI declined"):
             analyze_screenshot(image, {"asset": "NQ"})
+
+
+# ---------------------------------------------------------------------------
+# screenshot_v3 defaults — the extraction-contract additions get safe defaults
+# ---------------------------------------------------------------------------
+
+
+def test_fill_defaults_v3_includes_new_extraction_fields():
+    from src.tradelens.services.vision import _fill_defaults_v3
+
+    out = _fill_defaults_v3({})
+    # descriptive gains instrument_name; overlay gains pnl / RR / confidence / labels
+    assert out["descriptive"]["instrument_name"] is None
+    assert out["trade_overlay"]["pnl"] is None
+    assert out["trade_overlay"]["risk_reward_ratio"] is None
+    assert out["trade_overlay"]["overall_confidence"] is None
+    assert out["trade_overlay"]["visible_labels"] == []
+
+
+def test_fill_defaults_v3_preserves_present_extraction_fields():
+    from src.tradelens.services.vision import _fill_defaults_v3
+
+    data = {
+        "descriptive": {
+            "detected_asset": "MNQU2026",
+            "instrument_name": "Micro E-mini Nasdaq-100",
+        },
+        "trade_overlay": {
+            "pnl": 172.25,
+            "risk_reward_ratio": "2.01:1",
+            "overall_confidence": "high",
+            "visible_labels": ["MNQU2026", "1m"],
+            "source": "visible_trade_box",
+        },
+    }
+    out = _fill_defaults_v3(data)
+    assert out["descriptive"]["detected_asset"] == "MNQU2026"
+    assert out["descriptive"]["instrument_name"] == "Micro E-mini Nasdaq-100"
+    assert out["trade_overlay"]["pnl"] == 172.25
+    assert out["trade_overlay"]["risk_reward_ratio"] == "2.01:1"
+    assert out["trade_overlay"]["overall_confidence"] == "high"
+    assert out["trade_overlay"]["visible_labels"] == ["MNQU2026", "1m"]
+
+
+# ---------------------------------------------------------------------------
+# check_screenshot_quality — local pre-check before spending on a vision call
+# ---------------------------------------------------------------------------
+
+
+def _make_png(tmp_path: Path, name: str = "chart.png", size=(1600, 900)) -> Path:
+    p = tmp_path / name
+    Image.new("RGB", size, color=(40, 40, 40)).save(p, format="PNG")
+    return p
+
+
+def test_quality_good_image_has_no_warnings(tmp_path):
+    from src.tradelens.services.vision import check_screenshot_quality
+
+    q = check_screenshot_quality(_make_png(tmp_path))
+    assert q.usable is True
+    assert q.warnings == []
+
+
+def test_quality_low_resolution_warns_but_stays_usable(tmp_path):
+    from src.tradelens.services.vision import check_screenshot_quality
+
+    q = check_screenshot_quality(_make_png(tmp_path, size=(320, 200)))
+    assert q.usable is True  # degraded, not blocked
+    assert any("resolution" in w.lower() for w in q.warnings)
+
+
+def test_quality_extreme_aspect_ratio_warns_as_possible_crop(tmp_path):
+    from src.tradelens.services.vision import check_screenshot_quality
+
+    q = check_screenshot_quality(_make_png(tmp_path, size=(3000, 400)))
+    assert q.usable is True
+    assert any("crop" in w.lower() for w in q.warnings)
+
+
+def test_quality_corrupt_file_is_unusable(tmp_path):
+    from src.tradelens.services.vision import check_screenshot_quality
+
+    p = tmp_path / "broken.png"
+    p.write_bytes(b"this is not an image at all")
+    q = check_screenshot_quality(p)
+    assert q.usable is False
+    assert q.warnings  # says why
+
+
+def test_quality_missing_or_empty_file_is_unusable(tmp_path):
+    from src.tradelens.services.vision import check_screenshot_quality
+
+    q = check_screenshot_quality(tmp_path / "nope.png")
+    assert q.usable is False
+
+    empty = tmp_path / "empty.png"
+    empty.write_bytes(b"")
+    assert check_screenshot_quality(empty).usable is False
+
+
+def test_screenshot_v3_prompt_declares_entry_time_contract():
+    """Item 4: the vision contract asks for entry_time_approx (HH:MM) with a
+    confidence score and an explicit not_visible source."""
+    text = (Path(__file__).resolve().parents[1] / "prompts" / "screenshot_v3.txt").read_text(
+        encoding="utf-8"
+    )
+    assert "entry_time_approx" in text
+    assert "entry_time_source" in text
+    assert "not_visible" in text

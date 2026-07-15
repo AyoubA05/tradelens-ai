@@ -66,7 +66,7 @@ def _fake_trades():
 _REQUIRED_SECTIONS = [
     "### What Worked",
     "### What Didn't",
-    "### Killzone Review",
+    "### Pattern Signals",
     "### Rule Adherence",
     "### Focus for Next Week",
 ]
@@ -281,3 +281,62 @@ def test_list_weekly_reviews_orders_recent_first(in_memory_db):
     # stats survive the round-trip as a dict
     assert isinstance(rows[0]["stats"], dict)
     assert json.dumps(rows[0]["stats"])  # serialisable
+
+
+# ---------------------------------------------------------------------------
+# Strategy-context propagation + user scoping (MVP completion pass)
+# ---------------------------------------------------------------------------
+
+
+def test_generate_scopes_trades_to_user_and_includes_strategy():
+    from src.tradelens.services.weekly import generate_weekly_review
+
+    captured = {}
+
+    def fake_get_trades(**kwargs):
+        captured["kw"] = kwargs
+        return _fake_trades()
+
+    def fake_chat(user_message, system_message="", **kwargs):
+        captured["user"] = user_message
+        return _full_review(), _make_usage()
+
+    with patch(
+        "src.tradelens.services.weekly.get_trades", side_effect=fake_get_trades
+    ), patch("src.tradelens.services.weekly.chat", side_effect=fake_chat), patch(
+        "src.tradelens.services.weekly.load_prompt", return_value="mock"
+    ):
+        generate_weekly_review(
+            "2026-06-17", user_id=7, strategy_profile={"name": "London FVG"}
+        )
+
+    assert captured["kw"]["user_id"] == 7
+    assert "London FVG" in captured["user"]
+
+
+def test_generate_without_profile_uses_general_framework_note():
+    from src.tradelens.services.weekly import generate_weekly_review
+
+    captured = {}
+
+    def fake_chat(user_message, system_message="", **kwargs):
+        captured["user"] = user_message
+        return _full_review(), _make_usage()
+
+    with patch(
+        "src.tradelens.services.weekly.get_trades", return_value=_fake_trades()
+    ), patch("src.tradelens.services.weekly.chat", side_effect=fake_chat), patch(
+        "src.tradelens.services.weekly.load_prompt", return_value="mock"
+    ):
+        generate_weekly_review("2026-06-17")
+
+    assert "No strategy profile provided" in captured["user"]
+
+
+def test_dead_coach_generator_removed():
+    """generate_ai_weekly_review had no UI path (evidence: only its own tests
+    referenced it) and duplicated generate_weekly_review — it must stay gone."""
+    import src.tradelens.services.weekly as weekly
+
+    assert not hasattr(weekly, "generate_ai_weekly_review")
+    assert not hasattr(weekly, "_AI_COACH_SYSTEM")

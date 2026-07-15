@@ -129,7 +129,7 @@ with st.sidebar:
     st.metric("Tokens in", f"{costs['tokens_in']:,}")
     st.metric("Tokens out", f"{costs['tokens_out']:,}")
     st.metric("Cost", f"${costs['cost']:.4f}")
-    if st.button("Clear conversation", use_container_width=True):
+    if st.button("Clear conversation", width="stretch"):
         st.session_state[convo_key] = []
         st.session_state[cost_key] = {"tokens_in": 0, "tokens_out": 0, "cost": 0.0}
         st.rerun()

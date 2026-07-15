@@ -1,8 +1,8 @@
 import sys
 import math
 import datetime
+from html import escape
 from pathlib import Path
-from typing import Optional
 
 # parents[4] of src/tradelens/ui/pages/*.py  →  project root
 _root = str(Path(__file__).resolve().parents[4])
@@ -12,103 +12,130 @@ if _root not in sys.path:
 import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 
-from src.tradelens.services.metrics_store import get_computed_at  # noqa: E402
-from src.tradelens.services.trade_service import get_trades  # noqa: E402
+from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
 from src.tradelens.services.metrics import (  # noqa: E402
     by_day_of_week,
-    by_setup_type,
-    by_strategy,
+    by_session,
     compute_basic_metrics,
+    compute_breakdown,
+    compute_equity_curve,
     compute_expectancy,
+    compute_max_drawdown,
     compute_profit_factor_raw,
-    confirmation_model_performance,
-    consistency_score,
     drawdown_series,
-    emotion_vs_rr,
     equity_curve_series,
-    killzone_performance,
-    mistake_frequency,
-    r_multiple_distribution,
-    total_edge_leak,
 )
-from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
-from src.tradelens.services.patterns import (  # noqa: E402
-    detect_patterns,
-    generate_insights,
-)
-from src.tradelens.services.strategy import (  # noqa: E402
-    append_insight,
-    get_active_strategy,
-)
-from src.tradelens.utils.ai_utils import is_ai_enabled  # noqa: E402
-from src.tradelens.utils.format import humanize  # noqa: E402
-from src.tradelens.services.weekly import (  # noqa: E402
-    WeeklyReviewError,
-    generate_weekly_review,
-    get_weekly_review,
-    get_weekly_reviews,
-    save_weekly_review,
-    week_bounds,
-)
-from src.tradelens.ui.components.auth import (  # noqa: E402
-    current_user_id,
-    require_auth,
-)
+from src.tradelens.services.strategy import get_active_strategy  # noqa: E402
+from src.tradelens.services.trade_service import get_trades  # noqa: E402
+from src.tradelens.ui.components.auth import current_user_id, require_auth  # noqa: E402
+from src.tradelens.ui.components.calendar_view import render_calendar  # noqa: E402
 from src.tradelens.ui.components.charts import (  # noqa: E402
     drawdown_chart,
-    emotion_vs_rr_chart,
     equity_curve_chart,
-    pnl_by_strategy_chart,
-    profit_factor_gauge,
-    r_multiple_histogram,
-    setup_breakdown_chart,
-    win_rate_by_dow_chart,
+    pnl_by_dow_chart,
+    pnl_by_emotion_chart,
+    pnl_by_session_chart,
+    risk_over_time_chart,
+    session_dow_heatmap,
+    win_rate_rules_chart,
 )
-from src.tradelens.ui.components.calendar_view import render_calendar  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
-from src.tradelens.ui.components.theme import inject_css  # noqa: E402
-from src.tradelens.ui.components.ui import (  # noqa: E402
-    empty_state,
-    section_header,
+from src.tradelens.ui.components.theme import PLOTLY_TEMPLATE, inject_css  # noqa: E402
+from src.tradelens.ui.design_system import (  # noqa: E402
+    inject_design_system,
+    render_badge,
+    render_empty_state,
+    render_section_header,
 )
 
 st.set_page_config(page_title="Analytics", layout="wide")
 inject_css()
+inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
 render_demo_banner()
 render_sidebar()
-st.markdown(section_header("Analytics"), unsafe_allow_html=True)
+st.markdown(
+    render_section_header(
+        "Analytics", "Your trading performance, sectioned for clarity"
+    ),
+    unsafe_allow_html=True,
+)
 
 _active_strategy = get_active_strategy()
-if _active_strategy:
-    st.caption(f"Strategy: {_active_strategy.get('name', '—')}")
-else:
-    st.warning(
-        "⚠️ No active strategy profile. Add one in Strategy Profile to make AI "
-        "reviews strategy-aware."
+if _active_strategy and _active_strategy.get("name"):
+    st.markdown(
+        render_badge(_active_strategy["name"], "primary"),
+        unsafe_allow_html=True,
     )
 
 
-def _fmt_pf(v: float) -> str:
-    return "∞" if isinstance(v, float) and math.isinf(v) else f"{v:.2f}"
+def _fmt_pf(v, total_pnl=None) -> str:
+    """PF display convention (app-wide): wins with no losses → '∞';
+    a breakeven-only slice (0 wins / 0 losses = undefined) → 'N/A'."""
+    if isinstance(v, float) and math.isinf(v):
+        return "∞"
+    if float(v) == 0.0 and total_pnl is not None and float(total_pnl) == 0.0:
+        return "N/A"
+    return f"{float(v):.2f}"
 
 
-def _fmt_ts(ts: str) -> str:
-    """Format ISO timestamp as 'Jun 10, 2026 at 11:28 PM'. Falls back to raw string."""
+def _ratio(v) -> str:
+    """An R value as a readable ratio string (1.8 → '1.8:1'). 0/None → '—'."""
     try:
-        dt = datetime.datetime.fromisoformat(ts)
-        time_part = dt.strftime("%I:%M %p")
-        if time_part.startswith("0"):
-            time_part = time_part[1:]
-        return f"{dt.strftime('%b')} {dt.day}, {dt.strftime('%Y')} at {time_part}"
-    except Exception:
-        return ts
+        f = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    if math.isnan(f):
+        return "—"
+    return f"{f:g}:1" if f else "—"
 
 
-@st.cache_data(ttl=60)
-def _cached_computed_at(user_id: int = 1) -> Optional[str]:
-    return get_computed_at(user_id=user_id)
+def _money(v) -> str:
+    """App-wide money convention: -$301.00, never $-301.00 (matches
+    Journal _fmt_money and the KPI-card formatter)."""
+    v = float(v)
+    return f"-${abs(v):,.2f}" if v < 0 else f"${v:,.2f}"
+
+
+def _styled(fig):
+    """Apply the shared TradeLens template (colors, grid, fonts, tooltips
+    all come from design_system.PLOTLY_TEMPLATE); margins are the only
+    page-specific setting."""
+    fig.update_layout(
+        template=PLOTLY_TEMPLATE,
+        margin=dict(l=16, r=16, t=16, b=16),
+    )
+    return fig
+
+
+def _chart(fig, key: str, title: str = "") -> None:
+    """Card-wrapped chart. st.container(border=True) is the version-safe
+    tl-form-card equivalent (stPlotlyChart is not in the proven-selector
+    set, and Streamlit elements can't sit inside an HTML string wrapper)."""
+    with st.container(border=True):
+        if title:
+            st.markdown(
+                f'<div class="tl-chart-title">{escape(title)}</div>',
+                unsafe_allow_html=True,
+            )
+        # plotly_chart has no width= on streamlit 1.50 — use_container_width
+        # stays here until the pin bumps (unlike buttons/images/dataframes).
+        st.plotly_chart(
+            _styled(fig),
+            use_container_width=True,
+            key=key,
+            config={"displayModeBar": False},
+        )
+
+
+def _empty(icon: str, title: str, body: str) -> None:
+    st.markdown(render_empty_state(icon, title, body), unsafe_allow_html=True)
+
+
+def _section(title: str, description: str) -> None:
+    # The section header's teal top-rule is the visual break — no divider.
+    st.markdown(render_section_header(title, description), unsafe_allow_html=True)
 
 
 @st.cache_data(ttl=60)
@@ -127,526 +154,316 @@ def _load_df(start: str, end: str, user_id=None) -> pd.DataFrame:
                 "setup_type": t.setup_type,
                 "emotions_before": t.emotions_before,
                 "rr_realized": t.rr_realized,
+                "risk_amount": t.risk_amount,
                 "pnl": t.pnl,
                 "result": t.result,
                 "killzone": t.killzone,
-                "confirmation_model": t.confirmation_model,
-                "mistake_tags": t.mistake_tags,
                 "htf_bias": t.htf_bias,
                 "followed_rules": t.followed_rules,
-                "ai_grade": t.ai_grade,
-                "user_grade": t.user_grade,
             }
             for t in trades
         ]
     )
 
 
-@st.cache_data(ttl=60)
-def _load_all_df(user_id=None) -> pd.DataFrame:
-    """All trades (no date filter) — powers the Calendar tab."""
-    return _load_df("0000-01-01", "9999-12-31", user_id)
+# ── Filters ───────────────────────────────────────────────────────
+today = datetime.date.today()
+fcol1, fcol2 = st.columns(2)
+with fcol1:
+    start_date = st.date_input(
+        "From", value=today - datetime.timedelta(days=90), key="an_from"
+    )
+with fcol2:
+    end_date = st.date_input("To", value=today, key="an_to")
+
+df_raw = _load_df(str(start_date), str(end_date), current_user_id())
+if df_raw.empty and is_demo():
+    df_raw = get_demo_df()
+
+# Normalize the column set so demo data (a different shape) and real trades both
+# render every section without KeyErrors — missing columns become all-NaN.
+if not df_raw.empty:
+    for _col in (
+        "risk_amount",
+        "followed_rules",
+        "emotions_before",
+        "session",
+        "day_of_week",
+        "setup_type",
+        "result",
+        "rr_realized",
+        "strategy_used",
+        "asset",
+    ):
+        if _col not in df_raw.columns:
+            df_raw[_col] = pd.NA
+
+if df_raw.empty:
+    _empty(
+        "◆",
+        "No trades in this range yet",
+        "Log a trade to unlock your analytics.",
+    )
+    try:
+        st.page_link("pages/1_NewTrade.py", label="Log a trade →")
+    except Exception:  # noqa: BLE001 — registry-less boots (AppTest) raise
+        st.markdown(
+            '<a href="/NewTrade" target="_self">Log a trade →</a>',
+            unsafe_allow_html=True,
+        )
+    st.stop()
+
+fc1, fc2, fc3 = st.columns(3)
+with fc1:
+    sel_assets = st.multiselect(
+        "Asset", sorted(df_raw["asset"].dropna().unique().tolist()), key="an_asset"
+    )
+with fc2:
+    sel_sessions = st.multiselect(
+        "Session",
+        sorted(df_raw["session"].dropna().unique().tolist()),
+        key="an_session",
+    )
+with fc3:
+    sel_strats = st.multiselect(
+        "Strategy",
+        sorted(df_raw["strategy_used"].dropna().unique().tolist()),
+        key="an_strat",
+    )
+
+df = df_raw.copy()
+if sel_assets:
+    df = df[df["asset"].isin(sel_assets)]
+if sel_sessions:
+    df = df[df["session"].isin(sel_sessions)]
+if sel_strats:
+    df = df[df["strategy_used"].isin(sel_strats)]
+
+if df.empty:
+    _empty("◆", "No matching trades", "Adjust the date range or filters.")
+    st.stop()
 
 
-# ── Tabs ──────────────────────────────────────────────────────────
-tab_perf, tab_cal, tab_weekly, tab_insights = st.tabs(
-    ["Performance", "Calendar", "Weekly Review", "Pattern Insights"]
+# ══════════════════════════════════════════════════════════════════
+# 1 · PERFORMANCE OVERVIEW
+# ══════════════════════════════════════════════════════════════════
+_section("Performance Overview", "Headline results across the selected period.")
+m = compute_basic_metrics(df)
+pf = compute_profit_factor_raw(df)
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("Total P&L", _money(m["total_pnl"]))
+k2.metric("Win Rate", f"{m['win_rate']:.1%}")
+k3.metric("Profit Factor", _fmt_pf(pf, m["total_pnl"]))
+k4.metric("Expectancy", _money(compute_expectancy(m)))
+k5, k6, k7, k8 = st.columns(4)
+k5.metric("Avg Win", _money(m["avg_win"]))
+k6.metric("Avg Loss", _money(m["avg_loss"]))
+k7.metric("Largest Win", _money(m["best_trade"]))
+k8.metric("Largest Loss", _money(m["worst_trade"]))
+
+eq_df = equity_curve_series(df)
+if not eq_df.empty:
+    _chart(equity_curve_chart(eq_df), "an_eq", "Equity Curve")
+else:
+    _empty("📈", "Equity curve not available", "Log P&L on trades to chart it.")
+
+
+# ══════════════════════════════════════════════════════════════════
+# 2 · RISK ANALYSIS
+# ══════════════════════════════════════════════════════════════════
+_section(
+    "Risk Analysis",
+    "How much you risk, your reward ratios, and your worst drawdown.",
 )
+sess_df = by_session(df)
+best_sess = worst_sess = None
+if not sess_df.empty:
+    best_sess = sess_df.loc[sess_df["total_pnl"].idxmax()]
+    worst_sess = sess_df.loc[sess_df["total_pnl"].idxmin()]
+max_dd = compute_max_drawdown(compute_equity_curve(df))
 
+_median_rr = pd.to_numeric(df["rr_realized"], errors="coerce").dropna().median()
+r1, r2, r3, r4 = st.columns(4)
+r1.metric("Avg R:R", _ratio(m.get("avg_rr_realized")))
+r2.metric("Median R:R", _ratio(_median_rr))
+r3.metric("Max Drawdown", _money(max_dd))
+if best_sess is not None:
+    r4.metric(
+        "Best Session", str(best_sess["session"]), f"${best_sess['total_pnl']:,.0f}"
+    )
 
-# ══════════════════════════════════════════════════════════════════
-# PERFORMANCE
-# ══════════════════════════════════════════════════════════════════
-def _render_performance() -> None:
-    fcol1, fcol2 = st.columns([1, 1])
-    today = datetime.date.today()
-    with fcol1:
-        start_date = st.date_input(
-            "From", value=today - datetime.timedelta(days=90), key="an_from"
-        )
-    with fcol2:
-        end_date = st.date_input("To", value=today, key="an_to")
+if worst_sess is not None:
+    # Danger reads only for truly negative outcomes: a positive "worst"
+    # session is just the lowest — neutral label, neutral delta color.
+    _worst_pnl = float(worst_sess["total_pnl"])
+    _worst_label = "Worst Session" if _worst_pnl < 0 else "Lowest Session"
+    bw1, _bw2 = st.columns([1, 3])
+    bw1.metric(
+        _worst_label,
+        str(worst_sess["session"]),
+        f"${_worst_pnl:,.0f}",
+        delta_color="normal" if _worst_pnl < 0 else "off",
+    )
 
-    df_raw = _load_df(str(start_date), str(end_date), current_user_id())
-
-    # DEMO_MODE on a cold/empty DB: show rich synthetic data so analytics is alive.
-    if df_raw.empty and is_demo():
-        df_raw = get_demo_df()
-
-    if df_raw.empty:
-        st.markdown(
-            empty_state(
-                "No trades in this range yet — log a trade to unlock your analytics.",
-                cta_label="Log a trade",
-                cta_href="/NewTrade",
-            ),
-            unsafe_allow_html=True,
-        )
-        return
-
-    # --- Filters built from loaded data ---
-    fc1, fc2, fc3 = st.columns(3)
-    all_assets = sorted(df_raw["asset"].dropna().unique().tolist())
-    all_sessions = sorted(df_raw["session"].dropna().unique().tolist())
-    all_strategies = sorted(df_raw["strategy_used"].dropna().unique().tolist())
-    with fc1:
-        selected_assets = st.multiselect("Asset", options=all_assets, key="an_asset")
-    with fc2:
-        selected_sessions = st.multiselect(
-            "Session", options=all_sessions, key="an_session"
-        )
-    with fc3:
-        selected_strategies = st.multiselect(
-            "Strategy", options=all_strategies, key="an_strat"
-        )
-
-    df = df_raw.copy()
-    if selected_assets:
-        df = df[df["asset"].isin(selected_assets)]
-    if selected_sessions:
-        df = df[df["session"].isin(selected_sessions)]
-    if selected_strategies:
-        df = df[df["strategy_used"].isin(selected_strategies)]
-
-    if df.empty:
-        st.warning(
-            "No trades match the selected filters. Try adjusting the date range "
-            "or filters."
-        )
-        return
-
-    # --- Compute metrics (all delegated to metrics.py — no math here) ---
-    m = compute_basic_metrics(df)
-    pf = compute_profit_factor_raw(df)
-    exp = compute_expectancy(m)
-    eq_df = equity_curve_series(df)
+rc1, rc2 = st.columns(2)
+with rc1:
+    if df["risk_amount"].notna().any():
+        _chart(risk_over_time_chart(df), "an_risk", "Risk ($) per Trade Over Time")
+    else:
+        _empty("📏", "Risk trend not available", "Log Risk ($) to unlock.")
+with rc2:
     dd_df = drawdown_series(df)
-    rr_df = r_multiple_distribution(df)
+    if not dd_df.empty:
+        _chart(drawdown_chart(dd_df), "an_dd", "Drawdown")
+    else:
+        _empty(
+            "📉",
+            "Drawdown not available",
+            "Log a few more trades to chart it.",
+        )
 
-    rr_values = (
-        df["rr_realized"].dropna()
-        if "rr_realized" in df.columns
-        else pd.Series(dtype=float)
+
+# ══════════════════════════════════════════════════════════════════
+# 3 · TIME & SESSION ANALYSIS
+# ══════════════════════════════════════════════════════════════════
+_section(
+    "Time & Session Analysis",
+    "When you trade best — by market session and day of week.",
+)
+dow_df = by_day_of_week(df)
+ts1, ts2 = st.columns(2)
+with ts1:
+    if not sess_df.empty:
+        _chart(pnl_by_session_chart(sess_df), "an_sess", "P&L by Session")
+    else:
+        _empty(
+            "🕐",
+            "Session data not available",
+            "Sessions are auto-detected from entry time on new trades.",
+        )
+with ts2:
+    if not dow_df.empty:
+        _chart(pnl_by_dow_chart(dow_df), "an_dow", "P&L by Day of Week")
+    else:
+        _empty(
+            "📅",
+            "Day-of-week data not available",
+            "Log more trades to see day-of-week trends.",
+        )
+
+if not sess_df.empty and not dow_df.empty:
+    _chart(
+        session_dow_heatmap(df),
+        "an_heat",
+        "Net P&L Heatmap — Session × Day of Week",
     )
-    median_rr = float(rr_values.median()) if not rr_values.empty else None
-
-    dow_df = by_day_of_week(df)
-    strat_df = by_strategy(df)
-    setup_df = by_setup_type(df)
-    emo_df = emotion_vs_rr(df)
-
-    # --- KPI row ---
-    pf_display = _fmt_pf(pf)
-    avg_rr = m.get("avg_rr_realized", 0.0)
-    cs = consistency_score(df)
-    cs_display = f"{cs:.0f}/100" if cs else "—"
-    # consistency_score returns 0 below 5 trades — say so instead of a bare dash.
-    cs_help = (
-        "Process score (0–100): rule adherence, mistake cleanliness, grade trend."
-        if cs
-        else "Log 5+ trades to calculate consistency."
+else:
+    _empty(
+        "🗓",
+        "Heatmap not available",
+        "Needs both session and day-of-week data.",
     )
 
-    k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
-    k1.metric("Total P/L", f"${m['total_pnl']:,.2f}")
-    k2.metric("Win Rate", f"{m['win_rate']:.1%}")
-    k3.metric("Profit Factor", pf_display)
-    k4.metric("Expectancy", f"${exp:,.2f}")
-    k5.metric("Avg R Realized", f"{avg_rr:.2f}R")
-    k6.metric("Total Trades", m["total_trades"])
-    k7.metric("Consistency", cs_display, help=cs_help)
 
-    last_ts = _cached_computed_at()
-    if last_ts:
-        st.caption(f"Last refreshed: {_fmt_ts(last_ts)}")
+# ══════════════════════════════════════════════════════════════════
+# 4 · SETUP PERFORMANCE
+# ══════════════════════════════════════════════════════════════════
+_section(
+    "Setup Performance",
+    "Which setups carry your edge — ranked by total P&L.",
+)
+setup_df = compute_breakdown(df, "setup_type")
+if setup_df.empty:
+    _empty(
+        "🧩",
+        "Setup data not available",
+        "Assign setup types to trades to see this leaderboard.",
+    )
+else:
+    # compute_breakdown returns rows sorted by total_pnl desc → rank order.
+    _lb_rows = []
+    for _rank, _r in enumerate(setup_df.itertuples(index=False), start=1):
+        _pf = compute_profit_factor_raw(df[df["setup_type"] == _r.setup_type])
+        _wr = float(_r.win_rate or 0.0)
+        _wr_cls = " pnl-pos" if _wr >= 0.5 else ""
+        try:
+            _avg = float(_r.avg_pnl)
+        except (TypeError, ValueError):
+            _avg = None
+        if _avg is None or pd.isna(_avg):
+            _avg_cls, _avg_txt = "", "—"
+        else:
+            _avg_cls = " pnl-pos" if _avg > 0 else (" pnl-neg" if _avg < 0 else "")
+            _avg_txt = f"-${abs(_avg):,.2f}" if _avg < 0 else f"${_avg:,.2f}"
+        _lb_rows.append(
+            "<tr>"
+            f'<td class="mono">{_rank}</td>'
+            f"<td>{escape(str(_r.setup_type))}</td>"
+            f'<td class="mono num">{int(_r.trades)}</td>'
+            f'<td class="mono num{_wr_cls}">{_wr:.1%}</td>'
+            f'<td class="mono num{_avg_cls}">{_avg_txt}</td>'
+            f'<td class="mono num">{_fmt_pf(_pf, _r.total_pnl)}</td>'
+            "</tr>"
+        )
+    st.markdown(
+        '<div class="tl-form-card"><div class="tl-table-wrap">'
+        '<table class="tl-table"><thead><tr>'
+        '<th>Rank</th><th>Setup</th><th class="num">Trades</th>'
+        '<th class="num">Win Rate</th><th class="num">Avg P&amp;L</th>'
+        '<th class="num">PF</th>'
+        f'</tr></thead><tbody>{"".join(_lb_rows)}</tbody></table></div></div>',
+        unsafe_allow_html=True,
+    )
 
-    st.divider()
 
-    # --- Row 1: Equity curve | Drawdown ---
-    r1c1, r1c2 = st.columns(2)
-    with r1c1:
-        st.subheader("Equity Curve")
-        st.plotly_chart(
-            equity_curve_chart(eq_df), use_container_width=True, key="an_equity"
-        )
-        if eq_df.empty:
-            st.caption("No trades in this period to plot.")
-    with r1c2:
-        st.subheader("Drawdown")
-        st.plotly_chart(
-            drawdown_chart(dd_df), use_container_width=True, key="an_drawdown"
-        )
-        if dd_df.empty:
-            st.caption("No drawdown data available.")
+# ══════════════════════════════════════════════════════════════════
+# 5 · EMOTIONAL PATTERNS
+# ══════════════════════════════════════════════════════════════════
+_section(
+    "Emotional Patterns",
+    "How discipline and mindset show up in your results.",
+)
+followed = pd.to_numeric(df.get("followed_rules"), errors="coerce")
+res = (
+    df["result"].fillna("").astype(str).str.lower()
+    if "result" in df
+    else pd.Series(dtype=str)
+)
+win = res.eq("win")
+foll_mask = followed == 1
+broke_mask = followed == 0
+foll_n, broke_n = int(foll_mask.sum()), int(broke_mask.sum())
 
-    # --- Row 2: Win rate by DOW | P/L by strategy ---
-    r2c1, r2c2 = st.columns(2)
-    with r2c1:
-        st.subheader("Win Rate by Day of Week")
-        st.plotly_chart(
-            win_rate_by_dow_chart(dow_df), use_container_width=True, key="an_dow"
-        )
-        if dow_df.empty:
-            st.caption("Log more trades to see day-of-week trends.")
-    with r2c2:
-        st.subheader("P/L by Strategy")
-        st.plotly_chart(
-            pnl_by_strategy_chart(strat_df), use_container_width=True, key="an_strategy"
-        )
-        if strat_df.empty:
-            st.caption("Assign strategies to trades to see this breakdown.")
-
-    # --- Row 3: Profit factor gauge | R-multiple histogram ---
-    r3c1, r3c2 = st.columns(2)
-    with r3c1:
-        st.subheader("Profit Factor")
-        st.plotly_chart(profit_factor_gauge(pf), use_container_width=True, key="an_pf")
-    with r3c2:
-        st.subheader("R-Multiple Distribution")
-        st.plotly_chart(
-            r_multiple_histogram(rr_df, median_rr=median_rr),
-            use_container_width=True,
-            key="an_rr",
-        )
-        if rr_df.empty:
-            st.caption("Log trades with R-multiple to see distribution.")
-
-    # --- Bonus row: Emotion vs R | Setup breakdown ---
-    b1, b2 = st.columns(2)
-    with b1:
-        st.subheader("Emotion vs. R-Multiple")
-        st.plotly_chart(
-            emotion_vs_rr_chart(emo_df), use_container_width=True, key="an_emo"
-        )
-        if emo_df.empty:
-            st.caption("Add emotion labels to trades to see this chart.")
-    with b2:
-        st.subheader("Setup Breakdown")
-        st.plotly_chart(
-            setup_breakdown_chart(setup_df), use_container_width=True, key="an_setup"
-        )
-        if setup_df.empty:
-            st.caption("Assign setup types to trades to see this chart.")
-
-    # --- Killzone Performance ---
-    st.divider()
-    st.subheader("Killzone Performance")
-    kz_df = killzone_performance(df)
-    if kz_df.empty:
-        st.caption(
-            "No killzone data yet. Tag trades with a killzone to see this breakdown."
+ep1, ep2 = st.columns(2)
+with ep1:
+    if foll_n or broke_n:
+        foll_wr = float(win[foll_mask].mean()) if foll_n else 0.0
+        broke_wr = float(win[broke_mask].mean()) if broke_n else 0.0
+        _chart(
+            win_rate_rules_chart(foll_wr, broke_wr, foll_n, broke_n),
+            "an_rules",
+            "Win Rate — Followed Rules vs Broke Rules",
         )
     else:
-        kc1, kc2 = st.columns([3, 2])
-        with kc1:
-            st.bar_chart(kz_df.set_index("killzone")["total_pnl"], height=300)
-        with kc2:
-            kz_disp = kz_df.copy()
-            kz_disp["killzone"] = kz_disp["killzone"].map(humanize)
-            kz_disp["win_rate"] = (kz_disp["win_rate"] * 100).round(1).astype(str) + "%"
-            kz_disp["avg_rr_realized"] = kz_disp["avg_rr_realized"].round(2)
-            kz_disp["profit_factor"] = kz_disp["profit_factor"].apply(_fmt_pf)
-            kz_disp["total_pnl"] = kz_disp["total_pnl"].round(2)
-            st.dataframe(
-                kz_disp[
-                    [
-                        "killzone",
-                        "trades",
-                        "win_rate",
-                        "avg_rr_realized",
-                        "profit_factor",
-                        "total_pnl",
-                    ]
-                ],
-                hide_index=True,
-                use_container_width=True,
-            )
-
-    # --- Confirmation model + mistake frequency ---
-    cm_col, mk_col = st.columns(2)
-    with cm_col:
-        st.subheader("By Confirmation Model")
-        cm_df = confirmation_model_performance(df)
-        if cm_df.empty:
-            st.caption("Tag trades with a confirmation model to see this breakdown.")
-        else:
-            cm_disp = cm_df.copy()
-            cm_disp["win_rate"] = (cm_disp["win_rate"] * 100).round(1).astype(str) + "%"
-            cm_disp["profit_factor"] = cm_disp["profit_factor"].apply(_fmt_pf)
-            cm_disp["total_pnl"] = cm_disp["total_pnl"].round(2)
-            st.dataframe(
-                cm_disp[
-                    [
-                        "confirmation_model",
-                        "trades",
-                        "win_rate",
-                        "profit_factor",
-                        "total_pnl",
-                    ]
-                ],
-                hide_index=True,
-                use_container_width=True,
-            )
-    with mk_col:
-        st.subheader("Mistake Frequency")
-        mk_df = mistake_frequency(df)
-        if mk_df.empty:
-            st.caption("No mistake tags logged yet.")
-        else:
-            st.bar_chart(mk_df.set_index("mistake_tag")["count"], height=240)
-            mk_disp = mk_df.copy()
-            mk_disp["total_pnl"] = mk_disp["total_pnl"].round(2)
-            mk_disp["avg_pnl"] = mk_disp["avg_pnl"].round(2)
-            st.dataframe(mk_disp, hide_index=True, use_container_width=True)
-
-    # --- Total Edge Leak ---
-    st.divider()
-    leak = total_edge_leak(df)
-    lc1, lc2 = st.columns([1, 3])
-    with lc1:
-        st.metric(
-            "Total Edge Leak",
-            f"${leak:,.2f}",
-            help="Net P&L of trades where you broke your rules or logged a mistake tag.",
+        _empty(
+            "📐",
+            "Rule data not available",
+            "Answer 'Followed your rules?' when logging to see this.",
         )
-    with lc2:
-        if leak < 0:
-            st.caption(
-                "The cumulative cost of rule-breaks and tagged mistakes. "
-                "Tightening discipline here is your clearest edge."
-            )
-        elif leak > 0:
-            st.caption(
-                "Rule-break trades happened to net positive — lucky, not repeatable. "
-                "Discipline keeps it that way."
-            )
-        else:
-            st.caption("No rule-break or mistake-tagged trades in this period.")
-
-    # Pattern Insights now live in their own auto-loading tab (see _render_insights).
-
-
-# ══════════════════════════════════════════════════════════════════
-# CALENDAR
-# ══════════════════════════════════════════════════════════════════
-def _render_calendar() -> None:
-    df = _load_all_df(current_user_id())
-    if df.empty and is_demo():
-        df = get_demo_df()
-
-    if df.empty:
-        st.markdown(
-            empty_state(
-                "No trades yet — log a trade to see your calendar fill in.",
-                cta_label="Log a trade",
-                cta_href="/NewTrade",
-            ),
-            unsafe_allow_html=True,
-        )
-        return
-
-    render_calendar(df)
-
-
-# ══════════════════════════════════════════════════════════════════
-# WEEKLY REVIEW
-# ══════════════════════════════════════════════════════════════════
-def _render_week_stats(stats: dict) -> None:
-    if not stats:
-        st.caption("Generate a review to see this week's stats.")
-        return
-    s1, s2, s3, s4, s5 = st.columns(5)
-    s1.metric("Trades", stats.get("trades", 0))
-    s2.metric("Win Rate", f"{stats.get('win_rate', 0.0):.1%}")
-    s3.metric("Net P/L", f"${stats.get('total_pnl', 0.0):,.2f}")
-    pf = stats.get("profit_factor")
-    s4.metric("Profit Factor", "∞" if pf is None else f"{pf:.2f}")
-    s5.metric("Edge Leak", f"${stats.get('total_edge_leak', 0.0):,.2f}")
-
-
-def _render_review(review: dict) -> None:
-    if review.get("content_md"):
-        st.markdown(review["content_md"])
-    thinking = review.get("thinking_summary")
-    if thinking:
-        with st.expander("How the AI reasoned"):
-            st.markdown(thinking)
-    cost = review.get("cost_usd")
-    if cost:
-        st.caption(f"Generation cost: ${cost:.4f}")
-
-
-def _render_weekly() -> None:
-    st.caption("Post-trade reflection on a completed week — not signals or advice.")
-    today = datetime.date.today()
-    picked = st.date_input(
-        "Pick any day in the week to review", value=today, key="wk_pick"
-    )
-    monday, sunday = week_bounds(picked)
-    st.subheader(f"Week of {monday} → {sunday}")
-
-    uid = current_user_id()
-    existing = get_weekly_review(monday, uid)
-    _render_week_stats(existing["stats"] if existing else {})
-
-    confirm_key = "wk_confirm_overwrite"
-    if existing is None:
-        # AI button only appears when a key is configured; stats above always show.
-        if is_ai_enabled() and st.button(
-            "Generate weekly review", type="primary", key="wk_gen"
-        ):
-            with st.spinner("Writing weekly review…"):
-                try:
-                    review, _usage = generate_weekly_review(monday)
-                    if review["empty"]:
-                        st.markdown(
-                            empty_state(
-                                "This week has no trades to review yet.",
-                                cta_label="Log a trade",
-                                cta_href="/NewTrade",
-                            ),
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        save_weekly_review(review, overwrite=False, user_id=uid)
-                        st.toast("Weekly review generated", icon="✅")
-                        st.rerun()
-                except WeeklyReviewError as exc:
-                    st.toast(f"Could not generate review: {exc}", icon="❌")
-                except Exception as exc:
-                    st.toast(f"Unexpected error: {exc}", icon="❌")
+with ep2:
+    emo_df = compute_breakdown(df, "emotions_before")
+    if not emo_df.empty:
+        _chart(pnl_by_emotion_chart(emo_df), "an_emo", "P&L by Emotional State")
     else:
-        _render_review(existing)
-        if (existing.get("stats") or {}).get("trades", 0) < 3:
-            st.caption(
-                "Based on a small sample. Log more trades for stronger insights."
-            )
-        st.divider()
-        if st.session_state.get(confirm_key) == monday:
-            st.warning(
-                "Regenerating overwrites the saved review for this week and makes a "
-                "new AI call. Continue?"
-            )
-            c1, c2 = st.columns(2)
-            if c1.button("Confirm regenerate", type="primary", key="wk_confirm"):
-                st.session_state.pop(confirm_key, None)
-                with st.spinner("Regenerating…"):
-                    try:
-                        review, _usage = generate_weekly_review(monday)
-                        if review["empty"]:
-                            st.markdown(
-                                empty_state("This week has no trades anymore."),
-                                unsafe_allow_html=True,
-                            )
-                        else:
-                            save_weekly_review(review, overwrite=True, user_id=uid)
-                            st.toast("Weekly review regenerated", icon="✅")
-                            st.rerun()
-                    except WeeklyReviewError as exc:
-                        st.toast(f"Could not regenerate review: {exc}", icon="❌")
-                    except Exception as exc:
-                        st.toast(f"Unexpected error: {exc}", icon="❌")
-            if c2.button("Cancel", key="wk_cancel"):
-                st.session_state.pop(confirm_key, None)
-                st.rerun()
-        else:
-            if is_ai_enabled() and st.button("Regenerate review", key="wk_regen"):
-                st.session_state[confirm_key] = monday
-                st.rerun()
-
-    st.divider()
-    st.subheader("Past Reviews")
-    history = get_weekly_reviews(uid)
-    if not history:
-        st.caption("No saved reviews yet.")
-    else:
-        for row in history:
-            stats = row.get("stats") or {}
-            label = (
-                f"Week of {row['week_start']} · "
-                f"P/L ${stats.get('total_pnl', 0.0):,.2f} · "
-                f"Win {stats.get('win_rate', 0.0):.0%}"
-            )
-            with st.expander(label):
-                _render_review(row)
-
-
-def _render_insights() -> None:
-    st.subheader("Pattern Insights")
-    st.caption(
-        "Reflection only — these describe what already happened in your journal. "
-        "Not signals, predictions, or trade advice."
-    )
-
-    df = _load_all_df(current_user_id())
-    if df.empty and is_demo():
-        df = get_demo_df()
-
-    if df.empty or len(df) < 5:
-        count = 0 if df.empty else len(df)
-        st.info(
-            f"Log 5+ trades to start seeing pattern insights. Current: {count} trades."
+        _empty(
+            "🧠",
+            "Emotion data not available",
+            "Fill Psychology section when logging.",
         )
-        return
-
-    if st.button("Refresh insights", key="insights_refresh"):
-        st.rerun()
-
-    icons = {"positive": "🟢", "negative": "🔴", "neutral": "⚪"}
-    conf_labels = {"low": "Low", "medium": "Medium", "high": "High"}
-    for ins in generate_insights(df, get_active_strategy()):
-        with st.container(border=True):
-            st.markdown(f"{icons.get(ins['type'], '⚪')} **{ins['title']}**")
-            st.markdown(ins["body"])
-            st.caption(f"{conf_labels.get(ins['confidence'], 'Low')} confidence")
-
-    # Optional deeper AI patterns (single AI call) — gated on the key.
-    st.divider()
-    st.markdown("**Deeper AI patterns** (optional)")
-    if not is_ai_enabled():
-        st.info(
-            "🤖 Enable your ANTHROPIC_API_KEY in Settings for AI-generated "
-            "pattern cards."
-        )
-    if st.button("Detect deeper patterns with AI", disabled=not is_ai_enabled()):
-        with st.spinner("Detecting patterns…"):
-            try:
-                cards, _usage = detect_patterns(df)
-                st.session_state["pattern_cards"] = cards
-                st.session_state.pop("pattern_error", None)
-            except Exception as exc:  # noqa: BLE001 — surface a clean message
-                st.session_state["pattern_cards"] = None
-                st.session_state["pattern_error"] = str(exc)
-
-    if st.session_state.get("pattern_error"):
-        st.warning(f"Could not generate patterns: {st.session_state['pattern_error']}")
-    elif st.session_state.get("pattern_cards"):
-        for _i, card in enumerate(st.session_state["pattern_cards"]):
-            with st.container(border=True):
-                st.markdown(f"**{card.get('insight', '—')}**")
-                if card.get("evidence_stat"):
-                    st.markdown(f"**Evidence:** {card['evidence_stat']}")
-                st.caption(
-                    f"Impact: {card.get('impact', '—')} · "
-                    f"Sample: {card.get('sample_size', '—')} trades · "
-                    f"Confidence: {card.get('confidence', '—')}"
-                )
-                rule = card.get("suggested_rule", "")
-                if rule:
-                    st.markdown(f"*Suggested rule:* {rule}")
-                    if st.button("Add to Strategy Profile", key=f"add_rule_{_i}"):
-                        append_insight(rule)
-                        st.toast("Added to your Strategy Profile", icon="✅")
 
 
-with tab_perf:
-    _render_performance()
-
-with tab_cal:
-    _render_calendar()
-
-with tab_weekly:
-    _render_weekly()
-
-with tab_insights:
-    _render_insights()
+# ══════════════════════════════════════════════════════════════════
+# 6 · CALENDAR VIEW
+# ══════════════════════════════════════════════════════════════════
+_section("Calendar View", "Daily P&L across the month, at a glance.")
+render_calendar(df_raw)

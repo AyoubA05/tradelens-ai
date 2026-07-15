@@ -143,20 +143,27 @@ def render_calendar(trades_df) -> None:
             trades_df["trade_date"].astype(str).str.startswith(date_prefix)
         ]
         if not day_trades.empty:
-            cols = [
-                c
-                for c in (
-                    "trade_date",
-                    "asset",
-                    "result",
-                    "pnl",
-                    "killzone",
-                    "setup_type",
-                )
-                if c in day_trades.columns
-            ]
+            # Title Case headers + $-formatted P&L, matching the Journal table.
+            _headers = {
+                "trade_date": "Date",
+                "asset": "Asset",
+                "result": "Result",
+                "pnl": "P&L",
+                "killzone": "Killzone",
+                "setup_type": "Setup",
+            }
+            cols = [c for c in _headers if c in day_trades.columns]
             disp = day_trades[cols].copy()
-            for col in ("killzone", "setup_type"):
+            for col in ("killzone", "setup_type", "result"):
                 if col in disp.columns:
                     disp[col] = disp[col].map(humanize)
-            st.dataframe(disp, hide_index=True, use_container_width=True)
+            if "pnl" in disp.columns:
+                disp["pnl"] = disp["pnl"].map(
+                    lambda v: (
+                        "—"
+                        if v is None or pd.isna(v)
+                        else (f"-${abs(v):,.2f}" if v < 0 else f"${v:,.2f}")
+                    )
+                )
+            disp = disp.rename(columns=_headers)
+            st.dataframe(disp, hide_index=True, width="stretch")

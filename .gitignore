@@ -164,8 +164,7 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs documentation
-/site
+# mkdocs documentation (rule removed: site/ is the tracked marketing website)
 
 # mypy
 .mypy_cache/
@@ -238,3 +237,8 @@ data/
 
 # Installed skills (npx skills)
 .agents/
+.claude/settings.local.json
+
+# OS / editor local noise
+.DS_Store
+.vscode/

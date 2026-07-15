@@ -153,7 +153,7 @@ with left:
 
     st.markdown(section_header("Chart Screenshot"), unsafe_allow_html=True)
     if has_screenshot:
-        st.image(latest_screenshot.file_path, use_container_width=True)
+        st.image(latest_screenshot.file_path, width="stretch")
     else:
         st.markdown(
             empty_state(

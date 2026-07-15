@@ -18,6 +18,7 @@ from src.tradelens.services.app_settings import (  # noqa: E402
     set_timezone,
 )
 from src.tradelens.services.cost import monthly_cost_by_feature  # noqa: E402
+from src.tradelens.services.demo import is_demo  # noqa: E402
 from src.tradelens.services.csvio import (  # noqa: E402
     CSV_COLUMNS,
     export_trades_csv,
@@ -37,9 +38,11 @@ from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: 
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import section_header  # noqa: E402
+from src.tradelens.ui.design_system import inject_design_system  # noqa: E402
 
 st.set_page_config(page_title="Settings")
 inject_css()
+inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
 render_demo_banner()
 render_sidebar()
@@ -49,15 +52,26 @@ st.markdown(section_header("Settings"), unsafe_allow_html=True)
 st.subheader("AI Status")
 if has_api_key():
     st.markdown(
-        '<div style="background:rgba(46,125,50,0.15);border:1px solid #2e7d32;'
-        'border-radius:8px;padding:10px 14px;color:#7bd88f">'
+        '<div style="background:var(--tl-success-dim);'
+        "border:1px solid var(--tl-success);"
+        'border-radius:8px;padding:10px 14px;color:var(--tl-success)">'
         "✅ <strong>AI Enabled</strong> — API key is configured.</div>",
+        unsafe_allow_html=True,
+    )
+elif is_demo():
+    st.markdown(
+        '<div style="background:var(--tl-primary-dim);'
+        "border:1px solid var(--tl-primary);"
+        'border-radius:8px;padding:10px 14px;color:var(--tl-primary)">'
+        "🔬 <strong>Demo mode</strong> — AI sections run on cached sample "
+        "responses. No key needed, zero spend.</div>",
         unsafe_allow_html=True,
     )
 else:
     st.markdown(
-        '<div style="background:rgba(168,75,47,0.15);border:1px solid #A84B2F;'
-        'border-radius:8px;padding:10px 14px;color:#e0855f">'
+        '<div style="background:var(--tl-danger-dim);'
+        "border:1px solid var(--tl-danger);"
+        'border-radius:8px;padding:10px 14px;color:var(--tl-danger)">'
         "❌ <strong>AI Disabled</strong> — API key not found.</div>",
         unsafe_allow_html=True,
     )
@@ -65,7 +79,7 @@ else:
 with st.expander("How to enable AI"):
     st.markdown(
         """
-To enable AI screenshot analysis:
+To enable AI features (screenshot review, journal, grading, debriefs, chat):
 
 1. Get an API key from **Anthropic** (console.anthropic.com).
 2. In **Streamlit Cloud**: go to **App Settings → Secrets** and add:
@@ -124,7 +138,7 @@ with exp_col:
         data=csv_bytes,
         file_name="trades.csv",
         mime="text/csv",
-        use_container_width=True,
+        width="stretch",
     )
 with imp_col:
     st.markdown("**Import trades**")
@@ -156,13 +170,13 @@ st.caption(
 )
 load_col, clear_col = st.columns(2)
 with load_col:
-    if st.button("Load sample trades", use_container_width=True):
+    if st.button("Load sample trades", width="stretch"):
         st.session_state["_sample_loaded_n"] = load_sample_trades(current_user_id())
         st.rerun()
 with clear_col:
     if st.button(
         "Clear sample trades",
-        use_container_width=True,
+        width="stretch",
         disabled=sample_count == 0,
     ):
         removed = clear_sample_trades(current_user_id())
@@ -172,8 +186,9 @@ with clear_col:
 if st.session_state.get("_sample_loaded_n"):
     n_loaded = st.session_state.pop("_sample_loaded_n")
     st.markdown(
-        '<div style="background:rgba(46,125,50,0.15);border:1px solid #2e7d32;'
-        'border-radius:8px;padding:10px 14px;color:#7bd88f">'
+        '<div style="background:var(--tl-success-dim);'
+        "border:1px solid var(--tl-success);"
+        'border-radius:8px;padding:10px 14px;color:var(--tl-success)">'
         f"✅ Loaded {n_loaded} sample trades. Go to Dashboard to view analytics."
         "</div>",
         unsafe_allow_html=True,
@@ -196,13 +211,13 @@ else:
     _disp = _disp.rename(
         columns={"feature": "Feature", "cost_usd": "Cost", "calls": "Calls"}
     )
-    st.dataframe(_disp, hide_index=True, use_container_width=True)
+    st.dataframe(_disp, hide_index=True, width="stretch")
     st.caption(f"Total this month: ${_total:.4f}")
 
 st.divider()
 
 # ── Login / Secrets ───────────────────────────────────────────────
-st.subheader("Login & Secrets")
+st.subheader("Login")
 st.caption(
     "Credentials are managed via Streamlit secrets "
     "(`TRADELENS_USERNAME` / `TRADELENS_PASSWORD`). "
