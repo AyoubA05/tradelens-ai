@@ -30,7 +30,7 @@
 - Consumes: existing `[data-reveal]` attributes and `.reveals-armed` armed-state class set by `main.js`.
 - Produces: reveal CSS that Task 2/4 elements inherit automatically (any `[data-reveal]` fades opacity-only; `.section-head[data-reveal]` line-wipes).
 
-- [ ] **Step 1: Replace the reveal styles in `site/styles.css`.** Find the block that begins `/* ---- scroll reveals (elements start hidden only when JS arms them) ---- */` and replace its `@media` contents with:
+- [x] **Step 1: Replace the reveal styles in `site/styles.css`.** Find the block that begins `/* ---- scroll reveals (elements start hidden only when JS arms them) ---- */` and replace its `@media` contents with:
 
 ```css
 @media (prefers-reduced-motion: no-preference) {
@@ -57,7 +57,7 @@
 }
 ```
 
-- [ ] **Step 2: Remove the parallax.** In `site/main.js`, delete the entire block from `/* ---- CTA band: gentle backdrop parallax (desktop only) ---- */` through the end of its `window.addEventListener("scroll", …)` call (the `const ctaBackdrop` block). In `site/styles.css`, restore the backdrop to a static layer:
+- [x] **Step 2: Remove the parallax.** In `site/main.js`, delete the entire block from `/* ---- CTA band: gentle backdrop parallax (desktop only) ---- */` through the end of its `window.addEventListener("scroll", …)` call (the `const ctaBackdrop` block). In `site/styles.css`, restore the backdrop to a static layer:
 
 ```css
 .cta-backdrop {
@@ -71,7 +71,7 @@
 
 (removes `inset: -32px 0` and `will-change: transform`.)
 
-- [ ] **Step 3: Verify.** Deterministic checks from the shell:
+- [x] **Step 3: Verify.** Deterministic checks from the shell:
 
 ```bash
 grep -c "ctaBackdrop" site/main.js          # expect 0
@@ -81,7 +81,7 @@ grep -c "clip-path: inset" site/styles.css  # expect 2
 
 Scroll the page visually once (Browser pane): headers wipe in left→right, cards fade with stagger, nothing moves vertically, CTA band is static.
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 git add site/styles.css site/main.js
@@ -99,9 +99,9 @@ git commit -m "Site: motion subtraction — opacity/clip reveals, parallax remov
 - Consumes: `#how` section and `.step` list from the existing markup; `reducedMotion` boolean already defined at the top of `main.js`.
 - Produces: CSS custom property `--how-p` (0→1) on `#how`, consumed only by this task's CSS.
 
-- [ ] **Step 1: Add `pathLength="1"` to every stroke in the three step-mark SVGs** in `site/index.html`. Each `<line …>` and `<rect …>` inside `.step-mark svg` gains the attribute `pathLength="1"` (e.g. `<line x1="3.5" y1="6" x2="3.5" y2="15.5" pathLength="1"></line>`). Content/coordinates unchanged. There are 2 shapes in step 1, 4 in step 2, 6 in step 3.
+- [x] **Step 1: Add `pathLength="1"` to every stroke in the three step-mark SVGs** in `site/index.html`. Each `<line …>` and `<rect …>` inside `.step-mark svg` gains the attribute `pathLength="1"` (e.g. `<line x1="3.5" y1="6" x2="3.5" y2="15.5" pathLength="1"></line>`). Content/coordinates unchanged. There are 2 shapes in step 1, 4 in step 2, 6 in step 3.
 
-- [ ] **Step 2: Add the draw CSS** to `site/styles.css`, after the existing `.step::before` rules:
+- [x] **Step 2: Add the draw CSS** to `site/styles.css`, after the existing `.step::before` rules:
 
 ```css
 /* Scroll-drawn pattern (set-piece): --how-p is 1 by default so no-JS and
@@ -144,7 +144,7 @@ git commit -m "Site: motion subtraction — opacity/clip reveals, parallax remov
 }
 ```
 
-- [ ] **Step 3: Add the scroll driver** to `site/main.js`, after the tilt-showcase block:
+- [x] **Step 3: Add the scroll driver** to `site/main.js`, after the tilt-showcase block:
 
 ```js
 /* ---- how-it-works: candles + lines draw with scroll (set-piece) ---- */
@@ -176,7 +176,7 @@ if (howSection && !reducedMotion) {
 }
 ```
 
-- [ ] **Step 4: Verify.** Browser pane (motion allowed):
+- [x] **Step 4: Verify.** Browser pane (motion allowed):
 
 ```js
 window.scrollTo({top: 0, behavior: 'instant'});
@@ -190,7 +190,7 @@ new Promise(r => setTimeout(() => {
 
 Expect: `before` near 0, `after` between 0.4 and 1. Then a forced reduced-motion CDP capture of `#how` (env `CDP_RM=1`, anchor `%23how`): all three glyphs and both lines fully drawn/static. Visually scroll through `#how` once: glyphs stroke in left to right as the connecting line reaches them.
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add site/index.html site/styles.css site/main.js
@@ -205,7 +205,7 @@ git commit -m "Site: scroll-drawn candle set-piece in how-it-works"
 **Interfaces:**
 - Consumes/produces: nothing shared; pure CSS restyle. HTML and copy untouched.
 
-- [ ] **Step 1: Replace the `.compliance-note` block:**
+- [x] **Step 1: Replace the `.compliance-note` block:**
 
 ```css
 .compliance-note {
@@ -250,7 +250,7 @@ git commit -m "Site: scroll-drawn candle set-piece in how-it-works"
 
 (The old `border-left: 2px solid var(--accent);` and `border-radius: 0 12px 12px 0;` are gone.)
 
-- [ ] **Step 2: Verify.**
+- [x] **Step 2: Verify.**
 
 ```bash
 grep -c "border-left: 2px solid var(--accent)" site/styles.css   # expect 0
@@ -261,7 +261,7 @@ grep -c "Reflection, not signals. TradeLens reviews trades" site/index.html  # e
 
 CDP capture anchored at `%23ai`: callout shows thin teal brackets top-left/bottom-right, mono label intact, copy unchanged.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 git add site/styles.css
@@ -279,7 +279,7 @@ git commit -m "Site: compliance callout — corner brackets replace side-tab bor
 - Consumes: `data-app-link` population from the existing `APP_URL` block (runs on all `[data-app-link]`, including new markup); `.nav-links`/`.nav-toggle` handlers.
 - Produces: `.mobile-cta` element + `.show` class; `body.menu-open` class.
 
-- [ ] **Step 1: Sticky CTA markup.** In `site/index.html`, immediately before `</main>`:
+- [x] **Step 1: Sticky CTA markup.** In `site/index.html`, immediately before `</main>`:
 
 ```html
     <div class="mobile-cta" role="complementary" aria-label="Quick action">
@@ -287,7 +287,7 @@ git commit -m "Site: compliance callout — corner brackets replace side-tab bor
     </div>
 ```
 
-- [ ] **Step 2: Mobile CSS.** In `site/styles.css`:
+- [x] **Step 2: Mobile CSS.** In `site/styles.css`:
 
 Replace the existing `@media (max-width: 768px)` nav block's `.nav-links` rules with a full-screen overlay:
 
@@ -364,7 +364,7 @@ Sticky bar + full-bleed + hero tune (append near the end of the stylesheet):
 }
 ```
 
-- [ ] **Step 3: JS.** In `site/main.js`: inside the existing `navToggle` click handler, after the `aria-label` update, add `document.body.classList.toggle("menu-open", open);` and in the link-click close handler add `document.body.classList.remove("menu-open");`. Then append after the how-it-works driver:
+- [x] **Step 3: JS.** In `site/main.js`: inside the existing `navToggle` click handler, after the `aria-label` update, add `document.body.classList.toggle("menu-open", open);` and in the link-click close handler add `document.body.classList.remove("menu-open");`. Then append after the how-it-works driver:
 
 ```js
 /* ---- mobile sticky CTA: visible between hero and footer CTA band ---- */
@@ -392,7 +392,7 @@ if (mobileCta && "IntersectionObserver" in window) {
 }
 ```
 
-- [ ] **Step 4: Verify.** Browser pane at 375×812:
+- [x] **Step 4: Verify.** Browser pane at 375×812:
 
 ```js
 window.scrollTo({top: document.getElementById('features').offsetTop, behavior: 'instant'});
@@ -404,7 +404,7 @@ new Promise(r => setTimeout(() => r(JSON.stringify({
 
 Expect `stickyShown: true`, href = the deployed app URL. Scroll to `#cta`: `show` drops off. Open the menu: full-screen overlay, body doesn't scroll behind it, link tap closes it. CDP captures at 375 for `#features` (full-bleed screenshots) and hero (art composition).
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add site/index.html site/styles.css site/main.js
@@ -422,7 +422,7 @@ git commit -m "Site: mobile pass — full-screen menu, sticky thumb CTA, full-bl
 - Consumes: `cdp_shot.py` driver (`CDP_FULL=0`, dpr 1); existing brand assets (`logo.png`, `poster-hero.webp`).
 - Produces: `site/assets/og-image.png`, 1200×630.
 
-- [ ] **Step 1: Build the og card page** in the scratchpad as `og-card.html`:
+- [x] **Step 1: Build the og card page** in the scratchpad as `og-card.html`:
 
 ```html
 <!doctype html><html><head><meta charset="utf-8">
@@ -450,7 +450,7 @@ git commit -m "Site: mobile pass — full-screen menu, sticky thumb CTA, full-bl
 </body></html>
 ```
 
-- [ ] **Step 2: Capture it** (dpr 1, exact OG size; wait for fonts):
+- [x] **Step 2: Capture it** (dpr 1, exact OG size; wait for fonts):
 
 ```bash
 source .venv/bin/activate
@@ -468,7 +468,7 @@ EOF
 
 Note: `cdp_shot.py` hardcodes `dpr=2`; either pass through and downscale (above handles it) or view the output to confirm crispness. Inspect the PNG (Read tool) before committing — logo visible, headline legible, no font fallback serif.
 
-- [ ] **Step 3: Head tags.** In `site/index.html`, after the `<meta name="description" …>` line insert:
+- [x] **Step 3: Head tags.** In `site/index.html`, after the `<meta name="description" …>` line insert:
 
 ```html
   <meta name="theme-color" content="#0d1117">
@@ -489,7 +489,7 @@ Note: `cdp_shot.py` hardcodes `dpr=2`; either pass through and downscale (above 
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"TradeLens AI","url":"https://www.tradelens-ai.example/"}</script>
 ```
 
-- [ ] **Step 4: Verify.**
+- [x] **Step 4: Verify.**
 
 ```bash
 python3 -c "from PIL import Image; im=Image.open('site/assets/og-image.png'); assert im.size==(1200,630), im.size; print('og-image ok', im.size)"
@@ -498,7 +498,7 @@ grep -c "summary_large_image" site/index.html  # expect 1
 curl -s http://localhost:8777/ | grep -c "theme-color"  # expect 1
 ```
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 git add site/index.html site/assets/og-image.png
@@ -510,12 +510,12 @@ git commit -m "Site: OG/Twitter meta, canonical, theme-color, generated og-image
 **Files:**
 - Modify: fixes only as found.
 
-- [ ] **Step 1: Breakpoint sweep.** CDP viewport captures (`CDP_FULL=0`) at 375×812, 768×1024, 1024×800, 1440×900 for anchors: top, `%23features`, `%23how`, `%23ai`, `%23pricing`, `%23faq`, `%23cta`. Review contact sheets; fix any overflow/clipping.
-- [ ] **Step 2: Reduced-motion capture.** `CDP_RM=1` at 1280×800 and 375×812: page fully static, candles drawn, sticky CTA visible without animation, no hidden content.
-- [ ] **Step 3: Console + copy audit.** Browser pane: zero console errors after a full scroll. `grep -inE "signal|predict|guarantee|advice" site/index.html` — every hit still inside disclaimers/FAQ; compliance strings byte-identical (Task 3 grep).
-- [ ] **Step 4: Contrast spot-check** on new styles: sticky-CTA button (accent bg/dark text = 10.65:1, unchanged), overlay menu text `--text` on `--bg` (15.7:1). No new muted-on-muted pairs introduced.
-- [ ] **Step 5: Lint guard for the repo** (proves no app leakage): `source .venv/bin/activate && ruff check src/ scripts/ | tail -1` → "All checks passed!".
-- [ ] **Step 6: Final commit.**
+- [x] **Step 1: Breakpoint sweep.** CDP viewport captures (`CDP_FULL=0`) at 375×812, 768×1024, 1024×800, 1440×900 for anchors: top, `%23features`, `%23how`, `%23ai`, `%23pricing`, `%23faq`, `%23cta`. Review contact sheets; fix any overflow/clipping.
+- [x] **Step 2: Reduced-motion capture.** `CDP_RM=1` at 1280×800 and 375×812: page fully static, candles drawn, sticky CTA visible without animation, no hidden content.
+- [x] **Step 3: Console + copy audit.** Browser pane: zero console errors after a full scroll. `grep -inE "signal|predict|guarantee|advice" site/index.html` — every hit still inside disclaimers/FAQ; compliance strings byte-identical (Task 3 grep).
+- [x] **Step 4: Contrast spot-check** on new styles: sticky-CTA button (accent bg/dark text = 10.65:1, unchanged), overlay menu text `--text` on `--bg` (15.7:1). No new muted-on-muted pairs introduced.
+- [x] **Step 5: Lint guard for the repo** (proves no app leakage): `source .venv/bin/activate && ruff check src/ scripts/ | tail -1` → "All checks passed!".
+- [x] **Step 6: Final commit.**
 
 ```bash
 git add site/ docs/superpowers/plans/2026-07-16-sp1-landing-checklist.md
