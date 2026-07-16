@@ -751,14 +751,42 @@ main { position: relative; z-index: 1; }
 .ai-shot img { aspect-ratio: 3 / 2; width: 100%; height: auto; object-fit: cover; object-position: top center; }
 
 .compliance-note {
+  position: relative;
   margin-top: clamp(36px, 5vw, 56px);
-  border-left: 2px solid var(--accent);
-  border-radius: 0 12px 12px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   background: rgba(22, 27, 34, 0.72);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   padding: 20px 26px;
   max-width: 620px;
+}
+
+/* Terminal-style corner brackets replace the side-tab accent border. */
+.compliance-note::before,
+.compliance-note::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--accent);
+  pointer-events: none;
+}
+
+.compliance-note::before {
+  top: -1px;
+  left: -1px;
+  border-right: none;
+  border-bottom: none;
+  border-top-left-radius: 12px;
+}
+
+.compliance-note::after {
+  bottom: -1px;
+  right: -1px;
+  border-left: none;
+  border-top: none;
+  border-bottom-right-radius: 12px;
 }
 
 .compliance-label {
