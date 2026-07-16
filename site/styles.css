@@ -13,8 +13,8 @@
   --accent: #00e5cc;
   --accent-dim: rgba(0, 229, 204, 0.12);
 
-  --font-display: 'Schibsted Grotesk', 'Inter', system-ui, sans-serif;
-  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Schibsted Grotesk', 'Satoshi', system-ui, sans-serif;
+  --font-body: 'Satoshi', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
 
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
@@ -163,7 +163,9 @@ main { position: relative; z-index: 1; }
   border: 1px solid transparent;
   font-family: var(--font-body);
   font-size: 0.9375rem;
-  font-weight: 600;
+  /* Satoshi ships 400/500/700 (no 600); 500 chosen over 700 so CTAs stay
+     sturdy without shouting — a 600 here would silently resolve to 700. */
+  font-weight: 500;
   text-decoration: none;
   cursor: pointer;
   transition: background-color 200ms var(--ease), border-color 200ms var(--ease),
