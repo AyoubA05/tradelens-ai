@@ -103,32 +103,6 @@ if (tiltCard && !reducedMotion) {
   );
 }
 
-/* ---- CTA band: gentle backdrop parallax (desktop only) ---- */
-
-const ctaBackdrop = document.querySelector(".cta-backdrop");
-
-if (ctaBackdrop && !reducedMotion && !smallScreen) {
-  let ctaTicking = false;
-  window.addEventListener(
-    "scroll",
-    () => {
-      if (ctaTicking) return;
-      ctaTicking = true;
-      requestAnimationFrame(() => {
-        const band = ctaBackdrop.parentElement;
-        const rect = band.getBoundingClientRect();
-        if (rect.bottom > 0 && rect.top < window.innerHeight) {
-          const mid = rect.top + rect.height / 2 - window.innerHeight / 2;
-          const shift = Math.max(-24, Math.min(24, -mid * 0.06));
-          ctaBackdrop.style.transform = `translateY(${shift}px)`;
-        }
-        ctaTicking = false;
-      });
-    },
-    { passive: true }
-  );
-}
-
 /* ---- hero entrance: word-split stagger ---- */
 
 const hero = document.querySelector(".hero");

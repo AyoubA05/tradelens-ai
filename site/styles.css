@@ -420,19 +420,32 @@ main { position: relative; z-index: 1; }
   .tilt-card { transform: rotateX(var(--tilt, 16deg)) scale(var(--tilt-scale, 1)); }
 }
 
-/* ---- scroll reveals (elements start hidden only when JS arms them) ---- */
+/* ---- scroll reveals (elements start hidden only when JS arms them) ----
+   Motion subtraction (SP1): no vertical travel anywhere. Bodies fade
+   opacity-only; section headers reveal with a left-to-right line-wipe. */
 
 @media (prefers-reduced-motion: no-preference) {
   .reveals-armed [data-reveal] {
     opacity: 0;
-    transform: translateY(24px);
-    transition: opacity 650ms var(--ease), transform 650ms var(--ease);
-    transition-delay: calc(var(--i, 0) * 60ms);
+    /* border-color/transform keep card hover transitions alive — this rule
+       outranks .card's own transition, so they must ride along here. */
+    transition: opacity 450ms var(--ease), border-color 250ms var(--ease),
+      transform 250ms var(--ease);
+    transition-delay: calc(var(--i, 0) * 40ms), 0ms, 0ms;
   }
 
   .reveals-armed [data-reveal].revealed {
     opacity: 1;
-    transform: none;
+  }
+
+  .reveals-armed .section-head[data-reveal] {
+    opacity: 1;
+    clip-path: inset(-2% 100% -2% 0);
+    transition: clip-path 600ms var(--ease);
+  }
+
+  .reveals-armed .section-head[data-reveal].revealed {
+    clip-path: inset(-2% -2% -2% 0);
   }
 }
 
@@ -843,9 +856,8 @@ main { position: relative; z-index: 1; }
 
 .cta-backdrop {
   position: absolute;
-  inset: -32px 0;
+  inset: 0;
   z-index: 0;
-  will-change: transform;
   background: url("assets/backdrop-journal.webp") center 30% / cover no-repeat;
   opacity: 0.35;
 }
