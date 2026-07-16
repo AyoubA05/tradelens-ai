@@ -21,11 +21,13 @@ if (navToggle && navLinks) {
     const open = navLinks.classList.toggle("open");
     navToggle.setAttribute("aria-expanded", String(open));
     navToggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+    document.body.classList.toggle("menu-open", open);
   });
   navLinks.addEventListener("click", (e) => {
     if (e.target.closest("a")) {
       navLinks.classList.remove("open");
       navToggle.setAttribute("aria-expanded", "false");
+      document.body.classList.remove("menu-open");
     }
   });
 }
@@ -129,6 +131,30 @@ if (howSection && !reducedMotion) {
     },
     { passive: true }
   );
+}
+
+/* ---- mobile sticky CTA: visible between hero and footer CTA band ---- */
+
+const mobileCta = document.querySelector(".mobile-cta");
+
+if (mobileCta && "IntersectionObserver" in window) {
+  const heroEl = document.getElementById("hero");
+  const ctaBand = document.getElementById("cta");
+  const state = { heroVisible: true, bandVisible: false };
+  const apply = () =>
+    mobileCta.classList.toggle("show", !state.heroVisible && !state.bandVisible);
+  const vis = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((e) => {
+        if (e.target === heroEl) state.heroVisible = e.isIntersecting;
+        if (e.target === ctaBand) state.bandVisible = e.isIntersecting;
+      });
+      apply();
+    },
+    { threshold: 0.05 }
+  );
+  vis.observe(heroEl);
+  vis.observe(ctaBand);
 }
 
 /* ---- hero entrance: word-split stagger ---- */

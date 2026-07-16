@@ -264,25 +264,40 @@ main { position: relative; z-index: 1; }
 @media (max-width: 768px) {
   .nav-toggle { display: inline-flex; }
 
+  /* Full-screen menu: designed for the phone, not a shrunken dropdown. */
   .nav-links {
-    display: none;
-    position: absolute;
-    top: 68px;
-    left: 0;
-    right: 0;
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 9;
     flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
-    padding: 12px 24px 20px;
-    background: #0d1117;
-    border-bottom: 1px solid var(--border);
+    justify-content: center;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 88px 32px 40px;
+    background: var(--bg);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 250ms var(--ease);
   }
 
-  .nav-links.open { display: flex; }
+  .nav-links.open { opacity: 1; pointer-events: auto; }
 
-  .nav-links > a:not(.btn) { padding: 11px 4px; font-size: 1rem; }
+  .nav-links > a:not(.btn) {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: 600;
+    color: var(--text);
+    padding: 10px 0;
+  }
 
-  .nav-links > .btn { margin-top: 8px; }
+  .nav-links > .btn { margin-top: 22px; width: 100%; }
+
+  body.menu-open { overflow: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-links { transition: none; }
 }
 
 /* ---- hero ---- */
@@ -1044,4 +1059,37 @@ main { position: relative; z-index: 1; }
     height: auto;
     aspect-ratio: 3 / 2;
   }
+}
+
+/* ---- mobile-designed decisions (≤768px) ---- */
+
+.mobile-cta { display: none; }
+
+@media (max-width: 768px) {
+  .mobile-cta {
+    display: block;
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    z-index: 8;
+    opacity: 0;
+    transform: translateY(12px);
+    pointer-events: none;
+    transition: opacity 300ms var(--ease), transform 300ms var(--ease);
+  }
+
+  .mobile-cta.show { opacity: 1; transform: none; pointer-events: auto; }
+
+  .mobile-cta .btn { width: 100%; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
+
+  /* Full-bleed product screenshots inside cards (26px padding + 1px border). */
+  .card .shot-frame { margin-inline: -27px; border-radius: 0; border-inline: none; }
+
+  /* Hero art composes for portrait: keep the bright candle cluster in frame. */
+  .hero-video { object-position: 62% center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-cta { transition: none; transform: none; }
 }
