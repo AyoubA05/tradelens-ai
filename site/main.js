@@ -103,6 +103,34 @@ if (tiltCard && !reducedMotion) {
   );
 }
 
+/* ---- how-it-works: candles + lines draw with scroll (set-piece) ---- */
+
+const howSection = document.getElementById("how");
+
+if (howSection && !reducedMotion) {
+  howSection.style.setProperty("--how-p", "0");
+  let howTicking = false;
+  const updateHow = () => {
+    const r = howSection.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const p = Math.min(1, Math.max(0, (vh * 0.9 - r.top) / (r.height + vh * 0.3)));
+    howSection.style.setProperty("--how-p", p.toFixed(4));
+  };
+  updateHow();
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (howTicking) return;
+      howTicking = true;
+      requestAnimationFrame(() => {
+        updateHow();
+        howTicking = false;
+      });
+    },
+    { passive: true }
+  );
+}
+
 /* ---- hero entrance: word-split stagger ---- */
 
 const hero = document.querySelector(".hero");

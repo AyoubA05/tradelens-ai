@@ -638,6 +638,45 @@ main { position: relative; z-index: 1; }
   }
 }
 
+/* Scroll-drawn pattern (set-piece): --how-p defaults to 1 so no-JS and
+   reduced-motion render the fully drawn state. main.js drives 0→1. */
+@media (prefers-reduced-motion: no-preference) {
+  .step-mark svg :is(line, rect) {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+
+  /* glyph segments: step1 0–.18, step2 .40–.58, step3 .80–1 */
+  .step:nth-child(1) .step-mark svg :is(line, rect) {
+    stroke-dashoffset: clamp(0, calc(1 - (var(--how-p, 1) - 0) / 0.18), 1);
+  }
+  .step:nth-child(2) .step-mark svg :is(line, rect) {
+    stroke-dashoffset: clamp(0, calc(1 - (var(--how-p, 1) - 0.4) / 0.18), 1);
+  }
+  .step:nth-child(3) .step-mark svg :is(line, rect) {
+    stroke-dashoffset: clamp(0, calc(1 - (var(--how-p, 1) - 0.8) / 0.2), 1);
+  }
+
+  /* connecting lines extend between glyph draws: seg1 .18–.40, seg2 .58–.80 */
+  .step::before { transform-origin: left center; }
+  .step:nth-child(1)::before {
+    transform: scaleX(clamp(0, calc((var(--how-p, 1) - 0.18) / 0.22), 1));
+  }
+  .step:nth-child(2)::before {
+    transform: scaleX(clamp(0, calc((var(--how-p, 1) - 0.58) / 0.22), 1));
+  }
+
+  @media (max-width: 768px) {
+    .step::before { transform-origin: center top; }
+    .step:nth-child(1)::before {
+      transform: scaleY(clamp(0, calc((var(--how-p, 1) - 0.18) / 0.22), 1));
+    }
+    .step:nth-child(2)::before {
+      transform: scaleY(clamp(0, calc((var(--how-p, 1) - 0.58) / 0.22), 1));
+    }
+  }
+}
+
 /* ---- AI deep dive band ---- */
 
 .section-band {
