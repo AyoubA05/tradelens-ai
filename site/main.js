@@ -21,11 +21,13 @@ if (navToggle && navLinks) {
     const open = navLinks.classList.toggle("open");
     navToggle.setAttribute("aria-expanded", String(open));
     navToggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+    document.body.classList.toggle("menu-open", open);
   });
   navLinks.addEventListener("click", (e) => {
     if (e.target.closest("a")) {
       navLinks.classList.remove("open");
       navToggle.setAttribute("aria-expanded", "false");
+      document.body.classList.remove("menu-open");
     }
   });
 }
@@ -103,30 +105,56 @@ if (tiltCard && !reducedMotion) {
   );
 }
 
-/* ---- CTA band: gentle backdrop parallax (desktop only) ---- */
+/* ---- how-it-works: candles + lines draw with scroll (set-piece) ---- */
 
-const ctaBackdrop = document.querySelector(".cta-backdrop");
+const howSection = document.getElementById("how");
 
-if (ctaBackdrop && !reducedMotion && !smallScreen) {
-  let ctaTicking = false;
+if (howSection && !reducedMotion) {
+  howSection.style.setProperty("--how-p", "0");
+  let howTicking = false;
+  const updateHow = () => {
+    const r = howSection.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const p = Math.min(1, Math.max(0, (vh * 0.9 - r.top) / (r.height + vh * 0.3)));
+    howSection.style.setProperty("--how-p", p.toFixed(4));
+  };
+  updateHow();
   window.addEventListener(
     "scroll",
     () => {
-      if (ctaTicking) return;
-      ctaTicking = true;
+      if (howTicking) return;
+      howTicking = true;
       requestAnimationFrame(() => {
-        const band = ctaBackdrop.parentElement;
-        const rect = band.getBoundingClientRect();
-        if (rect.bottom > 0 && rect.top < window.innerHeight) {
-          const mid = rect.top + rect.height / 2 - window.innerHeight / 2;
-          const shift = Math.max(-24, Math.min(24, -mid * 0.06));
-          ctaBackdrop.style.transform = `translateY(${shift}px)`;
-        }
-        ctaTicking = false;
+        updateHow();
+        howTicking = false;
       });
     },
     { passive: true }
   );
+}
+
+/* ---- mobile sticky CTA: visible between hero and footer CTA band ---- */
+
+const mobileCta = document.querySelector(".mobile-cta");
+
+if (mobileCta && "IntersectionObserver" in window) {
+  const heroEl = document.getElementById("hero");
+  const ctaBand = document.getElementById("cta");
+  const state = { heroVisible: true, bandVisible: false };
+  const apply = () =>
+    mobileCta.classList.toggle("show", !state.heroVisible && !state.bandVisible);
+  const vis = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((e) => {
+        if (e.target === heroEl) state.heroVisible = e.isIntersecting;
+        if (e.target === ctaBand) state.bandVisible = e.isIntersecting;
+      });
+      apply();
+    },
+    { threshold: 0.05 }
+  );
+  vis.observe(heroEl);
+  vis.observe(ctaBand);
 }
 
 /* ---- hero entrance: word-split stagger ---- */

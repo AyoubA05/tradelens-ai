@@ -13,8 +13,8 @@
   --accent: #00e5cc;
   --accent-dim: rgba(0, 229, 204, 0.12);
 
-  --font-display: 'Schibsted Grotesk', 'Inter', system-ui, sans-serif;
-  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Schibsted Grotesk', 'Satoshi', system-ui, sans-serif;
+  --font-body: 'Satoshi', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
 
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
@@ -163,7 +163,9 @@ main { position: relative; z-index: 1; }
   border: 1px solid transparent;
   font-family: var(--font-body);
   font-size: 0.9375rem;
-  font-weight: 600;
+  /* Satoshi ships 400/500/700 (no 600); 500 chosen over 700 so CTAs stay
+     sturdy without shouting — a 600 here would silently resolve to 700. */
+  font-weight: 500;
   text-decoration: none;
   cursor: pointer;
   transition: background-color 200ms var(--ease), border-color 200ms var(--ease),
@@ -262,25 +264,40 @@ main { position: relative; z-index: 1; }
 @media (max-width: 768px) {
   .nav-toggle { display: inline-flex; }
 
+  /* Full-screen menu: designed for the phone, not a shrunken dropdown. */
   .nav-links {
-    display: none;
-    position: absolute;
-    top: 68px;
-    left: 0;
-    right: 0;
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 9;
     flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
-    padding: 12px 24px 20px;
-    background: #0d1117;
-    border-bottom: 1px solid var(--border);
+    justify-content: center;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 88px 32px 40px;
+    background: var(--bg);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 250ms var(--ease);
   }
 
-  .nav-links.open { display: flex; }
+  .nav-links.open { opacity: 1; pointer-events: auto; }
 
-  .nav-links > a:not(.btn) { padding: 11px 4px; font-size: 1rem; }
+  .nav-links > a:not(.btn) {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: 600;
+    color: var(--text);
+    padding: 10px 0;
+  }
 
-  .nav-links > .btn { margin-top: 8px; }
+  .nav-links > .btn { margin-top: 22px; width: 100%; }
+
+  body.menu-open { overflow: hidden; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-links { transition: none; }
 }
 
 /* ---- hero ---- */
@@ -418,19 +435,32 @@ main { position: relative; z-index: 1; }
   .tilt-card { transform: rotateX(var(--tilt, 16deg)) scale(var(--tilt-scale, 1)); }
 }
 
-/* ---- scroll reveals (elements start hidden only when JS arms them) ---- */
+/* ---- scroll reveals (elements start hidden only when JS arms them) ----
+   Motion subtraction (SP1): no vertical travel anywhere. Bodies fade
+   opacity-only; section headers reveal with a left-to-right line-wipe. */
 
 @media (prefers-reduced-motion: no-preference) {
   .reveals-armed [data-reveal] {
     opacity: 0;
-    transform: translateY(24px);
-    transition: opacity 650ms var(--ease), transform 650ms var(--ease);
-    transition-delay: calc(var(--i, 0) * 60ms);
+    /* border-color/transform keep card hover transitions alive — this rule
+       outranks .card's own transition, so they must ride along here. */
+    transition: opacity 450ms var(--ease), border-color 250ms var(--ease),
+      transform 250ms var(--ease);
+    transition-delay: calc(var(--i, 0) * 40ms), 0ms, 0ms;
   }
 
   .reveals-armed [data-reveal].revealed {
     opacity: 1;
-    transform: none;
+  }
+
+  .reveals-armed .section-head[data-reveal] {
+    opacity: 1;
+    clip-path: inset(-2% 100% -2% 0);
+    transition: clip-path 600ms var(--ease);
+  }
+
+  .reveals-armed .section-head[data-reveal].revealed {
+    clip-path: inset(-2% -2% -2% 0);
   }
 }
 
@@ -623,6 +653,45 @@ main { position: relative; z-index: 1; }
   }
 }
 
+/* Scroll-drawn pattern (set-piece): --how-p defaults to 1 so no-JS and
+   reduced-motion render the fully drawn state. main.js drives 0→1. */
+@media (prefers-reduced-motion: no-preference) {
+  .step-mark svg :is(line, rect) {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+
+  /* glyph segments: step1 0–.18, step2 .40–.58, step3 .80–1 */
+  .step:nth-child(1) .step-mark svg :is(line, rect) {
+    stroke-dashoffset: clamp(0, calc(1 - (var(--how-p, 1) - 0) / 0.18), 1);
+  }
+  .step:nth-child(2) .step-mark svg :is(line, rect) {
+    stroke-dashoffset: clamp(0, calc(1 - (var(--how-p, 1) - 0.4) / 0.18), 1);
+  }
+  .step:nth-child(3) .step-mark svg :is(line, rect) {
+    stroke-dashoffset: clamp(0, calc(1 - (var(--how-p, 1) - 0.8) / 0.2), 1);
+  }
+
+  /* connecting lines extend between glyph draws: seg1 .18–.40, seg2 .58–.80 */
+  .step::before { transform-origin: left center; }
+  .step:nth-child(1)::before {
+    transform: scaleX(clamp(0, calc((var(--how-p, 1) - 0.18) / 0.22), 1));
+  }
+  .step:nth-child(2)::before {
+    transform: scaleX(clamp(0, calc((var(--how-p, 1) - 0.58) / 0.22), 1));
+  }
+
+  @media (max-width: 768px) {
+    .step::before { transform-origin: center top; }
+    .step:nth-child(1)::before {
+      transform: scaleY(clamp(0, calc((var(--how-p, 1) - 0.18) / 0.22), 1));
+    }
+    .step:nth-child(2)::before {
+      transform: scaleY(clamp(0, calc((var(--how-p, 1) - 0.58) / 0.22), 1));
+    }
+  }
+}
+
 /* ---- AI deep dive band ---- */
 
 .section-band {
@@ -697,14 +766,42 @@ main { position: relative; z-index: 1; }
 .ai-shot img { aspect-ratio: 3 / 2; width: 100%; height: auto; object-fit: cover; object-position: top center; }
 
 .compliance-note {
+  position: relative;
   margin-top: clamp(36px, 5vw, 56px);
-  border-left: 2px solid var(--accent);
-  border-radius: 0 12px 12px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   background: rgba(22, 27, 34, 0.72);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   padding: 20px 26px;
   max-width: 620px;
+}
+
+/* Terminal-style corner brackets replace the side-tab accent border. */
+.compliance-note::before,
+.compliance-note::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--accent);
+  pointer-events: none;
+}
+
+.compliance-note::before {
+  top: -1px;
+  left: -1px;
+  border-right: none;
+  border-bottom: none;
+  border-top-left-radius: 12px;
+}
+
+.compliance-note::after {
+  bottom: -1px;
+  right: -1px;
+  border-left: none;
+  border-top: none;
+  border-bottom-right-radius: 12px;
 }
 
 .compliance-label {
@@ -841,9 +938,8 @@ main { position: relative; z-index: 1; }
 
 .cta-backdrop {
   position: absolute;
-  inset: -32px 0;
+  inset: 0;
   z-index: 0;
-  will-change: transform;
   background: url("assets/backdrop-journal.webp") center 30% / cover no-repeat;
   opacity: 0.35;
 }
@@ -963,4 +1059,37 @@ main { position: relative; z-index: 1; }
     height: auto;
     aspect-ratio: 3 / 2;
   }
+}
+
+/* ---- mobile-designed decisions (≤768px) ---- */
+
+.mobile-cta { display: none; }
+
+@media (max-width: 768px) {
+  .mobile-cta {
+    display: block;
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    z-index: 8;
+    opacity: 0;
+    transform: translateY(12px);
+    pointer-events: none;
+    transition: opacity 300ms var(--ease), transform 300ms var(--ease);
+  }
+
+  .mobile-cta.show { opacity: 1; transform: none; pointer-events: auto; }
+
+  .mobile-cta .btn { width: 100%; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
+
+  /* Full-bleed product screenshots inside cards (26px padding + 1px border). */
+  .card .shot-frame { margin-inline: -27px; border-radius: 0; border-inline: none; }
+
+  /* Hero art composes for portrait: keep the bright candle cluster in frame. */
+  .hero-video { object-position: 62% center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-cta { transition: none; transform: none; }
 }
