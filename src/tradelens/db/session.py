@@ -10,12 +10,26 @@ from src.tradelens.config import settings
 # config and lets tests point at an isolated DB via the DATABASE_URL env var.
 DATABASE_URL = settings.database_url
 
-# Ensure the parent directory exists for file-based SQLite URLs.
-if DATABASE_URL.startswith("sqlite:///") and ":memory:" not in DATABASE_URL:
-    _db_file = Path(DATABASE_URL[len("sqlite:///") :])
-    _db_file.parent.mkdir(parents=True, exist_ok=True)
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+def build_engine(url: str, **overrides):
+    """Create an Engine with per-dialect connect/pool settings.
+
+    SQLite needs check_same_thread=False for Streamlit's threads; that arg is
+    SQLite-only and psycopg2 rejects it. Postgres (Neon) gets pool_pre_ping so a
+    connection dropped by scale-to-zero is transparently replaced. `overrides`
+    lets tests inject e.g. poolclass=NullPool to avoid real connections.
+    """
+    kwargs = dict(overrides)
+    if url.startswith("sqlite"):
+        kwargs.setdefault("connect_args", {"check_same_thread": False})
+        if ":memory:" not in url and url.startswith("sqlite:///"):
+            Path(url[len("sqlite:///") :]).parent.mkdir(parents=True, exist_ok=True)
+    else:
+        kwargs.setdefault("pool_pre_ping", True)
+    return create_engine(url, **kwargs)
+
+
+engine = build_engine(DATABASE_URL)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
