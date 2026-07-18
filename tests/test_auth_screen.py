@@ -48,3 +48,26 @@ def test_brand_uses_svg_not_emoji():
     assert "<svg" in html
     for emoji in ("📈", "🎯", "🚀", "✨"):
         assert emoji not in html
+
+
+def test_render_auth_screen_exists_and_is_callable():
+    from src.tradelens.ui.components import auth_screen
+
+    assert callable(auth_screen.render_auth_screen)
+
+
+def test_auth_screen_boots_in_apptest(tmp_path):
+    """The screen renders without raising, and shows the compliance line."""
+    from streamlit.testing.v1 import AppTest
+
+    app = tmp_path / "auth_app.py"
+    app.write_text(
+        "import sys; sys.path.insert(0, '.')\n"
+        "from src.tradelens.ui.components.auth_screen import render_auth_screen\n"
+        "render_auth_screen()\n",
+        encoding="utf-8",
+    )
+    at = AppTest.from_file(str(app), default_timeout=30).run()
+    assert not at.exception
+    rendered = " ".join(m.value for m in at.markdown)
+    assert "Reflection only." in rendered

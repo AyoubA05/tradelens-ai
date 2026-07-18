@@ -130,3 +130,111 @@ def compliance_html() -> str:
         f'<br><a class="tl-auth-back" href="{escape(SITE_URL)}">'
         "&larr; Back to tradelens-ai.com</a></div>"
     )
+
+
+_MODE_KEY = "_auth_mode"  # "login" | "signup"
+_ERROR_KEY = "_login_error"
+_SIGNUP_ERR = "_signup_error"
+
+
+def _error_html(message: str) -> str:
+    """Error region. aria-live so screen readers announce it (WCAG)."""
+    return (
+        '<div class="tl-auth-err" role="alert" aria-live="polite">'
+        f"{escape(message)}</div>"
+    )
+
+
+def render_auth_screen() -> None:
+    """Render the focused auth card. Logic stays in auth.py."""
+    import streamlit as st
+
+    from src.tradelens.ui.components.auth import (
+        authenticate_login,
+        process_signup,
+        signup_enabled,
+    )
+
+    st.markdown(auth_css(), unsafe_allow_html=True)
+    st.markdown('<div class="tl-auth-bg"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="tl-auth-scrim"></div>', unsafe_allow_html=True)
+
+    with st.container(key="tl_auth_card"):
+        st.markdown(
+            brand_html(get_asset_as_base64("logo_mark.png")), unsafe_allow_html=True
+        )
+
+        can_signup = signup_enabled()
+        mode = st.session_state.get(_MODE_KEY, "login")
+        if can_signup:
+            choice = st.segmented_control(
+                "Account",
+                options=["Sign in", "Create account"],
+                default="Create account" if mode == "signup" else "Sign in",
+                key="tl_auth_mode_toggle",
+                label_visibility="collapsed",
+            )
+            mode = "signup" if choice == "Create account" else "login"
+            st.session_state[_MODE_KEY] = mode
+
+        if mode == "signup":
+            st.markdown(
+                '<div class="tl-auth-title">Create your account</div>'
+                '<div class="tl-auth-sub">An invite code is required during '
+                "beta.</div>",
+                unsafe_allow_html=True,
+            )
+            with st.form("tl_signup", clear_on_submit=False):
+                username = st.text_input("Username", key="signup_username")
+                password = st.text_input(
+                    "Password", type="password", key="signup_password"
+                )
+                confirm = st.text_input(
+                    "Confirm password", type="password", key="signup_confirm"
+                )
+                invite = st.text_input("Invite code", key="signup_invite")
+                submitted = st.form_submit_button("Create account", width="stretch")
+            if submitted:
+                with st.spinner("Creating your account…"):
+                    error = process_signup(username, password, confirm, invite)
+                if error:
+                    st.session_state[_SIGNUP_ERR] = error
+                else:
+                    st.session_state.pop(_SIGNUP_ERR, None)
+                    st.rerun()
+            if st.session_state.get(_SIGNUP_ERR):
+                st.markdown(
+                    _error_html(st.session_state[_SIGNUP_ERR]), unsafe_allow_html=True
+                )
+        else:
+            st.markdown(
+                '<div class="tl-auth-title">Welcome back</div>'
+                '<div class="tl-auth-sub">Sign in to review your trades.</div>',
+                unsafe_allow_html=True,
+            )
+            with st.form("tl_login", clear_on_submit=False):
+                username = st.text_input("Username", key="login_username")
+                password = st.text_input(
+                    "Password", type="password", key="login_password"
+                )
+                submitted = st.form_submit_button("Sign in", width="stretch")
+            if submitted:
+                with st.spinner("Signing you in…"):
+                    try:
+                        ok = authenticate_login(username, password)
+                    except Exception:  # noqa: BLE001 — never crash the login screen
+                        ok = False
+                if ok:
+                    st.session_state.pop(_ERROR_KEY, None)
+                    st.rerun()
+                else:
+                    st.session_state[_ERROR_KEY] = (
+                        "Incorrect username or password. "
+                        "Check your details and try again."
+                    )
+            if st.session_state.get(_ERROR_KEY):
+                st.markdown(
+                    _error_html(st.session_state[_ERROR_KEY]), unsafe_allow_html=True
+                )
+
+        st.markdown(compliance_html(), unsafe_allow_html=True)
