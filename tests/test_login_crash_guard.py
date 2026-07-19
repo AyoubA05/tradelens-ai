@@ -30,14 +30,25 @@ def test_authenticate_login_does_not_crash_when_db_auth_raises(monkeypatch):
 
 
 def test_login_form_renders_rejection_instead_of_crashing(monkeypatch):
-    """Driving the login form with a raising auth path shows an error, not a crash."""
+    """Driving the login form with a raising auth path shows an error, not a crash.
+
+    SP3: the form now lives in auth_screen (button label "Sign in"); the raising
+    auth path is patched via monkeypatch (auto-restored) instead of mutating the
+    module inside the script. signup toggle forced off — AppTest in streamlit
+    1.50 cannot serialize st.segmented_control state on rerun.
+    """
     from streamlit.testing.v1 import AppTest
+
+    def _boom(*_a, **_k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(auth, "authenticate_login", _boom)
+    monkeypatch.setattr(auth, "signup_enabled", lambda: False)
 
     script = """
 import sys
 sys.path.insert(0, %r)
 import src.tradelens.ui.components.auth as auth
-auth.authenticate_login = lambda u, p: (_ for _ in ()).throw(RuntimeError("boom"))
 auth.require_auth()
 """ % str(
         __import__("pathlib").Path(__file__).resolve().parents[1]
@@ -46,7 +57,9 @@ auth.require_auth()
     at = AppTest.from_string(script, default_timeout=30).run()
     at.text_input(key="login_username").set_value("x")
     at.text_input(key="login_password").set_value("y")
-    [b for b in at.button if b.label == "Sign In"][0].click()
+    [b for b in at.button if b.label == "Sign in"][0].click()
     at.run()
 
     assert not at.exception, f"login click crashed: {list(at.exception)}"
+    rendered = " ".join(m.value for m in at.markdown)
+    assert "Check your details and try again" in rendered

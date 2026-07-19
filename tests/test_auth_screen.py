@@ -73,16 +73,26 @@ def test_auth_screen_boots_in_apptest(tmp_path):
     assert "Reflection only." in rendered
 
 
-def test_successful_login_sets_session_keys(tmp_path):
+def test_successful_login_sets_session_keys(tmp_path, monkeypatch):
     """Regression: authenticate_login returns (ok, uname, uid) — the screen must
     unpack it and set the session keys, or every login loops back to the card."""
     from streamlit.testing.v1 import AppTest
 
+    from src.tradelens.services import users
+    from src.tradelens.ui.components import auth as auth_mod
+
+    monkeypatch.setattr(users, "users_exist", lambda: False)  # secrets fallback
+    # Pin the fallback credentials: earlier tests may leak TRADELENS_* env vars.
+    monkeypatch.setenv("TRADELENS_USERNAME", "demo")
+    monkeypatch.setenv("TRADELENS_PASSWORD", "tradelens2025")
+    # signup toggle off: AppTest in streamlit 1.50 cannot serialize
+    # st.segmented_control state on rerun (ValueError char-iteration bug);
+    # the toggle is exercised visually in the Task 6 pass instead.
+    monkeypatch.setattr(auth_mod, "signup_enabled", lambda: False)
+
     app = tmp_path / "auth_login_app.py"
     app.write_text(
         "import sys; sys.path.insert(0, '.')\n"
-        "from src.tradelens.services import users\n"
-        "users.users_exist = lambda: False  # hermetic: force secrets fallback\n"
         "from src.tradelens.ui.components.auth_screen import render_auth_screen\n"
         "render_auth_screen()\n",
         encoding="utf-8",
@@ -98,14 +108,20 @@ def test_successful_login_sets_session_keys(tmp_path):
     assert at.session_state["current_user"] == "demo"
 
 
-def test_failed_login_shows_recovery_error(tmp_path):
+def test_failed_login_shows_recovery_error(tmp_path, monkeypatch):
     from streamlit.testing.v1 import AppTest
+
+    from src.tradelens.services import users
+    from src.tradelens.ui.components import auth as auth_mod
+
+    monkeypatch.setattr(users, "users_exist", lambda: False)
+    monkeypatch.setattr(auth_mod, "signup_enabled", lambda: False)
+    monkeypatch.setenv("TRADELENS_USERNAME", "demo")
+    monkeypatch.setenv("TRADELENS_PASSWORD", "tradelens2025")
 
     app = tmp_path / "auth_fail_app.py"
     app.write_text(
         "import sys; sys.path.insert(0, '.')\n"
-        "from src.tradelens.services import users\n"
-        "users.users_exist = lambda: False\n"
         "from src.tradelens.ui.components.auth_screen import render_auth_screen\n"
         "render_auth_screen()\n",
         encoding="utf-8",
@@ -122,3 +138,51 @@ def test_failed_login_shows_recovery_error(tmp_path):
     assert authed is not True
     rendered = " ".join(m.value for m in at.markdown)
     assert "Check your details and try again" in rendered
+
+
+def test_no_hardcoded_palette_in_auth_css():
+    """Colors come from design_system tokens so the card can never drift."""
+    import re
+
+    from src.tradelens.ui import design_system as ds
+    from src.tradelens.ui.components import auth_screen
+
+    css = re.sub(r"/\*.*?\*/", "", auth_screen.auth_css(), flags=re.S)
+    assert ds.TL_PRIMARY in css
+    # The legacy landing palette must not reappear.
+    assert "#20808D" not in css
+    assert "#A84B2F" not in css
+    # Any 6-digit hex present must be a known design-system token.
+    known = {
+        ds.TL_PRIMARY.lower(),
+        ds.TL_BG.lower(),
+        ds.TL_SURFACE.lower(),
+        ds.TL_BORDER.lower(),
+        ds.TL_TEXT.lower(),
+        ds.TL_TEXT_MUTED.lower(),
+        ds.TL_DANGER.lower(),
+    }
+    for hexval in re.findall(r"#[0-9a-fA-F]{6}", css):
+        assert hexval.lower() in known, f"untokenised color {hexval} in auth CSS"
+
+
+def test_auth_card_is_the_intentional_centered_exception():
+    """The old landing page must not be centered; a focused auth card must be.
+
+    Replaces test_no_centered_everything, which was written for the deleted
+    landing layout and now conflicts with the approved SP3 design.
+    """
+    from src.tradelens.ui.components import auth_screen
+
+    css = auth_screen.auth_css()
+    assert "margin: 6vh auto 0" in css, "card should be horizontally centered"
+    assert "max-width: 420px" in css, "card must stay focused, not full-bleed"
+
+
+def test_scope_line_is_honest_no_signals():
+    """Carried over from the old suite — compliance copy is load-bearing."""
+    from src.tradelens.ui.components import auth_screen
+
+    note = auth_screen.compliance_html().lower()
+    assert "does not generate signals" in note
+    assert "reflection only" in note
