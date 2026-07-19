@@ -14,6 +14,9 @@ Public surface:
 
 Credential reading is env-first so it is testable without Streamlit; st.secrets is
 consulted as a fallback the same way config.py bridges ANTHROPIC_API_KEY.
+
+Presentation (the focused auth card) lives in auth_screen.py — this module is
+logic only (SP3 split).
 """
 
 from __future__ import annotations
@@ -24,17 +27,6 @@ import json
 import os
 import secrets as _pysecrets
 import time
-
-from src.tradelens.ui.components.theme import (
-    BORDER,
-    HEADING_FONT,
-    MONO_FONT,
-    SURFACE,
-    TEXT_MUTED,
-    TEXT_PRIMARY,
-    TEXT_SECONDARY,
-)
-from src.tradelens.ui.design_system import TL_PRIMARY, TL_PRIMARY_DIM
 
 # Labeled fallback for a demo-only deployment. Real deployments set the secrets
 # below and these are never used. This is NOT a hardcoded production credential —
@@ -47,8 +39,6 @@ _USER_KEY = "current_user"
 _UID_KEY = "current_user_id"
 _ERROR_KEY = "_login_error"
 _MODE_KEY = "_auth_mode"  # "login" | "signup"
-_SIGNUP_ERR = "_signup_error"
-_SIGNUP_OK = "_signup_ok"
 
 # Reload-persistent session token (Item 1). st.session_state is wiped on a full
 # browser reload, which used to boot the trader back to the login page ("the
@@ -265,312 +255,6 @@ def is_authenticated() -> bool:
     return bool(st.session_state.get(_AUTH_KEY, False))
 
 
-def _render_login_form(st) -> None:
-    with st.form("tl_login", clear_on_submit=False):
-        username = st.text_input("Username", key="login_username")
-        password = st.text_input("Password", type="password", key="login_password")
-        submitted = st.form_submit_button("Sign In", width="stretch")
-
-    if submitted:
-        # Belt-and-braces: no authentication error may escape and crash the
-        # Streamlit script (the localhost "click login → crash" report). Any
-        # failure becomes a normal "incorrect credentials" rejection.
-        try:
-            ok, uname, uid = authenticate_login(username, password)
-        except Exception:  # noqa: BLE001 — never let auth errors crash the page
-            ok, uname, uid = False, None, None
-        if ok:
-            st.session_state[_AUTH_KEY] = True
-            st.session_state[_USER_KEY] = uname
-            st.session_state[_UID_KEY] = uid
-            st.session_state.pop(_ERROR_KEY, None)
-            st.rerun()
-        else:
-            st.session_state[_ERROR_KEY] = True
-
-    if st.session_state.get(_ERROR_KEY):
-        st.error("Incorrect username or password.")
-
-    if signup_enabled():
-        # Alternate path, not a competing CTA: microcopy + ghost style
-        # (.st-key-show_signup rules in _landing_css).
-        st.markdown(
-            '<div class="tl-auth-alt">New to TradeLens?</div>',
-            unsafe_allow_html=True,
-        )
-        if st.button("Create Account", key="show_signup", width="stretch"):
-            st.session_state[_MODE_KEY] = "signup"
-            st.session_state.pop(_ERROR_KEY, None)
-            st.rerun()
-
-
-def _render_signup_form(st) -> None:
-    st.caption("Create your account — an invite code is required.")
-    show = st.checkbox("Show password", key="signup_show")
-    ptype = "default" if show else "password"
-    with st.form("tl_signup", clear_on_submit=False):
-        username = st.text_input("Username", key="signup_username")
-        password = st.text_input("Password", type=ptype, key="signup_password")
-        confirm = st.text_input("Confirm Password", type=ptype, key="signup_confirm")
-        invite = st.text_input(
-            "Invite Code — required to create an account", key="signup_invite"
-        )
-        submitted = st.form_submit_button("Create Account", width="stretch")
-
-    if submitted:
-        error = process_signup(username, password, confirm, invite)
-        if error:
-            st.session_state[_SIGNUP_ERR] = error
-        else:
-            st.session_state[_SIGNUP_OK] = True
-            st.session_state[_MODE_KEY] = "login"
-            st.session_state.pop(_SIGNUP_ERR, None)
-            st.rerun()
-
-    if st.session_state.get(_SIGNUP_ERR):
-        st.error(st.session_state[_SIGNUP_ERR])
-
-    if st.button("← Back to Sign In", key="back_to_login", width="stretch"):
-        st.session_state[_MODE_KEY] = "login"
-        st.session_state.pop(_SIGNUP_ERR, None)
-        st.rerun()
-
-
-# ---------------------------------------------------------------------------
-# Landing page (pre-login). Scoped .tl-land-* CSS only — never bare tags (R1).
-# Built from the design plan in docs/landing_audit.md: dark, left-aligned,
-# asymmetric hero + feature band + one CTA. Identity preserved from theme.py.
-# ---------------------------------------------------------------------------
-
-# Line-style SVG icons (stroke only, teal — no icon-in-colored-circle, no emoji).
-_IC_SHOT = (
-    '<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" '
-    f'stroke="{TL_PRIMARY}" '
-    'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'
-    '<rect x="3" y="6" width="18" height="13" rx="2"/>'
-    '<circle cx="12" cy="12.5" r="3.2"/><path d="M8 6 l1.5 -2 h5 L16 6"/></svg>'
-)
-_IC_CHART = (
-    '<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" '
-    f'stroke="{TL_PRIMARY}" '
-    'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'
-    '<path d="M4 20 V10"/><path d="M10 20 V4"/><path d="M16 20 v-8"/>'
-    '<path d="M3 20 h18"/></svg>'
-)
-_IC_REVIEW = (
-    '<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" '
-    f'stroke="{TL_PRIMARY}" '
-    'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'
-    '<path d="M5 4 h11 l3 3 v13 a0 0 0 0 1 0 0 H5 z"/>'
-    '<path d="M8 11 h8"/><path d="M8 15 h5"/></svg>'
-)
-
-# Signature element: a rising equity curve (the trader's own artifact), the one
-# bold thing on the page. Solid teal stroke + faint solid-alpha fill (no gradient).
-_EQUITY_SVG = (
-    '<svg viewBox="0 0 320 110" width="100%" height="92" preserveAspectRatio="none" '
-    'role="img" aria-label="A rising equity curve">'
-    '<path d="M0,96 L40,82 L72,90 L112,60 L150,70 L192,42 L230,52 L276,22 L320,30 '
-    f'L320,110 L0,110 Z" fill="{TL_PRIMARY_DIM}"/>'
-    '<path d="M0,96 L40,82 L72,90 L112,60 L150,70 L192,42 L230,52 L276,22 L320,30" '
-    f'fill="none" stroke="{TL_PRIMARY}" stroke-width="2.5" stroke-linecap="round" '
-    'stroke-linejoin="round"/></svg>'
-)
-
-
-def _landing_css() -> str:
-    return f"""<style>
-[data-testid='stSidebar']{{display:none}}
-.tl-land-header{{display:flex;align-items:center;justify-content:space-between;
-flex-wrap:wrap;gap:8px;margin:4px 0 26px 0}}
-.tl-land-brand{{display:flex;align-items:center;gap:10px}}
-.tl-land-word{{font-family:'{HEADING_FONT}',sans-serif;font-weight:700;
-font-size:1.25rem;letter-spacing:-0.02em;color:{TEXT_PRIMARY}}}
-.tl-land-tag{{color:{TEXT_MUTED};font-size:0.82rem}}
-.tl-hero-h1{{font-family:'{HEADING_FONT}',sans-serif;font-weight:700;
-font-size:clamp(2rem,4.2vw,3.3rem);line-height:1.06;letter-spacing:-0.035em;
-color:{TEXT_PRIMARY};text-wrap:balance;max-width:16ch;margin:6px 0 0 0}}
-.tl-hero-accent{{color:{TL_PRIMARY}}}
-.tl-hero-sub{{color:{TEXT_SECONDARY};font-size:1.02rem;line-height:1.6;
-max-width:56ch;margin:16px 0 0 0}}
-.tl-hero-scope{{display:inline-flex;align-items:flex-start;gap:8px;
-border:1px solid {BORDER};border-radius:10px;padding:9px 12px;margin-top:18px;
-color:{TEXT_MUTED};font-size:0.82rem;line-height:1.45;max-width:54ch}}
-.tl-hero-scope b{{color:{TEXT_SECONDARY};font-weight:600}}
-.tl-hero-visual{{border:1px solid {BORDER};border-radius:14px;margin-top:22px;
-height:230px;overflow:hidden;background-color:{SURFACE};background-size:cover;
-background-position:center;display:flex;align-items:flex-end}}
-.tl-hero-sig{{width:100%;line-height:0;opacity:0.95}}
-.tl-auth-card{{background:{SURFACE};border:1px solid {BORDER};border-radius:14px;
-padding:22px 22px 10px 22px;box-shadow:0 12px 40px rgba(0,0,0,0.35)}}
-.tl-auth-alt{{color:{TEXT_MUTED};font-size:0.8rem;margin:6px 0 0 0}}
-.st-key-show_signup button,.st-key-back_to_login button{{
-background:transparent;color:{TEXT_SECONDARY};border:1px solid {BORDER}}}
-.st-key-show_signup button:hover,.st-key-back_to_login button:hover{{
-background:transparent;color:{TL_PRIMARY};border-color:{TL_PRIMARY};
-box-shadow:none;transform:none}}
-.tl-auth-title{{font-family:'{HEADING_FONT}',sans-serif;font-weight:600;
-font-size:1.05rem;color:{TEXT_PRIMARY};margin:0}}
-.tl-auth-sub{{color:{TEXT_MUTED};font-size:0.82rem;margin:4px 0 12px 0}}
-.tl-feat-band{{border-top:1px solid {BORDER};margin-top:30px;padding-top:8px}}
-.tl-feat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
-gap:26px;margin-top:14px}}
-.tl-feat{{border-top:2px solid {TL_PRIMARY};padding-top:14px;
-transition:border-color 180ms ease}}
-.tl-feat:hover{{border-color:{TEXT_SECONDARY}}}
-.tl-feat-h{{font-family:'{HEADING_FONT}',sans-serif;font-weight:600;font-size:1rem;
-color:{TEXT_PRIMARY};margin:10px 0 0 0}}
-.tl-feat-p{{color:{TEXT_SECONDARY};font-size:0.9rem;line-height:1.55;margin:5px 0 0 0}}
-.tl-badge{{display:inline-flex;align-items:center;gap:7px;
-border:1px solid {TL_PRIMARY};border-radius:999px;padding:3px 11px;
-color:{TEXT_SECONDARY};font-family:'{MONO_FONT}',monospace;
-font-size:0.72rem;letter-spacing:0.02em}}
-.tl-badge-dot{{width:6px;height:6px;border-radius:50%;background:{TL_PRIMARY}}}
-.tl-land-foot{{display:flex;align-items:center;justify-content:space-between;
-flex-wrap:wrap;gap:10px;border-top:1px solid {BORDER};margin-top:26px;
-padding-top:14px;color:{TEXT_MUTED};font-size:0.8rem}}
-.tl-hero-still{{display:block;width:100%;height:230px;object-fit:cover;
-object-position:center;border:1px solid {BORDER};border-radius:14px;
-margin-top:22px}}
-@media (prefers-reduced-motion: reduce){{.tl-feat{{transition:none}}}}
-</style>"""
-
-
-def _landing_header_html(logo_b64: str = "") -> str:
-    wordmark = (
-        f'<img src="data:image/png;base64,{logo_b64}" alt="" width="22" height="22" '
-        'style="border-radius:6px;vertical-align:middle" />'
-        if logo_b64
-        else '<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" '
-        f'stroke="{TL_PRIMARY}" stroke-width="2" stroke-linecap="round" '
-        'stroke-linejoin="round" style="vertical-align:middle">'
-        '<path d="M3 17 l5 -6 l4 3 l6 -8"/><path d="M3 21 h18"/></svg>'
-    )
-    return (
-        '<div class="tl-land-header"><div class="tl-land-brand">'
-        f'{wordmark}<span class="tl-land-word">TradeLens AI</span></div>'
-        '<div class="tl-land-tag">Post-trade journal &amp; analytics · SMC / ICT</div>'
-        "</div>"
-    )
-
-
-def _landing_hero_html() -> str:
-    return (
-        '<h1 class="tl-hero-h1">The post-trade journal that '
-        '<span class="tl-hero-accent">reads your charts back to you.</span></h1>'
-        '<p class="tl-hero-sub">Drop in a chart screenshot and TradeLens turns it '
-        "into a structured, searchable journal — then shows you the patterns behind "
-        "your wins and the leaks behind your losses.</p>"
-        '<div class="tl-hero-scope"><span>'
-        "<b>Reflection only.</b> TradeLens reviews the trade you already took. "
-        "It does not generate signals, predictions, or trade advice.</span></div>"
-    )
-
-
-def _landing_features_html() -> str:
-    feats = [
-        (
-            _IC_SHOT,
-            "Screenshot-first journaling",
-            "Add a TradingView screenshot and the AI reads the asset, session, "
-            "setup, and bias. You confirm every field before it's saved.",
-        ),
-        (
-            _IC_CHART,
-            "SMC / ICT analytics",
-            "Win rate, profit factor, R:R, drawdown, and P&amp;L by session and "
-            "setup — grouped into clear sections, not a wall of numbers.",
-        ),
-        (
-            _IC_REVIEW,
-            "Weekly AI review",
-            "An automatic written review of your week and the behavioral patterns "
-            "in your journal, so you walk into the next session knowing your edge.",
-        ),
-    ]
-    cells = "".join(
-        f'<div class="tl-feat">{ic}<div class="tl-feat-h">{title}</div>'
-        f'<p class="tl-feat-p">{body}</p></div>'
-        for ic, title, body in feats
-    )
-    return f'<div class="tl-feat-band"><div class="tl-feat-grid">{cells}</div></div>'
-
-
-def _landing_footer_html() -> str:
-    return (
-        '<div class="tl-land-foot">'
-        '<span class="tl-badge"><span class="tl-badge-dot"></span>Private beta</span>'
-        "<span>Built for traders who review the tape — never financial advice.</span>"
-        "</div>"
-    )
-
-
-def _render_hero_visual(st) -> None:
-    """One framed hero module: the equity-curve signature drawn over the
-    ambient chart texture (data-URI background — the proven pattern
-    welcome.png uses on the dashboard; st.image collapsed to zero height
-    here). Best-effort: a missing asset just drops the texture, and the
-    framed signature still renders — it never blocks login.
-    """
-    try:
-        from src.tradelens.ui.design_system import get_asset_as_base64
-
-        b64 = get_asset_as_base64("landing_hero.jpg")
-        bg = (
-            f' style="background-image:url(data:image/jpeg;base64,{b64})"'
-            if b64
-            else ""
-        )
-        st.markdown(
-            f'<div class="tl-hero-visual"{bg}>'
-            f'<div class="tl-hero-sig">{_EQUITY_SVG}</div></div>',
-            unsafe_allow_html=True,
-        )
-    except Exception:  # noqa: BLE001 — a missing/broken asset must never block login
-        pass
-
-
-def _render_login() -> None:
-    """Render the pre-login landing page: hero + features + the sign-in panel."""
-    import streamlit as st
-
-    from src.tradelens.ui.design_system import get_asset_as_base64
-
-    st.markdown(_landing_css(), unsafe_allow_html=True)
-    st.markdown(
-        _landing_header_html(get_asset_as_base64("logo_mark.png")),
-        unsafe_allow_html=True,
-    )
-
-    hero, panel = st.columns([1.35, 1], gap="large")
-    with hero:
-        st.markdown(_landing_hero_html(), unsafe_allow_html=True)
-        _render_hero_visual(st)
-    with panel:
-        signup = st.session_state.get(_MODE_KEY) == "signup"
-        st.markdown(
-            '<div class="tl-auth-card"><p class="tl-auth-title">'
-            + ("Create your account" if signup else "Sign in to your journal")
-            + '</p><p class="tl-auth-sub">'
-            + (
-                "An invite code is required."
-                if signup
-                else "Pick up where you left off."
-            )
-            + "</p></div>",
-            unsafe_allow_html=True,
-        )
-        if st.session_state.pop(_SIGNUP_OK, False):
-            st.success("Account created. Sign in below.")
-        if signup:
-            _render_signup_form(st)
-        else:
-            _render_login_form(st)
-
-    st.markdown(_landing_features_html(), unsafe_allow_html=True)
-    st.markdown(_landing_footer_html(), unsafe_allow_html=True)
-
-
 def require_auth() -> None:
     """Gate: if not signed in, render the login page and halt the script.
 
@@ -590,7 +274,11 @@ def require_auth() -> None:
         set_corrections_user(st.session_state.get(_UID_KEY))
         _persist_token(st)
         return
-    _render_login()
+    # Lazy import: auth_screen imports logic from this module, so a top-level
+    # import here would be circular (same pattern sidebar.py uses).
+    from src.tradelens.ui.components.auth_screen import render_auth_screen
+
+    render_auth_screen()
     st.stop()
 
 
