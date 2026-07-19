@@ -15,10 +15,14 @@ import datetime as dt
 import pandas as pd
 
 from src.tradelens.services.metrics import calendar_daily_pnl
+from src.tradelens.ui.design_system import TL_PRIMARY
 from src.tradelens.utils.format import humanize
 
 _WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _BORDER = "1px solid rgba(255,255,255,0.07)"
+# SP4: positive-day tint derives from the brand token (hex + 0x2e ≈ 18% alpha)
+# instead of a hardcoded copy of the pre-SP4 teal.
+_POS_TINT = f"{TL_PRIMARY}2e"
 
 
 def _cell_html(day: int, info) -> str:
@@ -30,7 +34,7 @@ def _cell_html(day: int, info) -> str:
     else:
         pnl, trades = info
         if pnl > 0:
-            bg = "rgba(32,128,141,0.18)"
+            bg = _POS_TINT
         elif pnl < 0:
             bg = "rgba(168,75,47,0.18)"
         else:

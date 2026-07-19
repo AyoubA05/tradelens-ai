@@ -5,9 +5,10 @@ ONE source of truth for visual tokens (color, type scale, radii, fonts), a
 Plotly template, and the global CSS injector. Pages and components import from
 here — never redefine colors locally.
 
-Design direction: dark-only, futuristic "trading performance lab". Background
-#0E1117, teal #20808D, terra #A84B2F, muted gray text hierarchy. Space Grotesk
-headings, JetBrains Mono for all numerals, Inter body.
+Design direction: dark-only, futuristic "trading performance lab", unified with
+the marketing site (SP4): background/teal come from design_system tokens,
+Schibsted Grotesk headings, JetBrains Mono for all numerals, Satoshi body.
+TERRA (#A84B2F) remains as a distinct legacy callout semantic.
 
 R1 RULE (enforced by tests): inject_css() must only target SCOPED selectors
 ([data-testid="..."], .stMetric, .stSidebar, .stButton > button,
@@ -19,28 +20,38 @@ from __future__ import annotations
 
 from src.tradelens.ui.design_system import (
     PLOTLY_TEMPLATE as _DS_PLOTLY_TEMPLATE,
+    TL_BG as _DS_BG,
     TL_GRADE_A as _DS_GRADE_A,
     TL_GRADE_B as _DS_GRADE_B,
     TL_GRADE_C as _DS_GRADE_C,
     TL_GRADE_D as _DS_GRADE_D,
     TL_GRADE_F as _DS_GRADE_F,
+    TL_PRIMARY as _DS_PRIMARY,
+    TL_PRIMARY_DIM as _DS_PRIMARY_DIM,
+    TL_PRIMARY_HOVER as _DS_PRIMARY_HOVER,
+    TL_TEXT as _DS_TEXT,
 )
 
 # ── Surfaces ──────────────────────────────────────────────────────
-BG = "#0E1117"
+# SP4: BG/TEXT_PRIMARY/TEAL* now re-export design-system tokens so the app has
+# a single source of truth. These names stay for the existing call sites
+# (ui.py, demo_banner.py) which import them directly.
+BG = _DS_BG
 SURFACE = "rgba(255,255,255,0.06)"
 SURFACE_HOVER = "rgba(255,255,255,0.09)"
 BORDER = "rgba(255,255,255,0.10)"
 
 # ── Brand ─────────────────────────────────────────────────────────
-TEAL = "#20808D"
-TEAL_HOVER = "#1c727e"
-TEAL_SOFT = "rgba(32,128,141,0.15)"
+TEAL = _DS_PRIMARY
+TEAL_HOVER = _DS_PRIMARY_HOVER
+TEAL_SOFT = _DS_PRIMARY_DIM
+# TERRA is a distinct legacy semantic (ui.py callout border), not a competing
+# brand color — intentionally retained.
 TERRA = "#A84B2F"
 TERRA_SOFT = "rgba(168,75,47,0.15)"
 
 # ── Text hierarchy ────────────────────────────────────────────────
-TEXT_PRIMARY = "#E8EAED"
+TEXT_PRIMARY = _DS_TEXT
 TEXT_SECONDARY = "#B4B8BD"
 TEXT_MUTED = "#8E9196"
 
@@ -210,7 +221,7 @@ def _build_css() -> str:
 }}
 .tl-chat-user {{
     background: {TEAL_SOFT};
-    border: 1px solid rgba(32,128,141,0.35);
+    border: 1px solid {TEAL}59;
     border-radius: {RADIUS_MD};
     padding: 10px 14px;
     margin: 6px 0 6px 12%;

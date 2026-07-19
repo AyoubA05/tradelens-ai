@@ -88,9 +88,19 @@ def test_core_color_tokens_defined():
         assert isinstance(val, str) and val, f"{name} must be a non-empty string"
 
 
-def test_brand_colors_match_spec():
-    assert theme.BG == "#0E1117"
-    assert theme.TEAL == "#20808D"
+def test_brand_colors_collapse_to_design_system():
+    """SP4: theme.py no longer defines a competing teal — it re-exports the
+    design-system token, so the app has exactly one brand color."""
+    from src.tradelens.ui import design_system as ds
+
+    assert theme.TEAL == ds.TL_PRIMARY
+    assert theme.TEAL_HOVER == ds.TL_PRIMARY_HOVER
+    assert theme.TEAL_SOFT == ds.TL_PRIMARY_DIM
+    assert theme.BG == ds.TL_BG
+    assert theme.TEXT_PRIMARY == ds.TL_TEXT
+    # The legacy teal must be gone entirely.
+    assert theme.TEAL != "#20808D"
+    # TERRA is a separate semantic (ui.py callout border) and intentionally stays.
     assert theme.TERRA == "#A84B2F"
 
 
@@ -190,5 +200,8 @@ def test_charts_pull_brand_colors_from_design_system():
     assert charts._TEAL == ds.TL_PRIMARY
     assert charts._POS == ds.TL_SUCCESS
     assert charts._NEG == ds.TL_DANGER
-    assert charts._TEAL != theme.TEAL
+    # SP4 collapse: theme.TEAL now re-exports TL_PRIMARY, so equality with the
+    # chart teal is the CORRECT state (pre-SP4 this asserted inequality against
+    # the legacy #20808D). Outcome red still must not be the terra callout.
+    assert charts._TEAL == theme.TEAL
     assert charts._NEG != theme.TERRA
