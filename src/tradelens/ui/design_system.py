@@ -46,23 +46,28 @@ import plotly.io as pio
 # =========================================================================
 # COLOR TOKENS (authoritative — PRODUCT.md palette)
 # =========================================================================
-TL_BG = "#0d0f11"
-TL_SURFACE = "#13161a"
-TL_SURFACE_2 = "#1a1e24"
+TL_BG = "#0d1117"
+TL_SURFACE = "#161b22"
+TL_SURFACE_2 = "#1c232b"
 TL_BORDER = "#252a32"
 TL_BORDER_SUBTLE = "#1e2228"
 TL_TEXT = "#e8eaed"
-# Muted/faint brightened in Phase 9 for WCAG AA (≥4.5:1 small text):
-# muted 5.4:1 on SURFACE / 5.0:1 on SURFACE_2; faint 4.7:1 on SURFACE.
+# Muted/faint tuned for WCAG AA (>=4.5:1 small text) against the SP4 site
+# surfaces, which are lighter than the pre-SP4 ones:
+#   muted  5.65 on BG / 5.17 on SURFACE / 4.73 on SURFACE_2
+#   faint  5.50 on BG / 5.03 on SURFACE / 4.61 on SURFACE_2
+# faint was #79828f, which fell to 4.08 on the lighter SURFACE_2 (below AA).
 TL_TEXT_MUTED = "#848d9c"
-TL_TEXT_FAINT = "#79828f"
-TL_PRIMARY = "#00c2b2"
-TL_PRIMARY_HOVER = "#00a89a"
-TL_PRIMARY_DIM = "rgba(0,194,178,0.12)"
+TL_TEXT_FAINT = "#828b99"
+TL_PRIMARY = "#00e5cc"
+TL_PRIMARY_HOVER = "#33ecd8"
+TL_PRIMARY_DIM = "rgba(0,229,204,0.12)"
 TL_SUCCESS = "#22c55e"
 TL_SUCCESS_DIM = "rgba(34,197,94,0.12)"
-TL_DANGER = "#ef4444"
-TL_DANGER_DIM = "rgba(239,68,68,0.12)"
+# Danger brightened from #ef4444: table .pnl-neg text sits on SURFACE_2 on row
+# hover, where the old red measured 4.21 (below AA). #f56565 measures 5.23.
+TL_DANGER = "#f56565"
+TL_DANGER_DIM = "rgba(245,101,101,0.12)"
 TL_WARNING = "#f59e0b"
 TL_WARNING_DIM = "rgba(245,158,11,0.12)"
 TL_NEUTRAL = "#374151"

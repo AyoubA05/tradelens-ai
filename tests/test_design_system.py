@@ -72,11 +72,13 @@ def _top_level_selectors(css: str) -> list[str]:
 
 
 def test_palette_tokens_match_product_contract():
-    assert ds.TL_BG == "#0d0f11"
-    assert ds.TL_SURFACE == "#13161a"
-    assert ds.TL_PRIMARY == "#00c2b2"
+    # SP4: the app adopts the marketing site's palette (brand unification).
+    # danger brightened from #ef4444 for WCAG AA on the lighter surfaces.
+    assert ds.TL_BG == "#0d1117"
+    assert ds.TL_SURFACE == "#161b22"
+    assert ds.TL_PRIMARY == "#00e5cc"
     assert ds.TL_SUCCESS == "#22c55e"
-    assert ds.TL_DANGER == "#ef4444"
+    assert ds.TL_DANGER == "#f56565"
     assert ds.TL_WARNING == "#f59e0b"
 
 
