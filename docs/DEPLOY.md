@@ -41,6 +41,13 @@ cd tradelens-ai
 5. **Python version:** under **Advanced settings**, select **3.11** (matches
    `runtime.txt` and CI).
 
+The selected branch must contain the root `requirements.txt`. Community Cloud
+looks beside the entry point first, then at the repository root; this repo uses
+the root file. Before deploying Postgres support, merge
+`sp2-postgres-foundation` into the selected branch so that
+`psycopg2-binary==2.9.9` and the dialect-aware database engine are present in
+the exact Git revision Community Cloud installs.
+
 ---
 
 ## 4. Add secrets
@@ -85,6 +92,7 @@ would silently disable the key *and* demo mode.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `ModuleNotFoundError` on boot | Missing dep / wrong Python | Confirm Python **3.11** in Advanced settings; `requirements.txt` installed cleanly. |
+| `ModuleNotFoundError: No module named 'psycopg2'` | The deployed branch predates Postgres support, or its environment was built before the dependency reached that branch. | Confirm the app is configured for `src/tradelens/ui/app.py` and a branch whose root `requirements.txt` contains `psycopg2-binary==2.9.9`. Push/merge that branch, then open the app menu and click **Reboot app** so dependencies are re-resolved. Plain `postgresql://` is correct: SQLAlchemy selects its `psycopg2` dialect automatically. |
 | `KeyError: 'ANTHROPIC_API_KEY'` or AI says "API key not configured" | Key nested under a `[section]` | Move `ANTHROPIC_API_KEY` to **top level** in Secrets. |
 | App makes real API calls / unexpected spend | `DEMO_MODE` not applied | Ensure `DEMO_MODE = "true"` is **top-level** in Secrets (not under `[general]`). Reboot the app. |
 | "main module does not exist" | Wrong entry path | Main file path must be `src/tradelens/ui/app.py`. |
