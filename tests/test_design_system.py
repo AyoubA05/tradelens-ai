@@ -364,3 +364,28 @@ def test_get_asset_as_base64_reads_real_file(tmp_path, monkeypatch):
     import base64
 
     assert base64.b64decode(out) == b"\x89PNG\r\n\x1a\n"
+
+
+def test_app_palette_matches_marketing_site():
+    """SP4 seam guard: the app and site must share one palette.
+
+    Reads the CSS custom properties out of site/styles.css and compares them to
+    the app tokens, so re-theming either surface without the other fails here
+    instead of shipping a visible seam at the site -> app handoff.
+    """
+    import re
+    from pathlib import Path
+
+    css = (Path(__file__).resolve().parents[1] / "site" / "styles.css").read_text(
+        encoding="utf-8"
+    )
+
+    def site_var(name: str) -> str:
+        m = re.search(rf"--{name}:\s*(#[0-9a-fA-F]{{6}})", css)
+        assert m, f"--{name} not found in site/styles.css"
+        return m.group(1).lower()
+
+    assert ds.TL_BG.lower() == site_var("bg")
+    assert ds.TL_SURFACE.lower() == site_var("surface")
+    assert ds.TL_SURFACE_2.lower() == site_var("surface-2")
+    assert ds.TL_PRIMARY.lower() == site_var("accent")
