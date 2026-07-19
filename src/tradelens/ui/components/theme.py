@@ -50,15 +50,19 @@ RADIUS_MD = "12px"
 RADIUS_LG = "16px"
 
 # ── Fonts ─────────────────────────────────────────────────────────
-HEADING_FONT = "Space Grotesk"
+# SP4: matches the marketing site (site/index.html) so site -> app is one brand.
+HEADING_FONT = "Schibsted Grotesk"
 MONO_FONT = "JetBrains Mono"
-BODY_FONT = "Inter"
+BODY_FONT = "Satoshi"
 
+# Satoshi is Fontshare-hosted; the rest are Google. Two stylesheet imports.
 _FONT_IMPORT = (
     "https://fonts.googleapis.com/css2?"
-    "family=Space+Grotesk:wght@500;600;700&"
-    "family=Inter:wght@400;500;600&"
+    "family=Schibsted+Grotesk:wght@500;600;700&"
     "family=JetBrains+Mono:wght@400;500;600&display=swap"
+)
+_FONT_IMPORT_FONTSHARE = (
+    "https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap"
 )
 
 # ── Grade scale: A success-green → F danger-red (design_system ramp;
@@ -105,6 +109,7 @@ PLOTLY_TEMPLATE = _DS_PLOTLY_TEMPLATE
 def _build_css() -> str:
     """Return the global stylesheet. Pure (no Streamlit) so it is unit-testable."""
     return f"""<style>
+@import url('{_FONT_IMPORT_FONTSHARE}');
 @import url('{_FONT_IMPORT}');
 
 [data-testid="stAppViewContainer"] {{
@@ -141,7 +146,7 @@ def _build_css() -> str:
     color: #ffffff;
     border: 1px solid {TEAL};
     border-radius: {RADIUS_SM};
-    font-weight: 600;
+    font-weight: 500;
     transition: transform 0.15s ease-out, box-shadow 0.15s ease-out, background 0.15s ease-out;
 }}
 @media (hover: hover) and (pointer: fine) {{
@@ -200,7 +205,7 @@ def _build_css() -> str:
     background: {TEAL};
     color: #ffffff;
     border-radius: {RADIUS_SM};
-    font-weight: 600;
+    font-weight: 500;
     text-decoration: none;
 }}
 .tl-chat-user {{

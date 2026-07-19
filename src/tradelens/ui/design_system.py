@@ -275,7 +275,7 @@ def build_css() -> str:
 }}
 .tl-side-note b {{
   color: var(--tl-text);
-  font-weight: 600;
+  font-weight: 700;
 }}
 .tl-side-note.active {{
   border-color: rgba(0,194,178,0.3);
@@ -316,7 +316,7 @@ def build_css() -> str:
   color: #ffffff;
   border: 1px solid var(--tl-primary);
   border-radius: var(--tl-radius-sm);
-  font-weight: 600;
+  font-weight: 500;
   transition: background 0.15s ease-out, box-shadow 0.15s ease-out;
 }}
 @media (hover: hover) and (pointer: fine) {{
@@ -399,7 +399,7 @@ def build_css() -> str:
 .tl-insight-card.neutral .tl-insight-icon {{ color: var(--tl-text-muted); }}
 .tl-insight-title {{
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--tl-text);
   flex: 1;
 }}
@@ -444,7 +444,7 @@ def build_css() -> str:
 }}
 .tl-form-card h3 {{
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--tl-text);
   margin-bottom: var(--tl-space-4);
 }}
@@ -464,7 +464,7 @@ def build_css() -> str:
 }}
 .tl-empty-card h4 {{
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--tl-text-muted);
   margin-bottom: var(--tl-space-2);
 }}
@@ -483,7 +483,7 @@ def build_css() -> str:
 .tl-empty-action {{
   margin-top: var(--tl-space-3);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--tl-primary);
 }}
 
@@ -553,7 +553,7 @@ def build_css() -> str:
 /* Chart card title (analytics) — one quiet weight below section titles. */
 .tl-chart-title {{
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0.01em;
   color: var(--tl-text);
   margin: 0 0 var(--tl-space-2) 0;
@@ -745,7 +745,7 @@ def build_css() -> str:
 .tl-action-title {{
   display: block;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--tl-text);
   margin-bottom: 2px;
 }}
@@ -758,7 +758,7 @@ def build_css() -> str:
 .tl-action-go {{
   display: block;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--tl-primary);
 }}
 

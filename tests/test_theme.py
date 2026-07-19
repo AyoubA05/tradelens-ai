@@ -95,7 +95,10 @@ def test_brand_colors_match_spec():
 
 
 def test_font_stacks_defined():
-    assert theme.HEADING_FONT
+    # SP4: the app adopts the marketing site's faces so the brand reads as one
+    # system. Inter/Space Grotesk were the pre-SP4 pair.
+    assert theme.BODY_FONT == "Satoshi"
+    assert theme.HEADING_FONT == "Schibsted Grotesk"
     assert theme.MONO_FONT == "JetBrains Mono"
 
 
