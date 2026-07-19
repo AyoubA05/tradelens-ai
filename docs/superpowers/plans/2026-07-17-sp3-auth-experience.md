@@ -33,7 +33,7 @@
 **Interfaces:**
 - Produces: `auth_bg.webp` readable by `get_asset_as_base64("auth_bg.webp")` (that helper reads `src/tradelens/ui/assets/<filename>` and returns `""` if missing).
 
-- [ ] **Step 1: Write the failing test** — create `tests/test_auth_screen.py`:
+- [x] **Step 1: Write the failing test** — create `tests/test_auth_screen.py`:
 
 ```python
 """SP3 auth screen — presentation split out of auth.py."""
@@ -52,12 +52,12 @@ def test_auth_backdrop_asset_exists_and_is_small():
     assert p.stat().st_size < 200_000, f"auth backdrop too large: {p.stat().st_size} bytes"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `source .venv/bin/activate && pytest tests/test_auth_screen.py -q`
 Expected: FAIL with `AssertionError: auth_bg.webp missing from ui/assets`
 
-- [ ] **Step 3: Copy the asset**
+- [x] **Step 3: Copy the asset**
 
 ```bash
 cp site/assets/poster-hero.webp src/tradelens/ui/assets/auth_bg.webp
@@ -65,12 +65,12 @@ ls -la src/tradelens/ui/assets/auth_bg.webp
 ```
 Expected: file exists, ~17 KB.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/test_auth_screen.py -q`
 Expected: PASS (1 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tradelens/ui/assets/auth_bg.webp tests/test_auth_screen.py
@@ -87,7 +87,7 @@ git commit -m "auth: add focused-card backdrop (reuses marketing hero poster, 17
 - Consumes: `get_asset_as_base64(filename: str) -> str` from `design_system.py`; tokens `TL_PRIMARY`, `TL_BG`, `TL_SURFACE`, `TL_BORDER`, `TL_TEXT`, `TL_TEXT_MUTED` from `design_system.py`.
 - Produces: `auth_css() -> str` (a `<style>` block), `brand_html(logo_b64: str = "") -> str`, `compliance_html() -> str`, and `render_auth_screen() -> None` (defined in Task 3; this task builds the pure-string helpers only).
 
-- [ ] **Step 1: Write the failing tests** — append to `tests/test_auth_screen.py`:
+- [x] **Step 1: Write the failing tests** — append to `tests/test_auth_screen.py`:
 
 ```python
 def test_auth_css_is_scoped_and_tokenised():
@@ -122,12 +122,12 @@ def test_brand_uses_svg_not_emoji():
         assert emoji not in html
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_auth_screen.py -q`
 Expected: FAIL with `ModuleNotFoundError: No module named 'src.tradelens.ui.components.auth_screen'`
 
-- [ ] **Step 3: Create `src/tradelens/ui/components/auth_screen.py`**
+- [x] **Step 3: Create `src/tradelens/ui/components/auth_screen.py`**
 
 ```python
 """
@@ -253,17 +253,17 @@ def compliance_html() -> str:
     )
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_auth_screen.py -q`
 Expected: PASS (4 passed).
 
-- [ ] **Step 5: Lint**
+- [x] **Step 5: Lint**
 
 Run: `ruff check src/tradelens/ui/components/auth_screen.py tests/test_auth_screen.py && black --check src/tradelens/ui/components/auth_screen.py tests/test_auth_screen.py`
 Expected: `All checks passed!` and `2 files would be left unchanged.`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/tradelens/ui/components/auth_screen.py tests/test_auth_screen.py
@@ -280,7 +280,7 @@ git commit -m "auth: auth_screen.py — scoped card CSS, brand lockup, complianc
 - Consumes (from `auth.py`, imported lazily inside the function to avoid the circular import): `authenticate_login(username, password)`, `process_signup(username, password, confirm, invite) -> str | None`, `signup_enabled() -> bool`, `_persist_token(st)`.
 - Produces: `render_auth_screen() -> None` — renders the whole screen and calls `st.stop()`-free (the caller `require_auth()` owns halting).
 
-- [ ] **Step 1: Write the failing test** — append to `tests/test_auth_screen.py`:
+- [x] **Step 1: Write the failing test** — append to `tests/test_auth_screen.py`:
 
 ```python
 def test_render_auth_screen_exists_and_is_callable():
@@ -306,12 +306,12 @@ def test_auth_screen_boots_in_apptest(tmp_path):
     assert "Reflection only." in rendered
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `pytest tests/test_auth_screen.py -q`
 Expected: FAIL with `AttributeError: module ... has no attribute 'render_auth_screen'`
 
-- [ ] **Step 3: Implement** — append to `src/tradelens/ui/components/auth_screen.py`:
+- [x] **Step 3: Implement** — append to `src/tradelens/ui/components/auth_screen.py`:
 
 ```python
 _MODE_KEY = "_auth_mode"  # "login" | "signup"
@@ -428,12 +428,12 @@ Then add the error style to `auth_css()`'s `<style>` block, immediately before t
 }}
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `pytest tests/test_auth_screen.py -q`
 Expected: PASS (6 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tradelens/ui/components/auth_screen.py tests/test_auth_screen.py
@@ -449,9 +449,9 @@ git commit -m "auth: focused card render — segmented toggle, forms, aria-live 
 - Consumes: `auth_screen.render_auth_screen()` (Task 3).
 - Produces: `auth.py` with logic only; `require_auth()` unchanged in signature and public behaviour.
 
-- [ ] **Step 1: Delete the presentation block.** Remove these definitions from `src/tradelens/ui/components/auth.py` entirely: `_IC_SHOT`, `_IC_CHART`, `_IC_REVIEW`, `_EQUITY_SVG`, `_landing_css`, `_landing_header_html`, `_landing_hero_html`, `_landing_features_html`, `_landing_footer_html`, `_render_hero_visual`, `_render_login`, `_render_login_form`, `_render_signup_form`. Also drop the now-unused imports they needed (`BORDER`, `HEADING_FONT`, `MONO_FONT`, `SURFACE`, `TEXT_MUTED`, `TEXT_PRIMARY`, `TEXT_SECONDARY`, `TL_PRIMARY`, `TL_PRIMARY_DIM`) — keep any that remaining logic still uses.
+- [x] **Step 1: Delete the presentation block.** Remove these definitions from `src/tradelens/ui/components/auth.py` entirely: `_IC_SHOT`, `_IC_CHART`, `_IC_REVIEW`, `_EQUITY_SVG`, `_landing_css`, `_landing_header_html`, `_landing_hero_html`, `_landing_features_html`, `_landing_footer_html`, `_render_hero_visual`, `_render_login`, `_render_login_form`, `_render_signup_form`. Also drop the now-unused imports they needed (`BORDER`, `HEADING_FONT`, `MONO_FONT`, `SURFACE`, `TEXT_MUTED`, `TEXT_PRIMARY`, `TEXT_SECONDARY`, `TL_PRIMARY`, `TL_PRIMARY_DIM`) — keep any that remaining logic still uses.
 
-- [ ] **Step 2: Point `require_auth` at the new screen.** Replace the body of `require_auth()` with:
+- [x] **Step 2: Point `require_auth` at the new screen.** Replace the body of `require_auth()` with:
 
 ```python
 def require_auth() -> None:
@@ -472,14 +472,14 @@ def require_auth() -> None:
     st.stop()
 ```
 
-- [ ] **Step 3: Verify no dead references remain**
+- [x] **Step 3: Verify no dead references remain**
 
 ```bash
 grep -nE "_landing_|_render_login|_render_hero_visual|_IC_SHOT|_EQUITY_SVG" src/ tests/ || echo "clean"
 ```
 Expected: only hits inside `tests/test_landing_login.py` (rewritten in Task 5). No hits in `src/`.
 
-- [ ] **Step 4: Confirm the file shrank and still imports**
+- [x] **Step 4: Confirm the file shrank and still imports**
 
 ```bash
 wc -l src/tradelens/ui/components/auth.py
@@ -487,12 +487,12 @@ python -c "from src.tradelens.ui.components import auth; print('ok', callable(au
 ```
 Expected: well under 450 lines; prints `ok True`.
 
-- [ ] **Step 5: Lint**
+- [x] **Step 5: Lint**
 
 Run: `ruff check src/tradelens/ui/components/auth.py && black --check src/tradelens/ui/components/auth.py`
 Expected: `All checks passed!` (ruff will catch any import left unused by the deletions).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/tradelens/ui/components/auth.py
@@ -508,7 +508,7 @@ git commit -m "auth: strip duplicate landing page; auth.py is logic only, requir
 **Interfaces:**
 - Consumes: `auth_screen.auth_css()`, `auth_screen.compliance_html()`, `auth_screen.brand_html()` (Task 2).
 
-- [ ] **Step 1: Port the assertions worth keeping.** Append to `tests/test_auth_screen.py`:
+- [x] **Step 1: Port the assertions worth keeping.** Append to `tests/test_auth_screen.py`:
 
 ```python
 def test_no_hardcoded_palette_in_auth_css():
@@ -554,25 +554,25 @@ def test_scope_line_is_honest_no_signals():
     assert "reflection only" in note
 ```
 
-- [ ] **Step 2: Delete the obsolete suite**
+- [x] **Step 2: Delete the obsolete suite**
 
 ```bash
 git rm tests/test_landing_login.py
 ```
 
-- [ ] **Step 3: Run the full suite**
+- [x] **Step 3: Run the full suite**
 
 Run: `DEMO_MODE=true pytest tests/ -q`
 Expected: all green. Count math: 873 - 13 (deleted `test_landing_login.py`) + 9 (`test_auth_screen.py`) = **869 passed, 2 skipped**.
 
-- [ ] **Step 4: Confirm no test still references deleted functions**
+- [x] **Step 4: Confirm no test still references deleted functions**
 
 ```bash
 grep -rnE "_landing_|_render_login" tests/ || echo "clean"
 ```
 Expected: `clean`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/test_auth_screen.py
@@ -585,7 +585,7 @@ git commit -m "test: replace landing-login suite with auth_screen tests"
 **Files:**
 - Modify: `src/tradelens/ui/components/auth_screen.py` (fixes only as found)
 
-- [ ] **Step 1: Boot the app logged out**
+- [x] **Step 1: Boot the app logged out**
 
 ```bash
 source .venv/bin/activate
@@ -593,7 +593,7 @@ TRADELENS_SESSION_SECRET=qa DEMO_MODE=true streamlit run src/tradelens/ui/app.py
 ```
 Open `http://localhost:8501` with no `?auth=` token so the auth screen renders.
 
-- [ ] **Step 2: Capture the screen at three widths** using the CDP driver (see `.claude/` memory `visual-qa-cdp-screenshots`; script at `<scratchpad>/cdp_shot.py`):
+- [x] **Step 2: Capture the screen at three widths** using the CDP driver (see `.claude/` memory `visual-qa-cdp-screenshots`; script at `<scratchpad>/cdp_shot.py`):
 
 ```bash
 CDP_FULL=0 python <scratchpad>/cdp_shot.py "http://localhost:8501/?v=1" "<scratchpad>/shots/auth-1440.png" 1440 900 12
@@ -602,18 +602,18 @@ CDP_FULL=0 python <scratchpad>/cdp_shot.py "http://localhost:8501/?v=3" "<scratc
 ```
 Review each: card centered and focused at 420px on desktop, full-width with 16px gutters at 375, backdrop visible but not competing with the card, compliance note legible.
 
-- [ ] **Step 3: Reduced-motion check**
+- [x] **Step 3: Reduced-motion check**
 
 ```bash
 CDP_RM=1 CDP_FULL=0 python <scratchpad>/cdp_shot.py "http://localhost:8501/?v=4" "<scratchpad>/shots/auth-rm.png" 1280 800 12
 ```
 Expected: card fully visible and static (no entrance animation mid-flight).
 
-- [ ] **Step 4: Exercise the error path.** In the browser, submit a wrong password. Confirm: spinner appears during the check, then a red-bordered message reading "Incorrect username or password. Check your details and try again." renders below the form, and the page does not crash.
+- [x] **Step 4: Exercise the error path.** In the browser, submit a wrong password. Confirm: spinner appears during the check, then a red-bordered message reading "Incorrect username or password. Check your details and try again." renders below the form, and the page does not crash.
 
-- [ ] **Step 5: Exercise the toggle.** Click "Create account" — the signup fields (username, password, confirm, invite code) replace the login fields, and clicking "Sign in" returns. Submit signup with mismatched passwords and confirm a specific error appears.
+- [x] **Step 5: Exercise the toggle.** Click "Create account" — the signup fields (username, password, confirm, invite code) replace the login fields, and clicking "Sign in" returns. Submit signup with mismatched passwords and confirm a specific error appears.
 
-- [ ] **Step 6: Final gates**
+- [x] **Step 6: Final gates**
 
 ```bash
 DEMO_MODE=true pytest tests/ -q          # expect 869 passed, 2 skipped
@@ -621,7 +621,7 @@ ruff check src/ scripts/                  # expect All checks passed!
 black --check src/ scripts/               # expect unchanged
 ```
 
-- [ ] **Step 7: Commit any fixes and close the plan**
+- [x] **Step 7: Commit any fixes and close the plan**
 
 ```bash
 git add src/tradelens/ui/components/auth_screen.py docs/superpowers/plans/2026-07-17-sp3-auth-experience.md

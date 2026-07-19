@@ -60,6 +60,20 @@ def auth_css() -> str:
      TL_BG. Mixing the two palettes is exactly the drift SP3 removes. */
   background: linear-gradient(180deg, {TL_BG}d1, {TL_BG} 92%);
 }}
+/* Streamlit-specific: the auth screen renders pre-login only, so these
+   testid-scoped paddings never leak into the app pages. */
+[data-testid="stMainBlockContainer"] {{
+  padding-top: 2.5rem;
+}}
+/* The card provides the chrome — the st.form inside it must not draw its
+   own box-in-a-box border. */
+.st-key-tl_auth_card [data-testid="stForm"] {{
+  border: none;
+  padding: 0;
+}}
+/* The keyed st.container renders as .st-key-tl_auth_card; .tl-auth-card is
+   the semantic alias kept for markup and tests. */
+.st-key-tl_auth_card,
 .tl-auth-card {{
   position: relative; z-index: 1;
   max-width: 420px; margin: 6vh auto 0;
@@ -95,9 +109,14 @@ def auth_css() -> str:
   font-size: 0.78rem; text-decoration: none; }}
 .tl-auth-back:hover {{ color: {TL_PRIMARY}; }}
 @media (max-width: 640px) {{
-  .tl-auth-card {{ margin: 2vh 16px 0; padding: 24px 20px 18px; }}
+  .st-key-tl_auth_card,
+  .tl-auth-card {{
+    margin: 2vh auto 0; padding: 24px 20px 18px;
+    max-width: calc(100% - 32px);
+  }}
 }}
 @media (prefers-reduced-motion: no-preference) {{
+  .st-key-tl_auth_card,
   .tl-auth-card {{ animation: tl-auth-in 250ms {_EASE} both; }}
   @keyframes tl-auth-in {{
     from {{ opacity: 0; transform: scale(0.98); }}
