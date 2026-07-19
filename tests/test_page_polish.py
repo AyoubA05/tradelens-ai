@@ -179,3 +179,27 @@ def test_psychology_step_has_process_notes_field():
     assert '"trade_process_notes": process_notes' in src  # saved as its own field
     # Emotional field remains separate and untouched.
     assert "How were you feeling during this trade?" in src
+
+
+# ---------------------------------------------------------------------------
+# SP4 Phase B — loading feedback on AI paths
+# ---------------------------------------------------------------------------
+
+_COMPONENTS_DIR = PAGES_DIR.parent / "components"
+
+# The modules that OWN an AI call each show a spinner at the call site.
+# 1_NewTrade.py itself makes no direct AI call (its AI runs through
+# ai_autofill_review, which is asserted here), so it is deliberately absent.
+_AI_CALL_OWNERS = [
+    PAGES_DIR / "6_Insights.py",
+    _COMPONENTS_DIR / "ai_autofill_review.py",
+    _COMPONENTS_DIR / "screenshot_analyzer.py",
+]
+
+
+@pytest.mark.parametrize("path", _AI_CALL_OWNERS, ids=lambda p: p.name)
+def test_ai_call_owners_show_loading_feedback(path):
+    """SP4 Phase B: AI calls take seconds — every module that makes one must
+    show a spinner rather than freezing the pane with no feedback."""
+    src = path.read_text(encoding="utf-8")
+    assert "st.spinner" in src, f"{path.name}: AI call path needs st.spinner feedback"
