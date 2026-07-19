@@ -81,6 +81,11 @@ def auth_css() -> str:
   border: 1px solid {TL_DANGER}59; background: {TL_DANGER_DIM};
   color: {TL_TEXT}; font-size: 0.85rem; line-height: 1.45;
 }}
+.tl-auth-ok {{
+  margin-top: 12px; padding: 10px 13px; border-radius: 9px;
+  border: 1px solid {TL_PRIMARY}59; background: {TL_PRIMARY}1f;
+  color: {TL_TEXT}; font-size: 0.85rem; line-height: 1.45;
+}}
 .tl-auth-note {{
   margin-top: 18px; padding-top: 14px; border-top: 1px solid {TL_BORDER};
   color: {TL_TEXT_MUTED}; font-size: 0.78rem; line-height: 1.5;
@@ -135,6 +140,9 @@ def compliance_html() -> str:
 _MODE_KEY = "_auth_mode"  # "login" | "signup"
 _ERROR_KEY = "_login_error"
 _SIGNUP_ERR = "_signup_error"
+_SIGNUP_OK = "_signup_ok"
+_TOGGLE_KEY = "tl_auth_mode_toggle"
+_FLIP_KEY = "_auth_flip_to_login"
 
 
 def _error_html(message: str) -> str:
@@ -145,11 +153,22 @@ def _error_html(message: str) -> str:
     )
 
 
+def _ok_html(message: str) -> str:
+    """Success region (e.g. account created), same aria-live treatment."""
+    return (
+        '<div class="tl-auth-ok" role="status" aria-live="polite">'
+        f"{escape(message)}</div>"
+    )
+
+
 def render_auth_screen() -> None:
     """Render the focused auth card. Logic stays in auth.py."""
     import streamlit as st
 
     from src.tradelens.ui.components.auth import (
+        _AUTH_KEY,
+        _UID_KEY,
+        _USER_KEY,
         authenticate_login,
         process_signup,
         signup_enabled,
@@ -158,6 +177,12 @@ def render_auth_screen() -> None:
     st.markdown(auth_css(), unsafe_allow_html=True)
     st.markdown('<div class="tl-auth-bg"></div>', unsafe_allow_html=True)
     st.markdown('<div class="tl-auth-scrim"></div>', unsafe_allow_html=True)
+
+    # A keyed widget's stored state outlives `default=`, so a programmatic
+    # signup→login flip must overwrite the toggle BEFORE it is instantiated.
+    if st.session_state.pop(_FLIP_KEY, False):
+        st.session_state[_TOGGLE_KEY] = "Sign in"
+        st.session_state[_MODE_KEY] = "login"
 
     with st.container(key="tl_auth_card"):
         st.markdown(
@@ -171,7 +196,7 @@ def render_auth_screen() -> None:
                 "Account",
                 options=["Sign in", "Create account"],
                 default="Create account" if mode == "signup" else "Sign in",
-                key="tl_auth_mode_toggle",
+                key=_TOGGLE_KEY,
                 label_visibility="collapsed",
             )
             mode = "signup" if choice == "Create account" else "login"
@@ -200,7 +225,10 @@ def render_auth_screen() -> None:
                 if error:
                     st.session_state[_SIGNUP_ERR] = error
                 else:
+                    # Account created: return to Sign in with a success note.
                     st.session_state.pop(_SIGNUP_ERR, None)
+                    st.session_state[_SIGNUP_OK] = True
+                    st.session_state[_FLIP_KEY] = True
                     st.rerun()
             if st.session_state.get(_SIGNUP_ERR):
                 st.markdown(
@@ -212,6 +240,11 @@ def render_auth_screen() -> None:
                 '<div class="tl-auth-sub">Sign in to review your trades.</div>',
                 unsafe_allow_html=True,
             )
+            if st.session_state.pop(_SIGNUP_OK, False):
+                st.markdown(
+                    _ok_html("Account created. Sign in below."),
+                    unsafe_allow_html=True,
+                )
             with st.form("tl_login", clear_on_submit=False):
                 username = st.text_input("Username", key="login_username")
                 password = st.text_input(
@@ -220,11 +253,16 @@ def render_auth_screen() -> None:
                 submitted = st.form_submit_button("Sign in", width="stretch")
             if submitted:
                 with st.spinner("Signing you in…"):
+                    # authenticate_login -> (ok, username, user_id). Any auth
+                    # error becomes a normal rejection, never a crash.
                     try:
-                        ok = authenticate_login(username, password)
+                        ok, uname, uid = authenticate_login(username, password)
                     except Exception:  # noqa: BLE001 — never crash the login screen
-                        ok = False
+                        ok, uname, uid = False, None, None
                 if ok:
+                    st.session_state[_AUTH_KEY] = True
+                    st.session_state[_USER_KEY] = uname
+                    st.session_state[_UID_KEY] = uid
                     st.session_state.pop(_ERROR_KEY, None)
                     st.rerun()
                 else:

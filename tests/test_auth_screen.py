@@ -71,3 +71,54 @@ def test_auth_screen_boots_in_apptest(tmp_path):
     assert not at.exception
     rendered = " ".join(m.value for m in at.markdown)
     assert "Reflection only." in rendered
+
+
+def test_successful_login_sets_session_keys(tmp_path):
+    """Regression: authenticate_login returns (ok, uname, uid) — the screen must
+    unpack it and set the session keys, or every login loops back to the card."""
+    from streamlit.testing.v1 import AppTest
+
+    app = tmp_path / "auth_login_app.py"
+    app.write_text(
+        "import sys; sys.path.insert(0, '.')\n"
+        "from src.tradelens.services import users\n"
+        "users.users_exist = lambda: False  # hermetic: force secrets fallback\n"
+        "from src.tradelens.ui.components.auth_screen import render_auth_screen\n"
+        "render_auth_screen()\n",
+        encoding="utf-8",
+    )
+    at = AppTest.from_file(str(app), default_timeout=30).run()
+    assert not at.exception
+    # Fill the login form with the documented demo fallback and submit.
+    at.text_input(key="login_username").set_value("demo")
+    at.text_input(key="login_password").set_value("tradelens2025")
+    at.button[0].set_value(True).run()
+    assert not at.exception
+    assert at.session_state["authenticated"] is True
+    assert at.session_state["current_user"] == "demo"
+
+
+def test_failed_login_shows_recovery_error(tmp_path):
+    from streamlit.testing.v1 import AppTest
+
+    app = tmp_path / "auth_fail_app.py"
+    app.write_text(
+        "import sys; sys.path.insert(0, '.')\n"
+        "from src.tradelens.services import users\n"
+        "users.users_exist = lambda: False\n"
+        "from src.tradelens.ui.components.auth_screen import render_auth_screen\n"
+        "render_auth_screen()\n",
+        encoding="utf-8",
+    )
+    at = AppTest.from_file(str(app), default_timeout=30).run()
+    at.text_input(key="login_username").set_value("demo")
+    at.text_input(key="login_password").set_value("wrong-password")
+    at.button[0].set_value(True).run()
+    assert not at.exception
+    try:
+        authed = at.session_state["authenticated"]
+    except KeyError:
+        authed = False
+    assert authed is not True
+    rendered = " ".join(m.value for m in at.markdown)
+    assert "Check your details and try again" in rendered
