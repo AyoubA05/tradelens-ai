@@ -845,6 +845,21 @@ def build_css() -> str:
     transition: none;
   }}
 }}
+
+/* === MOBILE (SP4 Phase B, <=640px) ===
+   Streamlit stacks its own widgets, but our custom HTML does not: the KPI
+   hero row is a flex row and the HTML tables have no scroll container.
+   These rules let KPI cards stack and keep tables scrollable inside their
+   card instead of overflowing the page. Touch targets to >=44px. */
+@media (max-width: 640px) {{
+  .tl-kpi-row {{ flex-direction: column; gap: var(--tl-space-2); }}
+  .tl-kpi-card {{ width: 100%; }}
+  .tl-table-wrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
+  .tl-table {{ min-width: 560px; }}
+  .stButton > button,
+  .stFormSubmitButton > button {{ min-height: 44px; }}
+  [data-testid="stTextInput"] input {{ min-height: 44px; }}
+}}
 </style>"""
 
 

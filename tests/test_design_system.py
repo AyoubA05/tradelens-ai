@@ -146,6 +146,9 @@ def test_css_uses_only_proven_testids():
         "stMetricValue",
         "stMetricDelta",
         "stMetricLabel",
+        # SP4 mobile pass: verified live on streamlit 1.50 (New Trade renders
+        # six [data-testid="stTextInput"] wrappers with input children).
+        "stTextInput",
     }
     used = set(re.findall(r'data-testid="([^"]+)"', ds.build_css()))
     assert used <= proven, f"unproven testids: {used - proven}"
