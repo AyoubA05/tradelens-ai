@@ -90,8 +90,20 @@ def test_all_color_tokens_nonempty_strings():
 
 
 def test_font_tokens_defined():
+    # SP4 brand fonts — must match theme.py and the marketing site.
     assert "JetBrains Mono" in ds.TL_FONT_MONO
-    assert "Inter" in ds.TL_FONT_BODY
+    assert "Satoshi" in ds.TL_FONT_BODY
+    assert "Schibsted Grotesk" in ds.TL_FONT_HEADING
+    assert "Inter" not in ds.TL_FONT_BODY  # pre-SP4 face, fully retired
+
+
+def test_font_imports_match_theme_urls():
+    # design_system and theme must request identical stylesheet URLs so the
+    # browser fetches each font file once, not twice under different params.
+    from src.tradelens.ui.components import theme
+
+    assert ds._FONT_IMPORT == theme._FONT_IMPORT
+    assert ds._FONT_IMPORT_FONTSHARE == theme._FONT_IMPORT_FONTSHARE
 
 
 def test_no_module_level_streamlit_import():

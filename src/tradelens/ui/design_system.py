@@ -83,16 +83,23 @@ TL_GRADE_D = "#f97316"
 TL_GRADE_F = TL_DANGER
 
 # =========================================================================
-# TYPOGRAPHY TOKENS (body stack for headings too — owner decision)
+# TYPOGRAPHY TOKENS
 # =========================================================================
+# SP4: matches the marketing site (site/index.html) so site -> app is one
+# brand — Satoshi body, Schibsted Grotesk headings, JetBrains Mono numerals.
+# Satoshi is Fontshare-hosted (400/500/700 only — no 600); the rest are
+# Google. URLs mirror theme.py exactly so the browser fetches each once.
 TL_FONT_MONO = "'JetBrains Mono', 'Fira Code', monospace"
-TL_FONT_BODY = "'Inter', -apple-system, sans-serif"
+TL_FONT_BODY = "'Satoshi', -apple-system, sans-serif"
+TL_FONT_HEADING = "'Schibsted Grotesk', 'Satoshi', sans-serif"
 
 _FONT_IMPORT = (
-    "https://fonts.googleapis.com/css2"
-    "?family=Inter:wght@400;500;600;700"
-    "&family=JetBrains+Mono:wght@400;600;700"
-    "&display=swap"
+    "https://fonts.googleapis.com/css2?"
+    "family=Schibsted+Grotesk:wght@500;600;700&"
+    "family=JetBrains+Mono:wght@400;500;600&display=swap"
+)
+_FONT_IMPORT_FONTSHARE = (
+    "https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap"
 )
 
 # Assets generated via Higgsfield live next to this module.
@@ -169,6 +176,7 @@ def build_css() -> str:
 /* Injected after theme.py CSS during migration; later rules win ties. */
 
 /* === FONTS === */
+@import url('{_FONT_IMPORT_FONTSHARE}');
 @import url('{_FONT_IMPORT}');
 
 /* === CSS VARIABLES === */
@@ -186,6 +194,7 @@ def build_css() -> str:
   --tl-neutral: {TL_NEUTRAL}; --tl-neutral-dim: {TL_NEUTRAL_DIM};
   --tl-font-mono: {TL_FONT_MONO};
   --tl-font-body: {TL_FONT_BODY};
+  --tl-font-heading: {TL_FONT_HEADING};
   --tl-space-1: 4px; --tl-space-2: 8px; --tl-space-3: 12px;
   --tl-space-4: 16px; --tl-space-6: 24px; --tl-space-8: 32px;
   --tl-space-12: 48px;
@@ -202,12 +211,12 @@ def build_css() -> str:
   font-family: var(--tl-font-body);
   color: var(--tl-text);
 }}
-/* Headings use the body stack (overrides theme.py's Space Grotesk;
-   same selector, injected later, so this wins). */
+/* Headings use Schibsted Grotesk — the marketing site's heading face
+   (same selector as theme.py, injected later, so this wins ties). */
 [data-testid="stAppViewContainer"] h1,
 [data-testid="stAppViewContainer"] h2,
 [data-testid="stAppViewContainer"] h3 {{
-  font-family: var(--tl-font-body);
+  font-family: var(--tl-font-heading);
   font-weight: 700;
   letter-spacing: -0.01em;
 }}

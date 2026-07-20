@@ -35,7 +35,7 @@
 **Interfaces:**
 - Produces: `TL_BG`, `TL_SURFACE`, `TL_SURFACE_2`, `TL_PRIMARY`, `TL_PRIMARY_HOVER`, `TL_PRIMARY_DIM`, `TL_TEXT_FAINT`, `TL_DANGER`, `TL_DANGER_DIM` at their new values. Every consumer (charts, KPI cards, badges, tables, gauges, auth screen) reads these names and needs no edit.
 
-- [ ] **Step 1: Update the failing contract test first** — `tests/test_design_system.py` lines 75-77 currently pin the old values. Replace them with the site palette:
+- [x] **Step 1: Update the failing contract test first** — `tests/test_design_system.py` lines 75-77 currently pin the old values. Replace them with the site palette:
 
 ```python
     assert ds.TL_BG == "#0d1117"
@@ -43,12 +43,12 @@
     assert ds.TL_PRIMARY == "#00e5cc"
 ```
 
-- [ ] **Step 2: Run it to confirm it fails against the current tokens**
+- [x] **Step 2: Run it to confirm it fails against the current tokens**
 
 Run: `source .venv/bin/activate && pytest tests/test_design_system.py -q -k "token or palette"`
 Expected: FAIL — `assert '#0d0f11' == '#0d1117'`.
 
-- [ ] **Step 3: Change the token values** in `src/tradelens/ui/design_system.py`. Replace the block at lines 49-66 with:
+- [x] **Step 3: Change the token values** in `src/tradelens/ui/design_system.py`. Replace the block at lines 49-66 with:
 
 ```python
 TL_BG = "#0d1117"
@@ -79,17 +79,17 @@ TL_NEUTRAL = "#374151"
 TL_NEUTRAL_DIM = "rgba(55,65,81,0.3)"
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `pytest tests/test_design_system.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Run the full suite to catch cascade breakage**
+- [x] **Step 5: Run the full suite to catch cascade breakage**
 
 Run: `DEMO_MODE=true pytest tests/ -q`
 Expected: green except tests pinning legacy literals, which Task 3 updates. Note any failures; if a failure is NOT in `tests/test_theme.py` or `tests/test_components.py`, investigate before proceeding — it means something reads a literal instead of a token.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/tradelens/ui/design_system.py tests/test_design_system.py
@@ -106,7 +106,7 @@ git commit -m "design-system: adopt site palette (bg/surfaces/teal) + AA re-tune
 - Consumes: nothing from Task 1 (independent).
 - Produces: `HEADING_FONT = "Schibsted Grotesk"`, `BODY_FONT = "Satoshi"`, `MONO_FONT = "JetBrains Mono"` (unchanged), and two module constants consumed by `_build_css()`: `_FONT_IMPORT` (Google, existing name retained) and `_FONT_IMPORT_FONTSHARE` (new).
 
-- [ ] **Step 1: Update the font test** — in `tests/test_theme.py`, replace the body of `test_font_stacks_defined` (around line 97) with:
+- [x] **Step 1: Update the font test** — in `tests/test_theme.py`, replace the body of `test_font_stacks_defined` (around line 97) with:
 
 ```python
 def test_font_stacks_defined():
@@ -117,12 +117,12 @@ def test_font_stacks_defined():
     assert theme.MONO_FONT == "JetBrains Mono"
 ```
 
-- [ ] **Step 2: Run it to confirm it fails**
+- [x] **Step 2: Run it to confirm it fails**
 
 Run: `pytest tests/test_theme.py::test_font_stacks_defined -q`
 Expected: FAIL — `assert 'Inter' == 'Satoshi'`.
 
-- [ ] **Step 3: Change the fonts** in `src/tradelens/ui/components/theme.py`, replacing lines 53-62:
+- [x] **Step 3: Change the fonts** in `src/tradelens/ui/components/theme.py`, replacing lines 53-62:
 
 ```python
 # ── Fonts ─────────────────────────────────────────────────────────
@@ -142,7 +142,7 @@ _FONT_IMPORT_FONTSHARE = (
 )
 ```
 
-- [ ] **Step 4: Load the Fontshare stylesheet.** `_build_css()` (line ~105) opens its f-string with a single `@import` at line 108. Replace that one line:
+- [x] **Step 4: Load the Fontshare stylesheet.** `_build_css()` (line ~105) opens its f-string with a single `@import` at line 108. Replace that one line:
 
 ```
 @import url('{_FONT_IMPORT}');
@@ -157,7 +157,7 @@ with both imports, Fontshare first:
 
 Both must stay at the very top of the stylesheet — CSS requires `@import` rules to precede all other rules, and a misplaced one is silently dropped (fonts would fall back with no error).
 
-- [ ] **Step 5: Audit weight 600 on body text.** Satoshi ships 400/500/700 only; a `font-weight: 600` on Satoshi silently resolves to 700 (the same issue SP1 fixed on the site). Find body-font weights:
+- [x] **Step 5: Audit weight 600 on body text.** Satoshi ships 400/500/700 only; a `font-weight: 600` on Satoshi silently resolves to 700 (the same issue SP1 fixed on the site). Find body-font weights:
 
 ```bash
 grep -rn "font-weight: 600\|font-weight:600" src/tradelens/ui/components/theme.py src/tradelens/ui/design_system.py
@@ -165,12 +165,12 @@ grep -rn "font-weight: 600\|font-weight:600" src/tradelens/ui/components/theme.p
 
 For each hit, decide deliberately: keep 700 if it is a heading/button (Schibsted has 600, so heading rules are unaffected), or change to `500` if it is body/label text that should not shout. Headings using `HEADING_FONT` may keep 600.
 
-- [ ] **Step 6: Verify the CSS still builds and injects**
+- [x] **Step 6: Verify the CSS still builds and injects**
 
 Run: `pytest tests/test_theme.py -q`
 Expected: PASS (including `test_build_css_returns_nonempty_str`, `test_css_uses_only_scoped_selectors`, `test_inject_css_runs_in_apptest`).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/tradelens/ui/components/theme.py tests/test_theme.py
@@ -187,7 +187,7 @@ git commit -m "theme: adopt Satoshi + Schibsted Grotesk to match the marketing s
 - Consumes: `TL_PRIMARY`, `TL_PRIMARY_HOVER`, `TL_PRIMARY_DIM`, `TL_BG`, `TL_TEXT` from Task 1.
 - Produces: `theme.TEAL is design_system.TL_PRIMARY` (identity), same for `TEAL_HOVER`, `TEAL_SOFT`, `BG`, `TEXT_PRIMARY`. Consumers `ui.py` and `demo_banner.py` inherit the new palette with no edit.
 
-- [ ] **Step 1: Rewrite the brand-color test** — in `tests/test_theme.py`, replace `test_brand_colors_match_spec` (around line 91) with a collapse assertion:
+- [x] **Step 1: Rewrite the brand-color test** — in `tests/test_theme.py`, replace `test_brand_colors_match_spec` (around line 91) with a collapse assertion:
 
 ```python
 def test_brand_colors_collapse_to_design_system():
@@ -206,12 +206,12 @@ def test_brand_colors_collapse_to_design_system():
     assert theme.TERRA == "#A84B2F"
 ```
 
-- [ ] **Step 2: Run it to confirm it fails**
+- [x] **Step 2: Run it to confirm it fails**
 
 Run: `pytest tests/test_theme.py::test_brand_colors_collapse_to_design_system -q`
 Expected: FAIL — `assert '#20808D' == '#00e5cc'`.
 
-- [ ] **Step 3: Re-point the constants.** In `src/tradelens/ui/components/theme.py`, add the import near the top (after `from __future__ import annotations`):
+- [x] **Step 3: Re-point the constants.** In `src/tradelens/ui/components/theme.py`, add the import near the top (after `from __future__ import annotations`):
 
 ```python
 from src.tradelens.ui.design_system import (
@@ -250,26 +250,26 @@ TEXT_SECONDARY = "#B4B8BD"
 TEXT_MUTED = "#8E9196"
 ```
 
-- [ ] **Step 4: Check for a circular import.** `design_system.py` must not import `theme.py`. Verify:
+- [x] **Step 4: Check for a circular import.** `design_system.py` must not import `theme.py`. Verify:
 
 ```bash
 grep -n "import theme\|from src.tradelens.ui.components.theme" src/tradelens/ui/design_system.py || echo "no cycle — safe"
 ```
 Expected: `no cycle — safe`. (If it prints a match, stop and report — the import direction would need inverting.)
 
-- [ ] **Step 5: Confirm the legacy teal is gone from the codebase**
+- [x] **Step 5: Confirm the legacy teal is gone from the codebase**
 
 ```bash
 grep -rn "20808D\|20808d" src/ || echo "legacy teal eliminated"
 ```
 Expected: `legacy teal eliminated`.
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
 
 Run: `DEMO_MODE=true pytest tests/ -q`
 Expected: the recorded baseline, unchanged (this task only re-points constants).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/tradelens/ui/components/theme.py tests/test_theme.py
@@ -285,7 +285,7 @@ git commit -m "theme: collapse legacy brand colors onto design-system tokens (on
 - Consumes: `TL_BG`, `TL_SURFACE`, `TL_SURFACE_2`, `TL_PRIMARY` (Task 1); `site/styles.css` `:root` block.
 - Produces: a regression guard so the seam cannot silently reopen if either surface is re-themed later.
 
-- [ ] **Step 1: Write the test.** Append to `tests/test_design_system.py`:
+- [x] **Step 1: Write the test.** Append to `tests/test_design_system.py`:
 
 ```python
 def test_app_palette_matches_marketing_site():
@@ -315,12 +315,12 @@ def test_app_palette_matches_marketing_site():
     assert ds.TL_PRIMARY.lower() == site_var("accent")
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `pytest tests/test_design_system.py::test_app_palette_matches_marketing_site -q`
 Expected: PASS (Task 1 already aligned the values). If it FAILS, the message names the mismatching token — fix the token, not the test.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/test_design_system.py
@@ -336,7 +336,7 @@ git commit -m "test: guard the site<->app palette seam against silent re-diverge
 - Consumes: Tasks 1-4.
 - Produces: a verified Phase A. **Phase B does not begin until this task passes.**
 
-- [ ] **Step 1: Re-verify every contrast pairing programmatically**
+- [x] **Step 1: Re-verify every contrast pairing programmatically**
 
 ```bash
 source .venv/bin/activate
@@ -359,7 +359,7 @@ PY
 ```
 Expected: `below AA: none`. Any entry must be fixed by brightening that token before continuing.
 
-- [ ] **Step 2: Launch the app for visual capture**
+- [x] **Step 2: Launch the app for visual capture**
 
 ```bash
 TRADELENS_SESSION_SECRET=qa DEMO_MODE=true streamlit run src/tradelens/ui/app.py \
@@ -369,7 +369,7 @@ TRADELENS_SESSION_SECRET=qa python -c "from src.tradelens.ui.components.auth imp
 ```
 Copy the printed token for the `?auth=` parameter below.
 
-- [ ] **Step 3: Capture all pages.** Using the CDP driver (`<scratchpad>/cdp_shot.py`; recreate per the `visual-qa-cdp-screenshots` memory if absent), capture each page at 1440x900 with the auth token appended:
+- [x] **Step 3: Capture all pages.** Using the CDP driver (`<scratchpad>/cdp_shot.py`; recreate per the `visual-qa-cdp-screenshots` memory if absent), capture each page at 1440x900 with the auth token appended:
 
 ```bash
 for page in "" Trades Analytics NewTrade Insights Strategy Settings; do
@@ -380,7 +380,7 @@ done
 ```
 Review each: teal is the brighter `#00e5cc`, backgrounds match the site, Satoshi body text renders (not a serif fallback), charts legible, no unreadable low-contrast text.
 
-- [ ] **Step 4: Capture the auth screen** (logged out — no token) and confirm the seam closes:
+- [x] **Step 4: Capture the auth screen** (logged out — no token) and confirm the seam closes:
 
 ```bash
 CDP_FULL=0 python <scratchpad>/cdp_shot.py "http://localhost:8501/?v=auth" \
@@ -388,7 +388,7 @@ CDP_FULL=0 python <scratchpad>/cdp_shot.py "http://localhost:8501/?v=auth" \
 ```
 Compare against `site/` open in a browser: the teal and background should now read as the same brand.
 
-- [ ] **Step 5: Confirm fonts actually loaded** (not a silent fallback)
+- [x] **Step 5: Confirm fonts actually loaded** (not a silent fallback)
 
 ```bash
 curl -s -o /dev/null -w "fontshare:%{http_code}\n" \
@@ -396,7 +396,7 @@ curl -s -o /dev/null -w "fontshare:%{http_code}\n" \
 ```
 Expected: `fontshare:200`. Then in the Browser pane, run `document.fonts.check('16px Satoshi')` — expected `true`.
 
-- [ ] **Step 6: Final Phase A gates**
+- [x] **Step 6: Final Phase A gates**
 
 ```bash
 DEMO_MODE=true pytest tests/ -q        # expect baseline + 1 (Task 4 seam guard)
@@ -404,7 +404,7 @@ ruff check src/ scripts/                # expect All checks passed!
 black --check src/ scripts/             # expect unchanged
 ```
 
-- [ ] **Step 7: Commit any fixes**
+- [x] **Step 7: Commit any fixes**
 
 ```bash
 git add src/tradelens/ui/design_system.py src/tradelens/ui/components/theme.py
@@ -427,7 +427,7 @@ git commit -m "design-system: Phase A verification fixes (contrast + font loadin
 - Consumes: nothing from Phase A (independent, but sequenced after it).
 - Produces: every AI-call path wrapped in `st.spinner`, asserted by a static-source test.
 
-- [ ] **Step 1: Find AI-call paths lacking a spinner**
+- [x] **Step 1: Find AI-call paths lacking a spinner**
 
 ```bash
 grep -n "generate_weekly_review\|run_debrief\|analyze_screenshot\|autofill" \
@@ -436,7 +436,7 @@ grep -c "st.spinner" src/tradelens/ui/pages/1_NewTrade.py src/tradelens/ui/pages
 ```
 Note which call sites have no enclosing `st.spinner`.
 
-- [ ] **Step 2: Write the guard test.** Append to `tests/test_page_polish.py`:
+- [x] **Step 2: Write the guard test.** Append to `tests/test_page_polish.py`:
 
 ```python
 @pytest.mark.parametrize("page", ["1_NewTrade.py", "6_Insights.py"])
@@ -447,12 +447,12 @@ def test_ai_pages_show_loading_feedback(page):
     assert "st.spinner" in src, f"{page}: AI call path needs st.spinner feedback"
 ```
 
-- [ ] **Step 3: Run it**
+- [x] **Step 3: Run it**
 
 Run: `pytest tests/test_page_polish.py -q -k loading`
 Expected: PASS if spinners already exist; FAIL naming the page that needs one.
 
-- [ ] **Step 4: Wrap any uncovered AI call.** For each call site found in Step 1 without a spinner, wrap it using the pattern SP3 established on the auth submit:
+- [x] **Step 4: Wrap any uncovered AI call.** For each call site found in Step 1 without a spinner, wrap it using the pattern SP3 established on the auth submit:
 
 ```python
 with st.spinner("Analyzing your chart…"):
@@ -461,12 +461,12 @@ with st.spinner("Analyzing your chart…"):
 
 Use copy that names the actual operation: "Analyzing your chart…" (New Trade autofill), "Writing your weekly recap…" (Insights weekly), "Reviewing your day…" (daily debrief). Do not change the call itself — only wrap it.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `DEMO_MODE=true pytest tests/ -q`
 Expected: green — **baseline + 3** (seam guard from Task 4, plus the 2 parametrized cases here).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/tradelens/ui/pages/1_NewTrade.py src/tradelens/ui/pages/6_Insights.py tests/test_page_polish.py
@@ -482,7 +482,7 @@ git commit -m "ui: loading feedback on every AI call path"
 - Consumes: tokens from Task 1.
 - Produces: a `@media (max-width: 640px)` block in the design-system CSS covering KPI rows, tables, and touch targets.
 
-- [ ] **Step 1: Capture the current mobile state** (app still running from Task 5, or relaunch):
+- [x] **Step 1: Capture the current mobile state** (app still running from Task 5, or relaunch):
 
 ```bash
 for page in "" Trades Analytics; do
@@ -493,7 +493,7 @@ done
 ```
 Review: note which KPI rows squash, which tables overflow, and any control under 44px.
 
-- [ ] **Step 2: Add the mobile block.** In `src/tradelens/ui/design_system.py`, inside the CSS returned by `build_css()`, append before the closing `</style>`:
+- [x] **Step 2: Add the mobile block.** In `src/tradelens/ui/design_system.py`, inside the CSS returned by `build_css()`, append before the closing `</style>`:
 
 ```css
 /* SP4 Phase B — mobile (<=640px). Streamlit's columns do not wrap on their
@@ -515,12 +515,12 @@ Review: note which KPI rows squash, which tables overflow, and any control under
 
 Note the doubled braces — this string is f-string-interpolated, so literal CSS braces must be escaped.
 
-- [ ] **Step 3: Verify the CSS still builds**
+- [x] **Step 3: Verify the CSS still builds**
 
 Run: `pytest tests/test_design_system.py tests/test_theme.py -q`
 Expected: PASS (including the scoped-selector guard — every new selector is either `.tl-*` or a Streamlit `data-testid`, never a bare tag).
 
-- [ ] **Step 4: Re-capture mobile and compare**
+- [x] **Step 4: Re-capture mobile and compare**
 
 ```bash
 for page in "" Trades Analytics; do
@@ -531,7 +531,7 @@ done
 ```
 Expected: KPI cards stacked full-width and readable; tables scroll horizontally within their card rather than pushing the page wide; no horizontal page scroll.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/tradelens/ui/design_system.py
@@ -543,9 +543,9 @@ git commit -m "ui: mobile layout pass — stacked KPIs, scrollable tables, 44px 
 **Files:**
 - Modify: fixes only as found.
 
-- [ ] **Step 1: Full breakpoint sweep.** Capture all 7 pages plus auth at 1440x900 and 375x812 (commands as in Task 5 Step 3 and Task 7 Step 1). Review every shot for overflow, clipping, unreadable text, or broken chart legibility.
+- [x] **Step 1: Full breakpoint sweep.** Capture all 7 pages plus auth at 1440x900 and 375x812 (commands as in Task 5 Step 3 and Task 7 Step 1). Review every shot for overflow, clipping, unreadable text, or broken chart legibility.
 
-- [ ] **Step 2: Reduced-motion check** — the auth screen animates; confirm it is static under reduced motion:
+- [x] **Step 2: Reduced-motion check** — the auth screen animates; confirm it is static under reduced motion:
 
 ```bash
 CDP_RM=1 CDP_FULL=0 python <scratchpad>/cdp_shot.py \
@@ -553,14 +553,14 @@ CDP_RM=1 CDP_FULL=0 python <scratchpad>/cdp_shot.py \
 ```
 Expected: card fully visible, no entrance animation caught mid-flight.
 
-- [ ] **Step 3: Confirm no legacy palette survives anywhere**
+- [x] **Step 3: Confirm no legacy palette survives anywhere**
 
 ```bash
 grep -rn "20808D\|20808d\|#0d0f11\|#00c2b2" src/ || echo "legacy palette fully eliminated"
 ```
 Expected: `legacy palette fully eliminated`.
 
-- [ ] **Step 4: Final gates**
+- [x] **Step 4: Final gates**
 
 ```bash
 DEMO_MODE=true pytest tests/ -q        # expect baseline + 3
@@ -568,7 +568,7 @@ ruff check src/ scripts/                # expect All checks passed!
 black --check src/ scripts/             # expect unchanged
 ```
 
-- [ ] **Step 5: Close the plan**
+- [x] **Step 5: Close the plan**
 
 ```bash
 git add docs/superpowers/plans/2026-07-18-sp4-brand-unification.md
