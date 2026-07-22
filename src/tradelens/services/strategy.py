@@ -162,9 +162,7 @@ def upsert_strategy_profile(user_id: int, **fields) -> dict:
 
         row = db.query(Strategy).filter(Strategy.user_id == user_id).first()
         if row is None:
-            row = Strategy(
-                user_id=user_id, is_active=1, created_at=now, updated_at=now
-            )
+            row = Strategy(user_id=user_id, is_active=1, created_at=now, updated_at=now)
             db.add(row)
         else:
             row.is_active = 1

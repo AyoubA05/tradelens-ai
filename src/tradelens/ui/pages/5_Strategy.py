@@ -254,7 +254,10 @@ with st.form("strategy_form"):
 
 if submitted:
     if uid is None:
-        st.toast("A database-backed account is required to save a strategy profile.", icon="❌")
+        st.toast(
+            "A database-backed account is required to save a strategy profile.",
+            icon="❌",
+        )
     elif not name.strip():
         st.toast("Strategy Name is required.", icon="❌")
     else:

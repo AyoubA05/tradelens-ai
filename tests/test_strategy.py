@@ -117,8 +117,7 @@ def test_create_strategy_creates_active_profile(in_memory_db):
     from src.tradelens.services.strategy import upsert_strategy_profile
 
     result = upsert_strategy_profile(
-        1,
-        name="ICT OB Strategy", entry_rules="BOS + OB retest"
+        1, name="ICT OB Strategy", entry_rules="BOS + OB retest"
     )
 
     assert result["name"] == "ICT OB Strategy"
@@ -139,8 +138,7 @@ def test_upsert_updates_existing_active_profile(in_memory_db):
 
     upsert_strategy_profile(1, name="Initial", entry_rules="Rule A")
     result = upsert_strategy_profile(
-        1,
-        name="Updated", entry_rules="Rule B", risk_rules="Max 1%"
+        1, name="Updated", entry_rules="Rule B", risk_rules="Max 1%"
     )
 
     assert result["name"] == "Updated"
@@ -168,9 +166,7 @@ def test_only_one_active_profile_at_a_time(in_memory_db):
 
     db2 = in_memory_db()
     active_rows = (
-        db2.query(Strategy)
-        .filter(Strategy.user_id == 1, Strategy.is_active == 1)
-        .all()
+        db2.query(Strategy).filter(Strategy.user_id == 1, Strategy.is_active == 1).all()
     )
     db2.close()
 
@@ -247,9 +243,7 @@ def test_append_insight_creates_profile_when_none(in_memory_db):
 
     db = in_memory_db()
     rows = (
-        db.query(Strategy)
-        .filter(Strategy.user_id == 1, Strategy.is_active == 1)
-        .all()
+        db.query(Strategy).filter(Strategy.user_id == 1, Strategy.is_active == 1).all()
     )
     db.close()
     assert len(rows) == 1
