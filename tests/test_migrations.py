@@ -9,7 +9,10 @@ Proves the migration round-trips on SQLite: add columns -> drop columns -> re-ad
 """
 
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
@@ -149,6 +152,64 @@ def test_weekly_reviews_upgrade_is_idempotent(tmp_path):
 
 def _columns_of(conn, table: str) -> set:
     return {c["name"] for c in inspect(conn).get_columns(table)}
+
+
+def _run_alembic(args: list[str], database_url: str) -> subprocess.CompletedProcess:
+    env = os.environ.copy()
+    env["DATABASE_URL"] = database_url
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", *args],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_blank_sqlite_chain_uses_database_url_and_round_trips_task_one(tmp_path):
+    database_path = tmp_path / "alembic-chain.db"
+    database_url = f"sqlite:///{database_path}"
+
+    for args in (
+        ["upgrade", "head"],
+        ["downgrade", "p6q7r8s9t0u1"],
+        ["upgrade", "head"],
+    ):
+        result = _run_alembic(args, database_url)
+        assert result.returncode == 0, result.stderr
+
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        inspector = inspect(conn)
+        assert database_path.exists()
+        assert "user_id" in _columns_of(conn, "strategies")
+        assert "user_settings" in _tables(conn)
+        unique_names = {
+            constraint["name"]
+            for constraint in inspector.get_unique_constraints("user_settings")
+        }
+        assert "uq_user_settings_user_key" in unique_names
+
+
+def test_full_trade_schema_migration_creates_missing_historical_base_tables(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'historical-base.db'}")
+    mig = _load_mig("8383cf3ef6e7_add_full_trade_schema.py")
+
+    with engine.connect() as conn:
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()
+
+        assert {"strategies", "trades", "screenshots"} <= _tables(conn)
+        assert {"id", "name", "trading_style", "entry_rules"} <= _columns_of(
+            conn, "strategies"
+        )
+        assert {"id", "asset", "strategy_id", "trade_date", "updated_at"} <= _columns(
+            conn
+        )
+        assert {"id", "file_path", "trade_id"} <= _columns_of(conn, "screenshots")
 
 
 def test_strategy_has_user_owner_column():
