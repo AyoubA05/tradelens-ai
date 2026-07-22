@@ -14,6 +14,7 @@ from pathlib import Path
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine, inspect
+from src.tradelens.db.models import Strategy, UserSetting
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "alembic" / "versions" / "g7h8i9j0k1l2_add_smc_ict_fields.py"
@@ -150,6 +151,16 @@ def _columns_of(conn, table: str) -> set:
     return {c["name"] for c in inspect(conn).get_columns(table)}
 
 
+def test_strategy_has_user_owner_column():
+    assert "user_id" in Strategy.__table__.columns
+    assert Strategy.__table__.columns["user_id"].index
+
+
+def test_user_setting_has_unique_user_key_pair():
+    names = {c.name for c in UserSetting.__table__.constraints}
+    assert "uq_user_settings_user_key" in names
+
+
 # ---------------------------------------------------------------------------
 # is_sample flag (Session A)
 # ---------------------------------------------------------------------------
@@ -216,6 +227,12 @@ def _load_mig(filename: str):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def test_user_owned_strategy_settings_revision_descends_from_current_head():
+    mig = _load_mig("q7r8s9t0u1v2_add_user_owned_strategy_settings.py")
+    assert mig.revision == "q7r8s9t0u1v2"
+    assert mig.down_revision == "p6q7r8s9t0u1"
 
 
 def test_users_table_migration_round_trip(tmp_path):
