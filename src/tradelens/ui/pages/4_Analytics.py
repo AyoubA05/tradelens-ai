@@ -53,6 +53,7 @@ st.set_page_config(page_title="Analytics", layout="wide")
 inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
+uid = current_user_id()
 render_demo_banner()
 render_sidebar()
 st.markdown(
@@ -62,7 +63,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-_active_strategy = get_active_strategy()
+_active_strategy = get_active_strategy(uid)
 if _active_strategy and _active_strategy.get("name"):
     st.markdown(
         render_badge(_active_strategy["name"], "primary"),
@@ -176,7 +177,7 @@ with fcol1:
 with fcol2:
     end_date = st.date_input("To", value=today, key="an_to")
 
-df_raw = _load_df(str(start_date), str(end_date), current_user_id())
+df_raw = _load_df(str(start_date), str(end_date), uid)
 if df_raw.empty and is_demo():
     df_raw = get_demo_df()
 

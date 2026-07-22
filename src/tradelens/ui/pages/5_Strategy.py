@@ -17,7 +17,7 @@ from src.tradelens.services.strategy import (  # noqa: E402
     parse_timeframes,
     upsert_strategy_profile,
 )
-from src.tradelens.ui.components.auth import require_auth  # noqa: E402
+from src.tradelens.ui.components.auth import current_user_id, require_auth  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
@@ -34,6 +34,7 @@ st.set_page_config(page_title="Strategy Profile")
 inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
+uid = current_user_id()
 render_demo_banner()
 render_sidebar()
 st.markdown(
@@ -64,7 +65,7 @@ STARTER_TEMPLATE = {
 }
 
 # Load active profile (if any)
-profile = get_active_strategy()
+profile = get_active_strategy(uid)
 
 if st.session_state.pop("_strategy_saved", False):
     st.toast("Strategy Profile saved — AI reviews will now use your rules.", icon="✅")
@@ -110,7 +111,7 @@ if st.button(
     key="strategy_starter",
     type="secondary" if profile else "primary",
 ):
-    upsert_strategy_profile(**STARTER_TEMPLATE)
+    upsert_strategy_profile(uid, **STARTER_TEMPLATE)
     st.toast("Starter template loaded — review and save.", icon="✅")
     st.rerun()
 
@@ -256,6 +257,7 @@ if submitted:
     else:
         try:
             upsert_strategy_profile(
+                uid,
                 name=name.strip(),
                 trading_style=trading_style.strip() or None,
                 markets=markets.strip() or None,

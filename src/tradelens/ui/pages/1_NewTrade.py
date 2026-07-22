@@ -74,6 +74,7 @@ st.set_page_config(page_title="New Trade")
 inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
+uid = current_user_id()
 render_demo_banner()
 render_sidebar()
 st.markdown(
@@ -139,7 +140,7 @@ def _time_str(t) -> str:
 
 
 # ── Strategy Profile autofill (safe, non-trade-specific defaults) ──
-_strategy = get_active_strategy()
+_strategy = get_active_strategy(uid)
 _profile_markets = parse_markets(_strategy)
 _profile_setups = parse_setups(_strategy)
 _profile_mistakes = parse_mistakes(_strategy)
@@ -634,7 +635,7 @@ def _build_trade_data() -> dict:
         "emotions_after": emo_after if emo_after and emo_after != "—" else None,
         "notes": extra_notes or None,
         "trade_process_notes": process_notes.strip() or None,
-        "user_id": current_user_id(),
+        "user_id": uid,
     }
 
 
@@ -698,7 +699,7 @@ def _do_save(override: bool) -> None:
         _error_box("Please fix before saving:\n" + "\n".join(f"• {e}" for e in errors))
         return
 
-    if not override and find_recent_duplicate(data, user_id=current_user_id()):
+    if not override and find_recent_duplicate(data, user_id=uid):
         st.session_state["_nt_dup_pending"] = True
         st.rerun()
 

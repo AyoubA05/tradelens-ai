@@ -58,6 +58,7 @@ st.set_page_config(page_title="Journal", layout="wide")
 inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
+uid = current_user_id()
 render_demo_banner()
 render_sidebar()
 render_corrections_sidebar()
@@ -125,7 +126,7 @@ with st.container(border=True):
     trades_all = get_trades(
         start_date=str(start_date),
         end_date=str(end_date),
-        user_id=current_user_id(),
+        user_id=uid,
     )
     asset_opts = sorted({t.asset for t in trades_all if t.asset})
     setup_opts = ["All"] + sorted({t.setup_type for t in trades_all if t.setup_type})
@@ -320,7 +321,7 @@ if len(trades) >= 2:
             )
         else:
             _sum_sig = (
-                current_user_id(),
+                uid,
                 str(start_date),
                 str(end_date),
                 tuple(assets_sel),
@@ -348,14 +349,14 @@ if len(trades) >= 2:
                     try:
                         _review, _usage = generate_debrief(
                             trades,
-                            strategy_profile=get_active_strategy(),
+                            strategy_profile=get_active_strategy(uid),
                             period_label=(
                                 f"Selected trades {start_date} → {end_date} "
                                 f"({len(trades)} trades matching the current "
                                 "Journal filters)"
                             ),
                         )
-                        log_ai_usage("Trade Summary", _usage, user_id=current_user_id())
+                        log_ai_usage("Trade Summary", _usage, user_id=uid)
                         st.session_state["_trades_summary"] = {
                             "sig": _sum_sig,
                             "review": _review,
@@ -501,7 +502,7 @@ if selected_id is not None:
                 save_screenshot(trade.id, up)
                 st.toast("Screenshot added", icon="✅")
                 st.rerun()
-        render_screenshot_analyzer(trade, get_active_strategy())
+        render_screenshot_analyzer(trade, get_active_strategy(uid))
 
     _did, _improve, _rule, _extra_notes = _split_notes(trade.notes)
 
@@ -612,7 +613,7 @@ if selected_id is not None:
             st.rerun()
 
     # ── AI Review (journal + process grade) ───────────────────────
-    render_ai_review(trade, get_active_strategy(), user_id=current_user_id())
+    render_ai_review(trade, get_active_strategy(uid), user_id=uid)
 
     # ── Ask AI About This Trade ───────────────────────────────────
-    render_ask_ai(trade, get_active_strategy())
+    render_ask_ai(trade, get_active_strategy(uid))

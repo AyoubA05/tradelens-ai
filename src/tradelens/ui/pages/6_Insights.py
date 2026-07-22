@@ -63,6 +63,7 @@ st.set_page_config(page_title="Insights & Review", layout="wide")
 inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
+uid = current_user_id()
 render_demo_banner()
 render_sidebar()
 st.markdown(
@@ -104,7 +105,7 @@ _DF_COLS = [
 
 
 def _load_df() -> pd.DataFrame:
-    trades = get_trades(user_id=current_user_id())
+    trades = get_trades(user_id=uid)
     df = pd.DataFrame([{c: getattr(t, c, None) for c in _DF_COLS} for t in trades])
     if df.empty:
         return df
@@ -117,7 +118,7 @@ df = _load_df()
 if df.empty and is_demo():
     df = get_demo_df()
 
-_strategy = get_active_strategy()
+_strategy = get_active_strategy(uid)
 _ai_on = is_ai_enabled() or is_demo()
 
 if df.empty:
@@ -309,7 +310,6 @@ st.caption(
     "signals, and rule adherence. Reflection only, never signals or advice."
 )
 
-uid = current_user_id()
 picked = st.date_input(
     "Pick any day in the week to review", value=_default_week(df), key="ins_wk_pick"
 )
