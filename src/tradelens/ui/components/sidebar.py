@@ -100,7 +100,7 @@ def render_sidebar(df=None, today=None) -> None:
     from src.tradelens.ui.design_system import get_asset_as_base64
 
     uid = current_user_id()
-    strategy = get_active_strategy(uid)
+    strategy = get_active_strategy(uid) if uid is not None else None
     strategy_name = (strategy or {}).get("name")
 
     with st.sidebar:

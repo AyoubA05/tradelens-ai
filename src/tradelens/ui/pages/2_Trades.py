@@ -59,6 +59,7 @@ inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
 uid = current_user_id()
+_strategy_profile = get_active_strategy(uid) if uid is not None else None
 render_demo_banner()
 render_sidebar()
 render_corrections_sidebar()
@@ -349,7 +350,7 @@ if len(trades) >= 2:
                     try:
                         _review, _usage = generate_debrief(
                             trades,
-                            strategy_profile=get_active_strategy(uid),
+                            strategy_profile=_strategy_profile,
                             period_label=(
                                 f"Selected trades {start_date} → {end_date} "
                                 f"({len(trades)} trades matching the current "
@@ -502,7 +503,7 @@ if selected_id is not None:
                 save_screenshot(trade.id, up)
                 st.toast("Screenshot added", icon="✅")
                 st.rerun()
-        render_screenshot_analyzer(trade, get_active_strategy(uid))
+        render_screenshot_analyzer(trade, _strategy_profile)
 
     _did, _improve, _rule, _extra_notes = _split_notes(trade.notes)
 
@@ -613,7 +614,7 @@ if selected_id is not None:
             st.rerun()
 
     # ── AI Review (journal + process grade) ───────────────────────
-    render_ai_review(trade, get_active_strategy(uid), user_id=uid)
+    render_ai_review(trade, _strategy_profile, user_id=uid)
 
     # ── Ask AI About This Trade ───────────────────────────────────
-    render_ask_ai(trade, get_active_strategy(uid))
+    render_ask_ai(trade, _strategy_profile)

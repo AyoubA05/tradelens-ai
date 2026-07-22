@@ -65,7 +65,7 @@ STARTER_TEMPLATE = {
 }
 
 # Load active profile (if any)
-profile = get_active_strategy(uid)
+profile = get_active_strategy(uid) if uid is not None else None
 
 if st.session_state.pop("_strategy_saved", False):
     st.toast("Strategy Profile saved — AI reviews will now use your rules.", icon="✅")
@@ -110,6 +110,7 @@ if st.button(
     "Use ICT/SMC Starter Template",
     key="strategy_starter",
     type="secondary" if profile else "primary",
+    disabled=uid is None,
 ):
     upsert_strategy_profile(uid, **STARTER_TEMPLATE)
     st.toast("Starter template loaded — review and save.", icon="✅")
@@ -252,7 +253,9 @@ with st.form("strategy_form"):
     )
 
 if submitted:
-    if not name.strip():
+    if uid is None:
+        st.toast("A database-backed account is required to save a strategy profile.", icon="❌")
+    elif not name.strip():
         st.toast("Strategy Name is required.", icon="❌")
     else:
         try:

@@ -63,7 +63,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-_active_strategy = get_active_strategy(uid)
+_active_strategy = get_active_strategy(uid) if uid is not None else None
 if _active_strategy and _active_strategy.get("name"):
     st.markdown(
         render_badge(_active_strategy["name"], "primary"),

@@ -152,7 +152,7 @@ if df.empty and is_demo():
 render_sidebar()
 
 # ── Header: title + active-strategy badge + subtitle ──────────────
-_strategy = get_active_strategy(uid)
+_strategy = get_active_strategy(uid) if uid is not None else None
 _strategy_badge = (
     render_badge(_strategy["name"], "primary")
     if _strategy and _strategy.get("name")

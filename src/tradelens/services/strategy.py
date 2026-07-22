@@ -118,10 +118,18 @@ def _to_dict(row: Strategy) -> dict:
     }
 
 
+def _require_concrete_user_id(user_id: int) -> int:
+    """Return a concrete strategy owner ID or reject ownerless access."""
+    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
+        raise ValueError("user_id must be a positive integer")
+    return user_id
+
+
 def get_active_strategy(user_id: int) -> Optional[dict]:
     """
     Return a user's active Strategy profile as a plain dict, or None if none exists.
     """
+    user_id = _require_concrete_user_id(user_id)
     db = SessionLocal()
     try:
         row = (
@@ -145,6 +153,7 @@ def upsert_strategy_profile(user_id: int, **fields) -> dict:
     - Always sets is_active = 1, refreshes updated_at, sets created_at on first create.
     - Returns the saved profile as a dict.
     """
+    user_id = _require_concrete_user_id(user_id)
     now = datetime.now(timezone.utc).isoformat()
     db = SessionLocal()
     try:
@@ -184,6 +193,7 @@ def append_insight(user_id: int, insight: str, field: str = "risk_rules") -> dic
 
     Raises ValueError if `field` is not a writable profile field.
     """
+    user_id = _require_concrete_user_id(user_id)
     if field not in _PROFILE_FIELDS:
         raise ValueError(f"Unknown strategy field: {field}")
 

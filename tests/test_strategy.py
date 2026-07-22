@@ -57,6 +57,62 @@ def test_strategy_profiles_are_isolated_between_users(in_memory_db):
     assert get_active_strategy(bob.id)["name"] == "Bob Updated Strategy"
 
 
+def test_strategy_operations_reject_none_without_touching_legacy_profile(in_memory_db):
+    from src.tradelens.services.strategy import (
+        append_insight,
+        get_active_strategy,
+        upsert_strategy_profile,
+    )
+
+    db = in_memory_db()
+    db.add(
+        Strategy(
+            name="Legacy Profile",
+            user_id=None,
+            is_active=1,
+            risk_rules="Legacy risk rule",
+        )
+    )
+    db.commit()
+    db.close()
+
+    with pytest.raises(ValueError, match="user_id must be a positive integer"):
+        get_active_strategy(None)
+    with pytest.raises(ValueError, match="user_id must be a positive integer"):
+        upsert_strategy_profile(None, name="Ownerless Profile")
+    with pytest.raises(ValueError, match="user_id must be a positive integer"):
+        append_insight(None, "Ownerless insight")
+
+    db = in_memory_db()
+    rows = db.query(Strategy).all()
+    db.close()
+    assert len(rows) == 1
+    assert rows[0].user_id is None
+    assert rows[0].name == "Legacy Profile"
+    assert rows[0].risk_rules == "Legacy risk rule"
+
+
+@pytest.mark.parametrize("invalid_user_id", [0, -1, True, "1"])
+def test_strategy_operations_require_a_positive_integer_user_id(
+    in_memory_db, invalid_user_id
+):
+    from src.tradelens.services.strategy import (
+        append_insight,
+        get_active_strategy,
+        upsert_strategy_profile,
+    )
+
+    operations = (
+        lambda: get_active_strategy(invalid_user_id),
+        lambda: upsert_strategy_profile(invalid_user_id, name="Invalid owner"),
+        lambda: append_insight(invalid_user_id, "Invalid owner insight"),
+    )
+
+    for operation in operations:
+        with pytest.raises(ValueError, match="user_id must be a positive integer"):
+            operation()
+
+
 def test_create_strategy_creates_active_profile(in_memory_db):
     from src.tradelens.services.strategy import upsert_strategy_profile
 

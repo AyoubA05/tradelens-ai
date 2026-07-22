@@ -140,7 +140,7 @@ def _time_str(t) -> str:
 
 
 # ── Strategy Profile autofill (safe, non-trade-specific defaults) ──
-_strategy = get_active_strategy(uid)
+_strategy = get_active_strategy(uid) if uid is not None else None
 _profile_markets = parse_markets(_strategy)
 _profile_setups = parse_setups(_strategy)
 _profile_mistakes = parse_mistakes(_strategy)

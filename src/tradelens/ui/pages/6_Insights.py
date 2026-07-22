@@ -118,7 +118,7 @@ df = _load_df()
 if df.empty and is_demo():
     df = get_demo_df()
 
-_strategy = get_active_strategy(uid)
+_strategy = get_active_strategy(uid) if uid is not None else None
 _ai_on = is_ai_enabled() or is_demo()
 
 if df.empty:
