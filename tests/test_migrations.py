@@ -1,11 +1,9 @@
 """
-Reversibility test for the SMC/ICT migration (g7h8i9j0k1l2).
+Migration tests for historical revisions and blank-database round trips.
 
-The full historical chain cannot be replayed from base on a fresh SQLite DB
-(a pre-existing condition: the production DB was built via create_all + stamp),
-so this test exercises the migration's upgrade()/downgrade() in isolation against
-a minimal `trades` table, binding the module's `op` proxy to a live connection.
-Proves the migration round-trips on SQLite: add columns -> drop columns -> re-add.
+The full historical chain now replays through Alembic against a fresh SQLite
+database. Isolated tests still exercise individual historical migrations where
+that is the most direct behavior under test.
 """
 
 import importlib.util
@@ -190,6 +188,24 @@ def test_blank_sqlite_chain_uses_database_url_and_round_trips_task_one(tmp_path)
             for constraint in inspector.get_unique_constraints("user_settings")
         }
         assert "uq_user_settings_user_key" in unique_names
+        strategy_user_foreign_key = next(
+            foreign_key
+            for foreign_key in inspector.get_foreign_keys("strategies")
+            if foreign_key["constrained_columns"] == ["user_id"]
+        )
+        assert strategy_user_foreign_key["referred_table"] == "users"
+        assert strategy_user_foreign_key["referred_columns"] == ["id"]
+        settings_user_foreign_key = next(
+            foreign_key
+            for foreign_key in inspector.get_foreign_keys("user_settings")
+            if foreign_key["constrained_columns"] == ["user_id"]
+        )
+        assert settings_user_foreign_key["referred_table"] == "users"
+        assert settings_user_foreign_key["referred_columns"] == ["id"]
+        assert (
+            settings_user_foreign_key.get("options", {}).get("ondelete", "").upper()
+            == "CASCADE"
+        )
 
 
 def test_full_trade_schema_migration_creates_missing_historical_base_tables(tmp_path):

@@ -73,5 +73,23 @@ def test_postgres_chain_round_trips_task_one(disposable_public_schema):
                 for constraint in inspector.get_unique_constraints("user_settings")
             }
             assert "uq_user_settings_user_key" in unique_names
+            strategy_user_foreign_key = next(
+                foreign_key
+                for foreign_key in inspector.get_foreign_keys("strategies")
+                if foreign_key["constrained_columns"] == ["user_id"]
+            )
+            assert strategy_user_foreign_key["referred_table"] == "users"
+            assert strategy_user_foreign_key["referred_columns"] == ["id"]
+            settings_user_foreign_key = next(
+                foreign_key
+                for foreign_key in inspector.get_foreign_keys("user_settings")
+                if foreign_key["constrained_columns"] == ["user_id"]
+            )
+            assert settings_user_foreign_key["referred_table"] == "users"
+            assert settings_user_foreign_key["referred_columns"] == ["id"]
+            assert (
+                settings_user_foreign_key.get("options", {}).get("ondelete", "").upper()
+                == "CASCADE"
+            )
     finally:
         engine.dispose()
