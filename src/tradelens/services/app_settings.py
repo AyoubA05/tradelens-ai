@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from sqlalchemy.exc import IntegrityError
+
 from src.tradelens.db.models import UserSetting
 from src.tradelens.db.session import SessionLocal
 
@@ -47,10 +49,24 @@ def set_setting(user_id: int, key: str, value) -> None:
         if row is None:
             row = UserSetting(user_id=user_id, key=key, value=value, updated_at=now)
             db.add(row)
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                row = (
+                    db.query(UserSetting)
+                    .filter(UserSetting.user_id == user_id, UserSetting.key == key)
+                    .first()
+                )
+                if row is None:
+                    raise
+                row.value = value
+                row.updated_at = now
+                db.commit()
         else:
             row.value = value
             row.updated_at = now
-        db.commit()
+            db.commit()
     finally:
         db.close()
 
