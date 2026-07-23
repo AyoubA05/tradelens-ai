@@ -15,7 +15,7 @@ from typing import Optional
 
 import pandas as pd
 
-from src.tradelens.db.models import AIAnalysis, AIUsageLog, WeeklyReview
+from src.tradelens.db.models import AIAnalysis, AIUsageLog, Trade, WeeklyReview
 from src.tradelens.db.session import SessionLocal
 
 _COST_COLS = ["feature", "cost_usd", "calls"]
@@ -29,6 +29,13 @@ def _f(value) -> float:
         return float(value) if value is not None else 0.0
     except (TypeError, ValueError):
         return 0.0
+
+
+def _require_concrete_user_id(user_id: int) -> int:
+    """Return a concrete cost owner ID or reject ownerless access."""
+    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
+        raise ValueError("user_id must be a positive integer")
+    return user_id
 
 
 def log_ai_usage(feature: str, usage, user_id: Optional[int] = None) -> None:
@@ -60,7 +67,7 @@ def log_ai_usage(feature: str, usage, user_id: Optional[int] = None) -> None:
         return
 
 
-def monthly_cost_by_feature(year: int, month: int) -> pd.DataFrame:
+def monthly_cost_by_feature(year: int, month: int, user_id: int) -> pd.DataFrame:
     """
     Sum persisted AI cost for the given calendar month, grouped by feature.
 
@@ -68,13 +75,19 @@ def monthly_cost_by_feature(year: int, month: int) -> pd.DataFrame:
     Features with no spend in the month are omitted; an empty month yields an
     empty frame with the correct columns.
     """
+    user_id = _require_concrete_user_id(user_id)
     prefix = f"{year:04d}-{month:02d}"
 
     db = SessionLocal()
     try:
-        analyses = db.query(AIAnalysis).all()
-        reviews = db.query(WeeklyReview).all()
-        usage_rows = db.query(AIUsageLog).all()
+        analyses = (
+            db.query(AIAnalysis)
+            .join(Trade, AIAnalysis.trade_id == Trade.id)
+            .filter(Trade.user_id == user_id)
+            .all()
+        )
+        reviews = db.query(WeeklyReview).filter(WeeklyReview.user_id == user_id).all()
+        usage_rows = db.query(AIUsageLog).filter(AIUsageLog.user_id == user_id).all()
     finally:
         db.close()
 

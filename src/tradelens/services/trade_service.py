@@ -256,6 +256,27 @@ def delete_trade(trade_id: int, user_id: Optional[int]) -> bool:
         db.close()
 
 
+def delete_all_trades(user_id: int) -> int:
+    """Delete every trade owned by one concrete user and return the row count."""
+    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
+        raise ValueError("user_id must be a positive integer")
+
+    db: Session = SessionLocal()
+    try:
+        deleted = (
+            db.query(Trade)
+            .filter(Trade.user_id == user_id)
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+        return deleted
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def get_primary_screenshot(trade_id: int) -> Optional[str]:
     """Return the file_path of a trade's first screenshot, or None.
 

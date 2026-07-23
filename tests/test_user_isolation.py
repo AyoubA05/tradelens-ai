@@ -1,9 +1,19 @@
+from pathlib import Path
+
+import pandas as pd
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import src.tradelens.services.trade_service as trade_service
-from src.tradelens.db.models import Base, User
+from src.tradelens.db.models import (
+    AIAnalysis,
+    Base,
+    Correction,
+    Screenshot,
+    Trade,
+    User,
+)
 from src.tradelens.services.trade_service import (
     create_trade,
     delete_trade,
@@ -11,6 +21,8 @@ from src.tradelens.services.trade_service import (
     get_trades,
     update_trade,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
@@ -105,3 +117,89 @@ def test_update_trade_cannot_reassign_owner_or_id(two_user_trades):
     reread = get_trade(trade_a.id, user_id=user_a.id)
     assert reread.user_id == user_a.id
     assert reread.notes == "changed"
+
+
+def test_bulk_delete_removes_only_owner_trades_and_preserves_other_dependents(
+    two_user_trades,
+):
+    user_a, user_b, trade_a = two_user_trades
+    second_trade_a = create_trade(
+        {"asset": "ES", "trade_date": "2026-07-02", "user_id": user_a.id}
+    )
+    trade_b = create_trade(
+        {"asset": "YM", "trade_date": "2026-07-03", "user_id": user_b.id}
+    )
+
+    db = trade_service.SessionLocal()
+    screenshot_b = Screenshot(trade_id=trade_b.id, file_path="/tmp/bob.png")
+    analysis_b = AIAnalysis(trade_id=trade_b.id, cost_usd=0.25)
+    db.add_all([screenshot_b, analysis_b])
+    db.flush()
+    correction_b = Correction(
+        trade_id=trade_b.id,
+        ai_analysis_id=analysis_b.id,
+        field="bias",
+        user_id=user_b.id,
+    )
+    db.add(correction_b)
+    db.commit()
+    dependent_ids = (screenshot_b.id, analysis_b.id, correction_b.id)
+    db.close()
+
+    deleted = trade_service.delete_all_trades(user_a.id)
+
+    assert deleted == 2
+    db = trade_service.SessionLocal()
+    assert db.get(Trade, trade_a.id) is None
+    assert db.get(Trade, second_trade_a.id) is None
+    assert db.get(Trade, trade_b.id) is not None
+    assert db.get(Screenshot, dependent_ids[0]) is not None
+    assert db.get(AIAnalysis, dependent_ids[1]) is not None
+    assert db.get(Correction, dependent_ids[2]) is not None
+    db.close()
+
+
+@pytest.mark.parametrize("invalid_user_id", [None, 0, -1, True, "1"])
+def test_bulk_delete_rejects_invalid_owner_before_opening_session(
+    monkeypatch, invalid_user_id
+):
+    session_calls = 0
+
+    def session_never_called():
+        nonlocal session_calls
+        session_calls += 1
+        raise AssertionError("invalid owners must not construct a database session")
+
+    monkeypatch.setattr(trade_service, "SessionLocal", session_never_called)
+
+    with pytest.raises(ValueError, match="user_id must be a positive integer"):
+        trade_service.delete_all_trades(invalid_user_id)
+
+    assert session_calls == 0
+
+
+def test_ownerless_settings_page_disables_bulk_delete(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    from src.tradelens.services import cost
+
+    monkeypatch.setattr(
+        cost,
+        "monthly_cost_by_feature",
+        lambda *_args, **_kwargs: pd.DataFrame(
+            columns=["feature", "cost_usd", "calls"]
+        ),
+    )
+
+    at = AppTest.from_file(
+        str(ROOT / "src" / "tradelens" / "ui" / "pages" / "9_Settings.py"),
+        default_timeout=30,
+    )
+    at.session_state["authenticated"] = True
+    at.run()
+    at.text_input(key="danger_confirm").set_value("DELETE").run()
+
+    assert not at.exception
+    buttons = [button for button in at.button if button.label == "Delete ALL trades"]
+    assert len(buttons) == 1
+    assert buttons[0].disabled
