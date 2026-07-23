@@ -7,7 +7,15 @@ import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-from src.tradelens.db.models import AIAnalysis, Base, Correction, Strategy, Trade, User, WeeklyReview
+from src.tradelens.db.models import (
+    AIAnalysis,
+    Base,
+    Correction,
+    Strategy,
+    Trade,
+    User,
+    WeeklyReview,
+)
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "assign_legacy_data.py"
@@ -113,7 +121,9 @@ def test_plan_reports_null_owned_rows_without_mutating_them(assignment_db):
     db.close()
 
 
-def test_apply_assigns_only_null_owned_rows_and_second_apply_changes_nothing(assignment_db):
+def test_apply_assigns_only_null_owned_rows_and_second_apply_changes_nothing(
+    assignment_db,
+):
     assignment, session_factory, _ = assignment_db
     ids = _seed_legacy_rows(session_factory)
     plan = assignment.plan_assignment("alice")
