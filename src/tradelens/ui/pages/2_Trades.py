@@ -479,7 +479,7 @@ def _render_screenshot(file_path) -> bool:
 
 # ── Trade detail panel ────────────────────────────────────────────
 if selected_id is not None:
-    trade = get_trade(selected_id)
+    trade = get_trade(selected_id, user_id=uid)
     if trade is None:
         st.stop()
 
@@ -503,7 +503,9 @@ if selected_id is not None:
                 save_screenshot(trade.id, up)
                 st.toast("Screenshot added", icon="✅")
                 st.rerun()
-        render_screenshot_analyzer(trade, _strategy_profile)
+        render_screenshot_analyzer(
+            trade, user_id=uid, strategy_profile=_strategy_profile
+        )
 
     _did, _improve, _rule, _extra_notes = _split_notes(trade.notes)
 
@@ -596,6 +598,7 @@ if selected_id is not None:
         if st.button("Save changes", type="primary", key="edit_save"):
             update_trade(
                 trade.id,
+                user_id=uid,
                 result=new_result,
                 pnl=new_pnl,
                 user_grade=None if new_grade == "—" else new_grade,
@@ -608,10 +611,11 @@ if selected_id is not None:
         st.warning("Deleting this trade can't be undone.")
         confirm = st.checkbox("I'm sure", key="delete_confirm")
         if st.button("Delete trade", disabled=not confirm, key="delete_btn"):
-            delete_trade(trade.id)
-            st.session_state.pop("selected_trade_id", None)
-            st.toast("Trade deleted", icon="✅")
-            st.rerun()
+            if delete_trade(trade.id, user_id=uid):
+                st.session_state.pop("selected_trade_id", None)
+                st.toast("Trade deleted", icon="✅")
+                st.rerun()
+            st.stop()
 
     # ── AI Review (journal + process grade) ───────────────────────
     render_ai_review(trade, _strategy_profile, user_id=uid)
