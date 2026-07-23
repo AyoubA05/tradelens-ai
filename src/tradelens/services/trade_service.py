@@ -6,7 +6,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session, selectinload
 
-from src.tradelens.db.models import Trade
+from src.tradelens.db.models import AIAnalysis, Correction, Screenshot, Trade
 from src.tradelens.db.session import SessionLocal
 
 
@@ -263,9 +263,25 @@ def delete_all_trades(user_id: int) -> int:
 
     db: Session = SessionLocal()
     try:
+        trade_ids = [
+            trade_id
+            for (trade_id,) in db.query(Trade.id).filter(Trade.user_id == user_id).all()
+        ]
+        if not trade_ids:
+            return 0
+
+        db.query(Correction).filter(Correction.trade_id.in_(trade_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(AIAnalysis).filter(AIAnalysis.trade_id.in_(trade_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(Screenshot).filter(Screenshot.trade_id.in_(trade_ids)).delete(
+            synchronize_session=False
+        )
         deleted = (
             db.query(Trade)
-            .filter(Trade.user_id == user_id)
+            .filter(Trade.user_id == user_id, Trade.id.in_(trade_ids))
             .delete(synchronize_session=False)
         )
         db.commit()

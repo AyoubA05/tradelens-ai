@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 import src.tradelens.services.trade_service as trade_service
@@ -51,6 +51,33 @@ def two_user_trades(in_memory_db):
         {"asset": "NQ", "trade_date": "2026-07-01", "user_id": user_a.id}
     )
     return user_a, user_b, trade_a
+
+
+def _add_trade_dependents(session_factory, trade_id, user_id, marker):
+    db = session_factory()
+    screenshot = Screenshot(trade_id=trade_id, file_path=f"/tmp/{marker}.png")
+    analysis = AIAnalysis(
+        trade_id=trade_id,
+        raw_response_json=f"{marker}-private-analysis",
+        cost_usd=0.25,
+    )
+    db.add_all([screenshot, analysis])
+    db.flush()
+    correction = Correction(
+        trade_id=trade_id,
+        ai_analysis_id=analysis.id,
+        field="bias",
+        user_id=user_id,
+    )
+    db.add(correction)
+    db.commit()
+    ids = {
+        "screenshot": screenshot.id,
+        "analysis": analysis.id,
+        "correction": correction.id,
+    }
+    db.close()
+    return ids
 
 
 def test_user_cannot_read_update_or_delete_another_users_trade(two_user_trades):
@@ -123,28 +150,19 @@ def test_bulk_delete_removes_only_owner_trades_and_preserves_other_dependents(
     two_user_trades,
 ):
     user_a, user_b, trade_a = two_user_trades
-    second_trade_a = create_trade(
-        {"asset": "ES", "trade_date": "2026-07-02", "user_id": user_a.id}
-    )
     trade_b = create_trade(
-        {"asset": "YM", "trade_date": "2026-07-03", "user_id": user_b.id}
+        {"asset": "YM", "trade_date": "2026-07-02", "user_id": user_b.id}
+    )
+    second_trade_a = create_trade(
+        {"asset": "ES", "trade_date": "2026-07-03", "user_id": user_a.id}
     )
 
-    db = trade_service.SessionLocal()
-    screenshot_b = Screenshot(trade_id=trade_b.id, file_path="/tmp/bob.png")
-    analysis_b = AIAnalysis(trade_id=trade_b.id, cost_usd=0.25)
-    db.add_all([screenshot_b, analysis_b])
-    db.flush()
-    correction_b = Correction(
-        trade_id=trade_b.id,
-        ai_analysis_id=analysis_b.id,
-        field="bias",
-        user_id=user_b.id,
+    owner_dependents = _add_trade_dependents(
+        trade_service.SessionLocal, second_trade_a.id, user_a.id, "alice"
     )
-    db.add(correction_b)
-    db.commit()
-    dependent_ids = (screenshot_b.id, analysis_b.id, correction_b.id)
-    db.close()
+    foreign_dependents = _add_trade_dependents(
+        trade_service.SessionLocal, trade_b.id, user_b.id, "bob"
+    )
 
     deleted = trade_service.delete_all_trades(user_a.id)
 
@@ -153,9 +171,84 @@ def test_bulk_delete_removes_only_owner_trades_and_preserves_other_dependents(
     assert db.get(Trade, trade_a.id) is None
     assert db.get(Trade, second_trade_a.id) is None
     assert db.get(Trade, trade_b.id) is not None
-    assert db.get(Screenshot, dependent_ids[0]) is not None
-    assert db.get(AIAnalysis, dependent_ids[1]) is not None
-    assert db.get(Correction, dependent_ids[2]) is not None
+    assert db.get(Screenshot, owner_dependents["screenshot"]) is None
+    assert db.get(AIAnalysis, owner_dependents["analysis"]) is None
+    assert db.get(Correction, owner_dependents["correction"]) is None
+    assert db.get(Screenshot, foreign_dependents["screenshot"]) is not None
+    assert db.get(AIAnalysis, foreign_dependents["analysis"]) is not None
+    assert db.get(Correction, foreign_dependents["correction"]) is not None
+    db.close()
+
+
+def test_bulk_delete_prevents_private_children_attaching_to_reused_trade_id(
+    two_user_trades,
+):
+    user_a, user_b, _ = two_user_trades
+    existing_trade_b = create_trade(
+        {"asset": "YM", "trade_date": "2026-07-02", "user_id": user_b.id}
+    )
+    private_trade_a = create_trade(
+        {"asset": "ES", "trade_date": "2026-07-03", "user_id": user_a.id}
+    )
+    private_dependents = _add_trade_dependents(
+        trade_service.SessionLocal, private_trade_a.id, user_a.id, "alice-reused"
+    )
+
+    assert private_trade_a.id > existing_trade_b.id
+    assert trade_service.delete_all_trades(user_a.id) == 2
+
+    replacement_trade_b = create_trade(
+        {"asset": "RTY", "trade_date": "2026-07-04", "user_id": user_b.id}
+    )
+    assert replacement_trade_b.id == private_trade_a.id
+
+    reread = get_trade(replacement_trade_b.id, user_id=user_b.id)
+    assert reread.screenshots == []
+    assert reread.ai_analysis is None
+
+    db = trade_service.SessionLocal()
+    assert db.get(Screenshot, private_dependents["screenshot"]) is None
+    assert db.get(AIAnalysis, private_dependents["analysis"]) is None
+    assert db.get(Correction, private_dependents["correction"]) is None
+    db.close()
+
+
+def test_bulk_delete_rolls_back_all_rows_after_dependent_delete_failure(
+    two_user_trades,
+):
+    user_a, _, trade_a = two_user_trades
+    dependent_ids = _add_trade_dependents(
+        trade_service.SessionLocal, trade_a.id, user_a.id, "alice-rollback"
+    )
+
+    db = trade_service.SessionLocal()
+    db.execute(
+        text(
+            """
+            CREATE TRIGGER fail_analysis_delete
+            BEFORE DELETE ON aianalysis
+            WHEN NOT EXISTS (
+                SELECT 1
+                FROM corrections
+                WHERE ai_analysis_id = OLD.id
+            )
+            BEGIN
+                SELECT RAISE(FAIL, 'injected failure after correction delete');
+            END
+            """
+        )
+    )
+    db.commit()
+    db.close()
+
+    with pytest.raises(Exception, match="injected failure after correction delete"):
+        trade_service.delete_all_trades(user_a.id)
+
+    db = trade_service.SessionLocal()
+    assert db.get(Trade, trade_a.id) is not None
+    assert db.get(Screenshot, dependent_ids["screenshot"]) is not None
+    assert db.get(AIAnalysis, dependent_ids["analysis"]) is not None
+    assert db.get(Correction, dependent_ids["correction"]) is not None
     db.close()
 
 
