@@ -63,19 +63,28 @@ def test_other_settings_roundtrip_and_update_timestamp(in_memory_db, two_users):
     alice, _ = two_users
 
     app_settings.set_setting(alice.id, "dashboard_layout", "compact")
+    app_settings.set_setting(alice.id, "date_format", "YYYY-MM-DD")
     app_settings.set_setting(alice.id, "dashboard_layout", "expanded")
 
     assert app_settings.get_setting(alice.id, "dashboard_layout") == "expanded"
+    assert app_settings.get_setting(alice.id, "date_format") == "YYYY-MM-DD"
     assert app_settings.get_setting(alice.id, "missing", "fallback") == "fallback"
 
     db = in_memory_db()
     rows = db.query(UserSetting).all()
     db.close()
-    assert len(rows) == 1
-    assert rows[0].user_id == alice.id
-    assert rows[0].key == "dashboard_layout"
-    assert rows[0].value == "expanded"
-    assert datetime.fromisoformat(rows[0].updated_at).utcoffset().total_seconds() == 0
+    assert len(rows) == 2
+    rows_by_key = {row.key: row for row in rows}
+    assert set(rows_by_key) == {"dashboard_layout", "date_format"}
+    assert rows_by_key["dashboard_layout"].user_id == alice.id
+    assert rows_by_key["dashboard_layout"].value == "expanded"
+    assert rows_by_key["date_format"].value == "YYYY-MM-DD"
+    assert (
+        datetime.fromisoformat(rows_by_key["dashboard_layout"].updated_at)
+        .utcoffset()
+        .total_seconds()
+        == 0
+    )
 
 
 @pytest.mark.parametrize("invalid_user_id", [None, 0, -1, True, "1"])
