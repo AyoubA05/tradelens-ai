@@ -13,7 +13,10 @@ from html import escape  # noqa: E402
 
 import streamlit as st  # noqa: E402
 
-from src.tradelens.services.app_settings import get_timezone  # noqa: E402
+from src.tradelens.services.app_settings import (  # noqa: E402
+    DEFAULT_TIMEZONE,
+    get_timezone,
+)
 from src.tradelens.services.assets import (  # noqa: E402
     OTHER,
     detect_asset_class,
@@ -233,7 +236,8 @@ with tabs[1]:
         )
     entry_time = parse_time_input(entry_time_raw)
 
-    user_tz = get_timezone()
+    has_settings_owner = isinstance(uid, int) and not isinstance(uid, bool) and uid > 0
+    user_tz = get_timezone(uid) if has_settings_owner else DEFAULT_TIMEZONE
     # Session is auto-derived from the entry time — no manual session/killzone input.
     session = detect_session(entry_time, trade_date, user_tz)
     killzone = detect_killzone(entry_time, trade_date, user_tz)  # silent, for analytics

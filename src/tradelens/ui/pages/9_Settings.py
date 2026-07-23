@@ -14,6 +14,7 @@ from src.tradelens.db.models import Trade  # noqa: E402
 from src.tradelens.db.session import SessionLocal  # noqa: E402
 from src.tradelens.services.ai_client import has_api_key  # noqa: E402
 from src.tradelens.services.app_settings import (  # noqa: E402
+    DEFAULT_TIMEZONE,
     get_timezone,
     set_timezone,
 )
@@ -44,6 +45,7 @@ st.set_page_config(page_title="Settings")
 inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
+uid = current_user_id()
 render_demo_banner()
 render_sidebar()
 st.markdown(section_header("Settings"), unsafe_allow_html=True)
@@ -105,7 +107,8 @@ _TZ_OPTIONS = [
     "Asia/Dubai",
     "UTC",
 ]
-_current_tz = get_timezone()
+_has_settings_owner = isinstance(uid, int) and not isinstance(uid, bool) and uid > 0
+_current_tz = get_timezone(uid) if _has_settings_owner else DEFAULT_TIMEZONE
 _tz_index = _TZ_OPTIONS.index(_current_tz) if _current_tz in _TZ_OPTIONS else 0
 _chosen_tz = st.selectbox(
     "Trading timezone",
@@ -113,10 +116,13 @@ _chosen_tz = st.selectbox(
     index=_tz_index,
     key="settings_timezone",
     help="Used to detect your killzone/session from the entry time on New Trade.",
+    disabled=not _has_settings_owner,
 )
-if _chosen_tz != _current_tz:
-    set_timezone(_chosen_tz)
+if _has_settings_owner and _chosen_tz != _current_tz:
+    set_timezone(uid, _chosen_tz)
     st.toast("Trading timezone saved", icon="✅")
+elif not _has_settings_owner:
+    st.caption("Trading timezone preferences are unavailable for this legacy login.")
 
 st.divider()
 

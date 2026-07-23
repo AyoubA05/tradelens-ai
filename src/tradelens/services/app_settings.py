@@ -1,47 +1,65 @@
-"""
-Lightweight persistent app settings (Session E1).
-
-A JSON-backed key/value store in the ``data/`` directory — the same persistence
-boundary as the SQLite DB — so a preference like the trading timezone survives
-reruns and app restarts WITHOUT a schema change or migration. Streamlit-free and
-testable (the path is module-level and monkeypatchable).
-"""
+"""User-scoped persistent application settings."""
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
+from datetime import datetime, timezone
 
-_SETTINGS_PATH = Path(__file__).resolve().parents[3] / "data" / "app_settings.json"
+from src.tradelens.db.models import UserSetting
+from src.tradelens.db.session import SessionLocal
 
 DEFAULT_TIMEZONE = "America/New_York"
+_TIMEZONE_KEY = "trading_timezone"
 
 
-def _read() -> dict:
+def _require_concrete_user_id(user_id: int) -> int:
+    """Return a settings owner ID or reject ownerless access."""
+    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
+        raise ValueError("user_id must be a positive integer")
+    return user_id
+
+
+def get_setting(user_id: int, key: str, default=None):
+    """Return one user's stored setting, or ``default`` when it is unset."""
+    user_id = _require_concrete_user_id(user_id)
+    db = SessionLocal()
     try:
-        return json.loads(_SETTINGS_PATH.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError):
-        return {}
+        row = (
+            db.query(UserSetting)
+            .filter(UserSetting.user_id == user_id, UserSetting.key == key)
+            .first()
+        )
+        return row.value if row is not None else default
+    finally:
+        db.close()
 
 
-def get_setting(key: str, default=None):
-    """Return a stored setting, or `default` if unset/unreadable."""
-    return _read().get(key, default)
+def set_setting(user_id: int, key: str, value) -> None:
+    """Create or update one user's setting and refresh its UTC timestamp."""
+    user_id = _require_concrete_user_id(user_id)
+    now = datetime.now(timezone.utc).isoformat()
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(UserSetting)
+            .filter(UserSetting.user_id == user_id, UserSetting.key == key)
+            .first()
+        )
+        if row is None:
+            row = UserSetting(user_id=user_id, key=key, value=value, updated_at=now)
+            db.add(row)
+        else:
+            row.value = value
+            row.updated_at = now
+        db.commit()
+    finally:
+        db.close()
 
 
-def set_setting(key: str, value) -> None:
-    """Persist a setting (creates the data/ dir + file as needed)."""
-    data = _read()
-    data[key] = value
-    _SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _SETTINGS_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+def get_timezone(user_id: int) -> str:
+    """Return one user's saved timezone, with a per-user default."""
+    return get_setting(user_id, _TIMEZONE_KEY, DEFAULT_TIMEZONE) or DEFAULT_TIMEZONE
 
 
-def get_timezone() -> str:
-    """The trader's saved timezone, falling back to America/New_York."""
-    return get_setting("trading_timezone", DEFAULT_TIMEZONE) or DEFAULT_TIMEZONE
-
-
-def set_timezone(tz: str) -> None:
-    """Persist the trader's timezone (empty falls back to the default)."""
-    set_setting("trading_timezone", tz or DEFAULT_TIMEZONE)
+def set_timezone(user_id: int, tz: str) -> None:
+    """Persist one user's timezone; a blank value becomes the default."""
+    set_setting(user_id, _TIMEZONE_KEY, tz or DEFAULT_TIMEZONE)

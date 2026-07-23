@@ -1,48 +1,108 @@
-"""
-Persistent app settings (Session E1): timezone fallback + persistence.
-"""
+"""User-scoped persistent application settings."""
 
 import importlib
+from datetime import datetime
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 import src.tradelens.services.app_settings as app_settings
+from src.tradelens.db.models import Base, User, UserSetting
 
 
-@pytest.fixture
-def tmp_settings(tmp_path, monkeypatch):
-    monkeypatch.setattr(app_settings, "_SETTINGS_PATH", tmp_path / "app_settings.json")
-    return app_settings
+@pytest.fixture()
+def in_memory_db(monkeypatch):
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
+    Base.metadata.create_all(engine)
+    test_session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(app_settings, "SessionLocal", test_session, raising=False)
+    return test_session
 
 
-def test_timezone_defaults_when_unset(tmp_settings):
-    assert tmp_settings.get_timezone() == "America/New_York"
+@pytest.fixture()
+def two_users(in_memory_db):
+    db = in_memory_db()
+    alice = User(username="alice", password_hash="hash")
+    bob = User(username="bob", password_hash="hash")
+    db.add_all([alice, bob])
+    db.commit()
+    db.refresh(alice)
+    db.refresh(bob)
+    db.close()
+    return alice, bob
 
 
-def test_timezone_persists(tmp_settings):
-    tmp_settings.set_timezone("Europe/London")
-    assert tmp_settings.get_timezone() == "Europe/London"
-    # A fresh read of the same file still returns it.
-    assert tmp_settings.get_setting("trading_timezone") == "Europe/London"
+def test_timezones_are_user_scoped(in_memory_db, two_users):
+    alice, bob = two_users
+
+    app_settings.set_timezone(alice.id, "America/New_York")
+    app_settings.set_timezone(bob.id, "Europe/London")
+
+    assert app_settings.get_timezone(alice.id) == "America/New_York"
+    assert app_settings.get_timezone(bob.id) == "Europe/London"
 
 
-def test_empty_timezone_falls_back(tmp_settings):
-    tmp_settings.set_timezone("")
-    assert tmp_settings.get_timezone() == "America/New_York"
+def test_timezone_defaults_when_unset(in_memory_db, two_users):
+    alice, _ = two_users
+
+    assert app_settings.get_timezone(alice.id) == app_settings.DEFAULT_TIMEZONE
 
 
-def test_corrupt_settings_file_falls_back(tmp_settings, tmp_path):
-    (tmp_path / "app_settings.json").write_text("not json{", encoding="utf-8")
-    assert tmp_settings.get_timezone() == "America/New_York"
+def test_set_timezone_empty_value_uses_default(in_memory_db, two_users):
+    alice, _ = two_users
+
+    app_settings.set_timezone(alice.id, "")
+
+    assert app_settings.get_timezone(alice.id) == app_settings.DEFAULT_TIMEZONE
 
 
-def test_other_settings_roundtrip(tmp_settings):
-    tmp_settings.set_setting("foo", "bar")
-    assert tmp_settings.get_setting("foo") == "bar"
-    assert tmp_settings.get_setting("missing", "fallback") == "fallback"
+def test_other_settings_roundtrip_and_update_timestamp(in_memory_db, two_users):
+    alice, _ = two_users
+
+    app_settings.set_setting(alice.id, "dashboard_layout", "compact")
+    app_settings.set_setting(alice.id, "dashboard_layout", "expanded")
+
+    assert app_settings.get_setting(alice.id, "dashboard_layout") == "expanded"
+    assert app_settings.get_setting(alice.id, "missing", "fallback") == "fallback"
+
+    db = in_memory_db()
+    rows = db.query(UserSetting).all()
+    db.close()
+    assert len(rows) == 1
+    assert rows[0].user_id == alice.id
+    assert rows[0].key == "dashboard_layout"
+    assert rows[0].value == "expanded"
+    assert datetime.fromisoformat(rows[0].updated_at).utcoffset().total_seconds() == 0
+
+
+@pytest.mark.parametrize("invalid_user_id", [None, 0, -1, True, "1"])
+def test_setting_operations_reject_invalid_owner_without_touching_rows(
+    in_memory_db, two_users, invalid_user_id
+):
+    alice, _ = two_users
+    app_settings.set_timezone(alice.id, "Europe/London")
+
+    operations = (
+        lambda: app_settings.get_setting(invalid_user_id, "trading_timezone"),
+        lambda: app_settings.set_setting(invalid_user_id, "trading_timezone", "UTC"),
+        lambda: app_settings.get_timezone(invalid_user_id),
+        lambda: app_settings.set_timezone(invalid_user_id, "UTC"),
+    )
+    for operation in operations:
+        with pytest.raises(ValueError, match="user_id must be a positive integer"):
+            operation()
+
+    db = in_memory_db()
+    rows = db.query(UserSetting).all()
+    db.close()
+    assert len(rows) == 1
+    assert rows[0].user_id == alice.id
+    assert rows[0].value == "Europe/London"
 
 
 def test_module_import_is_streamlit_free():
-    # Re-import must not require Streamlit (services stay UI-free).
     mod = importlib.reload(app_settings)
     assert hasattr(mod, "get_timezone")
