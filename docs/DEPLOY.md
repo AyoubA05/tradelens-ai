@@ -106,3 +106,13 @@ would silently disable the key *and* demo mode.
 Copy the live URL (e.g. `https://<your-app>.streamlit.app`) into the README's
 **Live demo** line and the badge. Re-run CI is not required — deployment is
 independent of the test pipeline.
+
+## Legacy ownership assignment
+
+1. Create a database backup/snapshot.
+2. Dry run:
+   `.venv/bin/python scripts/assign_legacy_data.py --username ayoub`
+3. Review every count.
+4. Apply only after approval:
+   `.venv/bin/python scripts/assign_legacy_data.py --username ayoub --apply`
+5. Run the dry run again; expected count for every table is 0.
