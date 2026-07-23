@@ -1,19 +1,21 @@
 """
-Reversibility test for the SMC/ICT migration (g7h8i9j0k1l2).
+Migration tests for historical revisions and blank-database round trips.
 
-The full historical chain cannot be replayed from base on a fresh SQLite DB
-(a pre-existing condition: the production DB was built via create_all + stamp),
-so this test exercises the migration's upgrade()/downgrade() in isolation against
-a minimal `trades` table, binding the module's `op` proxy to a live connection.
-Proves the migration round-trips on SQLite: add columns -> drop columns -> re-add.
+The full historical chain now replays through Alembic against a fresh SQLite
+database. Isolated tests still exercise individual historical migrations where
+that is the most direct behavior under test.
 """
 
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine, inspect
+from src.tradelens.db.models import Strategy, UserSetting
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "alembic" / "versions" / "g7h8i9j0k1l2_add_smc_ict_fields.py"
@@ -150,6 +152,92 @@ def _columns_of(conn, table: str) -> set:
     return {c["name"] for c in inspect(conn).get_columns(table)}
 
 
+def _run_alembic(args: list[str], database_url: str) -> subprocess.CompletedProcess:
+    env = os.environ.copy()
+    env["DATABASE_URL"] = database_url
+    return subprocess.run(
+        [sys.executable, "-m", "alembic", *args],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_blank_sqlite_chain_uses_database_url_and_round_trips_task_one(tmp_path):
+    database_path = tmp_path / "alembic-chain.db"
+    database_url = f"sqlite:///{database_path}"
+
+    for args in (
+        ["upgrade", "head"],
+        ["downgrade", "p6q7r8s9t0u1"],
+        ["upgrade", "head"],
+    ):
+        result = _run_alembic(args, database_url)
+        assert result.returncode == 0, result.stderr
+
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        inspector = inspect(conn)
+        assert database_path.exists()
+        assert "user_id" in _columns_of(conn, "strategies")
+        assert "user_settings" in _tables(conn)
+        unique_names = {
+            constraint["name"]
+            for constraint in inspector.get_unique_constraints("user_settings")
+        }
+        assert "uq_user_settings_user_key" in unique_names
+        strategy_user_foreign_key = next(
+            foreign_key
+            for foreign_key in inspector.get_foreign_keys("strategies")
+            if foreign_key["constrained_columns"] == ["user_id"]
+        )
+        assert strategy_user_foreign_key["referred_table"] == "users"
+        assert strategy_user_foreign_key["referred_columns"] == ["id"]
+        settings_user_foreign_key = next(
+            foreign_key
+            for foreign_key in inspector.get_foreign_keys("user_settings")
+            if foreign_key["constrained_columns"] == ["user_id"]
+        )
+        assert settings_user_foreign_key["referred_table"] == "users"
+        assert settings_user_foreign_key["referred_columns"] == ["id"]
+        assert (
+            settings_user_foreign_key.get("options", {}).get("ondelete", "").upper()
+            == "CASCADE"
+        )
+
+
+def test_full_trade_schema_migration_creates_missing_historical_base_tables(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'historical-base.db'}")
+    mig = _load_mig("8383cf3ef6e7_add_full_trade_schema.py")
+
+    with engine.connect() as conn:
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()
+
+        assert {"strategies", "trades", "screenshots"} <= _tables(conn)
+        assert {"id", "name", "trading_style", "entry_rules"} <= _columns_of(
+            conn, "strategies"
+        )
+        assert {"id", "asset", "strategy_id", "trade_date", "updated_at"} <= _columns(
+            conn
+        )
+        assert {"id", "file_path", "trade_id"} <= _columns_of(conn, "screenshots")
+
+
+def test_strategy_has_user_owner_column():
+    assert "user_id" in Strategy.__table__.columns
+    assert Strategy.__table__.columns["user_id"].index
+
+
+def test_user_setting_has_unique_user_key_pair():
+    names = {c.name for c in UserSetting.__table__.constraints}
+    assert "uq_user_settings_user_key" in names
+
+
 # ---------------------------------------------------------------------------
 # is_sample flag (Session A)
 # ---------------------------------------------------------------------------
@@ -216,6 +304,12 @@ def _load_mig(filename: str):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def test_user_owned_strategy_settings_revision_descends_from_current_head():
+    mig = _load_mig("q7r8s9t0u1v2_add_user_owned_strategy_settings.py")
+    assert mig.revision == "q7r8s9t0u1v2"
+    assert mig.down_revision == "p6q7r8s9t0u1"
 
 
 def test_users_table_migration_round_trip(tmp_path):

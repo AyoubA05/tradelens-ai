@@ -66,6 +66,7 @@ st.set_page_config(
 inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()  # gate: shows the login page and halts here until signed in
+uid = current_user_id()
 render_demo_banner()
 
 _DF_COLS = [
@@ -88,7 +89,7 @@ _DF_COLS = [
 
 
 def _load_df() -> pd.DataFrame:
-    trades = get_trades(user_id=current_user_id())
+    trades = get_trades(user_id=uid)
     df = pd.DataFrame([{c: getattr(t, c, None) for c in _DF_COLS} for t in trades])
     if df.empty:
         return df
@@ -151,7 +152,7 @@ if df.empty and is_demo():
 render_sidebar()
 
 # ── Header: title + active-strategy badge + subtitle ──────────────
-_strategy = get_active_strategy()
+_strategy = get_active_strategy(uid) if uid is not None else None
 _strategy_badge = (
     render_badge(_strategy["name"], "primary")
     if _strategy and _strategy.get("name")
@@ -169,7 +170,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if count_sample_trades(current_user_id()) > 0:
+if count_sample_trades(uid) > 0:
     st.markdown(
         render_banner("Demo data active — these are sample trades.", "info"),
         unsafe_allow_html=True,

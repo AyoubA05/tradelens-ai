@@ -230,7 +230,7 @@ def test_prices_store_and_retrieve_without_precision_loss(in_memory_db):
             "exit_price": 3.4995,
         }
     )
-    row = get_trade(trade.id)
+    row = get_trade(trade.id, user_id=None)
     assert row.entry_price == 3.496
     assert row.stop_price == 3.3765
     assert row.tp_price == 3.5125
@@ -250,7 +250,7 @@ def test_trade_process_notes_stores_and_retrieves(in_memory_db):
             "trade_process_notes": note,
         }
     )
-    row = get_trade(trade.id)
+    row = get_trade(trade.id, user_id=None)
     assert row.trade_process_notes == note
 
 
@@ -267,7 +267,7 @@ def test_get_trade_relationships_usable_after_session_closes(in_memory_db):
     db.commit()
     db.close()
 
-    row = get_trade(trade.id)
+    row = get_trade(trade.id, user_id=None)
     assert row.screenshots == []  # off-session access must not raise
     analysis = row.ai_analysis  # was DetachedInstanceError before the fix
     assert analysis is not None

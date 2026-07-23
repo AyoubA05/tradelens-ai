@@ -1,3 +1,5 @@
+import os
+import sys
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
@@ -9,6 +11,12 @@ from alembic import context
 # access to the values within the .ini file in use.
 config = context.config
 
+database_url = os.getenv("DATABASE_URL")
+if database_url:
+    # ConfigParser interpolates percent signs; escaping them here preserves
+    # percent-encoded credentials when Alembic reads the configured URL.
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
+
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
@@ -18,8 +26,6 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-import sys, os
-
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.tradelens.db.models import Base
 

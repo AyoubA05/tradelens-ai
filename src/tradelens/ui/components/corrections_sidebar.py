@@ -10,12 +10,14 @@ import streamlit as st
 
 from src.tradelens.services.corrections import count_corrections, repeated_corrections
 from src.tradelens.services.strategy import append_insight
+from src.tradelens.ui.components.auth import current_user_id
 
 _REPEAT_THRESHOLD = 5
 
 
 def render_corrections_sidebar() -> None:
     """Render the 'AI has learned N corrections' badge + repeat suggestions."""
+    uid = current_user_id()
     count = count_corrections()
 
     with st.sidebar:
@@ -49,6 +51,8 @@ def render_corrections_sidebar() -> None:
                 f"(corrected {r['count']}x in review)"
             )
             label = f"➕ Add '{r['user_value']}' to Strategy Profile"
-            if st.button(label, key=f"corr_apply_{i}", width="stretch"):
-                append_insight(rule)
+            if st.button(
+                label, key=f"corr_apply_{i}", width="stretch", disabled=uid is None
+            ):
+                append_insight(uid, rule)
                 st.success("Added to your Strategy Profile (risk rules).")

@@ -20,6 +20,9 @@ class Strategy(Base):
     __tablename__ = "strategies"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String, nullable=False)
     trading_style: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     entry_rules: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -37,6 +40,21 @@ class Strategy(Base):
     updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     trades = relationship("Trade", back_populates="strategy")
+
+
+class UserSetting(Base):
+    __tablename__ = "user_settings"
+    __table_args__ = (
+        UniqueConstraint("user_id", "key", name="uq_user_settings_user_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    key: Mapped[str] = mapped_column(String, nullable=False)
+    value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
 
 class Trade(Base):
