@@ -371,8 +371,13 @@ def test_breakdown_by_asset():
 # ---------------------------------------------------------------------------
 
 
-def test_basic_metrics_uses_result_when_present():
-    """When result column is present, win counting uses it — not pnl sign."""
+def test_basic_metrics_uses_pnl_sign_when_present():
+    """Signed pnl outranks a contradicting result label, per row.
+
+    Previously the label won, which let a -$50 "Win" report a positive
+    average win and a +$100 "Loss" report a positive average loss. Legacy
+    rows like these are read as the money says.
+    """
     df = pd.DataFrame(
         {
             "result": ["Win", "Loss", "Win"],
@@ -380,17 +385,14 @@ def test_basic_metrics_uses_result_when_present():
         }
     )
     m = compute_basic_metrics(df)
-    # result says 2 wins, 1 loss — despite pnl signs being opposite
+    # pnl says 2 positive, 1 negative — despite the stale labels
     assert m["wins"] == 2
     assert m["losses"] == 1
     assert m["win_rate"] == pytest.approx(2 / 3, abs=1e-6)
-    # money metrics still use pnl
-    assert m["avg_win"] == pytest.approx(
-        75.0, abs=1e-6
-    )  # mean of pnl where result=="Win": (-50+200)/2
-    assert m["avg_loss"] == pytest.approx(
-        100.0, abs=1e-6
-    )  # mean of pnl where result=="Loss": 100
+    # money metrics follow the same partition, so an "average win" is
+    # never negative and an "average loss" is never positive
+    assert m["avg_win"] == pytest.approx(150.0, abs=1e-6)  # (100+200)/2
+    assert m["avg_loss"] == pytest.approx(-50.0, abs=1e-6)
 
 
 def test_basic_metrics_fallback_to_pnl_when_no_result():
@@ -1141,3 +1143,39 @@ def test_calendar_daily_pnl_dec_jan_boundary():
     dec = calendar_daily_pnl(df, 2025, 12)
     assert set(dec["day"]) == {31}
     assert dec["net_pnl"].sum() == 500.0  # Jan trades excluded
+
+
+# ---------------------------------------------------------------------------
+# Legacy contradictory rows — signed P&L is canonical, text outcome is fallback
+# ---------------------------------------------------------------------------
+
+
+def test_pnl_sign_overrides_stale_result_for_metrics():
+    df = pd.DataFrame({"result": ["Win", "Loss", "Win"], "pnl": [-500.0, 250.0, None]})
+    m = compute_basic_metrics(df)
+    assert m["wins"] == 2
+    assert m["losses"] == 1
+    assert m["win_rate"] == pytest.approx(2 / 3)
+    assert m["avg_win"] == 250.0
+    assert m["avg_loss"] == -500.0
+
+
+def test_one_negative_trade_cannot_be_a_hundred_percent_win_rate():
+    m = compute_basic_metrics(pd.DataFrame({"result": ["Win"], "pnl": [-500.0]}))
+    assert m["win_rate"] == 0.0
+    assert m["avg_win"] == 0.0
+    assert m["avg_loss"] == -500.0
+
+
+def test_text_outcome_still_classifies_rows_without_pnl():
+    df = pd.DataFrame(
+        {"result": ["Win", "Loss", "Breakeven"], "pnl": [None, None, None]}
+    )
+    m = compute_basic_metrics(df)
+    assert (m["wins"], m["losses"], m["breakevens"]) == (1, 1, 1)
+
+
+def test_zero_pnl_is_breakeven_regardless_of_label():
+    m = compute_basic_metrics(pd.DataFrame({"result": ["Win"], "pnl": [0.0]}))
+    assert m["breakevens"] == 1
+    assert m["wins"] == 0

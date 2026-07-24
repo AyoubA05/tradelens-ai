@@ -32,22 +32,37 @@ def _outcome_masks(df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series]:
     """
     Return (win_mask, loss_mask, be_mask) boolean Series.
 
-    Primary source: result column (case-insensitive "win" / "loss" / "breakeven").
-    Fallback: pnl column (>0 / <0 / ==0) when result column is absent.
+    Primary source, per row: signed pnl (>0 / <0 / ==0).
+    Fallback, per row: result text ("win" / "loss" / "breakeven") when that
+    row has no pnl.
 
-    This is the single canonical rule for outcome classification across all metrics.
-    PnL is used only for money metrics (avg_win, avg_loss, total_pnl, etc.).
+    This is the single canonical rule for outcome classification across all
+    metrics. Deciding per row rather than per column means a legacy row saved
+    before write-time validation — a "Win" carrying -$500 — is counted as the
+    loss it actually was, instead of reporting a 100% win rate on negative
+    money. Such rows are read coherently but never rewritten here.
     """
-    if "result" in df.columns:
-        r = df["result"].fillna("").str.lower()
-        return (r == "win"), (r == "loss"), (r == "breakeven")
+    false_s = pd.Series(False, index=df.index)
 
-    if "pnl" in df.columns:
-        pnl = pd.to_numeric(df["pnl"], errors="coerce")
-        return (pnl > 0), (pnl < 0), (pnl == 0)
+    pnl = (
+        pd.to_numeric(df["pnl"], errors="coerce")
+        if "pnl" in df.columns
+        else pd.Series(float("nan"), index=df.index)
+    )
+    has_pnl = pnl.notna()
 
-    false_s = pd.Series([False] * len(df), index=df.index)
-    return false_s, false_s, false_s
+    result = (
+        df["result"].fillna("").astype(str).str.lower()
+        if "result" in df.columns
+        else pd.Series("", index=df.index)
+    )
+    if "pnl" not in df.columns and "result" not in df.columns:
+        return false_s, false_s, false_s
+
+    win = (has_pnl & pnl.gt(0)) | (~has_pnl & result.eq("win"))
+    loss = (has_pnl & pnl.lt(0)) | (~has_pnl & result.eq("loss"))
+    breakeven = (has_pnl & pnl.eq(0)) | (~has_pnl & result.eq("breakeven"))
+    return win.astype(bool), loss.astype(bool), breakeven.astype(bool)
 
 
 _EMPTY_METRICS: dict = {
