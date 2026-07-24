@@ -5,6 +5,7 @@ exercises the real ai_client short-circuit. DB tests use in-memory SQLite.
 
 import datetime as dt
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -66,7 +67,7 @@ def _fake_trades():
 _REQUIRED_SECTIONS = [
     "### What Worked",
     "### What Didn't",
-    "### Pattern Signals",
+    "### Observed Patterns",
     "### Rule Adherence",
     "### Focus for Next Week",
 ]
@@ -340,3 +341,26 @@ def test_dead_coach_generator_removed():
 
     assert not hasattr(weekly, "generate_ai_weekly_review")
     assert not hasattr(weekly, "_AI_COACH_SYSTEM")
+
+
+def test_prompt_asks_for_exactly_the_required_sections():
+    """The prompt and the validator must agree on the section headings.
+
+    They are two halves of one contract: the prompt tells the model what to
+    write and _REQUIRED_SECTIONS rejects the result if it doesn't. A rename
+    on one side silently fails every real generation.
+    """
+    from src.tradelens.services.weekly import _REQUIRED_SECTIONS
+
+    prompt = (
+        Path(__file__).resolve().parents[1] / "prompts" / "weekly_recap_v1.txt"
+    ).read_text(encoding="utf-8")
+    for heading in _REQUIRED_SECTIONS:
+        assert heading in prompt, f"prompt is missing {heading!r}"
+
+
+def test_no_signal_language_in_weekly_section_names():
+    """TradeLens reviews completed trades; it does not emit signals."""
+    from src.tradelens.services.weekly import _REQUIRED_SECTIONS
+
+    assert not any("signal" in h.lower() for h in _REQUIRED_SECTIONS)

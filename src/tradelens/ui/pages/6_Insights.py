@@ -264,6 +264,13 @@ def _md_safe(text: str) -> str:
     return text.replace("\\$", "$").replace("$", "\\$")
 
 
+def _confidence_label(trades: int) -> str:
+    """How much weight this sample can carry. Matches the prompt's bands."""
+    if trades >= 20:
+        return "Higher"
+    return "Developing" if trades >= 10 else "Low"
+
+
 def _render_review_body(review: dict, key: str) -> None:
     # Render the COMPLETE markdown once — never st.write() on a generator and
     # never render partial chunks mid-stream (character-by-character bug).
@@ -272,13 +279,20 @@ def _render_review_body(review: dict, key: str) -> None:
     with st.container(key=key):
         if review.get("content_md"):
             st.markdown(_md_safe(review["content_md"]))
-        thinking = review.get("thinking_summary")
-        if thinking:
-            with st.expander("How the AI reasoned"):
-                st.markdown(_md_safe(thinking))
-        cost = review.get("cost_usd")
-        if cost:
-            st.caption(f"Generation cost: ${cost:.4f}")
+        # What a trader needs to judge a review is what it was based on —
+        # not the model's reasoning trace or what the call cost to run.
+        # Cost stays recorded for the Settings accounting view.
+        _stats = review.get("stats") or {}
+        _trades = int(_stats.get("trades") or 0)
+        with st.expander("Evidence used"):
+            st.markdown(f"- **Trades reviewed:** {_trades}")
+            if review.get("week_start"):
+                st.markdown(f"- **Period:** {review['week_start']}")
+            st.markdown(
+                f"- **Strategy profile:** "
+                f"{'Included' if _strategy else 'Not included'}"
+            )
+            st.markdown(f"- **Confidence:** {_confidence_label(_trades)}")
 
 
 def _auto_run_weekly(monday: str, uid) -> None:

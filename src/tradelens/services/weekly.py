@@ -34,7 +34,7 @@ from src.tradelens.services.trade_service import get_trades
 _REQUIRED_SECTIONS = [
     "### What Worked",
     "### What Didn't",
-    "### Pattern Signals",
+    "### Observed Patterns",
     "### Rule Adherence",
     "### Focus for Next Week",
 ]

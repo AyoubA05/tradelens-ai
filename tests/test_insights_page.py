@@ -79,10 +79,10 @@ def test_weekly_recap_replaces_patterns_and_review_sections():
 
 def test_recap_is_one_call_with_pattern_data():
     """The recap service call receives the pattern statistics in the SAME call
-    (compute_candidates feeds the user message) and requires Pattern Signals."""
+    (compute_candidates feeds the user message) and requires Observed Patterns."""
     from src.tradelens.services import weekly
 
-    assert "### Pattern Signals" in weekly._REQUIRED_SECTIONS
+    assert "### Observed Patterns" in weekly._REQUIRED_SECTIONS
     service_src = (
         Path(__file__).resolve().parents[1]
         / "src"
@@ -92,3 +92,53 @@ def test_recap_is_one_call_with_pattern_data():
     ).read_text(encoding="utf-8")
     assert "compute_candidates(df)" in service_src
     assert 'load_prompt("weekly_recap_v1")' in service_src
+
+
+# ---------------------------------------------------------------------------
+# Customer-facing AI disclosure: evidence, not debug details
+# ---------------------------------------------------------------------------
+
+_UI_PAGES = Path(__file__).resolve().parents[1] / "src" / "tradelens" / "ui" / "pages"
+
+
+def test_insights_does_not_render_model_reasoning_or_cost():
+    """Internal generation details are operator data, not review content."""
+    src = (_UI_PAGES / "6_Insights.py").read_text(encoding="utf-8")
+    assert "thinking_summary" not in src
+    assert "How the AI reasoned" not in src
+    assert "Generation cost" not in src
+
+
+def test_journal_does_not_render_generation_cost():
+    src = (_UI_PAGES / "2_Trades.py").read_text(encoding="utf-8")
+    assert "Generation cost" not in src
+
+
+def test_insights_shows_evidence_and_confidence():
+    src = (_UI_PAGES / "6_Insights.py").read_text(encoding="utf-8")
+    assert "Evidence used" in src
+    assert "Trades reviewed" in src
+    assert "Confidence" in src
+
+
+def test_confidence_bands_follow_sample_size():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_insights_probe", _UI_PAGES / "6_Insights.py"
+    )
+    # The page runs Streamlit at import time, so exercise the pure helper by
+    # reading it out of the source rather than importing the module.
+    src = (_UI_PAGES / "6_Insights.py").read_text(encoding="utf-8")
+    assert spec is not None
+    ns: dict = {}
+    start = src.index("def _confidence_label")
+    end = src.index("def _render_review_body")
+    exec(src[start:end], ns)  # noqa: S102 — isolated pure function
+    label = ns["_confidence_label"]
+    assert label(0) == "Low"
+    assert label(9) == "Low"
+    assert label(10) == "Developing"
+    assert label(19) == "Developing"
+    assert label(20) == "Higher"
+    assert label(200) == "Higher"

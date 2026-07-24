@@ -34,13 +34,13 @@ What the trader did well this week, with the supporting numbers.
 Where the week leaked edge — losing killzones, rule breaks, recurring mistakes —
 citing the figures (including total edge leak where relevant).
 
-### Pattern Signals
-Three to six behavioral pattern signals drawn ONLY from the deterministic
+### Observed Patterns
+Three to six behavioral observations drawn ONLY from the deterministic
 pattern statistics provided. Format each as its own bullet:
-- **<one-line signal>** — Evidence: <the actual numbers>. Confidence: <Low |
-  Medium | High>, based on sample size (fewer than 5 trades = Low, 5-14 =
-  Medium, 15+ = High). These describe what already happened in the journal —
-  never instructions for future trades.
+- **<one-line observation>** — Evidence: <the actual numbers>. Sample: <n>
+  trades. Confidence: <Low | Medium | High>, based on sample size (fewer than
+  5 trades = Low, 5-14 = Medium, 15+ = High). These describe what already
+  happened in the journal — never instructions for future trades.
 
 ### Rule Adherence
 How disciplined the week was: rule-following vs. rule-breaking and its cost.

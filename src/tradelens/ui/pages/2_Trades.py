@@ -336,9 +336,9 @@ if len(trades) >= 2:
             _is_current = _cached.get("sig") == _sum_sig
             if _is_current:
                 st.markdown(_cached["review"].get("content_md") or "")
-                _cost = _cached["review"].get("cost_usd")
-                if _cost:
-                    st.caption(f"Generation cost: ${_cost:.4f}")
+                # What the call cost is operator accounting, not something a
+                # trader needs while reading a review — see Settings.
+                st.caption(f"Based on {len(trades)} trades in the current filter.")
             if len(trades) > 40:
                 st.caption("Large selection — the newest 40 trades are included.")
             _sum_label = (
