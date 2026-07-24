@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from src.tradelens.db.models import AIAnalysis, Correction, Screenshot, Trade
 from src.tradelens.db.session import SessionLocal
+from src.tradelens.services.trade_validation import canonical_outcome, is_blank
 
 
 def _calc_rr(
@@ -94,6 +95,9 @@ def create_trade(trade_data: dict) -> Trade:
     and a trade_hash fingerprint. Returns the persisted Trade.
     """
     data = dict(trade_data)
+
+    # A stored row may never contradict itself: P&L decides the outcome label.
+    data["result"] = canonical_outcome(data.get("result"), data.get("pnl"))
 
     # Fingerprint BEFORE dropping non-model keys (entry_time is hash-only).
     data["trade_hash"] = compute_trade_hash(data)
@@ -228,6 +232,19 @@ def update_trade(trade_id: int, user_id: Optional[int], **fields) -> Optional[Tr
         )
         if trade is None:
             return None
+        # Editing either half of the outcome pair re-validates the whole pair,
+        # so a partial edit can't leave the row contradicting itself.
+        #
+        # A new P&L is canonical: it re-derives the label rather than being
+        # vetoed by the label that described the old value. A label edit alone
+        # is still checked against the P&L already stored.
+        if "pnl" in updates:
+            stale_label = trade.result if is_blank(updates["pnl"]) else None
+            updates["result"] = canonical_outcome(
+                updates.get("result", stale_label), updates["pnl"]
+            )
+        elif "result" in updates:
+            updates["result"] = canonical_outcome(updates["result"], trade.pnl)
         for key, value in updates.items():
             setattr(trade, key, value)
         trade.updated_at = datetime.now(timezone.utc).isoformat()

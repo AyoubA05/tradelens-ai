@@ -42,6 +42,10 @@ from src.tradelens.services.trade_service import (  # noqa: E402
     create_trade,
     find_recent_duplicate,
 )
+from src.tradelens.services.trade_validation import (  # noqa: E402
+    OutcomeMismatch,
+    canonical_outcome,
+)
 from src.tradelens.ui.components.ai_autofill_review import (  # noqa: E402
     ai_sourced_fields,
     clear_autofill_state,
@@ -376,10 +380,10 @@ with tabs[2]:
         st.caption(f"Risk plan: {_strategy['risk_rules']}")
 
     def _sync_result_from_pnl() -> None:
-        """Phase 4: typing a P&L auto-selects the matching result.
+        """Typing a P&L selects the matching result.
 
-        The trader can still override the Result dropdown afterward — a
-        mismatch only draws a confirm-intentional warning, never a block.
+        P&L is the fact, so it decides the label. Overriding the dropdown
+        into a contradiction is blocked at save time by _validate().
         """
         v = st.session_state.get("nt_pnl")
         if v is None:
@@ -388,7 +392,11 @@ with tabs[2]:
             "Win" if v > 0 else ("Loss" if v < 0 else "Breakeven")
         )
 
-    result = st.selectbox("Result", ["Win", "Loss", "Breakeven"], key="nt_result")
+    result = st.selectbox(
+        "Result (derived from P&L when entered)",
+        ["Win", "Loss", "Breakeven"],
+        key="nt_result",
+    )
 
     # Change E — P&L and Risk in the same row, side by side.
     pr1, pr2 = st.columns(2)
@@ -402,17 +410,6 @@ with tabs[2]:
     risk_amount = pr2.number_input(
         "Risk ($)", value=None, placeholder="e.g., 125.00", key="nt_risk"
     )
-    if pnl is None:
-        _expected_result = None
-    else:
-        _expected_result = "Win" if pnl > 0 else "Loss" if pnl < 0 else "Breakeven"
-    if _expected_result is not None and result != _expected_result:
-        st.markdown(
-            render_banner(
-                "Result and P&L don't match — confirm intentional.", "warning"
-            ),
-            unsafe_allow_html=True,
-        )
 
     o1, o2 = st.columns(2)
     # Change D — position size is a whole number only (integer, no decimals).
@@ -656,6 +653,10 @@ def _validate(data: dict) -> list:
     for label, raw, parsed in _PRICE_INPUTS:
         if str(raw or "").strip() and parsed is None:
             errors.append(f"{label} isn't a number (Trade Details).")
+    try:
+        canonical_outcome(data.get("result"), data.get("pnl"))
+    except (OutcomeMismatch, ValueError) as exc:
+        errors.append(f"{exc} (Trade Details).")
     return errors
 
 

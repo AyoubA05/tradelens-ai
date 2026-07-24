@@ -27,6 +27,7 @@ from src.tradelens.services.trade_service import (  # noqa: E402
     get_trades,
     update_trade,
 )
+from src.tradelens.services.trade_validation import OutcomeMismatch  # noqa: E402
 from src.tradelens.ui.components.ai_review import render_ai_review  # noqa: E402
 from src.tradelens.ui.components.auth import current_user_id, require_auth  # noqa: E402
 from src.tradelens.ui.components.ai_trade_chat import render_ask_ai  # noqa: E402
@@ -596,16 +597,22 @@ if selected_id is not None:
             )
         new_notes = st.text_area("Notes", value=trade.notes or "", key="edit_notes")
         if st.button("Save changes", type="primary", key="edit_save"):
-            update_trade(
-                trade.id,
-                user_id=uid,
-                result=new_result,
-                pnl=new_pnl,
-                user_grade=None if new_grade == "—" else new_grade,
-                notes=new_notes.strip() or None,
-            )
-            st.toast("Trade updated", icon="✅")
-            st.rerun()
+            try:
+                update_trade(
+                    trade.id,
+                    user_id=uid,
+                    result=new_result,
+                    pnl=new_pnl,
+                    user_grade=None if new_grade == "—" else new_grade,
+                    notes=new_notes.strip() or None,
+                )
+            except OutcomeMismatch as exc:
+                # Stays on screen next to the fields that disagree — a toast
+                # would vanish before the trader could correct either one.
+                st.markdown(render_banner(str(exc), "danger"), unsafe_allow_html=True)
+            else:
+                st.toast("Trade updated", icon="✅")
+                st.rerun()
 
     with st.expander("Delete trade"):
         st.warning("Deleting this trade can't be undone.")

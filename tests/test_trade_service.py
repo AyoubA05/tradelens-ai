@@ -272,3 +272,53 @@ def test_get_trade_relationships_usable_after_session_closes(in_memory_db):
     analysis = row.ai_analysis  # was DetachedInstanceError before the fix
     assert analysis is not None
     assert analysis.bias == "bullish"
+
+
+def test_create_trade_rejects_outcome_contradicting_pnl(in_memory_db):
+    """A Win with a negative P&L would corrupt every outcome-based metric."""
+    from src.tradelens.services.trade_validation import OutcomeMismatch
+
+    with pytest.raises(OutcomeMismatch):
+        trade_service.create_trade(
+            {
+                "asset": "NQ",
+                "result": "Win",
+                "pnl": -500.0,
+                "trade_date": "2026-07-18",
+            }
+        )
+
+
+def test_create_trade_derives_result_from_pnl_when_absent(in_memory_db):
+    trade = trade_service.create_trade(
+        {"asset": "NQ", "pnl": -120.0, "trade_date": "2026-07-18"}
+    )
+    assert trade.result == "Loss"
+
+
+def test_create_trade_keeps_manual_result_without_pnl(in_memory_db):
+    trade = trade_service.create_trade(
+        {"asset": "NQ", "result": "Breakeven", "trade_date": "2026-07-18"}
+    )
+    assert trade.result == "Breakeven"
+    assert trade.pnl is None
+
+
+def test_update_trade_rejects_contradiction_against_stored_pnl(in_memory_db):
+    """Editing only the label must be validated against the row's stored P&L."""
+    from src.tradelens.services.trade_validation import OutcomeMismatch
+
+    trade = trade_service.create_trade(
+        {"asset": "NQ", "result": "Loss", "pnl": -500.0, "trade_date": "2026-07-18"}
+    )
+    with pytest.raises(OutcomeMismatch):
+        trade_service.update_trade(trade.id, None, result="Win")
+
+
+def test_update_trade_relabels_when_pnl_flips_sign(in_memory_db):
+    trade = trade_service.create_trade(
+        {"asset": "NQ", "result": "Loss", "pnl": -500.0, "trade_date": "2026-07-18"}
+    )
+    updated = trade_service.update_trade(trade.id, None, pnl=250.0)
+    assert updated.result == "Win"
+    assert updated.pnl == 250.0
