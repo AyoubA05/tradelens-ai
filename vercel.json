@@ -1,4 +1,5 @@
 {
+  "installCommand": "echo 'static site build — no dependencies to install'",
   "buildCommand": "python3 scripts/build_site.py",
   "outputDirectory": "dist/site",
   "env": {
