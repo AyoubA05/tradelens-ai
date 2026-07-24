@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import random
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.db.models import Trade
+from src.tradelens.services.trade_validation import canonical_outcome
 
 random.seed(42)
 
@@ -122,7 +123,9 @@ def random_trade(trade_date):
         reward_amount=round(risk_amt * rr_planned, 2),
         rr_planned=rr_planned,
         rr_realized=rr_realized,
-        result=result,
+        # Same canonical form the app writes, so seeded rows render and
+        # classify identically to trades logged through the wizard.
+        result=canonical_outcome(result, pnl),
         pnl=pnl,
         strategy_used=random.choice(STRATEGIES),
         bias=random.choice(["bullish", "bearish", "neutral"]),
@@ -160,13 +163,19 @@ def seed():
             print(f"Database already has {existing} trades. Skipping seed.")
             return
 
-        start_date = datetime(2026, 3, 1)
+        # Walk backwards from today so seeded trades always land inside the
+        # app's default windows (Dashboard "this week", Analytics last-90-
+        # days). A fixed start date silently ages out of every filter and
+        # leaves the demo looking empty — same rule sample_data.py follows.
+        today = datetime.now().date()
         trades = []
         day_offset = 0
         count = 0
 
         while count < 60:
-            trade_date = start_date + timedelta(days=day_offset)
+            trade_date = datetime.combine(
+                today - timedelta(days=day_offset), datetime.min.time()
+            )
             # skip weekends
             if trade_date.weekday() >= 5:
                 day_offset += 1
