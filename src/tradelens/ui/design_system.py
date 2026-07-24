@@ -346,6 +346,29 @@ def build_css() -> str:
   background: var(--tl-primary-hover);
 }}
 
+/* === SECONDARY ACTIONS ===
+   Solid teal is reserved for the one action that moves the trader forward
+   (save, start, continue). Resets, regenerates and retries are outlined so
+   a page has a single obvious primary. Scoped by widget key — give the
+   control a key beginning "secondary_" — because bare button selectors
+   would repaint every button on the page. */
+[class*="st-key-secondary_"] button {{
+  background: transparent;
+  color: var(--tl-text);
+  border-color: var(--tl-border);
+  box-shadow: none;
+}}
+@media (hover: hover) and (pointer: fine) {{
+  [class*="st-key-secondary_"] button:hover {{
+    background: var(--tl-surface-2);
+    border-color: var(--tl-text-muted);
+    box-shadow: none;
+  }}
+}}
+[class*="st-key-secondary_"] button:active {{
+  background: var(--tl-surface-2);
+}}
+
 /* === KPI CARD === */
 .tl-kpi-card {{
   background: var(--tl-surface);

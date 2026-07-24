@@ -241,3 +241,39 @@ def test_review_hides_blank_rows_instead_of_listing_them():
     src = _src("1_NewTrade.py")
     assert "value != _NOT_ENTERED" in src
     assert "optional field" in src
+
+
+# ---------------------------------------------------------------------------
+# Constraint — solid teal is reserved for primary actions
+# ---------------------------------------------------------------------------
+
+# (page, key fragment) pairs for controls that must NOT read as the primary
+# action: resets, regenerates, retries, and destructive controls.
+SECONDARY_CONTROLS = [
+    ("2_Trades.py", "secondary_jf_clear"),
+    ("2_Trades.py", "secondary_delete_btn"),
+    ("6_Insights.py", "secondary_ins_wk_regen"),
+    ("6_Insights.py", "secondary_ins_wk_retry"),
+    ("6_Insights.py", "secondary_ins_dbf_regen"),
+    ("6_Insights.py", "secondary_ins_dbf_retry"),
+]
+
+
+@pytest.mark.parametrize(("page", "key"), SECONDARY_CONTROLS)
+def test_secondary_controls_use_the_secondary_key_prefix(page, key):
+    """The CSS is scoped by widget key, so the key IS the styling contract."""
+    assert f'key="{key}"' in _src(page)
+
+
+def test_design_system_styles_the_secondary_key_prefix():
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+    assert "st-key-secondary_" in css
+    assert "background: transparent" in css
+
+
+def test_save_trade_remains_primary():
+    """Reserving teal must not demote the action that completes the task."""
+    assert 'type="primary", key="edit_save"' in _src("2_Trades.py")
+    assert "secondary_edit_save" not in _src("2_Trades.py")

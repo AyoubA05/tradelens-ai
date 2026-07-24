@@ -4,7 +4,7 @@ Insights & Review — Pattern Insights + the unified Weekly Recap (Item 10).
 One destination for reflection: deterministic Pattern Insights (no AI call),
 the unified Weekly Recap — ONE AI call that receives both the weekly trade data
 and the deterministic pattern statistics and returns performance/process review
-plus pattern signals — and the on-demand Daily Debrief. The recap auto-runs on
+plus observed patterns — and the on-demand Daily Debrief. The recap auto-runs on
 page load and a saved recap is reused instead of paying for a new call.
 Failures surface a specific inline reason — never a generic "AI unavailable".
 
@@ -339,7 +339,7 @@ if existing is not None:
     _render_review_body(existing, key="tl_review_wk")
     if (existing.get("stats") or {}).get("trades", 0) < 3:
         st.caption("Based on a small sample. Log more trades for stronger insights.")
-    if _ai_on and st.button("Regenerate this week", key="ins_wk_regen"):
+    if _ai_on and st.button("Regenerate this week", key="secondary_ins_wk_regen"):
         with st.spinner("Regenerating with AI…"):
             try:
                 review, _usage = generate_weekly_review(
@@ -355,7 +355,7 @@ if existing is not None:
                 _error_box(f"Could not regenerate: {exc}")
 elif _wk_err:
     _error_box(f"AI weekly review couldn't run: {_wk_err}")
-    if st.button("Retry weekly review", key="ins_wk_retry"):
+    if st.button("Retry weekly review", key="secondary_ins_wk_retry"):
         st.session_state.pop(f"_wk_err_{monday}", None)
         st.rerun()
 else:
@@ -420,14 +420,14 @@ else:
     if _dbf_review is not None:
         _render_week_stats(_dbf_review.get("stats") or {})
         _render_review_body(_dbf_review, key="tl_review_dbf")
-        if st.button("Regenerate debrief", key="ins_dbf_regen"):
+        if st.button("Regenerate debrief", key="secondary_ins_dbf_regen"):
             st.session_state.pop(_dbf_key, None)
             st.session_state.pop(_dbf_key + "_err", None)
             _run_daily_debrief(_dbf_iso, _dbf_trades, _dbf_key)
             st.rerun()
     elif _dbf_err:
         _error_box(f"Daily debrief couldn't run: {_dbf_err}")
-        if st.button("Retry debrief", key="ins_dbf_retry"):
+        if st.button("Retry debrief", key="secondary_ins_dbf_retry"):
             st.session_state.pop(_dbf_key + "_err", None)
             st.rerun()
     else:

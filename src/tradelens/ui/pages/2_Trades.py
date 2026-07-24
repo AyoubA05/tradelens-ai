@@ -157,7 +157,7 @@ with st.container(border=True):
             "Clear Filters",
             on_click=_clear_filters,
             width="stretch",
-            key="jf_clear",
+            key="secondary_jf_clear",
         )
 
 trades = [
@@ -617,7 +617,7 @@ if selected_id is not None:
     with st.expander("Delete trade"):
         st.warning("Deleting this trade can't be undone.")
         confirm = st.checkbox("I'm sure", key="delete_confirm")
-        if st.button("Delete trade", disabled=not confirm, key="delete_btn"):
+        if st.button("Delete trade", disabled=not confirm, key="secondary_delete_btn"):
             if delete_trade(trade.id, user_id=uid):
                 st.session_state.pop("selected_trade_id", None)
                 st.toast("Trade deleted", icon="✅")
