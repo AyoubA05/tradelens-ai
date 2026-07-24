@@ -147,8 +147,13 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
+# Marketing-site build output (scripts/build_site.py)
+dist/
+
 # Environments
 .env
+.env.*
+!.env.example
 .envrc
 .venv
 env/
@@ -242,3 +247,6 @@ data/
 # OS / editor local noise
 .DS_Store
 .vscode/
+
+# Local Git worktrees
+.worktrees/

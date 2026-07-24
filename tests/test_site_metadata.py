@@ -1,0 +1,142 @@
+"""The marketing site's deploy-time origin substitution.
+
+SP1 shipped absolute canonical/OG/JSON-LD URLs pointing at the placeholder
+origin `https://www.tradelens-ai.example`. Deployed unchanged, that sends
+crawlers to a nonexistent host and stops social platforms fetching the preview
+image — and nothing in the build would have complained, because a .example URL
+is perfectly well-formed.
+
+These tests replace "remember to swap the domain" with a failing build.
+"""
+
+from pathlib import Path
+
+import pytest
+
+from scripts.build_site import TOKEN, BuildError, build, validate_origin
+
+ROOT = Path(__file__).resolve().parents[1]
+INDEX = ROOT / "site" / "index.html"
+
+REAL = "https://www.tradelens-ai.com"
+
+# The <head> fields that must carry an absolute production URL.
+_ABSOLUTE_URL_FIELDS = (
+    'rel="canonical"',
+    'property="og:url"',
+    'property="og:image"',
+    'name="twitter:image"',
+)
+
+
+def _index_text() -> str:
+    return INDEX.read_text(encoding="utf-8")
+
+
+# --- the source tree ------------------------------------------------------
+
+
+def test_source_contains_no_placeholder_domain():
+    """Regression: the .example origin must not reappear in source."""
+    assert ".example" not in _index_text()
+
+
+def test_source_uses_the_token_for_absolute_urls():
+    text = _index_text()
+    for field in _ABSOLUTE_URL_FIELDS:
+        line = next(ln for ln in text.splitlines() if field in ln)
+        assert TOKEN in line, f"{field} must use {TOKEN}, got: {line.strip()}"
+
+
+def test_json_ld_url_uses_the_token():
+    line = next(ln for ln in _index_text().splitlines() if "application/ld+json" in ln)
+    assert TOKEN in line
+
+
+# --- origin validation ----------------------------------------------------
+
+
+def test_valid_origin_is_accepted():
+    assert validate_origin(REAL) == REAL
+
+
+def test_trailing_slash_is_normalized():
+    """The template supplies the slash, so a trailing one would double it."""
+    assert validate_origin(REAL + "/") == REAL
+
+
+def test_missing_origin_is_rejected():
+    with pytest.raises(BuildError, match="not set"):
+        validate_origin("")
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://www.tradelens-ai.example",
+        "https://tradelens.invalid",
+        "https://localhost",
+        "https://app.localhost",
+    ],
+)
+def test_placeholder_hosts_are_rejected(origin):
+    """The precise class of value that caused the original finding."""
+    with pytest.raises(BuildError):
+        validate_origin(origin)
+
+
+def test_http_origin_is_rejected():
+    with pytest.raises(BuildError, match="https"):
+        validate_origin("http://www.tradelens-ai.com")
+
+
+def test_origin_with_path_is_rejected():
+    with pytest.raises(BuildError, match="no path"):
+        validate_origin("https://www.tradelens-ai.com/site")
+
+
+def test_bare_hostname_is_rejected():
+    with pytest.raises(BuildError, match="fully-qualified"):
+        validate_origin("https://tradelens")
+
+
+# --- the build output -----------------------------------------------------
+
+
+def test_build_resolves_every_token(tmp_path):
+    out = build(REAL, out=tmp_path / "site")
+    html = (out / "index.html").read_text(encoding="utf-8")
+    assert TOKEN not in html
+    assert ".example" not in html
+    assert f'href="{REAL}/"' in html
+    assert f'content="{REAL}/assets/og-image.png"' in html
+
+
+def test_build_output_has_absolute_urls_on_every_required_field(tmp_path):
+    out = build(REAL, out=tmp_path / "site")
+    html = (out / "index.html").read_text(encoding="utf-8")
+    for field in _ABSOLUTE_URL_FIELDS:
+        line = next(ln for ln in html.splitlines() if field in ln)
+        assert REAL in line, f"{field} lost its absolute origin: {line.strip()}"
+
+
+def test_build_copies_binary_assets_intact(tmp_path):
+    """Substitution must not corrupt images it walks past."""
+    out = build(REAL, out=tmp_path / "site")
+    src_assets = ROOT / "site" / "assets"
+    for asset in src_assets.glob("*.png"):
+        assert (out / "assets" / asset.name).read_bytes() == asset.read_bytes()
+
+
+def test_build_refuses_a_placeholder_origin(tmp_path):
+    with pytest.raises(BuildError):
+        build("https://www.tradelens-ai.example", out=tmp_path / "site")
+
+
+def test_build_is_repeatable(tmp_path):
+    """A second build over an existing output directory must not accumulate state."""
+    out = tmp_path / "site"
+    build(REAL, out=out)
+    first = (out / "index.html").read_text(encoding="utf-8")
+    build(REAL, out=out)
+    assert (out / "index.html").read_text(encoding="utf-8") == first

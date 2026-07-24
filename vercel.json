@@ -1,0 +1,7 @@
+{
+  "buildCommand": "python3 scripts/build_site.py",
+  "outputDirectory": "dist/site",
+  "env": {
+    "SITE_ORIGIN": "https://www.tradelens-ai.com"
+  }
+}
