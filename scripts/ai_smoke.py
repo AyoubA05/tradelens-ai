@@ -5,7 +5,7 @@ Usage:
     python scripts/ai_smoke.py
 
 What it does:
-  1. Picks the first trade in the DB that has an existing screenshot file on disk.
+  1. Picks the first owned trade in the DB with an existing screenshot file on disk.
   2. Fetches the active strategy profile (may be None).
   3. Calls analyze_screenshot() and prints key outputs + cost.
   4. Calls generate_journal() and prints section headings found + first 200 chars.
@@ -38,7 +38,7 @@ except ImportError:
 
 from src.tradelens.config import settings  # noqa: E402
 from src.tradelens.db.session import SessionLocal  # noqa: E402
-from src.tradelens.db.models import Trade  # noqa: E402
+from src.tradelens.db.models import Trade, User  # noqa: E402
 from src.tradelens.services.strategy import get_active_strategy  # noqa: E402
 from src.tradelens.services.vision import (
     analyze_screenshot,
@@ -50,10 +50,16 @@ from src.tradelens.db.models import AIAnalysis  # noqa: E402
 
 
 def _find_eligible_trade():
-    """Return (Trade, screenshot_path) for the first trade with an on-disk screenshot."""
+    """Return the first owned trade and screenshot available for a smoke test."""
     db = SessionLocal()
     try:
-        trades = db.query(Trade).order_by(Trade.id).all()
+        trades = (
+            db.query(Trade)
+            .join(User, Trade.user_id == User.id)
+            .filter(User.id > 0)
+            .order_by(Trade.id)
+            .all()
+        )
         for t in trades:
             for s in t.screenshots or []:
                 if Path(s.file_path).exists():
@@ -70,10 +76,11 @@ def _find_eligible_trade():
                             notes=t.notes,
                         ),
                         s.file_path,
+                        t.user_id,
                     )
     finally:
         db.close()
-    return None, None
+    return None, None, None
 
 
 def _print_banner(title: str):
@@ -91,10 +98,10 @@ def main():
     _print_banner("TradeLens AI Smoke Test")
 
     # Find eligible trade
-    trade_ctx, screenshot_path = _find_eligible_trade()
+    trade_ctx, screenshot_path, user_id = _find_eligible_trade()
     if trade_ctx is None:
-        print("ERROR: No trade found with an existing screenshot on disk.")
-        print("Seed the DB and upload at least one screenshot, then retry.")
+        print("ERROR: No owned trade found with an existing screenshot on disk.")
+        print("Use an owned trade with an uploaded screenshot, then retry.")
         sys.exit(1)
 
     print(
@@ -102,7 +109,7 @@ def main():
     )
     print(f"Screenshot: {screenshot_path}")
 
-    active_strategy = get_active_strategy()
+    active_strategy = get_active_strategy(user_id)
     if active_strategy:
         print(f"Strategy: {active_strategy.get('name', '—')}")
     else:

@@ -10,10 +10,9 @@ if _root not in sys.path:
 import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 
-from src.tradelens.db.models import Trade  # noqa: E402
-from src.tradelens.db.session import SessionLocal  # noqa: E402
 from src.tradelens.services.ai_client import has_api_key  # noqa: E402
 from src.tradelens.services.app_settings import (  # noqa: E402
+    DEFAULT_TIMEZONE,
     get_timezone,
     set_timezone,
 )
@@ -29,7 +28,10 @@ from src.tradelens.services.sample_data import (  # noqa: E402
     count_sample_trades,
     load_sample_trades,
 )
-from src.tradelens.services.trade_service import get_trades  # noqa: E402
+from src.tradelens.services.trade_service import (  # noqa: E402
+    delete_all_trades,
+    get_trades,
+)
 from src.tradelens.ui.components.auth import (  # noqa: E402
     current_user_id,
     require_auth,
@@ -44,6 +46,7 @@ st.set_page_config(page_title="Settings")
 inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
+uid = current_user_id()
 render_demo_banner()
 render_sidebar()
 st.markdown(section_header("Settings"), unsafe_allow_html=True)
@@ -105,7 +108,8 @@ _TZ_OPTIONS = [
     "Asia/Dubai",
     "UTC",
 ]
-_current_tz = get_timezone()
+_has_settings_owner = isinstance(uid, int) and not isinstance(uid, bool) and uid > 0
+_current_tz = get_timezone(uid) if _has_settings_owner else DEFAULT_TIMEZONE
 _tz_index = _TZ_OPTIONS.index(_current_tz) if _current_tz in _TZ_OPTIONS else 0
 _chosen_tz = st.selectbox(
     "Trading timezone",
@@ -113,17 +117,20 @@ _chosen_tz = st.selectbox(
     index=_tz_index,
     key="settings_timezone",
     help="Used to detect your killzone/session from the entry time on New Trade.",
+    disabled=not _has_settings_owner,
 )
-if _chosen_tz != _current_tz:
-    set_timezone(_chosen_tz)
+if _has_settings_owner and _chosen_tz != _current_tz:
+    set_timezone(uid, _chosen_tz)
     st.toast("Trading timezone saved", icon="✅")
+elif not _has_settings_owner:
+    st.caption("Trading timezone preferences are unavailable for this legacy login.")
 
 st.divider()
 
 # ── Data Management ───────────────────────────────────────────────
 st.subheader("Data Management")
 
-trades = get_trades(user_id=current_user_id())
+trades = get_trades(user_id=uid)
 df_export = pd.DataFrame(
     [{col: getattr(t, col, None) for col in CSV_COLUMNS} for t in trades]
 )
@@ -145,9 +152,7 @@ with imp_col:
     st.caption("Tip: Export first to see the required column format.")
     uploaded = st.file_uploader("Upload trades CSV", type=["csv"])
     if uploaded is not None:
-        rows_inserted, skipped, errors = import_trades_csv(
-            uploaded, user_id=current_user_id()
-        )
+        rows_inserted, skipped, errors = import_trades_csv(uploaded, user_id=uid)
         if rows_inserted or skipped:
             st.toast(
                 f"Imported {rows_inserted} trades. Skipped {skipped} duplicates.",
@@ -161,7 +166,7 @@ with imp_col:
 st.markdown("")
 
 # ── Sample data ───────────────────────────────────────────────────
-sample_count = count_sample_trades(current_user_id())
+sample_count = count_sample_trades(uid)
 st.markdown("**Demo Data**")
 st.caption(
     f"Sample trades currently loaded: {sample_count}. "
@@ -171,7 +176,7 @@ st.caption(
 load_col, clear_col = st.columns(2)
 with load_col:
     if st.button("Load sample trades", width="stretch"):
-        st.session_state["_sample_loaded_n"] = load_sample_trades(current_user_id())
+        st.session_state["_sample_loaded_n"] = load_sample_trades(uid)
         st.rerun()
 with clear_col:
     if st.button(
@@ -179,7 +184,7 @@ with clear_col:
         width="stretch",
         disabled=sample_count == 0,
     ):
-        removed = clear_sample_trades(current_user_id())
+        removed = clear_sample_trades(uid)
         st.toast(f"Removed {removed} demo trades", icon="✅")
         st.rerun()
 
@@ -200,19 +205,22 @@ st.divider()
 
 # ── AI Cost (current month) ───────────────────────────────────────
 st.subheader("AI Cost — This Month")
-_today = datetime.date.today()
-_cost_df = monthly_cost_by_feature(_today.year, _today.month)
-if _cost_df.empty:
-    st.caption("No AI spend recorded this month.")
+if not _has_settings_owner:
+    st.caption("AI cost history is unavailable for this legacy login.")
 else:
-    _disp = _cost_df.copy()
-    _total = float(_disp["cost_usd"].sum())
-    _disp["cost_usd"] = _disp["cost_usd"].apply(lambda v: f"${v:.4f}")
-    _disp = _disp.rename(
-        columns={"feature": "Feature", "cost_usd": "Cost", "calls": "Calls"}
-    )
-    st.dataframe(_disp, hide_index=True, width="stretch")
-    st.caption(f"Total this month: ${_total:.4f}")
+    _today = datetime.date.today()
+    _cost_df = monthly_cost_by_feature(_today.year, _today.month, user_id=uid)
+    if _cost_df.empty:
+        st.caption("No AI spend recorded this month.")
+    else:
+        _disp = _cost_df.copy()
+        _total = float(_disp["cost_usd"].sum())
+        _disp["cost_usd"] = _disp["cost_usd"].apply(lambda v: f"${v:.4f}")
+        _disp = _disp.rename(
+            columns={"feature": "Feature", "cost_usd": "Cost", "calls": "Calls"}
+        )
+        st.dataframe(_disp, hide_index=True, width="stretch")
+        st.caption(f"Total this month: ${_total:.4f}")
 
 st.divider()
 
@@ -233,19 +241,20 @@ with st.expander("Delete all trades", expanded=False):
         "This will **permanently delete all your trades** (sample and real). "
         "Type **DELETE** to confirm."
     )
-    typed = st.text_input("Type DELETE to confirm", key="danger_confirm")
+    if not _has_settings_owner:
+        st.caption("Trade deletion is unavailable for this legacy login.")
+    typed = st.text_input(
+        "Type DELETE to confirm",
+        key="danger_confirm",
+        disabled=not _has_settings_owner,
+    )
     if st.button(
         "Delete ALL trades",
         type="primary",
-        disabled=typed != "DELETE",
+        disabled=not _has_settings_owner or typed != "DELETE",
     ):
-        db = SessionLocal()
         try:
-            deleted = db.query(Trade).delete()
-            db.commit()
+            deleted = delete_all_trades(uid)
             st.toast(f"Deleted {deleted} trade(s)", icon="✅")
         except Exception as exc:
-            db.rollback()
             st.toast(f"Delete failed: {exc}", icon="❌")
-        finally:
-            db.close()

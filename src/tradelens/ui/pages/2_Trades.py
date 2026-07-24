@@ -58,6 +58,8 @@ st.set_page_config(page_title="Journal", layout="wide")
 inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
+uid = current_user_id()
+_strategy_profile = get_active_strategy(uid) if uid is not None else None
 render_demo_banner()
 render_sidebar()
 render_corrections_sidebar()
@@ -125,7 +127,7 @@ with st.container(border=True):
     trades_all = get_trades(
         start_date=str(start_date),
         end_date=str(end_date),
-        user_id=current_user_id(),
+        user_id=uid,
     )
     asset_opts = sorted({t.asset for t in trades_all if t.asset})
     setup_opts = ["All"] + sorted({t.setup_type for t in trades_all if t.setup_type})
@@ -320,7 +322,7 @@ if len(trades) >= 2:
             )
         else:
             _sum_sig = (
-                current_user_id(),
+                uid,
                 str(start_date),
                 str(end_date),
                 tuple(assets_sel),
@@ -348,14 +350,14 @@ if len(trades) >= 2:
                     try:
                         _review, _usage = generate_debrief(
                             trades,
-                            strategy_profile=get_active_strategy(),
+                            strategy_profile=_strategy_profile,
                             period_label=(
                                 f"Selected trades {start_date} → {end_date} "
                                 f"({len(trades)} trades matching the current "
                                 "Journal filters)"
                             ),
                         )
-                        log_ai_usage("Trade Summary", _usage, user_id=current_user_id())
+                        log_ai_usage("Trade Summary", _usage, user_id=uid)
                         st.session_state["_trades_summary"] = {
                             "sig": _sum_sig,
                             "review": _review,
@@ -477,7 +479,7 @@ def _render_screenshot(file_path) -> bool:
 
 # ── Trade detail panel ────────────────────────────────────────────
 if selected_id is not None:
-    trade = get_trade(selected_id)
+    trade = get_trade(selected_id, user_id=uid)
     if trade is None:
         st.stop()
 
@@ -501,7 +503,9 @@ if selected_id is not None:
                 save_screenshot(trade.id, up)
                 st.toast("Screenshot added", icon="✅")
                 st.rerun()
-        render_screenshot_analyzer(trade, get_active_strategy())
+        render_screenshot_analyzer(
+            trade, user_id=uid, strategy_profile=_strategy_profile
+        )
 
     _did, _improve, _rule, _extra_notes = _split_notes(trade.notes)
 
@@ -594,6 +598,7 @@ if selected_id is not None:
         if st.button("Save changes", type="primary", key="edit_save"):
             update_trade(
                 trade.id,
+                user_id=uid,
                 result=new_result,
                 pnl=new_pnl,
                 user_grade=None if new_grade == "—" else new_grade,
@@ -606,13 +611,14 @@ if selected_id is not None:
         st.warning("Deleting this trade can't be undone.")
         confirm = st.checkbox("I'm sure", key="delete_confirm")
         if st.button("Delete trade", disabled=not confirm, key="delete_btn"):
-            delete_trade(trade.id)
-            st.session_state.pop("selected_trade_id", None)
-            st.toast("Trade deleted", icon="✅")
-            st.rerun()
+            if delete_trade(trade.id, user_id=uid):
+                st.session_state.pop("selected_trade_id", None)
+                st.toast("Trade deleted", icon="✅")
+                st.rerun()
+            st.stop()
 
     # ── AI Review (journal + process grade) ───────────────────────
-    render_ai_review(trade, get_active_strategy(), user_id=current_user_id())
+    render_ai_review(trade, _strategy_profile, user_id=uid)
 
     # ── Ask AI About This Trade ───────────────────────────────────
-    render_ask_ai(trade, get_active_strategy())
+    render_ask_ai(trade, _strategy_profile)

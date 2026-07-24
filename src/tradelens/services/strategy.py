@@ -118,39 +118,51 @@ def _to_dict(row: Strategy) -> dict:
     }
 
 
-def get_active_strategy() -> Optional[dict]:
+def _require_concrete_user_id(user_id: int) -> int:
+    """Return a concrete strategy owner ID or reject ownerless access."""
+    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
+        raise ValueError("user_id must be a positive integer")
+    return user_id
+
+
+def get_active_strategy(user_id: int) -> Optional[dict]:
     """
-    Return the active Strategy profile as a plain dict, or None if none exists.
-    Queries WHERE is_active = 1.
+    Return a user's active Strategy profile as a plain dict, or None if none exists.
     """
+    user_id = _require_concrete_user_id(user_id)
     db = SessionLocal()
     try:
-        row = db.query(Strategy).filter(Strategy.is_active == 1).first()
+        row = (
+            db.query(Strategy)
+            .filter(Strategy.user_id == user_id, Strategy.is_active == 1)
+            .first()
+        )
         return _to_dict(row) if row else None
     finally:
         db.close()
 
 
-def upsert_strategy_profile(**fields) -> dict:
+def upsert_strategy_profile(user_id: int, **fields) -> dict:
     """
-    Create or update the single active strategy profile.
+    Create or update a user's single active strategy profile.
 
     Semantics:
-    - Deactivate all existing rows (is_active = 0) first to enforce single-active.
-    - If an active row already exists, update it in-place.
-    - If no rows exist at all, create a new one.
+    - Deactivate this user's existing rows (is_active = 0) first.
+    - If this user already has a row, update it in-place.
+    - If this user has no rows, create a new one.
     - Always sets is_active = 1, refreshes updated_at, sets created_at on first create.
     - Returns the saved profile as a dict.
     """
+    user_id = _require_concrete_user_id(user_id)
     now = datetime.now(timezone.utc).isoformat()
     db = SessionLocal()
     try:
-        # Enforce single active: deactivate all first
-        db.query(Strategy).update({"is_active": 0})
+        # Enforce one active profile for this user only.
+        db.query(Strategy).filter(Strategy.user_id == user_id).update({"is_active": 0})
 
-        row = db.query(Strategy).first()
+        row = db.query(Strategy).filter(Strategy.user_id == user_id).first()
         if row is None:
-            row = Strategy(is_active=1, created_at=now, updated_at=now)
+            row = Strategy(user_id=user_id, is_active=1, created_at=now, updated_at=now)
             db.add(row)
         else:
             row.is_active = 1
@@ -169,9 +181,9 @@ def upsert_strategy_profile(**fields) -> dict:
         db.close()
 
 
-def append_insight(insight: str, field: str = "risk_rules") -> dict:
+def append_insight(user_id: int, insight: str, field: str = "risk_rules") -> dict:
     """
-    Append a pattern's suggested rule to a Text field of the active profile.
+    Append a pattern's suggested rule to a Text field of the user's active profile.
 
     Powers the Analytics "Add to Strategy Profile" button. Creates an active
     profile if none exists. Existing content is preserved — the insight is added
@@ -179,6 +191,7 @@ def append_insight(insight: str, field: str = "risk_rules") -> dict:
 
     Raises ValueError if `field` is not a writable profile field.
     """
+    user_id = _require_concrete_user_id(user_id)
     if field not in _PROFILE_FIELDS:
         raise ValueError(f"Unknown strategy field: {field}")
 
@@ -186,10 +199,18 @@ def append_insight(insight: str, field: str = "risk_rules") -> dict:
     now = datetime.now(timezone.utc).isoformat()
     db = SessionLocal()
     try:
-        row = db.query(Strategy).filter(Strategy.is_active == 1).first()
+        row = (
+            db.query(Strategy)
+            .filter(Strategy.user_id == user_id, Strategy.is_active == 1)
+            .first()
+        )
         if row is None:
             row = Strategy(
-                name="My Strategy", is_active=1, created_at=now, updated_at=now
+                user_id=user_id,
+                name="My Strategy",
+                is_active=1,
+                created_at=now,
+                updated_at=now,
             )
             db.add(row)
             db.flush()

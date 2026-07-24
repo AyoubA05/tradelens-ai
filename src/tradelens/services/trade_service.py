@@ -6,7 +6,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session, selectinload
 
-from src.tradelens.db.models import Trade
+from src.tradelens.db.models import AIAnalysis, Correction, Screenshot, Trade
 from src.tradelens.db.session import SessionLocal
 
 
@@ -162,10 +162,9 @@ def get_trades(
     If a parameter is None, do not filter on it.
     Order by trade_date DESC.
 
-    user_id scoping (Session B): when provided, returns trades owned by that user
-    OR legacy trades with a NULL owner (so existing data stays visible). Passing
-    None scopes to NULL-owner trades only (the secrets-fallback legacy user).
-    Omitting the argument applies no user filter (all trades).
+    user_id scoping: when provided, returns only trades owned by that exact user.
+    Passing None scopes to NULL-owner trades only (the secrets-fallback legacy
+    user). Omitting the argument applies no user filter (all trades).
     """
     db: Session = SessionLocal()
     try:
@@ -184,20 +183,15 @@ def get_trades(
         if strategy:
             query = query.filter(Trade.strategy_used.ilike(f"%{strategy}%"))
         if user_id is not _UNSCOPED:
-            if user_id is None:
-                query = query.filter(Trade.user_id.is_(None))
-            else:
-                query = query.filter(
-                    (Trade.user_id == user_id) | (Trade.user_id.is_(None))
-                )
+            query = query.filter(Trade.user_id == user_id)
 
         return query.order_by(Trade.trade_date.desc()).all()
     finally:
         db.close()
 
 
-def get_trade(trade_id: int) -> Optional[Trade]:
-    """Return a single trade (relationships eager-loaded), or None.
+def get_trade(trade_id: int, user_id: Optional[int]) -> Optional[Trade]:
+    """Return an exact-owner trade (relationships eager-loaded), or None.
 
     Root cause of the Journal-page error (Item 11): this returned the Trade
     with only `screenshots` eager-loaded and then closed the session — so any
@@ -211,21 +205,27 @@ def get_trade(trade_id: int) -> Optional[Trade]:
         return (
             db.query(Trade)
             .options(selectinload(Trade.screenshots), selectinload(Trade.ai_analysis))
-            .filter(Trade.id == trade_id)
+            .filter(Trade.id == trade_id, Trade.user_id == user_id)
             .first()
         )
     finally:
         db.close()
 
 
-def update_trade(trade_id: int, **fields) -> Optional[Trade]:
-    """Update editable fields on a trade. Unknown keys are ignored. Returns the
-    refreshed Trade, or None if it does not exist."""
-    valid_cols = {c.key for c in Trade.__table__.columns} - {"id"}
+def update_trade(trade_id: int, user_id: Optional[int], **fields) -> Optional[Trade]:
+    """Update editable fields on an exact-owner trade, or return None.
+
+    Ownership and primary keys are never editable through this API.
+    """
+    valid_cols = {c.key for c in Trade.__table__.columns} - {"id", "user_id"}
     updates = {k: v for k, v in fields.items() if k in valid_cols}
     db: Session = SessionLocal()
     try:
-        trade = db.query(Trade).filter(Trade.id == trade_id).first()
+        trade = (
+            db.query(Trade)
+            .filter(Trade.id == trade_id, Trade.user_id == user_id)
+            .first()
+        )
         if trade is None:
             return None
         for key, value in updates.items():
@@ -238,17 +238,57 @@ def update_trade(trade_id: int, **fields) -> Optional[Trade]:
         db.close()
 
 
-def delete_trade(trade_id: int) -> bool:
-    """Delete a trade (and its screenshots/analysis via cascade). Returns True
-    when a row was removed."""
+def delete_trade(trade_id: int, user_id: Optional[int]) -> bool:
+    """Delete an exact-owner trade and return whether a row was removed."""
     db: Session = SessionLocal()
     try:
-        trade = db.query(Trade).filter(Trade.id == trade_id).first()
+        trade = (
+            db.query(Trade)
+            .filter(Trade.id == trade_id, Trade.user_id == user_id)
+            .first()
+        )
         if trade is None:
             return False
         db.delete(trade)
         db.commit()
         return True
+    finally:
+        db.close()
+
+
+def delete_all_trades(user_id: int) -> int:
+    """Delete every trade owned by one concrete user and return the row count."""
+    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
+        raise ValueError("user_id must be a positive integer")
+
+    db: Session = SessionLocal()
+    try:
+        trade_ids = [
+            trade_id
+            for (trade_id,) in db.query(Trade.id).filter(Trade.user_id == user_id).all()
+        ]
+        if not trade_ids:
+            return 0
+
+        db.query(Correction).filter(Correction.trade_id.in_(trade_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(AIAnalysis).filter(AIAnalysis.trade_id.in_(trade_ids)).delete(
+            synchronize_session=False
+        )
+        db.query(Screenshot).filter(Screenshot.trade_id.in_(trade_ids)).delete(
+            synchronize_session=False
+        )
+        deleted = (
+            db.query(Trade)
+            .filter(Trade.user_id == user_id, Trade.id.in_(trade_ids))
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+        return deleted
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 

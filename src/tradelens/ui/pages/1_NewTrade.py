@@ -13,7 +13,10 @@ from html import escape  # noqa: E402
 
 import streamlit as st  # noqa: E402
 
-from src.tradelens.services.app_settings import get_timezone  # noqa: E402
+from src.tradelens.services.app_settings import (  # noqa: E402
+    DEFAULT_TIMEZONE,
+    get_timezone,
+)
 from src.tradelens.services.assets import (  # noqa: E402
     OTHER,
     detect_asset_class,
@@ -74,6 +77,7 @@ st.set_page_config(page_title="New Trade")
 inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
+uid = current_user_id()
 render_demo_banner()
 render_sidebar()
 st.markdown(
@@ -139,7 +143,7 @@ def _time_str(t) -> str:
 
 
 # ── Strategy Profile autofill (safe, non-trade-specific defaults) ──
-_strategy = get_active_strategy()
+_strategy = get_active_strategy(uid) if uid is not None else None
 _profile_markets = parse_markets(_strategy)
 _profile_setups = parse_setups(_strategy)
 _profile_mistakes = parse_mistakes(_strategy)
@@ -232,7 +236,8 @@ with tabs[1]:
         )
     entry_time = parse_time_input(entry_time_raw)
 
-    user_tz = get_timezone()
+    has_settings_owner = isinstance(uid, int) and not isinstance(uid, bool) and uid > 0
+    user_tz = get_timezone(uid) if has_settings_owner else DEFAULT_TIMEZONE
     # Session is auto-derived from the entry time — no manual session/killzone input.
     session = detect_session(entry_time, trade_date, user_tz)
     killzone = detect_killzone(entry_time, trade_date, user_tz)  # silent, for analytics
@@ -634,7 +639,7 @@ def _build_trade_data() -> dict:
         "emotions_after": emo_after if emo_after and emo_after != "—" else None,
         "notes": extra_notes or None,
         "trade_process_notes": process_notes.strip() or None,
-        "user_id": current_user_id(),
+        "user_id": uid,
     }
 
 
@@ -698,7 +703,7 @@ def _do_save(override: bool) -> None:
         _error_box("Please fix before saving:\n" + "\n".join(f"• {e}" for e in errors))
         return
 
-    if not override and find_recent_duplicate(data, user_id=current_user_id()):
+    if not override and find_recent_duplicate(data, user_id=uid):
         st.session_state["_nt_dup_pending"] = True
         st.rerun()
 

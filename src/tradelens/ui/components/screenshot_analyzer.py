@@ -30,7 +30,7 @@ from src.tradelens.utils.ai_utils import ai_available
 _BIAS_OPTIONS = ["Bullish", "Bearish", "Neutral"]
 
 
-def render_screenshot_analyzer(trade, strategy_profile=None) -> None:
+def render_screenshot_analyzer(trade, user_id, strategy_profile=None) -> None:
     """Render the AI screenshot analysis panel for a saved trade."""
     import streamlit as st
 
@@ -143,7 +143,9 @@ def render_screenshot_analyzer(trade, strategy_profile=None) -> None:
         record_correction(
             trade.id, existing.id, "trade_quality", ai.get("trade_quality"), quality
         )
-        update_trade(trade.id, bias=bias.lower(), setup_type=setup or None)
+        update_trade(
+            trade.id, user_id=user_id, bias=bias.lower(), setup_type=setup or None
+        )
         st.toast("Applied to trade", icon="✅")
         st.rerun()
     if a2.button("Dismiss", key=f"ai_dismiss_{trade.id}"):
