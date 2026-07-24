@@ -287,8 +287,11 @@ k4.metric("Expectancy", _money(compute_expectancy(m)))
 k5, k6, k7, k8 = st.columns(4)
 k5.metric("Avg Win", _money(m["avg_win"]))
 k6.metric("Avg Loss", _money(m["avg_loss"]))
-k7.metric("Largest Win", _money(m["best_trade"]))
-k8.metric("Largest Loss", _money(m["worst_trade"]))
+# best_trade/worst_trade are the extremes of the P&L column, so on an
+# all-losing sample the "largest win" would report a loss. Show a dash
+# until a trade of that kind actually exists.
+k7.metric("Largest Win", _money(m["best_trade"]) if m["wins"] else "—")
+k8.metric("Largest Loss", _money(m["worst_trade"]) if m["losses"] else "—")
 
 eq_df = equity_curve_series(df)
 if not _state.show_series:

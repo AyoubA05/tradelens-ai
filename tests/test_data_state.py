@@ -138,3 +138,13 @@ def test_dashboard_with_two_dated_trades_draws_the_curve(tmp_path):
     """The same page still charts as soon as the sample supports it."""
     proc = _boot(APP, "-", "1", tmp_path)
     assert proc.returncode == 0, f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+
+
+def test_analytics_does_not_report_a_losing_largest_win():
+    """best_trade is the max of the P&L column, so an all-losing sample
+    would otherwise show 'Largest Win: -$500.00'."""
+    src = (ROOT / "src" / "tradelens" / "ui" / "pages" / "4_Analytics.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'if m["wins"] else "—"' in src
+    assert 'if m["losses"] else "—"' in src
