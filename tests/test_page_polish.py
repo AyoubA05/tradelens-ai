@@ -203,3 +203,41 @@ def test_ai_call_owners_show_loading_feedback(path):
     show a spinner rather than freezing the pane with no feedback."""
     src = path.read_text(encoding="utf-8")
     assert "st.spinner" in src, f"{path.name}: AI call path needs st.spinner feedback"
+
+
+# ---------------------------------------------------------------------------
+# Constraint — New Trade shows exactly one progress system
+# ---------------------------------------------------------------------------
+
+
+def test_new_trade_has_one_progress_component():
+    """The wizard used numbered tabs AND a numbered rail on every step.
+
+    Two indicators for one position is noise, and they had to be kept in
+    sync by hand. st.tabs is the surviving system: it is also the page's
+    navigation, and unlike a rail it renders every step's body each run —
+    which is what keeps the save payload's values defined.
+    """
+    src = _src("1_NewTrade.py")
+    assert src.count("render_step_indicator(") == 0
+    assert src.count("st.tabs(") == 1
+
+
+def test_new_trade_steps_are_numbered_once():
+    """Step numbers live on the tabs and nowhere else."""
+    src = _src("1_NewTrade.py")
+    for n, label in enumerate(
+        ["Screenshot & AI", "Market Context", "Trade Details", "Psychology"], start=1
+    ):
+        assert f'"{n} · {label}"' in src
+
+
+def test_review_hides_blank_rows_instead_of_listing_them():
+    """Review & Save must not repeat 'Not entered yet' down the page.
+
+    Blank optional rows collapse to one per-section count; a section with
+    nothing filled in is dropped entirely.
+    """
+    src = _src("1_NewTrade.py")
+    assert "value != _NOT_ENTERED" in src
+    assert "optional field" in src

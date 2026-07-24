@@ -65,7 +65,6 @@ from src.tradelens.ui.design_system import (  # noqa: E402
     render_badge,
     render_banner,
     render_chip_row,
-    render_step_indicator,
 )
 from src.tradelens.utils.format import humanize, parse_price  # noqa: E402
 
@@ -129,7 +128,6 @@ DEFAULT_MISTAKES = [
     "Bad Stop Placement",
 ]
 EMOTIONS = ["Calm", "Confident", "Focused", "Anxious", "FOMO", "Revenge", "Neutral"]
-WIZARD_STEPS = ["Chart", "Context", "Trade Details", "Psychology", "Review"]
 
 
 def _dedup(seq):
@@ -184,7 +182,6 @@ tabs = st.tabs(
 # Step 1 — Screenshot & AI Autofill (screenshot-first; Bug 2 + Change A)
 # ══════════════════════════════════════════════════════════════════
 with tabs[0]:
-    st.markdown(render_step_indicator(1, WIZARD_STEPS), unsafe_allow_html=True)
     st.markdown("#### Start with your chart")
     st.caption(
         "Upload your TradingView screenshot. The AI reviews it automatically — "
@@ -224,7 +221,6 @@ with tabs[0]:
 # Step 2 — Market Context (Timing + Market Context merged; Change B)
 # ══════════════════════════════════════════════════════════════════
 with tabs[1]:
-    st.markdown(render_step_indicator(2, WIZARD_STEPS), unsafe_allow_html=True)
     st.markdown("#### Timing")
     c1, c2 = st.columns(2)
     with c1:
@@ -319,7 +315,6 @@ def _avoid_list_match(setup: str, avoided_raw: str) -> "str | None":
 
 
 with tabs[2]:
-    st.markdown(render_step_indicator(3, WIZARD_STEPS), unsafe_allow_html=True)
     st.markdown("#### Setup & Confirmation")
     setup_type = st.selectbox("Setup Model", SETUP_OPTIONS, key="nt_setup")
 
@@ -516,7 +511,6 @@ with tabs[2]:
 # Step 4 — Psychology (Change G — Notes field removed)
 # ══════════════════════════════════════════════════════════════════
 with tabs[3]:
-    st.markdown(render_step_indicator(4, WIZARD_STEPS), unsafe_allow_html=True)
     st.markdown("#### Honest Trade Review")
     # Item 8: mechanical process notes — what the chart did and what the trader
     # did, separate from emotional state. Feeds the per-trade AI review.
@@ -750,14 +744,32 @@ def _tv_note(text: str, max_len: int = 70) -> str:
 
 
 def _ticket_section(title: str, rows: list) -> str:
+    """Render only the rows the trader actually filled in.
+
+    A review that lists every blank as "Not entered yet" announces
+    incompleteness at the moment the trader is trying to finish. Blanks
+    collapse into one count per section, and a section with nothing in it
+    is dropped entirely.
+    """
+    filled = [(label, value) for label, value in rows if value != _NOT_ENTERED]
+    blanks = len(rows) - len(filled)
+    if not filled:
+        return ""
+
     body = "".join(
         '<div style="display:flex;justify-content:space-between;gap:16px;'
         'padding:3px 0">'
         f'<span style="color:var(--tl-text-muted);font-size:12px;'
         f'text-transform:uppercase;letter-spacing:0.04em">{escape(label)}</span>'
         f'<span style="text-align:right">{value}</span></div>'
-        for label, value in rows
+        for label, value in filled
     )
+    if blanks:
+        body += (
+            '<div style="padding:3px 0">'
+            f'<span style="{_FAINT}">{blanks} optional field'
+            f'{"s" if blanks != 1 else ""} left blank</span></div>'
+        )
     return f"<h3>{escape(title)}</h3>{body}"
 
 
@@ -892,7 +904,6 @@ def _ticket_html(data: dict) -> str:
 # Step 5 — Review & Save
 # ══════════════════════════════════════════════════════════════════
 with tabs[4]:
-    st.markdown(render_step_indicator(5, WIZARD_STEPS), unsafe_allow_html=True)
     st.markdown("#### Review & Save")
 
     if st.session_state.get("just_saved_trade_id"):
