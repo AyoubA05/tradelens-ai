@@ -483,6 +483,21 @@ def build_css() -> str:
   max-width: 280px;
   margin: 0 auto;
 }}
+/* Low-data explanation shown in place of a chart. Same surface as the
+   empty card, but compact: an explanation should not occupy the canvas
+   the withheld chart would have. Spacing only — no new colors. */
+.tl-data-state .tl-empty-card {{
+  padding: var(--tl-space-6) var(--tl-space-5);
+  text-align: left;
+}}
+.tl-data-state .tl-empty-card .icon {{
+  font-size: 18px;
+  margin-bottom: var(--tl-space-2);
+}}
+.tl-data-state .tl-empty-card p {{
+  max-width: 46ch;
+  margin: 0;
+}}
 .tl-empty-img {{
   max-width: 280px;
   width: 100%;

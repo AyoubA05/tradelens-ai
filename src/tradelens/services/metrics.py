@@ -28,7 +28,7 @@ def _safe_float(value) -> float:
         return 0.0
 
 
-def _outcome_masks(df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series]:
+def outcome_masks(df: pd.DataFrame) -> Tuple[pd.Series, pd.Series, pd.Series]:
     """
     Return (win_mask, loss_mask, be_mask) boolean Series.
 
@@ -86,7 +86,7 @@ def compute_basic_metrics(df: pd.DataFrame) -> dict:
     """
     Compute performance metrics from a DataFrame of trades.
 
-    Outcome classification (wins/losses/breakevens/rates) uses _outcome_masks():
+    Outcome classification (wins/losses/breakevens/rates) uses outcome_masks():
     result string primary, pnl fallback. Money metrics always use pnl column.
     All returned floats are guaranteed non-NaN.
     """
@@ -96,7 +96,7 @@ def compute_basic_metrics(df: pd.DataFrame) -> dict:
     total = len(df)
     pnl = pd.to_numeric(df["pnl"], errors="coerce")
 
-    win_mask, loss_mask, be_mask = _outcome_masks(df)
+    win_mask, loss_mask, be_mask = outcome_masks(df)
 
     wins = int(win_mask.sum())
     losses = int(loss_mask.sum())
@@ -339,7 +339,7 @@ def compute_breakdown(df: pd.DataFrame, by: str) -> pd.DataFrame:
     Useful group-by values: "session", "asset", "day_of_week", "bias".
     Any column present in the DataFrame is valid.
 
-    Win/loss classification uses _outcome_masks() (result string primary, pnl fallback).
+    Win/loss classification uses outcome_masks() (result string primary, pnl fallback).
     Money metrics (avg_pnl, total_pnl) use the pnl column.
     NaN pnl rows count toward trade totals but are excluded from pnl averages.
 
@@ -361,7 +361,7 @@ def compute_breakdown(df: pd.DataFrame, by: str) -> pd.DataFrame:
         else pd.Series([float("nan")] * len(df), index=df.index)
     )
 
-    win_mask, loss_mask, be_mask = _outcome_masks(df)
+    win_mask, loss_mask, be_mask = outcome_masks(df)
     work["_win"] = win_mask.astype(int)
     work["_loss"] = loss_mask.astype(int)
     work["_be"] = be_mask.astype(int)
@@ -541,7 +541,7 @@ def _group_with_rr(
     Core groupby engine shared by the by_* functions.
 
     Excludes rows where the group-by column is null. Outcome classification
-    uses _outcome_masks() (result string primary, pnl fallback). avg_rr_realized
+    uses outcome_masks() (result string primary, pnl fallback). avg_rr_realized
     uses pandas skipna mean.
 
     Returns: [by, trades, wins, losses, breakevens, win_rate, avg_rr_realized, total_pnl]
@@ -570,7 +570,7 @@ def _group_with_rr(
         else pd.Series([float("nan")] * len(work), index=work.index)
     )
 
-    win_mask, loss_mask, be_mask = _outcome_masks(work)
+    win_mask, loss_mask, be_mask = outcome_masks(work)
     work["_win"] = win_mask.astype(int)
     work["_loss"] = loss_mask.astype(int)
     work["_be"] = be_mask.astype(int)
@@ -768,7 +768,7 @@ def by_setup_type(trades: pd.DataFrame) -> pd.DataFrame:
         return empty
 
     work["_count"] = 1
-    win_mask, loss_mask, be_mask = _outcome_masks(work)
+    win_mask, loss_mask, be_mask = outcome_masks(work)
     work["_win"] = win_mask.astype(int)
     work["_loss"] = loss_mask.astype(int)
     work["_be"] = be_mask.astype(int)
@@ -1215,7 +1215,7 @@ def calendar_daily_pnl(trades: pd.DataFrame, year: int, month: int) -> pd.DataFr
         return empty
 
     work["_pnl"] = pd.to_numeric(work["pnl"], errors="coerce").fillna(0.0)
-    win_mask, loss_mask, _ = _outcome_masks(work)
+    win_mask, loss_mask, _ = outcome_masks(work)
     work["_win"] = win_mask.astype(int)
     work["_loss"] = loss_mask.astype(int)
     work["_count"] = 1

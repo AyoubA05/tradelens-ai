@@ -38,6 +38,10 @@ from src.tradelens.ui.components.auth import (  # noqa: E402
     require_auth,
 )
 from src.tradelens.ui.components.charts import equity_curve_chart  # noqa: E402
+from src.tradelens.ui.components.data_state import (  # noqa: E402
+    render_data_state,
+    sample_state,
+)
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.trade_calendar import (  # noqa: E402
@@ -256,7 +260,16 @@ render_trade_calendar(df)
 # ── Row 2: Equity curve (full width) ──────────────────────────────
 st.markdown(render_section_header("Equity Curve"), unsafe_allow_html=True)
 eq = daily_equity_curve(df)
-if not eq.empty:
+_state = sample_state(df)
+if not _state.show_series:
+    # A "curve" through one dated point is a dot on an axis — the chart
+    # canvas would imply a trend the sample cannot support.
+    render_data_state(
+        "Add one more dated trade",
+        "Two trading dates are needed to draw a meaningful curve.",
+        "📈",
+    )
+elif not eq.empty:
     fig = equity_curve_chart(eq)
     # Colors/grid/fonts come from the shared template (plotly default);
     # only size and margins are page-specific.

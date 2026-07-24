@@ -44,6 +44,25 @@ def main() -> int:
 
     init_db()
 
+    if seed == "one":
+        # Exactly one trade: the low-data case. Charts must be withheld.
+        from src.tradelens.db.models import Trade
+        from src.tradelens.db.session import SessionLocal
+
+        s = SessionLocal()
+        s.add(
+            Trade(
+                trade_date="2026-06-15",
+                asset="NQ",
+                direction="Long",
+                result="Loss",
+                pnl=-500.0,
+                killzone="ny_am",
+            )
+        )
+        s.commit()
+        s.close()
+
     if seed == "1":
         from src.tradelens.db.models import Trade
         from src.tradelens.db.session import SessionLocal
@@ -84,11 +103,23 @@ def main() -> int:
         return 2
 
     # marker == "-" means boot-only: assert no exception, skip the content check.
+    # A "no-charts:" prefix additionally asserts the page drew zero Plotly
+    # canvases — the low-data contract.
+    assert_no_charts = marker.startswith("no-charts:")
+    if assert_no_charts:
+        marker = marker[len("no-charts:") :]
+
     if marker != "-":
         markdowns = [m.value for m in at.markdown]
         if not any(marker in v for v in markdowns):
             print(f"marker not found: {marker}", file=sys.stderr)
             return 3
+
+    if assert_no_charts:
+        charts = at.get("plotly_chart")
+        if charts:
+            print(f"expected no charts, found {len(charts)}", file=sys.stderr)
+            return 4
 
     print("OK")
     return 0
