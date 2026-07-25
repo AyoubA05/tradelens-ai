@@ -110,6 +110,17 @@ def get_user(username: str) -> Optional[User]:
         db.close()
 
 
+def get_user_by_id(user_id) -> Optional[User]:
+    """Return an account by id, or None. Tolerates the legacy None owner."""
+    if user_id is None:
+        return None
+    db = SessionLocal()
+    try:
+        return db.query(User).filter(User.id == user_id).first()
+    finally:
+        db.close()
+
+
 def username_taken(username: str) -> bool:
     return get_user(username) is not None
 

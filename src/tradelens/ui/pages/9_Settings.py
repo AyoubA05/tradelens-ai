@@ -32,15 +32,24 @@ from src.tradelens.services.trade_service import (  # noqa: E402
     delete_all_trades,
     get_trades,
 )
+from src.tradelens.services.account import delete_account  # noqa: E402
+from src.tradelens.services.password_reset import (  # noqa: E402
+    email_configured as reset_email_configured,
+)
+from src.tradelens.services.users import get_user_by_id, set_email  # noqa: E402
 from src.tradelens.ui.components.auth import (  # noqa: E402
     current_user_id,
     require_auth,
+    sign_out,
 )
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import section_header  # noqa: E402
-from src.tradelens.ui.design_system import inject_design_system  # noqa: E402
+from src.tradelens.ui.design_system import (  # noqa: E402
+    inject_design_system,
+    render_banner,
+)
 
 st.set_page_config(page_title="Settings")
 inject_css()
@@ -224,6 +233,56 @@ else:
 
 st.divider()
 
+# ── Account ───────────────────────────────────────────────────────
+st.subheader("Account")
+
+if not _has_settings_owner:
+    st.caption("Account settings are unavailable for this legacy login.")
+else:
+    _account = get_user_by_id(uid)
+    _current_email = (_account.email if _account else None) or ""
+
+    st.markdown("**Recovery email**")
+    st.caption(
+        "Optional, and the only way back into your account if you forget "
+        "your password. Used for nothing else — no newsletters, no sharing."
+    )
+    if not _current_email:
+        st.markdown(
+            render_banner(
+                "No recovery email set. Without one, a forgotten password "
+                "cannot be recovered and the account is lost.",
+                "warning",
+            ),
+            unsafe_allow_html=True,
+        )
+
+    _email_input = st.text_input(
+        "Email address",
+        value=_current_email,
+        placeholder="you@example.com",
+        key="settings_email",
+    )
+    if st.button("Save email", key="settings_email_save"):
+        try:
+            saved = set_email(uid, _email_input)
+        except ValueError as exc:
+            st.markdown(render_banner(str(exc), "danger"), unsafe_allow_html=True)
+        else:
+            st.toast(
+                "Recovery email saved" if saved else "Recovery email cleared",
+                icon="✅",
+            )
+            st.rerun()
+
+    if not reset_email_configured():
+        st.caption(
+            "Note: outgoing email is not configured on this deployment yet, "
+            "so password reset messages cannot be delivered."
+        )
+
+st.divider()
+
 # ── Login / Secrets ───────────────────────────────────────────────
 st.subheader("Login")
 st.caption(
@@ -257,4 +316,39 @@ with st.expander("Delete all trades", expanded=False):
             deleted = delete_all_trades(uid)
             st.toast(f"Deleted {deleted} trade(s)", icon="✅")
         except Exception as exc:
+            st.toast(f"Delete failed: {exc}", icon="❌")
+
+with st.expander("Delete my account", expanded=False):
+    st.warning(
+        "This permanently deletes **your account and everything in it**: "
+        "every trade, note, and psychology entry, your Strategy Profile, "
+        "your saved reviews and AI analyses, your settings, and every chart "
+        "image you uploaded. It cannot be undone and there is no backup. "
+        "Export your trades first if you want to keep them."
+    )
+    st.caption(
+        "Anonymous records of what AI features cost to run are kept for "
+        "accounting, with no link to you or your trades."
+    )
+    if not _has_settings_owner:
+        st.caption("Account deletion is unavailable for this legacy login.")
+
+    _confirm_account = st.text_input(
+        "Type DELETE MY ACCOUNT to confirm",
+        key="danger_account_confirm",
+        disabled=not _has_settings_owner,
+    )
+    if st.button(
+        "Permanently delete my account",
+        key="secondary_delete_account",
+        disabled=not _has_settings_owner
+        or _confirm_account.strip() != "DELETE MY ACCOUNT",
+    ):
+        try:
+            if delete_account(uid):
+                sign_out()
+                st.stop()
+            else:
+                st.toast("Account not found", icon="❌")
+        except Exception as exc:  # noqa: BLE001 — never crash the page
             st.toast(f"Delete failed: {exc}", icon="❌")

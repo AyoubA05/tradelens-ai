@@ -166,6 +166,9 @@ def compliance_html() -> str:
 _MODE_KEY = "_auth_mode"  # "login" | "signup"
 _ERROR_KEY = "_login_error"
 _SIGNUP_ERR = "_signup_error"
+_RESET_MSG = "_reset_message"
+_RESET_OK = "_reset_ok"
+_RESET_DONE = "_reset_done"
 _SIGNUP_OK = "_signup_ok"
 _TOGGLE_KEY = "tl_auth_mode_toggle"
 _FLIP_KEY = "_auth_flip_to_login"
@@ -185,6 +188,66 @@ def _ok_html(message: str) -> str:
         '<div class="tl-auth-ok" role="status" aria-live="polite">'
         f"{escape(message)}</div>"
     )
+
+
+def _render_reset_panel() -> None:
+    """Request a reset code, then use it to set a new password.
+
+    Both steps live on one panel because the trader leaves to read their
+    inbox and comes back: hiding the second step behind a flow they have
+    already navigated away from just adds a wrong turn.
+    """
+    import streamlit as st
+
+    from src.tradelens.services.password_reset import complete_reset, request_reset
+
+    st.caption(
+        "We'll email a code to the address on your account. If you never "
+        "added one, the account cannot be recovered — contact support."
+    )
+
+    with st.form("tl_reset_request", clear_on_submit=False):
+        email = st.text_input("Email address", key="reset_email")
+        asked = st.form_submit_button("Email me a code", width="stretch")
+    if asked:
+        outcome = request_reset(email)
+        # Deliberately the same wording whether or not the address is
+        # registered — see password_reset.request_reset.
+        st.session_state[_RESET_MSG] = outcome.message
+        st.session_state[_RESET_OK] = outcome.accepted
+
+    if st.session_state.get(_RESET_MSG):
+        renderer = _ok_html if st.session_state.get(_RESET_OK) else _error_html
+        st.markdown(renderer(st.session_state[_RESET_MSG]), unsafe_allow_html=True)
+
+    st.markdown(
+        '<div class="tl-auth-sub">Already have a code?</div>',
+        unsafe_allow_html=True,
+    )
+    with st.form("tl_reset_complete", clear_on_submit=False):
+        code = st.text_input("Reset code", key="reset_code")
+        new_password = st.text_input(
+            "New password", type="password", key="reset_new_password"
+        )
+        applied = st.form_submit_button("Set new password", width="stretch")
+    if applied:
+        try:
+            changed = complete_reset(code.strip(), new_password)
+        except ValueError as exc:
+            st.markdown(_error_html(str(exc)), unsafe_allow_html=True)
+        else:
+            if changed:
+                st.session_state.pop(_RESET_MSG, None)
+                st.session_state[_RESET_DONE] = True
+                st.rerun()
+            else:
+                st.markdown(
+                    _error_html(
+                        "That code is not valid or has expired. Request a new "
+                        "one above."
+                    ),
+                    unsafe_allow_html=True,
+                )
 
 
 def render_auth_screen() -> None:
@@ -271,6 +334,11 @@ def render_auth_screen() -> None:
                     _ok_html("Account created. Sign in below."),
                     unsafe_allow_html=True,
                 )
+            if st.session_state.pop(_RESET_DONE, False):
+                st.markdown(
+                    _ok_html("Password updated. Sign in with your new password."),
+                    unsafe_allow_html=True,
+                )
             with st.form("tl_login", clear_on_submit=False):
                 username = st.text_input("Username", key="login_username")
                 password = st.text_input(
@@ -300,5 +368,11 @@ def render_auth_screen() -> None:
                 st.markdown(
                     _error_html(st.session_state[_ERROR_KEY]), unsafe_allow_html=True
                 )
+            # An expander rather than a mode switch: swapping the card's
+            # contents would remove the account toggle mid-session, and a
+            # trader who mistyped their password should not lose the form
+            # they were looking at to go and read their inbox.
+            with st.expander("Forgot your password?"):
+                _render_reset_panel()
 
         st.markdown(compliance_html(), unsafe_allow_html=True)
