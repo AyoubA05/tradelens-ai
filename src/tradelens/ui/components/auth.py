@@ -282,16 +282,29 @@ def require_auth() -> None:
     st.stop()
 
 
+def sign_out(rerun: bool = True) -> None:
+    """Clear the session and the persisted token.
+
+    Extracted so account deletion can end the session too: leaving a
+    signed-in session pointing at a user row that no longer exists would
+    put the app in a state nothing else expects.
+    """
+    import streamlit as st
+
+    st.session_state[_AUTH_KEY] = False
+    for key in (_USER_KEY, _UID_KEY, _ERROR_KEY, _MODE_KEY, _TOKEN_KEY):
+        st.session_state.pop(key, None)
+    st.query_params.pop(_TOKEN_PARAM, None)
+    if rerun:
+        st.rerun()
+
+
 def render_logout_button() -> None:
     """Render a logout control (intended for the sidebar)."""
     import streamlit as st
 
     if st.button("Sign out", key="tl_logout", width="stretch"):
-        st.session_state[_AUTH_KEY] = False
-        for key in (_USER_KEY, _UID_KEY, _ERROR_KEY, _MODE_KEY, _TOKEN_KEY):
-            st.session_state.pop(key, None)
-        st.query_params.pop(_TOKEN_PARAM, None)
-        st.rerun()
+        sign_out()
 
 
 def current_user() -> str | None:
