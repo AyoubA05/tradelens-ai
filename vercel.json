@@ -4,7 +4,7 @@
   "outputDirectory": "dist/site",
   "build": {
     "env": {
-      "SITE_ORIGIN": "https://www.tradelens-ai.com",
+      "SITE_ORIGIN": "https://tradelens-ai-site-git-main-ayouba05s-projects.vercel.app",
       "APP_ORIGIN": "https://tradelens-app.streamlit.app"
     }
   }

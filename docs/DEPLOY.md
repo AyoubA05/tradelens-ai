@@ -124,22 +124,37 @@ TradeLens sign-in screen without meeting anyone else's login wall. Both
 failure modes below shipped once and neither was visible from the repo,
 so this gate is checked against the live hosts.
 
+The canonical origin is currently the Vercel deployment URL, because
+`tradelens-ai.com` still serves an older, differently-positioned build
+from somewhere else. `SITE_ORIGIN` in `vercel.json` is the single place
+that decides this; change it there when the domain is repointed, and
+remember `TRADELENS_SITE_URL` on the Streamlit side is a separate
+setting that does not follow it automatically.
+
 1. Vercel Production Deployment Protection: Off.
-2. `tradelens-ai.com` points to this repository's production deployment.
-   (It served an older, differently-positioned build — check the page
-   title, not just that the domain resolves.)
-3. `www.tradelens-ai.com` redirects once to the canonical origin.
-4. Streamlit app visibility is Public, so anonymous visitors reach the
+2. `SITE_ORIGIN` matches the origin the site is actually served from, so
+   the canonical, OG, and JSON-LD URLs point at a reachable page.
+3. Streamlit app visibility is Public, so anonymous visitors reach the
    TradeLens auth screen rather than `share.streamlit.io/-/auth`.
-5. Run:
+4. Run:
 
    ```bash
    .venv/bin/python scripts/verify_public_funnel.py \
-     --site https://tradelens-ai.com \
+     --site https://tradelens-ai-site-git-main-ayouba05s-projects.vercel.app \
      --app https://tradelens-app.streamlit.app
    ```
 
-6. Expected: two PASS lines and exit code 0.
+5. Expected: two PASS lines and exit code 0.
 
-Items 1-4 are dashboard settings that code cannot change. The verifier
+Items 1-3 are dashboard settings that code cannot change. The verifier
 only reports them.
+
+### Known-failing today
+
+Running the command above reports, correctly:
+
+- `tradelens-ai.com` (if checked) serves a different build than this repo.
+- The app redirects anonymous visitors to Streamlit provider auth.
+
+Neither is fixable in code. Repoint the domain to the `tradelens-ai-site`
+project and set the Streamlit app's visibility to Public.
