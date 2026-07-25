@@ -114,39 +114,9 @@ p { text-wrap: pretty; }
   inset: 0;
   z-index: 3;
   pointer-events: none;
-  opacity: 0.05;
+  opacity: 0.025;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 160px 160px;
-}
-
-.glow {
-  position: fixed;
-  z-index: 0;
-  pointer-events: none;
-  width: 640px;
-  height: 640px;
-  border-radius: 50%;
-  filter: blur(120px);
-  opacity: 0.13;
-  background: radial-gradient(circle, var(--accent) 0%, transparent 65%);
-}
-
-.glow-a { top: -280px; left: -180px; }
-.glow-b { bottom: -320px; right: -200px; opacity: 0.09; }
-
-@media (prefers-reduced-motion: no-preference) {
-  .glow-a { animation: drift-a 26s ease-in-out infinite alternate; }
-  .glow-b { animation: drift-b 32s ease-in-out infinite alternate; }
-}
-
-@keyframes drift-a {
-  from { transform: translate(0, 0); }
-  to   { transform: translate(90px, 60px); }
-}
-
-@keyframes drift-b {
-  from { transform: translate(0, 0); }
-  to   { transform: translate(-70px, -80px); }
 }
 
 main { position: relative; z-index: 1; }
@@ -435,35 +405,6 @@ main { position: relative; z-index: 1; }
   .tilt-card { transform: rotateX(var(--tilt, 16deg)) scale(var(--tilt-scale, 1)); }
 }
 
-/* ---- scroll reveals (elements start hidden only when JS arms them) ----
-   Motion subtraction (SP1): no vertical travel anywhere. Bodies fade
-   opacity-only; section headers reveal with a left-to-right line-wipe. */
-
-@media (prefers-reduced-motion: no-preference) {
-  .reveals-armed [data-reveal] {
-    opacity: 0;
-    /* border-color/transform keep card hover transitions alive — this rule
-       outranks .card's own transition, so they must ride along here. */
-    transition: opacity 450ms var(--ease), border-color 250ms var(--ease),
-      transform 250ms var(--ease);
-    transition-delay: calc(var(--i, 0) * 40ms), 0ms, 0ms;
-  }
-
-  .reveals-armed [data-reveal].revealed {
-    opacity: 1;
-  }
-
-  .reveals-armed .section-head[data-reveal] {
-    opacity: 1;
-    clip-path: inset(-2% 100% -2% 0);
-    transition: clip-path 600ms var(--ease);
-  }
-
-  .reveals-armed .section-head[data-reveal].revealed {
-    clip-path: inset(-2% -2% -2% 0);
-  }
-}
-
 /* ---- section headers ---- */
 
 .section-head { max-width: 640px; margin-bottom: clamp(40px, 6vw, 64px); }
@@ -493,26 +434,7 @@ main { position: relative; z-index: 1; }
   }
 }
 
-.card-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.card-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  flex: none;
-  border-radius: 11px;
-  color: var(--accent);
-  background: var(--accent-dim);
-  border: 1px solid rgba(0, 229, 204, 0.22);
-}
-
-.card > p, .card-full-text > p {
+.card > p {
   color: var(--muted);
   font-size: 0.9375rem;
 }
@@ -559,43 +481,86 @@ main { position: relative; z-index: 1; }
   object-position: top center;
 }
 
-.feature-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+/* Editorial product stories.
+   Six rounded cards with tinted icon circles read as generated; a neutral
+   ledger of three stories with large product proof reads as authored.
+   Hairlines do the separating work that borders and shadows used to. */
+.story-list {
+  border-top: 1px solid var(--border);
 }
 
-.card-wide { grid-column: span 2; }
-
-.card-full {
-  grid-column: 1 / -1;
+.story {
   display: grid;
-  grid-template-columns: 1fr 1.4fr;
-  gap: 28px;
+  grid-template-columns: minmax(250px, 0.8fr) minmax(0, 1.6fr);
+  gap: clamp(32px, 6vw, 88px);
   align-items: center;
-  padding: 30px 0 0 30px;
+  padding-block: clamp(56px, 8vw, 104px);
+  border-bottom: 1px solid var(--border);
 }
 
-.card-full-text {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding-bottom: 30px;
+/* Alternate which side the proof sits on, so the eye re-enters the page.
+   The column template flips with it: reordering alone would hand the copy
+   the wide track and shrink the screenshot on every second row. */
+.story:nth-child(even) {
+  grid-template-columns: minmax(0, 1.6fr) minmax(250px, 0.8fr);
+}
+.story:nth-child(even) .story-copy { order: 2; }
+
+.story-copy h3 {
+  font-size: clamp(1.5rem, 2.4vw, 2.15rem);
 }
 
-.card-full .shot-frame {
+.story-copy > p {
+  margin-top: 16px;
+  color: var(--muted);
+  max-width: 46ch;
+}
+
+.story-facts {
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.story-facts li {
+  padding-block: 9px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.story-proof {
   margin: 0;
-  border-radius: 12px 0 0 0;
-  border-right: none;
-  align-self: stretch;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  overflow: hidden;
 }
 
-.card-full .shot-frame img { height: 100%; aspect-ratio: auto; }
+.story-proof img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
 
-@media (max-width: 1024px) {
-  .feature-grid { grid-template-columns: repeat(2, 1fr); }
-  .card-wide { grid-column: span 2; }
-  .card-full { grid-column: span 2; }
+.story-proof figcaption {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 760px) {
+  /* The :nth-child(even) rule above is more specific than `.story`, so it
+     must be named here too — otherwise every second story keeps its two
+     desktop columns and the copy is squeezed into a sliver. */
+  .story,
+  .story:nth-child(even) {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    padding-block: 44px;
+  }
+  .story:nth-child(even) .story-copy { order: initial; }
 }
 
 /* ---- how it works ---- */
@@ -724,41 +689,40 @@ main { position: relative; z-index: 1; }
   align-items: center;
 }
 
+/* One vertical line with mono step numbers. Five bordered, blurred boxes
+   made a simple sequence look like five separate components. */
 .wizard-rail {
   list-style: none;
-  padding: 0;
+  padding: 0 0 0 26px;
+  margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
+  border-left: 1px solid var(--border);
 }
 
 .wizard-chip {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 14px 18px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: rgba(22, 27, 34, 0.72);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  padding: 15px 0;
   font-weight: 500;
   font-size: 0.9375rem;
+  color: var(--muted);
+  position: relative;
 }
+
+/* Teal marks only the step the screenshot beside it is showing. */
+.wizard-chip:first-child { color: var(--text); }
 
 .chip-num {
   font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  color: var(--accent);
+  font-size: 0.75rem;
+  color: var(--muted);
   width: 26px;
-  height: 26px;
   flex: none;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(0, 229, 204, 0.35);
-  border-radius: 50%;
-  background: var(--accent-dim);
 }
 
 .ai-shot { margin: 0; border-radius: 12px; border-bottom: 1px solid var(--border); flex: none; display: block; }
@@ -818,10 +782,12 @@ main { position: relative; z-index: 1; }
 
 /* ---- pricing ---- */
 
+/* One offer, centred. Left-aligned against a wide empty band, a lone
+   pricing card reads as an unfinished three-tier grid. */
 .tier-grid {
   display: grid;
-  grid-template-columns: minmax(0, 420px);
-  justify-content: start;
+  grid-template-columns: minmax(0, 520px);
+  justify-content: center;
 }
 
 .tier-card { padding: 32px; gap: 0; }
@@ -884,11 +850,34 @@ main { position: relative; z-index: 1; }
 
 /* ---- FAQ ---- */
 
+/* Heading beside the questions rather than stacked above them: the stacked
+   version left the right half of the section empty at desktop widths. */
+.faq-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.65fr) minmax(0, 1.35fr);
+  gap: clamp(40px, 8vw, 112px);
+  align-items: start;
+}
+
+.faq-layout .section-head {
+  position: sticky;
+  top: 108px;
+  margin: 0;
+}
+
 .faq-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-width: 760px;
+  max-width: none;
+}
+
+@media (max-width: 760px) {
+  .faq-layout {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+  .faq-layout .section-head { position: static; }
 }
 
 .faq-item {
@@ -1024,41 +1013,9 @@ main { position: relative; z-index: 1; }
 @media (max-width: 900px) {
   .ai-layout { grid-template-columns: 1fr; gap: 28px; }
 
-  .wizard-rail {
-    flex-direction: row;
-    overflow-x: auto;
-    scroll-snap-type: x mandatory;
-    padding-bottom: 8px;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .wizard-chip { flex: none; scroll-snap-align: start; white-space: nowrap; }
-}
-
-@media (max-width: 700px) {
-  .feature-grid { grid-template-columns: 1fr; }
-  .card-wide, .card-full { grid-column: auto; }
-
-  .card-full {
-    display: flex;
-    flex-direction: column;
-    padding: 26px 26px 0;
-    gap: 14px;
-  }
-
-  .card-full-text { padding-bottom: 0; gap: 14px; }
-
-  .card-full .shot-frame {
-    margin: 8px -27px -1px -27px;
-    border-radius: 12px 12px 0 0;
-    border-right: 1px solid var(--border);
-  }
-
-  /* stacked layout has no grid stretch to size against — restore intrinsic ratio */
-  .card-full .shot-frame img {
-    height: auto;
-    aspect-ratio: 3 / 2;
-  }
+  /* The rail stays vertical on phones: five short labels down a hairline
+     need no horizontal scroll, and a sideways list would hide steps. */
+  .wizard-chip { padding: 13px 0; }
 }
 
 /* ---- mobile-designed decisions (≤768px) ---- */

@@ -182,3 +182,29 @@ def test_missing_app_origin_is_rejected(tmp_path):
 def test_placeholder_app_origin_is_rejected(tmp_path):
     with pytest.raises(BuildError, match="APP_ORIGIN"):
         build(REAL, "https://app.example", out=tmp_path / "site")
+
+
+# ---------------------------------------------------------------------------
+# The feature section is editorial, not a bento grid
+# ---------------------------------------------------------------------------
+#
+# Six rounded cards, each with an icon in a tinted container and a small
+# screenshot, is the first place the site reads as generated rather than
+# authored. Three stories with large product proof replace them.
+
+
+def test_feature_section_uses_editorial_stories_not_bento_cards():
+    html = _index_text()
+    assert html.count('class="story"') == 3
+    assert "feature-grid" not in html
+    assert "card-icon" not in html
+
+
+def test_stories_each_carry_one_large_screenshot():
+    html = _index_text()
+    assert html.count('class="story-proof"') == 3
+
+
+def test_stories_have_captions_that_say_what_the_trader_learns():
+    html = _index_text()
+    assert html.count("<figcaption") == 3

@@ -56,24 +56,6 @@ if (smallScreen || reducedMotion || saveData) {
   });
 }
 
-/* ---- scroll reveals ---- */
-
-if (!reducedMotion && "IntersectionObserver" in window) {
-  document.documentElement.classList.add("reveals-armed");
-  const io = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add("revealed");
-          io.unobserve(entry.target);
-        }
-      });
-    },
-    { threshold: 0.15, rootMargin: "0px 0px -8% 0px" }
-  );
-  document.querySelectorAll("[data-reveal]").forEach((el) => io.observe(el));
-}
-
 /* ---- tilt showcase: card straightens as it scrolls into view ---- */
 
 const tiltCard = document.querySelector(".tilt-card");
