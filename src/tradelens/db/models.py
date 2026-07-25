@@ -12,6 +12,13 @@ class User(Base):
         String, unique=True, nullable=False, index=True
     )
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    # Optional, and the only way to recover an account: without it a forgotten
+    # password is unrecoverable. Stored lowercase so uniqueness is meaningful.
+    # Nullable + unique lets existing accounts stay email-less (both SQLite and
+    # Postgres permit repeated NULLs under a unique index).
+    email: Mapped[Optional[str]] = mapped_column(
+        String, unique=True, nullable=True, index=True
+    )
     created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     is_active: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
