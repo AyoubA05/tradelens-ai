@@ -124,12 +124,23 @@ TradeLens sign-in screen without meeting anyone else's login wall. Both
 failure modes below shipped once and neither was visible from the repo,
 so this gate is checked against the live hosts.
 
-The canonical origin is currently the Vercel deployment URL, because
-`tradelens-ai.com` still serves an older, differently-positioned build
-from somewhere else. `SITE_ORIGIN` in `vercel.json` is the single place
-that decides this; change it there when the domain is repointed, and
-remember `TRADELENS_SITE_URL` on the Streamlit side is a separate
-setting that does not follow it automatically.
+There is no custom domain yet, so the canonical origin is the Vercel URL.
+It is set in two independent places that do not follow each other:
+
+| Setting | Where | Controls |
+|---|---|---|
+| `SITE_ORIGIN` | `vercel.json` → `build.env` | the site's own canonical, OG, and JSON-LD URLs |
+| `TRADELENS_SITE_URL` | Streamlit secrets/env | the app auth screen's link back to the site |
+
+Both need changing when a domain is finally pointed at the deployment.
+Fixing one does not fix the other.
+
+> **Note on the current value.** `…-6b0eiih51-…` is a *deployment-specific*
+> URL: it is pinned to one build and will not follow future pushes to
+> main. That is fine while the origin is only being used to make metadata
+> resolvable, but the canonical URL will keep pointing at this snapshot as
+> newer deployments go out. The `…-git-main-…` alias tracks the latest
+> deploy if that becomes the more useful behaviour.
 
 1. Vercel Production Deployment Protection: Off.
 2. `SITE_ORIGIN` matches the origin the site is actually served from, so
@@ -140,7 +151,7 @@ setting that does not follow it automatically.
 
    ```bash
    .venv/bin/python scripts/verify_public_funnel.py \
-     --site https://tradelens-ai-site-git-main-ayouba05s-projects.vercel.app \
+     --site https://tradelens-ai-site-6b0eiih51-ayouba05s-projects.vercel.app \
      --app https://tradelens-app.streamlit.app
    ```
 
@@ -151,10 +162,8 @@ only reports them.
 
 ### Known-failing today
 
-Running the command above reports, correctly:
+The marketing check passes. The app check reports, correctly, that
+anonymous visitors are redirected to Streamlit provider auth.
 
-- `tradelens-ai.com` (if checked) serves a different build than this repo.
-- The app redirects anonymous visitors to Streamlit provider auth.
-
-Neither is fixable in code. Repoint the domain to the `tradelens-ai-site`
-project and set the Streamlit app's visibility to Public.
+That is not fixable in code: set the Streamlit app's visibility to Public
+so visitors reach the TradeLens sign-in screen instead.

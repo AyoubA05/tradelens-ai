@@ -1,6 +1,8 @@
 """Resolve the marketing site's deploy-time placeholders into a publishable copy.
 
-    SITE_ORIGIN=https://www.tradelens-ai.com python -m scripts.build_site
+    SITE_ORIGIN=https://tradelens-ai-site-6b0eiih51-ayouba05s-projects.vercel.app \
+        APP_ORIGIN=https://tradelens-app.streamlit.app \
+        python -m scripts.build_site
 
 Copies site/ to dist/site/ with __SITE_ORIGIN__ replaced by SITE_ORIGIN. The
 source tree keeps the token so it stays obviously unresolved; only the build

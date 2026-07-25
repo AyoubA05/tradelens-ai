@@ -31,12 +31,14 @@ came back.
 
 | Condition | Status |
 |---|---|
-| Canonical domain serves this site | **Failing** — `tradelens-ai.com` serves an older, differently-positioned build |
+| Canonical origin serves this site | Passing — the Vercel URL serves the current build. No custom domain is owned yet, so "the canonical public domain" above is not yet satisfied in the intended sense |
 | Public CTA reaches TradeLens sign-in | **Failing** — the app 303-redirects anonymous visitors to `share.streamlit.io/-/auth` |
 | Contradictions blocked | Passing — enforced at every write boundary |
 | Deletion path published | **Failing** — no account-deletion function exists |
 
-The first two are dashboard settings. The fourth is unbuilt functionality.
+The second is a Streamlit dashboard setting. The fourth is unbuilt
+functionality. Buying and pointing a domain remains outstanding, but does
+not block a paid test on its own.
 
 ## First pricing experiment
 
