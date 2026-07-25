@@ -152,7 +152,7 @@ def compliance_html() -> str:
     # custom domain is finally pointed at the deployment.
     site_url = _read_secret(
         "TRADELENS_SITE_URL",
-        "https://tradelens-ai-site-6b0eiih51-ayouba05s-projects.vercel.app",
+        "https://tradelens-ai-site-git-main-ayouba05s-projects.vercel.app",
     )
     return (
         '<div class="tl-auth-note"><b>Reflection only.</b> TradeLens reviews the '

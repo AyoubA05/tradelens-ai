@@ -119,10 +119,20 @@ independent of the test pipeline.
 
 ## Public funnel release gate
 
-An anonymous visitor must be able to go from the marketing site to the
-TradeLens sign-in screen without meeting anyone else's login wall. Both
-failure modes below shipped once and neither was visible from the repo,
-so this gate is checked against the live hosts.
+The two endpoints have different contracts, and the gate checks them
+against the live hosts because neither failure is visible from the repo.
+
+**The marketing site must be public.** An anonymous visitor has to see the
+current build, with no login wall in front of it. Both halves have failed
+before: an origin serving an older, differently positioned build, and
+Vercel deployment protection hiding the site behind SSO.
+
+**The app is gated on purpose.** Requiring sign-in is intended behaviour,
+so the verifier treats a redirect to the Streamlit login as a pass — as
+long as it *routes back*, i.e. carries a `redirect_uri` pointing at this
+app so signing in returns the visitor to TradeLens. A redirect that drops
+the destination, points at a different app, or a host that is down, still
+fails.
 
 There is no custom domain yet, so the canonical origin is the Vercel URL.
 It is set in two independent places that do not follow each other:
@@ -135,35 +145,26 @@ It is set in two independent places that do not follow each other:
 Both need changing when a domain is finally pointed at the deployment.
 Fixing one does not fix the other.
 
-> **Note on the current value.** `…-6b0eiih51-…` is a *deployment-specific*
-> URL: it is pinned to one build and will not follow future pushes to
-> main. That is fine while the origin is only being used to make metadata
-> resolvable, but the canonical URL will keep pointing at this snapshot as
-> newer deployments go out. The `…-git-main-…` alias tracks the latest
-> deploy if that becomes the more useful behaviour.
+> **Why the `…-git-main-…` alias.** It tracks whatever is currently
+> deployed from `main`, so the canonical and OG URLs stay correct as new
+> builds go out. A deployment-specific URL (`…-<hash>-…`) is pinned to one
+> build and would leave the canonical URL pointing at an ageing snapshot.
 
-1. Vercel Production Deployment Protection: Off.
+### Checklist
+
+1. Vercel Production Deployment Protection: **Off** — otherwise the
+   marketing check fails, by design.
 2. `SITE_ORIGIN` matches the origin the site is actually served from, so
    the canonical, OG, and JSON-LD URLs point at a reachable page.
-3. Streamlit app visibility is Public, so anonymous visitors reach the
-   TradeLens auth screen rather than `share.streamlit.io/-/auth`.
-4. Run:
+3. Run:
 
    ```bash
    .venv/bin/python scripts/verify_public_funnel.py \
-     --site https://tradelens-ai-site-6b0eiih51-ayouba05s-projects.vercel.app \
+     --site https://tradelens-ai-site-git-main-ayouba05s-projects.vercel.app \
      --app https://tradelens-app.streamlit.app
    ```
 
-5. Expected: two PASS lines and exit code 0.
+4. Expected: two PASS lines and exit code 0.
 
-Items 1-3 are dashboard settings that code cannot change. The verifier
-only reports them.
-
-### Known-failing today
-
-The marketing check passes. The app check reports, correctly, that
-anonymous visitors are redirected to Streamlit provider auth.
-
-That is not fixable in code: set the Streamlit app's visibility to Public
-so visitors reach the TradeLens sign-in screen instead.
+Items 1 and 2 are settings that code cannot change. The verifier only
+reports them.

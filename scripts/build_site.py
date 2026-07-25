@@ -1,6 +1,6 @@
 """Resolve the marketing site's deploy-time placeholders into a publishable copy.
 
-    SITE_ORIGIN=https://tradelens-ai-site-6b0eiih51-ayouba05s-projects.vercel.app \
+    SITE_ORIGIN=https://tradelens-ai-site-git-main-ayouba05s-projects.vercel.app \
         APP_ORIGIN=https://tradelens-app.streamlit.app \
         python -m scripts.build_site
 
