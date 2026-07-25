@@ -39,7 +39,7 @@ class ActivationStatus:
     trades_until_review: int
 
 
-def _is_complete_trade(trade: Any) -> bool:
+def is_complete_trade(trade: Any) -> bool:
     return all(
         getattr(trade, field, None) is not None for field in _REQUIRED_TRADE_FIELDS
     )
@@ -52,7 +52,7 @@ def activation_status(
     weekly_review: Optional[Mapping[str, Any]],
 ) -> ActivationStatus:
     """Return the trader's position on the three-step activation path."""
-    complete_trades = sum(1 for trade in trades if _is_complete_trade(trade))
+    complete_trades = sum(1 for trade in trades if is_complete_trade(trade))
 
     checks = (
         ("strategy", bool(strategy and strategy.get("name"))),
