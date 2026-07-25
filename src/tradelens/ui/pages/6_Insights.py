@@ -35,6 +35,10 @@ from src.tradelens.services.patterns import (  # noqa: E402
 from src.tradelens.services.strategy import (  # noqa: E402
     get_active_strategy,
 )
+from src.tradelens.services.activation import (  # noqa: E402
+    TRADES_FOR_REVIEW,
+    activation_status,
+)
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
 from src.tradelens.services.weekly import (  # noqa: E402
     WeeklyReviewError,
@@ -295,6 +299,15 @@ def _render_review_body(review: dict, key: str) -> None:
             st.markdown(f"- **Confidence:** {_confidence_label(_trades)}")
 
 
+def _trade_rows_for_activation():
+    """The page's own user-scoped frame as row objects, for milestone counting."""
+    from types import SimpleNamespace
+
+    if df.empty:
+        return []
+    return [SimpleNamespace(**row) for row in df.to_dict("records")]
+
+
 def _auto_run_weekly(monday: str, uid) -> None:
     """Reuse a saved review if present; otherwise auto-generate + persist once."""
     err_key = f"_wk_err_{monday}"
@@ -330,7 +343,24 @@ picked = st.date_input(
 monday, sunday = week_bounds(picked)
 st.markdown(f"**Week of {monday} → {sunday}**")
 
-_auto_run_weekly(monday, uid)
+# Below five complete trades a weekly recap mostly describes noise, so it
+# is not auto-generated: the trader is told what would unlock it instead.
+_complete_trades = activation_status(
+    strategy=_strategy, trades=_trade_rows_for_activation(), weekly_review=None
+).complete_trades
+
+if _complete_trades < TRADES_FOR_REVIEW and get_weekly_review(monday, uid) is None:
+    st.markdown(
+        render_empty_state(
+            "◆",
+            f"Journal {TRADES_FOR_REVIEW - _complete_trades} more completed trades",
+            "A weekly review needs a sample it can say something true about.",
+        ),
+        unsafe_allow_html=True,
+    )
+else:
+    _auto_run_weekly(monday, uid)
+
 existing = get_weekly_review(monday, uid)
 _render_week_stats(existing["stats"] if existing else {})
 

@@ -15,6 +15,7 @@ Path(__file__).resolve().parents[3].joinpath("data", "screenshots").mkdir(
     parents=True, exist_ok=True
 )
 
+import datetime  # noqa: E402
 from html import escape  # noqa: E402
 
 import pandas as pd  # noqa: E402
@@ -31,8 +32,13 @@ from src.tradelens.services.metrics import (  # noqa: E402
 )
 from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
 from src.tradelens.services.sample_data import count_sample_trades  # noqa: E402
+from src.tradelens.services.activation import (  # noqa: E402
+    NEXT_STEP_COPY,
+    activation_status,
+)
 from src.tradelens.services.strategy import get_active_strategy  # noqa: E402
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
+from src.tradelens.services.weekly import get_weekly_review, week_bounds  # noqa: E402
 from src.tradelens.ui.components.auth import (  # noqa: E402
     current_user_id,
     require_auth,
@@ -59,8 +65,17 @@ from src.tradelens.ui.design_system import (  # noqa: E402
     render_banner,
     render_empty_state,
     render_kpi_card,
+    render_next_step,
     render_section_header,
 )
+
+# Streamlit's page_link needs the file path; the slug is the fallback for
+# registry-less boots (AppTest).
+_NEXT_STEP_PAGES = {
+    "strategy": "pages/5_Strategy.py",
+    "first_trade": "pages/1_NewTrade.py",
+    "weekly_review": "pages/6_Insights.py",
+}
 
 st.set_page_config(
     page_title="TradeLens AI",
@@ -251,6 +266,37 @@ st.markdown(
     f'<div class="tl-kpi-row">{_kpi_cards}</div></div>',
     unsafe_allow_html=True,
 )
+
+# ── Next step, while the trader is still getting to first value ───
+# One action, not a checklist, and only until they've had a real review.
+if uid is not None:
+    _activation = activation_status(
+        strategy=_strategy,
+        trades=get_trades(user_id=uid),
+        weekly_review=get_weekly_review(week_bounds(datetime.date.today())[0], uid),
+    )
+    if not _activation.is_activated and _activation.next_key:
+        _label, _target, _link = NEXT_STEP_COPY[_activation.next_key]
+        st.markdown(
+            render_next_step(
+                _label,
+                _activation.completed,
+                _activation.total,
+                (
+                    _activation.trades_until_review
+                    if _activation.next_key == "weekly_review"
+                    else 0
+                ),
+            ),
+            unsafe_allow_html=True,
+        )
+        try:
+            st.page_link(_NEXT_STEP_PAGES[_activation.next_key], label=f"{_link} →")
+        except Exception:  # noqa: BLE001 — registry-less boots (AppTest) raise
+            st.markdown(
+                f'<a href="{_target}" target="_self">{escape(_link)} →</a>',
+                unsafe_allow_html=True,
+            )
 
 # ── Trading calendar (Item 12) — month view below the KPIs ────────
 st.markdown(render_section_header("Trading Calendar"), unsafe_allow_html=True)

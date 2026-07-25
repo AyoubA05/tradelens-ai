@@ -506,6 +506,35 @@ def build_css() -> str:
   max-width: 280px;
   margin: 0 auto;
 }}
+/* Onboarding next step. Quiet by design: it sits above the dashboard a
+   new trader is trying to read, so it uses the standard surface with a
+   neutral hairline. The mono step count carries the only accent — a
+   colored side border is a documented anti-pattern here. */
+.tl-next-step {{
+  border: 1px solid var(--tl-border);
+  border-radius: var(--tl-radius-md);
+  background: var(--tl-surface);
+  padding: var(--tl-space-4) var(--tl-space-5);
+  margin-bottom: var(--tl-space-4);
+}}
+.tl-next-step-count {{
+  font-family: var(--tl-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tl-primary);
+}}
+.tl-next-step-label {{
+  font-size: 15px;
+  font-weight: 600;
+  margin-top: var(--tl-space-1);
+}}
+.tl-next-step-detail {{
+  font-size: 12px;
+  color: var(--tl-text-faint);
+  margin-top: var(--tl-space-1);
+}}
+
 /* Low-data explanation shown in place of a chart. Same surface as the
    empty card, but compact: an explanation should not occupy the canvas
    the withheld chart would have. Spacing only — no new colors. */
@@ -1039,6 +1068,30 @@ def render_insight_card(
         "</div>"
         f'<p class="tl-insight-body">{escape(body)}</p>'
         f'<p class="tl-insight-evidence">Evidence: {escape(evidence)}</p>'
+        "</div>"
+    )
+
+
+def render_next_step(
+    label: str, completed: int, total: int, trades_remaining: int = 0
+) -> str:
+    """One next action for a trader who hasn't reached their first review.
+
+    Deliberately a single step rather than a checklist: a list of everything
+    not yet done reads as a chore, and the only thing that helps is the one
+    action available right now.
+    """
+    detail = (
+        f"{trades_remaining} more completed "
+        f"{'trade' if trades_remaining == 1 else 'trades'} to unlock it."
+        if trades_remaining
+        else "Takes a couple of minutes."
+    )
+    return (
+        '<div class="tl-next-step">'
+        f'<div class="tl-next-step-count">{completed} of {total} done</div>'
+        f'<div class="tl-next-step-label">{escape(label)}</div>'
+        f'<div class="tl-next-step-detail">{escape(detail)}</div>'
         "</div>"
     )
 
