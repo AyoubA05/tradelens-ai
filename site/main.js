@@ -46,15 +46,25 @@ window.addEventListener(
   { passive: true }
 );
 
-/* ---- videos: suppress on small screens, reduced motion, or Save-Data ---- */
+/* ---- videos: attached only when the visitor's device and preferences allow
 
-if (smallScreen || reducedMotion || saveData) {
-  document.querySelectorAll("video").forEach((v) => {
-    v.removeAttribute("autoplay");
-    v.querySelectorAll("source").forEach((s) => s.remove());
-    v.load(); // poster remains
+   Removing <source> after parse was too late — the browser had already
+   started fetching the MP4. The markup now ships without a source, so an
+   ineligible visitor never requests the file at all and keeps the poster. */
+
+function hydrateEligibleVideos() {
+  if (smallScreen || reducedMotion || saveData) return;
+  document.querySelectorAll("video[data-video-src]").forEach((video) => {
+    const source = document.createElement("source");
+    source.src = video.dataset.videoSrc;
+    source.type = "video/mp4";
+    video.appendChild(source);
+    video.load();
+    video.play().catch(() => {});
   });
 }
+
+hydrateEligibleVideos();
 
 /* ---- tilt showcase: card straightens as it scrolls into view ---- */
 
