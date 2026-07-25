@@ -141,16 +141,33 @@ def classify_app(status: int, final_url: str, *, app_origin: str) -> CheckResult
     return CheckResult(True, final_url, "reachable")
 
 
-def _fetch(url: str) -> tuple[int, str, str] | CheckResult:
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Report the redirect instead of chasing it.
+
+    The app check exists to inspect where the visitor is sent, so following
+    the hop would replace the answer with whatever the login wall renders —
+    and would make the check depend on a third-party host being up.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _fetch(url: str, *, follow: bool = True) -> tuple[int, str, str] | CheckResult:
     """Return (status, final_url, body), or a failing CheckResult.
 
-    A cross-host 3xx is surfaced by urllib as an error rather than
-    followed; the Location header still names the destination, and that
-    destination is the whole point of these checks.
+    `follow` is on for the marketing page, where a hop to the canonical
+    host is ordinary, and off for the app, where the hop is the finding.
+    An unfollowed 3xx still names its destination in the Location header.
     """
     request = urllib.request.Request(url, headers={"User-Agent": _UA})
+    opener = (
+        urllib.request.build_opener()
+        if follow
+        else urllib.request.build_opener(_NoRedirect)
+    )
     try:
-        with urllib.request.urlopen(request, timeout=_TIMEOUT_S) as response:
+        with opener.open(request, timeout=_TIMEOUT_S) as response:
             body = response.read(200_000).decode("utf-8", errors="replace")
             return response.status, response.geturl(), body
     except urllib.error.HTTPError as exc:
@@ -170,7 +187,7 @@ def check_marketing(url: str) -> CheckResult:
 
 
 def check_app(url: str, *, app_origin: str) -> CheckResult:
-    fetched = _fetch(url)
+    fetched = _fetch(url, follow=False)
     if isinstance(fetched, CheckResult):
         return fetched
     status, final_url, _body = fetched
