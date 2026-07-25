@@ -25,7 +25,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "site"
 OUT = ROOT / "dist" / "site"
 
-TOKEN = "__SITE_ORIGIN__"
+SITE_TOKEN = "__SITE_ORIGIN__"
+APP_TOKEN = "__APP_ORIGIN__"
+TOKEN = SITE_TOKEN  # back-compat for existing importers
 
 # Substituted into text assets only; binary assets are copied verbatim.
 _TEXT_SUFFIXES = {".html", ".css", ".js", ".json", ".webmanifest", ".xml", ".txt"}
@@ -39,12 +41,12 @@ class BuildError(RuntimeError):
     """The build cannot produce a publishable artifact."""
 
 
-def validate_origin(origin: str) -> str:
+def validate_origin(origin: str, name: str = "SITE_ORIGIN") -> str:
     """Return the normalized origin, or raise BuildError explaining the problem."""
     if not origin:
         raise BuildError(
-            "SITE_ORIGIN is not set. Pass the real production origin, e.g. "
-            "SITE_ORIGIN=https://www.tradelens-ai.com"
+            f"{name} is not set. Pass the real production origin, e.g. "
+            f"{name}=https://www.tradelens-ai.com"
         )
 
     origin = origin.rstrip("/")
@@ -52,60 +54,71 @@ def validate_origin(origin: str) -> str:
 
     if parsed.scheme != "https":
         raise BuildError(
-            f"SITE_ORIGIN must use https (got {parsed.scheme or 'no scheme'!r}). "
+            f"{name} must use https (got {parsed.scheme or 'no scheme'!r}). "
             f"og:image over http is rejected by several social platforms."
         )
     if not parsed.hostname:
-        raise BuildError(f"SITE_ORIGIN has no host: {origin!r}")
+        raise BuildError(f"{name} has no host: {origin!r}")
     if parsed.path:
         raise BuildError(
-            f"SITE_ORIGIN must be an origin with no path (got path {parsed.path!r}). "
+            f"{name} must be an origin with no path (got path {parsed.path!r}). "
             f"Paths are appended by the template."
         )
 
     host = parsed.hostname.lower()
     if host.endswith(_REJECTED_HOST_SUFFIXES) or host == "localhost":
         raise BuildError(
-            f"SITE_ORIGIN {host!r} is a reserved/placeholder host, not a real "
+            f"{name} {host!r} is a reserved/placeholder host, not a real "
             f"production origin. This is the exact mistake the token exists to catch."
         )
     if "." not in host:
-        raise BuildError(f"SITE_ORIGIN host {host!r} is not a fully-qualified domain.")
+        raise BuildError(f"{name} host {host!r} is not a fully-qualified domain.")
 
     return origin
 
 
-def build(origin: str, src: Path = SRC, out: Path = OUT) -> Path:
-    """Write the resolved site to `out` and return that path."""
-    origin = validate_origin(origin)
+def build(site_origin: str, app_origin: str, src: Path = SRC, out: Path = OUT) -> Path:
+    """Write the resolved site to `out` and return that path.
+
+    Both origins are deploy inputs. The app URL used to be hardcoded in six
+    places across two files, so moving the app meant editing all six by hand
+    and silently keeping the old host wherever one was missed.
+    """
+    site_origin = validate_origin(site_origin)
+    app_origin = validate_origin(app_origin, name="APP_ORIGIN")
 
     if out.exists():
         shutil.rmtree(out)
     shutil.copytree(src, out)
 
+    replacements = {SITE_TOKEN: site_origin, APP_TOKEN: app_origin}
+
     for path in out.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in _TEXT_SUFFIXES:
             continue
         text = path.read_text(encoding="utf-8")
-        if TOKEN in text:
-            path.write_text(text.replace(TOKEN, origin), encoding="utf-8")
+        new_text = text
+        for token, value in replacements.items():
+            new_text = new_text.replace(token, value)
+        if new_text != text:
+            path.write_text(new_text, encoding="utf-8")
 
     leftover = [
         str(p.relative_to(out))
         for p in out.rglob("*")
         if p.is_file()
         and p.suffix.lower() in _TEXT_SUFFIXES
-        and TOKEN in p.read_text(encoding="utf-8")
+        and any(t in p.read_text(encoding="utf-8") for t in replacements)
     ]
     if leftover:  # pragma: no cover — defensive; substitution above is total
-        raise BuildError(f"{TOKEN} survived substitution in: {', '.join(leftover)}")
+        raise BuildError(f"deploy token survived in: {', '.join(leftover)}")
 
     return out
 
 
 def main() -> int:
     try:
-        out = build(os.getenv("SITE_ORIGIN", ""))
+        out = build(os.getenv("SITE_ORIGIN", ""), os.getenv("APP_ORIGIN", ""))
     except BuildError as exc:
         print(f"build_site: {exc}", file=sys.stderr)
         return 1

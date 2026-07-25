@@ -1,6 +1,6 @@
 /* TradeLens AI — marketing site behavior (vanilla, no dependencies) */
 
-const APP_URL = "https://tradelens-app.streamlit.app";
+const APP_URL = "__APP_ORIGIN__";
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const smallScreen = window.matchMedia("(max-width: 768px)").matches;

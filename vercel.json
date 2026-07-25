@@ -4,7 +4,8 @@
   "outputDirectory": "dist/site",
   "build": {
     "env": {
-      "SITE_ORIGIN": "https://www.tradelens-ai.com"
+      "SITE_ORIGIN": "https://www.tradelens-ai.com",
+      "APP_ORIGIN": "https://tradelens-app.streamlit.app"
     }
   }
 }
