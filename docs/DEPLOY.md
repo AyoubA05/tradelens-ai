@@ -116,3 +116,30 @@ independent of the test pipeline.
 4. Apply only after approval:
    `.venv/bin/python scripts/assign_legacy_data.py --username ayoub --apply`
 5. Run the dry run again; expected count for every table is 0.
+
+## Public funnel release gate
+
+An anonymous visitor must be able to go from the marketing site to the
+TradeLens sign-in screen without meeting anyone else's login wall. Both
+failure modes below shipped once and neither was visible from the repo,
+so this gate is checked against the live hosts.
+
+1. Vercel Production Deployment Protection: Off.
+2. `tradelens-ai.com` points to this repository's production deployment.
+   (It served an older, differently-positioned build — check the page
+   title, not just that the domain resolves.)
+3. `www.tradelens-ai.com` redirects once to the canonical origin.
+4. Streamlit app visibility is Public, so anonymous visitors reach the
+   TradeLens auth screen rather than `share.streamlit.io/-/auth`.
+5. Run:
+
+   ```bash
+   .venv/bin/python scripts/verify_public_funnel.py \
+     --site https://tradelens-ai.com \
+     --app https://tradelens-app.streamlit.app
+   ```
+
+6. Expected: two PASS lines and exit code 0.
+
+Items 1-4 are dashboard settings that code cannot change. The verifier
+only reports them.
