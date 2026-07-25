@@ -185,3 +185,30 @@ if (hero && heroTitle && !reducedMotion) {
     requestAnimationFrame(() => hero.classList.add("loaded"));
   });
 }
+
+/* ---- conversion measurement: aggregate only, never personal ----
+
+   Vercel Web Analytics is already loaded. These events record which CTA a
+   visitor used and which questions get opened: enough to diagnose the
+   funnel, and nothing that identifies a person. Only the two properties
+   below are ever sent, both of them fixed strings from this page. */
+
+function track(name, properties) {
+  if (typeof window.va === "function") {
+    window.va("event", { name, ...properties });
+  }
+}
+
+document.querySelectorAll("[data-cta-location]").forEach((link) => {
+  link.addEventListener("click", () => {
+    track("marketing_cta_click", { location: link.dataset.ctaLocation });
+  });
+});
+
+document.querySelectorAll(".faq-item").forEach((item) => {
+  item.addEventListener("toggle", () => {
+    if (item.open) {
+      track("faq_open", { question: item.querySelector("summary").textContent });
+    }
+  });
+});

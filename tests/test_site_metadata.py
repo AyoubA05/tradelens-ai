@@ -208,3 +208,39 @@ def test_stories_each_carry_one_large_screenshot():
 def test_stories_have_captions_that_say_what_the_trader_learns():
     html = _index_text()
     assert html.count("<figcaption") == 3
+
+
+# ---------------------------------------------------------------------------
+# Conversion measurement carries no personal data
+# ---------------------------------------------------------------------------
+
+
+def test_every_primary_cta_is_labelled_with_its_location():
+    """Five entry points; without labels the funnel can't be diagnosed."""
+    html = _index_text()
+    assert html.count("data-cta-location=") == 5
+    for location in ("nav", "hero", "pricing", "final", "mobile"):
+        assert f'data-cta-location="{location}"' in html
+
+
+def test_analytics_never_reference_personal_fields():
+    """The site may measure which CTA was used, never who used it."""
+    js = (ROOT / "site" / "main.js").read_text(encoding="utf-8").lower()
+    for term in (
+        "password",
+        "username",
+        "email",
+        "trade_date",
+        "pnl",
+        "p&l",
+        "notes",
+        "screenshot",
+        "psychology",
+    ):
+        assert term not in js, f"main.js references {term!r}"
+
+
+def test_tracked_events_are_the_two_expected_ones():
+    js = (ROOT / "site" / "main.js").read_text(encoding="utf-8")
+    assert 'track("marketing_cta_click"' in js
+    assert 'track("faq_open"' in js
