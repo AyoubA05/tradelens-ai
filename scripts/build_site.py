@@ -29,6 +29,7 @@ OUT = ROOT / "dist" / "site"
 
 SITE_TOKEN = "__SITE_ORIGIN__"
 APP_TOKEN = "__APP_ORIGIN__"
+SUPPORT_TOKEN = "__SUPPORT_EMAIL__"
 TOKEN = SITE_TOKEN  # back-compat for existing importers
 
 # Substituted into text assets only; binary assets are copied verbatim.
@@ -79,7 +80,31 @@ def validate_origin(origin: str, name: str = "SITE_ORIGIN") -> str:
     return origin
 
 
-def build(site_origin: str, app_origin: str, src: Path = SRC, out: Path = OUT) -> Path:
+def validate_support_email(address: str) -> str:
+    """A published policy needs a real way to reach a human.
+
+    Validated here rather than typed into the page, because an address
+    nobody reads is worse than no policy at all.
+    """
+    address = (address or "").strip()
+    if not address:
+        raise BuildError(
+            "SUPPORT_EMAIL is not set. The privacy and terms pages must carry "
+            "a contact address that is actually monitored."
+        )
+    local, _, domain = address.partition("@")
+    if not local or "." not in domain or " " in address:
+        raise BuildError(f"SUPPORT_EMAIL is not a valid address: {address!r}")
+    return address
+
+
+def build(
+    site_origin: str,
+    app_origin: str,
+    support_email: str = "",
+    src: Path = SRC,
+    out: Path = OUT,
+) -> Path:
     """Write the resolved site to `out` and return that path.
 
     Both origins are deploy inputs. The app URL used to be hardcoded in six
@@ -88,12 +113,17 @@ def build(site_origin: str, app_origin: str, src: Path = SRC, out: Path = OUT) -
     """
     site_origin = validate_origin(site_origin)
     app_origin = validate_origin(app_origin, name="APP_ORIGIN")
+    support_email = validate_support_email(support_email)
 
     if out.exists():
         shutil.rmtree(out)
     shutil.copytree(src, out)
 
-    replacements = {SITE_TOKEN: site_origin, APP_TOKEN: app_origin}
+    replacements = {
+        SITE_TOKEN: site_origin,
+        APP_TOKEN: app_origin,
+        SUPPORT_TOKEN: support_email,
+    }
 
     for path in out.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in _TEXT_SUFFIXES:
@@ -120,7 +150,11 @@ def build(site_origin: str, app_origin: str, src: Path = SRC, out: Path = OUT) -
 
 def main() -> int:
     try:
-        out = build(os.getenv("SITE_ORIGIN", ""), os.getenv("APP_ORIGIN", ""))
+        out = build(
+            os.getenv("SITE_ORIGIN", ""),
+            os.getenv("APP_ORIGIN", ""),
+            os.getenv("SUPPORT_EMAIL", ""),
+        )
     except BuildError as exc:
         print(f"build_site: {exc}", file=sys.stderr)
         return 1

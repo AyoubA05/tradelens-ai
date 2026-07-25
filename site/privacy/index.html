@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy — TradeLens AI</title>
+  <meta name="description" content="What TradeLens AI stores, what it sends to its AI provider, and how to export or delete your data.">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="__SITE_ORIGIN__/privacy">
+  <meta name="theme-color" content="#0d1117">
+  <link rel="icon" href="/assets/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://api.fontshare.com">
+  <link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
+  <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+
+  <header class="nav" id="top">
+    <nav class="container nav-inner" aria-label="Primary">
+      <a class="brand" href="/">
+        <img src="/assets/logo.png" alt="TradeLens AI logo" width="30" height="30">
+        <span class="brand-name">TradeLens&nbsp;<em>AI</em></span>
+      </a>
+      <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/terms">Terms</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="section">
+      <div class="container prose">
+        <h1>Privacy</h1>
+        <p class="lead">What TradeLens AI stores, what leaves the app, and what you can do about it. This describes the product as it actually works today, including the parts that are not finished.</p>
+        <p class="prose-meta">Last updated 25 July 2026.</p>
+
+        <h2>What TradeLens is</h2>
+        <p>TradeLens AI is a post-trade journal. You record trades you have already taken, and the app helps you review them. It has no connection to any broker or exchange: it cannot see your accounts, cannot place orders, and has no access to your money.</p>
+
+        <h2>What we collect</h2>
+        <h3>Your account</h3>
+        <p>A username, a bcrypt hash of your password, and an optional email address. We never store your password itself.</p>
+        <p>We do not collect your real name, phone number, postal address, date of birth, payment details, or any broker credential. There is no field for them.</p>
+        <p>The email address is optional and used for one thing: resetting your password. It is not shared, sold, or used for marketing. <strong>If you do not add one, a forgotten password cannot be recovered and the account is lost.</strong></p>
+
+        <h3>What you write in the journal</h3>
+        <p>Everything you enter about a trade: date, session, instrument, direction, timeframe, entry, stop, take-profit and exit prices, position size, risk, profit and loss, setup and strategy labels, and the SMC/ICT annotations.</p>
+        <p>It also includes what you write about yourself: how you felt before, during, and after a trade, your notes, your process notes, the mistakes you tag, and whether you followed your own rules. This is the most personal content in the product, and it is treated as such.</p>
+        <p>Your Strategy Profile (your entry, stop, take-profit and risk rules) is stored with your account and visible only to it.</p>
+
+        <h3>Chart screenshots</h3>
+        <p>Images you upload are stored on the application's own file storage and linked to the trade they belong to.</p>
+
+        <h2>What is sent to the AI provider</h2>
+        <p>TradeLens uses <strong>Anthropic</strong> as its only AI provider. Nothing is sent to any other third party for processing.</p>
+        <ul>
+          <li><strong>Chart review and autofill:</strong> the screenshot you uploaded, plus your Strategy Profile if you have one.</li>
+          <li><strong>Trade review:</strong> that trade's fields and your written notes, plus your Strategy Profile.</li>
+          <li><strong>Weekly recap:</strong> the week's trades, the statistics computed from them, and your Strategy Profile.</li>
+        </ul>
+        <p>Your username and password hash are never included in anything sent to Anthropic. Your written psychology notes <em>are</em> included when they are part of the trade being reviewed. That is what allows the review to discuss them.</p>
+        <p>AI calls happen when you upload a screenshot, ask for a review, or open a weekly recap. They do not happen in the background.</p>
+
+        <h2>What we keep for our own records</h2>
+        <p>We log which AI feature ran, which model, how many tokens it used, and what it cost. These records contain no prompt content and no journal text.</p>
+        <p>Generated reviews and analyses are stored against your account so they can be shown again without paying to regenerate them.</p>
+
+        <h2>This website</h2>
+        <p>This marketing site sets no cookies of its own. It uses Vercel Web Analytics, which records aggregate page views plus two events: which call-to-action was clicked, and which FAQ question was opened. Neither carries anything identifying.</p>
+        <p>Fonts are loaded from Google Fonts and Fontshare, so those services receive your IP address as a consequence of your browser requesting the files.</p>
+
+        <h2>What you can do</h2>
+        <ul>
+          <li><strong>Export.</strong> Download all your trades as CSV from Settings, at any time.</li>
+          <li><strong>Correct.</strong> Edit or delete any individual trade from the Journal.</li>
+          <li><strong>Delete everything.</strong> Settings → Danger Zone → Delete my account permanently removes your account, every trade and note, your Strategy Profile, your saved reviews and AI analyses, your settings, and every screenshot you uploaded.</li>
+        </ul>
+        <p>One thing survives account deletion: the cost records described above, with the link to your account removed. They record that an AI call happened and what it cost, and after deletion they cannot be connected to you or to any trade. We keep them for accounting.</p>
+        <p>Deletion is immediate and permanent. There is no undo and no backup to restore from, so export first if you want to keep your journal.</p>
+
+        <h2>How long we keep things</h2>
+        <p>Until you delete them. There is no automatic expiry.</p>
+
+        <h2>Beta limitations, stated plainly</h2>
+        <p>TradeLens is in private beta and hosted on infrastructure chosen for iteration speed, not durability. You should know:</p>
+        <ul>
+          <li>There are <strong>no backups</strong>. If the hosting environment loses data, it is gone, and we cannot restore it.</li>
+          <li>Uploaded screenshots are stored on a filesystem that <strong>does not persist across redeployments</strong> on the current host. Treat the screenshots in TradeLens as copies, not as your only copy.</li>
+          <li>Password reset requires an email address on your account and working outgoing mail. If either is missing, we cannot get you back in.</li>
+        </ul>
+        <p>Export regularly. This is the honest advice, not a disclaimer.</p>
+
+        <h2>Security</h2>
+        <p>Passwords are hashed with bcrypt and never stored or logged in readable form. Sessions use signed, expiring tokens. Every record is scoped to the account that owns it.</p>
+        <p>We are a small beta product. We have not undergone an external security audit, and we do not claim to have.</p>
+
+        <h2>Contact</h2>
+        <p>Questions about any of this, or a request we have not built a button for: <a href="mailto:__SUPPORT_EMAIL__">__SUPPORT_EMAIL__</a>.</p>
+
+        <h2>Changes</h2>
+        <p>If this changes materially, the date at the top changes and beta users are told directly.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <a class="brand" href="/">
+          <img src="/assets/logo.png" alt="TradeLens AI logo" width="26" height="26">
+          <span class="brand-name">TradeLens&nbsp;<em>AI</em></span>
+        </a>
+        <p class="footer-tag">Post-Trade Journal. AI-Powered Growth.</p>
+      </div>
+      <nav class="footer-nav" aria-label="Footer">
+        <a href="/">Home</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
+        <a href="mailto:__SUPPORT_EMAIL__">Support</a>
+      </nav>
+    </div>
+    <div class="container footer-legal">
+      <p>TradeLens AI is a post-trade reflection journal. It does not provide trade signals, predictions, or financial advice. Trading involves risk; past performance in your journal does not guarantee future results.</p>
+      <p>© 2026 TradeLens AI</p>
+    </div>
+  </footer>
+</body>
+</html>

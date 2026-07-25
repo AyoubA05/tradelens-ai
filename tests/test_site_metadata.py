@@ -20,6 +20,7 @@ INDEX = ROOT / "site" / "index.html"
 
 REAL = "https://www.tradelens-ai.com"
 APP = "https://tradelens-app.streamlit.app"
+SUPPORT = "support@example.com"
 
 # The <head> fields that must carry an absolute production URL.
 _ABSOLUTE_URL_FIELDS = (
@@ -105,7 +106,7 @@ def test_bare_hostname_is_rejected():
 
 
 def test_build_resolves_every_token(tmp_path):
-    out = build(REAL, APP, out=tmp_path / "site")
+    out = build(REAL, APP, SUPPORT, out=tmp_path / "site")
     html = (out / "index.html").read_text(encoding="utf-8")
     assert TOKEN not in html
     assert ".example" not in html
@@ -114,7 +115,7 @@ def test_build_resolves_every_token(tmp_path):
 
 
 def test_build_output_has_absolute_urls_on_every_required_field(tmp_path):
-    out = build(REAL, APP, out=tmp_path / "site")
+    out = build(REAL, APP, SUPPORT, out=tmp_path / "site")
     html = (out / "index.html").read_text(encoding="utf-8")
     for field in _ABSOLUTE_URL_FIELDS:
         line = next(ln for ln in html.splitlines() if field in ln)
@@ -123,7 +124,7 @@ def test_build_output_has_absolute_urls_on_every_required_field(tmp_path):
 
 def test_build_copies_binary_assets_intact(tmp_path):
     """Substitution must not corrupt images it walks past."""
-    out = build(REAL, APP, out=tmp_path / "site")
+    out = build(REAL, APP, SUPPORT, out=tmp_path / "site")
     src_assets = ROOT / "site" / "assets"
     for asset in src_assets.glob("*.png"):
         assert (out / "assets" / asset.name).read_bytes() == asset.read_bytes()
@@ -131,15 +132,15 @@ def test_build_copies_binary_assets_intact(tmp_path):
 
 def test_build_refuses_a_placeholder_origin(tmp_path):
     with pytest.raises(BuildError):
-        build("https://www.tradelens-ai.example", APP, out=tmp_path / "site")
+        build("https://www.tradelens-ai.example", APP, SUPPORT, out=tmp_path / "site")
 
 
 def test_build_is_repeatable(tmp_path):
     """A second build over an existing output directory must not accumulate state."""
     out = tmp_path / "site"
-    build(REAL, APP, out=out)
+    build(REAL, APP, SUPPORT, out=out)
     first = (out / "index.html").read_text(encoding="utf-8")
-    build(REAL, APP, out=out)
+    build(REAL, APP, SUPPORT, out=out)
     assert (out / "index.html").read_text(encoding="utf-8") == first
 
 
@@ -165,7 +166,7 @@ def test_main_js_uses_app_origin_token():
 
 
 def test_build_resolves_site_and_app_origins(tmp_path):
-    out = build(REAL, APP, out=tmp_path / "site")
+    out = build(REAL, APP, SUPPORT, out=tmp_path / "site")
     html = (out / "index.html").read_text(encoding="utf-8")
     js = (out / "main.js").read_text(encoding="utf-8")
     assert "__SITE_ORIGIN__" not in html
@@ -176,12 +177,12 @@ def test_build_resolves_site_and_app_origins(tmp_path):
 
 def test_missing_app_origin_is_rejected(tmp_path):
     with pytest.raises(BuildError, match="APP_ORIGIN"):
-        build(REAL, "", out=tmp_path / "site")
+        build(REAL, "", SUPPORT, out=tmp_path / "site")
 
 
 def test_placeholder_app_origin_is_rejected(tmp_path):
     with pytest.raises(BuildError, match="APP_ORIGIN"):
-        build(REAL, "https://app.example", out=tmp_path / "site")
+        build(REAL, "https://app.example", SUPPORT, out=tmp_path / "site")
 
 
 # ---------------------------------------------------------------------------

@@ -112,30 +112,38 @@ longer displayed in the normal user path.
 | Export own trades | Yes, CSV (`services/csvio.py`) |
 | Correct a trade | Yes, edit in the Journal |
 | Delete a single trade | Yes (`delete_trade`) |
-| Delete an entire account and all its data | **No such function exists** |
-| Password reset / account recovery | **Not possible — no contact field is collected** |
+| Delete an entire account and all its data | Yes, Settings → Danger Zone (hard delete, incl. screenshot files) |
+| Password reset / account recovery | Yes, via an optional recovery email; impossible for accounts without one |
 | Documented retention period | **None. Data is kept until manually deleted** |
 | Backups | **None configured for the application database** |
 | Screenshot durability | **Ephemeral on Streamlit Community Cloud** |
 
 ## 8. Known beta limitations to disclose
 
-1. No account deletion path.
-2. No password recovery; a forgotten password means a lost account.
-3. Screenshots and, on an ephemeral host, the database itself can be lost
+1. Screenshots and, on an ephemeral host, the database itself can be lost
    on redeploy.
-4. No backup or restore procedure.
-5. Free-text psychology notes are sent to Anthropic as part of review
+2. No backup or restore procedure.
+3. Free-text psychology notes are sent to Anthropic as part of review
    generation.
-6. No stated retention period.
+4. No stated retention period.
+5. Password recovery is impossible for accounts that never added an email,
+   and requires SMTP to be configured.
 
-## 9. Before publishing any policy
+**Closed 2026-07-25:** account deletion and password recovery, previously
+listed here as missing, are now implemented. See §7.
 
-Items 1, 2, and 4 above are functionality gaps, not wording gaps. A privacy
-policy that promises deletion or recovery would be inaccurate until they
-are built. The honest options are to build them first, or to state the
-limitation plainly as a beta condition.
+## 9. Status of the published policies
 
-Counsel should also confirm the correct legal posture for a product that
-transmits user-authored psychological reflections to a third-party model
-provider.
+`/privacy` and `/terms` are live and written from this inventory. Every
+capability they promise is covered by a test that fails if the capability
+is removed (`tests/test_policy_pages.py`), so the pages cannot quietly
+become false.
+
+The remaining limitations in §8 are disclosed on the privacy page rather
+than glossed over, including the absence of backups and the ephemeral
+screenshot storage.
+
+Still for counsel: the correct legal posture for a product that transmits
+user-authored psychological reflections to a third-party model provider,
+and whether a governing-law clause is needed in the terms. No jurisdiction
+is asserted at present rather than inventing one.

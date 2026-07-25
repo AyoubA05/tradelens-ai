@@ -168,3 +168,60 @@ Fixing one does not fix the other.
 
 Items 1 and 2 are settings that code cannot change. The verifier only
 reports them.
+
+## Build inputs
+
+`scripts/build_site.py` resolves three tokens and refuses to produce a
+publishable site if any is missing or malformed. They are set under
+`build.env` in `vercel.json`, or in the Vercel dashboard.
+
+| Variable | Purpose | Where it is set |
+|---|---|---|
+| `SITE_ORIGIN` | canonical, OG, and JSON-LD URLs | `vercel.json` |
+| `APP_ORIGIN` | every CTA link to the app | `vercel.json` |
+| `SUPPORT_EMAIL` | contact address on `/privacy`, `/terms`, and the footer | **Vercel dashboard — not committed** |
+
+> **The build fails until `SUPPORT_EMAIL` is set.** This is deliberate. The
+> privacy and terms pages carry a contact address, and publishing a policy
+> nobody can reply to is worse than publishing none. Add it under
+> Project Settings → Environment Variables → Production, then redeploy.
+
+## Outgoing email (password reset)
+
+Password reset needs SMTP. Until it is configured, a reset request tells
+the user we could not send the message and to contact support — it never
+pretends to have sent one. For a small cohort, handling those by hand is a
+reasonable interim position.
+
+Set these in the Streamlit app's secrets (not on Vercel — this is the app,
+not the site):
+
+| Variable | Example | Notes |
+|---|---|---|
+| `TRADELENS_SMTP_HOST` | `smtp.gmail.com` | required |
+| `TRADELENS_SMTP_PORT` | `587` | defaults to 587 |
+| `TRADELENS_SMTP_USER` | `you@gmail.com` | optional; omit for a relay that needs no auth |
+| `TRADELENS_SMTP_PASSWORD` | app password | see below |
+| `TRADELENS_SMTP_FROM` | `TradeLens <you@gmail.com>` | required |
+
+`email_configured()` is true only when `HOST` and `FROM` are both present.
+
+### Gmail specifically
+
+Gmail rejects your normal account password over SMTP. You need an app
+password:
+
+1. Enable 2-Step Verification on the Google account.
+2. Go to Google Account → Security → 2-Step Verification → App passwords.
+3. Create one for "Mail", and copy the 16-character value.
+4. Use that as `TRADELENS_SMTP_PASSWORD`, with your address as
+   `TRADELENS_SMTP_USER`.
+
+Gmail applies a daily send limit. That is irrelevant at cohort scale and
+would matter well before any real growth — swap in a transactional relay
+before it does.
+
+### Also set
+
+`TRADELENS_SESSION_SECRET` should be set on the app. Reset tokens are
+signed with it, so without it they stop working whenever the app restarts.
