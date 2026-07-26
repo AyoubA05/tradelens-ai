@@ -417,12 +417,16 @@ git commit -m "feat: add privacy-safe beta health scorecard"
 
 ### Task 4: Publish the minimum trust package before broader recruitment
 
-> **Partially deferred (2026-07-24).** The owner chose the factual
-> inventory only. Steps 1, 2, 4, 6, and 7 stay open until reviewed
-> `/privacy` and `/terms` pages actually exist: wiring footer links to
-> destinations that 404, or claiming a deletion path that is not built,
-> would be worse than the current silence. See
-> `docs/business/data-handling-inventory.md` §7-9.
+> **Status 2026-07-26.** `/privacy` and `/terms` are written and served
+> by the site build, footer links point at them from every page, and
+> `tests/test_site_trust_links.py` fails if a link ever outlives its
+> destination. The deletion and recovery capabilities the pages
+> describe are implemented — that was the blocker.
+>
+> Two steps remain owner-gated and cannot be closed from here:
+> Step 4 (qualified legal review, plus a governing-law decision that
+> was deliberately not invented) and Step 7 (verifying the production
+> routes, which needs `SUPPORT_EMAIL` set in Vercel and a deploy).
 
 **Files:**
 - Create: `docs/business/data-handling-inventory.md`
@@ -434,7 +438,7 @@ git commit -m "feat: add privacy-safe beta health scorecard"
 - Consumes: verified production data flows and reviewed policy destinations `/privacy` and `/terms`.
 - Produces: factual data inventory, support process, and footer links for privacy, terms, and support.
 
-- [ ] **Step 1: Write failing trust-link tests**
+- [x] **Step 1: Write failing trust-link tests**
 
 ```python
 from pathlib import Path
@@ -451,7 +455,7 @@ def test_footer_links_to_privacy_terms_and_support():
     assert 'href="mailto:support@tradelens-ai.com"' in HTML
 ```
 
-- [ ] **Step 2: Run the test and confirm all three links fail**
+- [x] **Step 2: Run the test and confirm all three links fail**
 
 Run: `.venv/bin/python -m pytest -q tests/test_site_trust_links.py`
 
@@ -504,7 +508,7 @@ Reply within one business day during the private beta.
 Broker passwords, API secrets, full account statements, or unrelated personal documents.
 ```
 
-- [ ] **Step 6: Add the reviewed links to the footer**
+- [x] **Step 6: Add the reviewed links to the footer**
 
 Use the existing footer style. Do not add a new trust-card section.
 
