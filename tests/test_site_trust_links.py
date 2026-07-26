@@ -20,7 +20,7 @@ from scripts.build_site import build
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "site"
 
-REAL = "https://www.tradelens-ai.com"
+REAL = "https://www.tradelensai.io"
 APP = "https://tradelens-app.streamlit.app"
 SUPPORT = "support@example.com"
 

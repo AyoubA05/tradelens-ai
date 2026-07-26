@@ -134,7 +134,11 @@ app so signing in returns the visitor to TradeLens. A redirect that drops
 the destination, points at a different app, or a host that is down, still
 fails.
 
-There is no custom domain yet, so the canonical origin is the Vercel URL.
+The canonical origin is `https://www.tradelensai.io`. The apex
+(`tradelensai.io`) redirects to `www`, so `www` is the canonical host and
+`SITE_ORIGIN` must match it — pointing canonical URLs at a host that
+redirects is a needless hop for crawlers and social scrapers.
+
 It is set in two independent places that do not follow each other:
 
 | Setting | Where | Controls |
@@ -145,10 +149,10 @@ It is set in two independent places that do not follow each other:
 Both need changing when a domain is finally pointed at the deployment.
 Fixing one does not fix the other.
 
-> **Why the `…-git-main-…` alias.** It tracks whatever is currently
-> deployed from `main`, so the canonical and OG URLs stay correct as new
-> builds go out. A deployment-specific URL (`…-<hash>-…`) is pinned to one
-> build and would leave the canonical URL pointing at an ageing snapshot.
+> **If the domain changes again.** Update `SITE_ORIGIN` here *and*
+> `TRADELENS_SITE_URL` on the Streamlit app, and confirm which of apex or
+> `www` Vercel treats as canonical — whichever one does not redirect is the
+> value both settings need.
 
 ### Checklist
 
@@ -160,7 +164,7 @@ Fixing one does not fix the other.
 
    ```bash
    .venv/bin/python scripts/verify_public_funnel.py \
-     --site https://tradelens-ai-site-git-main-ayouba05s-projects.vercel.app \
+     --site https://www.tradelensai.io \
      --app https://tradelens-app.streamlit.app
    ```
 

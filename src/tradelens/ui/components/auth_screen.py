@@ -146,13 +146,12 @@ def compliance_html() -> str:
     """Scope note. Copy is load-bearing (CLAUDE.md) — do not reword."""
     from src.tradelens.ui.components.auth import _read_secret
 
-    # No custom domain yet, so the default is the live Vercel URL. This is a
-    # separate setting from the site's own SITE_ORIGIN in vercel.json —
-    # changing one does not change the other; both need updating when a
-    # custom domain is finally pointed at the deployment.
+    # The live marketing domain. This is a separate setting from the site's
+    # own SITE_ORIGIN in vercel.json — changing one does not change the
+    # other, so both were updated when the domain was pointed here.
     site_url = _read_secret(
         "TRADELENS_SITE_URL",
-        "https://tradelens-ai-site-git-main-ayouba05s-projects.vercel.app",
+        "https://www.tradelensai.io",
     )
     return (
         '<div class="tl-auth-note"><b>Reflection only.</b> TradeLens reviews the '

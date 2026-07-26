@@ -1,6 +1,6 @@
 """Resolve the marketing site's deploy-time placeholders into a publishable copy.
 
-    SITE_ORIGIN=https://tradelens-ai-site-git-main-ayouba05s-projects.vercel.app \
+    SITE_ORIGIN=https://www.tradelensai.io \
         APP_ORIGIN=https://tradelens-app.streamlit.app \
         python -m scripts.build_site
 
@@ -49,7 +49,7 @@ def validate_origin(origin: str, name: str = "SITE_ORIGIN") -> str:
     if not origin:
         raise BuildError(
             f"{name} is not set. Pass the real production origin, e.g. "
-            f"{name}=https://www.tradelens-ai.com"
+            f"{name}=https://www.tradelensai.io"
         )
 
     origin = origin.rstrip("/")

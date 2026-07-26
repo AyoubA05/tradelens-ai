@@ -18,7 +18,7 @@ from scripts.build_site import TOKEN, BuildError, build, validate_origin
 ROOT = Path(__file__).resolve().parents[1]
 INDEX = ROOT / "site" / "index.html"
 
-REAL = "https://www.tradelens-ai.com"
+REAL = "https://www.tradelensai.io"
 APP = "https://tradelens-app.streamlit.app"
 SUPPORT = "support@example.com"
 
@@ -89,12 +89,12 @@ def test_placeholder_hosts_are_rejected(origin):
 
 def test_http_origin_is_rejected():
     with pytest.raises(BuildError, match="https"):
-        validate_origin("http://www.tradelens-ai.com")
+        validate_origin("http://www.tradelensai.io")
 
 
 def test_origin_with_path_is_rejected():
     with pytest.raises(BuildError, match="no path"):
-        validate_origin("https://www.tradelens-ai.com/site")
+        validate_origin("https://www.tradelensai.io/site")
 
 
 def test_bare_hostname_is_rejected():

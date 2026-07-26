@@ -38,7 +38,7 @@ STREAMLIT_AUTH = (
 
 def test_public_marketing_page_passes():
     result = classify_marketing(
-        200, "https://tradelens-ai.com/", f"<title>{EXPECTED_TITLE}</title>"
+        200, "https://www.tradelensai.io/", f"<title>{EXPECTED_TITLE}</title>"
     )
     assert result.ok
 
@@ -48,19 +48,19 @@ def test_wrong_marketing_version_fails():
     html = (
         "<title>TradeLens AI — Behavioral Trading Analytics &amp; AI Coaching</title>"
     )
-    result = classify_marketing(200, "https://tradelens-ai.com/", html)
+    result = classify_marketing(200, "https://www.tradelensai.io/", html)
     assert not result.ok
     assert "unexpected title" in result.detail
 
 
 def test_missing_title_fails():
-    result = classify_marketing(200, "https://tradelens-ai.com/", "<h1>hello</h1>")
+    result = classify_marketing(200, "https://www.tradelensai.io/", "<h1>hello</h1>")
     assert not result.ok
     assert "unexpected title" in result.detail
 
 
 def test_non_200_marketing_fails():
-    result = classify_marketing(404, "https://tradelens-ai.com/", "")
+    result = classify_marketing(404, "https://www.tradelensai.io/", "")
     assert not result.ok
     assert "404" in result.detail
 
