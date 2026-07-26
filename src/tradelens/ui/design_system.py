@@ -863,8 +863,28 @@ def build_css() -> str:
 [class*="st-key-tl_review_"] h3 {{
   font-size: 1.05rem;
   font-weight: 600;
-  padding-top: var(--tl-space-2);
+  padding-top: var(--tl-space-4);
   padding-bottom: 0;
+}}
+
+/* A weekly review is several hundred words of prose sitting in a full-width
+   app column. Unmeasured, it reads as a wall and gets skimmed — which
+   defeats the point of writing it. 68ch is the readable measure; the
+   paragraph spacing gives the sections somewhere to breathe. */
+[class*="st-key-tl_review_"] p,
+[class*="st-key-tl_review_"] li {{
+  max-width: 68ch;
+  line-height: 1.65;
+}}
+[class*="st-key-tl_review_"] p {{
+  margin-bottom: var(--tl-space-3);
+}}
+[class*="st-key-tl_review_"] ul,
+[class*="st-key-tl_review_"] ol {{
+  margin-bottom: var(--tl-space-3);
+}}
+[class*="st-key-tl_review_"] li {{
+  margin-bottom: var(--tl-space-2);
 }}
 
 /* === TRADE CALENDAR (dashboard month view) ===

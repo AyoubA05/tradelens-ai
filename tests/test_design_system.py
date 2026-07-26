@@ -404,3 +404,15 @@ def test_app_palette_matches_marketing_site():
     assert ds.TL_SURFACE.lower() == site_var("surface")
     assert ds.TL_SURFACE_2.lower() == site_var("surface-2")
     assert ds.TL_PRIMARY.lower() == site_var("accent")
+
+
+def test_ai_review_prose_has_a_readable_measure():
+    """A weekly review is several hundred words in a full-width column.
+
+    Unmeasured it reads as a wall and gets skimmed, which defeats the
+    point of generating it. The audit asked for a 68-72ch measure.
+    """
+    css = ds.build_css()
+    review_rules = css[css.index('[class*="st-key-tl_review_"] p,') :][:400]
+    assert "max-width: 68ch" in review_rules
+    assert "line-height" in review_rules

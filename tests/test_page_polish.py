@@ -277,3 +277,14 @@ def test_save_trade_remains_primary():
     """Reserving teal must not demote the action that completes the task."""
     assert 'type="primary", key="edit_save"' in _src("2_Trades.py")
     assert "secondary_edit_save" not in _src("2_Trades.py")
+
+
+def test_sidebar_does_not_cover_the_dashboard_on_a_phone():
+    """An expanded sidebar at 390px hides the entire dashboard.
+
+    "auto" keeps it open on desktop and collapsed on small screens, so a
+    mobile visitor's first view is their trades rather than navigation.
+    """
+    app = (PAGES_DIR.parent / "app.py").read_text(encoding="utf-8")
+    assert 'initial_sidebar_state="auto"' in app
+    assert 'initial_sidebar_state="expanded"' not in app

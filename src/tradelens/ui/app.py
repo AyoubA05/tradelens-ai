@@ -80,7 +80,11 @@ _NEXT_STEP_PAGES = {
 st.set_page_config(
     page_title="TradeLens AI",
     layout="wide",
-    initial_sidebar_state="expanded",
+    # "auto", not "expanded": on a phone an expanded sidebar covers the whole
+    # dashboard, so the first thing a mobile visitor sees is navigation
+    # instead of their trades. Auto keeps it open on desktop and collapsed
+    # on small screens.
+    initial_sidebar_state="auto",
 )
 inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
