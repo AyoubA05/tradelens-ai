@@ -423,10 +423,13 @@ git commit -m "feat: add privacy-safe beta health scorecard"
 > destination. The deletion and recovery capabilities the pages
 > describe are implemented — that was the blocker.
 >
-> Two steps remain owner-gated and cannot be closed from here:
-> Step 4 (qualified legal review, plus a governing-law decision that
-> was deliberately not invented) and Step 7 (verifying the production
-> routes, which needs `SUPPORT_EMAIL` set in Vercel and a deploy).
+> **Step 7 closed 2026-07-26.** `tradelensai.io` is live, `SUPPORT_EMAIL`
+> is set, and both `/privacy` and `/terms` return 200 at the production
+> origin with the real contact address rendered.
+>
+> Step 4 (qualified legal review, plus a governing-law decision that was
+> deliberately not invented) remains owner-gated. It is the only step in
+> this plan that code cannot close.
 
 **Files:**
 - Create: `docs/business/data-handling-inventory.md`
@@ -512,13 +515,13 @@ Broker passwords, API secrets, full account statements, or unrelated personal do
 
 Use the existing footer style. Do not add a new trust-card section.
 
-- [ ] **Step 7: Verify production routes after deployment**
+- [x] **Step 7: Verify production routes after deployment**
 
 Run:
 
 ```bash
-curl -fsS https://tradelens-ai.com/privacy >/dev/null
-curl -fsS https://tradelens-ai.com/terms >/dev/null
+curl -fsS https://www.tradelensai.io/privacy >/dev/null
+curl -fsS https://www.tradelensai.io/terms >/dev/null
 ```
 
 Expected: both commands exit 0 and return the reviewed public pages.

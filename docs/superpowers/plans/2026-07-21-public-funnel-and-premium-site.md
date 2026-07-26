@@ -2,6 +2,12 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
+> **Complete 2026-07-26.** Verified on production: `www.tradelensai.io`
+> serves the current build, the apex redirects once with a 308, canonical
+> and OG URLs resolve to the live origin with no unresolved deploy tokens,
+> all five CTAs point at the app, `/privacy` and `/terms` return 200, and
+> `verify_public_funnel.py` exits 0 against the real hosts.
+
 **Goal:** Ship one publicly reachable TradeLens marketing experience that hands anonymous visitors into the product's own auth screen, then refine the supplied site into a quieter editorial presentation without changing its core identity.
 
 **Architecture:** Keep the dependency-free static site in `site/`. Extend the existing Python build step so both the canonical site origin and app origin are deployment inputs, add a standard-library public-funnel verifier, and recompose the feature/pricing/FAQ sections with CSS and semantic HTML. Existing motion is reduced to three authored moments; videos are hydrated only when the visitor's device and preferences permit them.
