@@ -82,8 +82,29 @@ def test_a_token_just_inside_its_window_still_works(account):
 def test_a_tampered_token_is_rejected(account):
     token = reset_service.issue_reset_token(account.id)
     payload, _, signature = token.rpartition(".")
+
+    # Editing the payload invalidates the signature over it.
     assert reset_service.verify_reset_token(f"{payload}x.{signature}") is None
-    assert reset_service.verify_reset_token(f"{payload}.{signature[:-1]}0") is None
+
+    # Flip the last signature character to a *different* one. Appending a
+    # fixed digit would leave the signature untouched whenever it already
+    # ended in that digit — roughly one run in sixteen, which is a flaky
+    # test rather than a real check.
+    flipped = signature[:-1] + ("1" if signature[-1] == "0" else "0")
+    assert flipped != signature
+    assert reset_service.verify_reset_token(f"{payload}.{flipped}") is None
+
+
+def test_every_single_character_signature_edit_is_rejected(account):
+    """The whole signature is load-bearing, not just its prefix."""
+    token = reset_service.issue_reset_token(account.id)
+    payload, _, signature = token.rpartition(".")
+
+    for position in range(0, len(signature), 7):  # sample across the digest
+        original = signature[position]
+        replacement = "1" if original == "0" else "0"
+        mutated = signature[:position] + replacement + signature[position + 1 :]
+        assert reset_service.verify_reset_token(f"{payload}.{mutated}") is None
 
 
 def test_a_token_signed_for_one_account_does_not_open_another(in_memory_db):
