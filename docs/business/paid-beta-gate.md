@@ -27,21 +27,36 @@ Do not use a visual redesign, waitlist size, page views, or AI generation
 volume as proof of product value. None of them measure whether a trader
 came back.
 
-## Known blockers as of 2026-07-24
+## Gate status as of 2026-07-26
 
 | Condition | Status |
 |---|---|
 | Canonical origin serves this site | Passing — the `git-main` Vercel URL serves the current build. No custom domain is owned yet, so "the canonical public domain" above is not satisfied in the intended sense |
 | Public CTA reaches TradeLens sign-in | Passing — the app requires sign-in by design, and the redirect routes back to it |
 | Contradictions blocked | Passing — enforced at every write boundary |
-| Deletion path published | **Failing** — no account-deletion function exists |
+| Deletion path published | Passing — hard deletion in Settings, incl. screenshot files, with a published policy describing it |
+| Recovery path published | Passing for accounts with a recovery email; impossible without one, and stated as such |
+| User data isolated per account | Passing — verified by the isolation suite and by the deletion test's cross-account check |
 
 Requiring an account before the app opens is a product decision, not a
 funnel defect. What the verifier still guards is that the sign-in wall
 returns the visitor to TradeLens rather than stranding them.
 
-The remaining blocker is unbuilt functionality. Buying and pointing a
-domain is outstanding but does not block a paid test on its own.
+Remaining before a paid test, none of them code:
+
+1. **`SUPPORT_EMAIL` set in Vercel.** The site build fails without it, by
+   design: the published policies carry a contact address, and one nobody
+   reads is worse than none.
+2. **A domain pointed at the intended site.** The canonical origin is
+   currently the Vercel URL, which works but is not a premium front door.
+3. **Qualified legal review** of `/privacy` and `/terms`, including whether
+   a governing-law clause is needed. None is asserted at present rather
+   than inventing a jurisdiction.
+4. **SMTP configured**, or 12 password resets handled by hand. Unconfigured,
+   a reset request says it could not send rather than pretending.
+5. **The evidence conditions above** — 20 accounts, 8 first reviews, 5
+   week-four returns, 5 stated benefits, 3 credible willingness-to-pay.
+   These need a cohort, not a commit.
 
 ## First pricing experiment
 
