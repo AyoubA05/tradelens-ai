@@ -354,12 +354,12 @@ as such rather than quietly marked done.
 
 | # | Finding | Status |
 |---|---|---|
-| 1 | Canonical marketing on the public domain | **Owner** — no domain owned yet; the git-main Vercel URL serves the current build and is the canonical origin in `vercel.json` |
+| 1 | Canonical marketing on the public domain | **Done 2026-07-26** — `www.tradelensai.io` is live and serves the current build; the apex 308-redirects to it and `SITE_ORIGIN` matches |
 | 2 | App URL public to anonymous visitors | **Resolved by decision** — the sign-in gate is intentional. The verifier now passes it when the redirect routes back to the app, and still fails if it strands the visitor |
 | 3 | Block outcome/P&L contradictions; audit existing rows | Done. Blocked at create and edit (`trade_validation.py`); `scripts/audit_contradictions.py` reports stored contradictions, exits non-zero, and repairs only on request |
 | 4 | Metrics prefer signed P&L | Done — `outcome_masks` decides per row, so a legacy "Win" carrying -$500 counts as the loss it was |
 | 5 | Scope Strategy Profile and timezone by user | Done before this session; verified (51 tests) |
-| 6 | Publish reviewed privacy and terms | Pages written and served, linked from every page. **Legal review is owner-gated** |
+| 6 | Publish reviewed privacy and terms | Live at `/privacy` and `/terms` (200 in production) with a real contact address, linked from every page. **Qualified legal review remains owner-gated** |
 
 ## P1 — Premium product polish
 
@@ -381,7 +381,7 @@ a paid-beta gate whose conditions are binary.
 
 | # | Finding | Status |
 |---|---|---|
-| 1 | Branded app domain | **Owner** — deferred with the domain decision |
+| 1 | Branded app domain | Marketing is on `tradelensai.io`; the Streamlit app keeps its platform host, which the audit lists as optional and cost-dependent |
 | 2 | Account recovery, deletion, documented support | Done — optional recovery email, emailed reset token, hard account deletion including screenshot files, and a support playbook |
 | 3 | Automated anonymous-funnel monitoring | Done — `verify_public_funnel.py`. Performance budgets not implemented |
 
@@ -393,12 +393,26 @@ a paid-beta gate whose conditions are binary.
   Capturing them found the sidebar opening expanded at 390px and covering
   the whole dashboard; fixed to `auto`.
 
-## Known open
+## Known open — 2026-07-26
 
-1. `SUPPORT_EMAIL` in Vercel — the site build fails without it, by design.
-2. A domain pointed at the intended site.
-3. Qualified legal review; no governing-law clause is asserted rather than
-   inventing a jurisdiction.
-4. SMTP credentials, or resets handled by hand.
-5. Performance budgets.
-6. Cohort evidence — needs traders, not commits.
+Everything in the codebase and the deployment is done. What remains needs
+a person, not a commit:
+
+1. **Qualified legal review** of `/privacy` and `/terms`. No governing-law
+   clause is asserted rather than inventing a jurisdiction.
+2. **SMTP credentials**, or password resets handled by hand. Unconfigured,
+   a reset says it could not send rather than pretending.
+3. **Performance budgets** — the audit's P3.3 half that was not built.
+   Funnel monitoring exists; budget thresholds do not.
+4. **Cohort evidence** — 20 accounts, 8 first reviews, 5 week-four
+   returns. This is the real gate on charging, and it takes a month of
+   talking to traders.
+
+## Verified in production — 2026-07-26
+
+- `verify_public_funnel.py` exits 0 against `www.tradelensai.io` and the app.
+- `/privacy` and `/terms` return 200 with the real support address.
+- Canonical, OG, and JSON-LD URLs resolve to the live origin; no deploy
+  token survives in the served HTML.
+- All five CTAs point at the configured app origin.
+- 1173 tests pass; ruff and black clean.
