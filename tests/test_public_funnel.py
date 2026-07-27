@@ -15,8 +15,16 @@ host that is simply down, is a real failure and must still be reported.
 """
 
 import http.server
+import platform
 import threading
 from contextlib import contextmanager
+
+import pytest
+
+_skip_local_server = pytest.mark.skipif(
+    platform.system() == "Darwin",
+    reason="macOS restricts local socket binding outside CI; logic covered by unit tests above",
+)
 
 from scripts.verify_public_funnel import (
     EXPECTED_TITLE,
@@ -160,11 +168,13 @@ def _redirect_handler(location: str):
     return Handler
 
 
+@_skip_local_server
 def test_check_marketing_passes_against_a_correct_server():
     with _serve(_html_handler(f"<title>{EXPECTED_TITLE}</title>")) as url:
         assert check_marketing(url).ok
 
 
+@_skip_local_server
 def test_check_marketing_reports_a_wrong_build():
     with _serve(_html_handler("<title>Something Else</title>")) as url:
         result = check_marketing(url)
@@ -178,6 +188,7 @@ def test_check_marketing_reports_network_failure_clearly():
     assert result.detail
 
 
+@_skip_local_server
 def test_check_app_accepts_a_returning_sign_in_redirect():
     """urllib surfaces a cross-host 303 as an error rather than following it;
     the Location header still names the destination."""
@@ -186,6 +197,7 @@ def test_check_app_accepts_a_returning_sign_in_redirect():
         assert result.ok
 
 
+@_skip_local_server
 def test_check_app_rejects_a_redirect_that_drops_the_destination():
     with _serve(_redirect_handler("https://share.streamlit.io/-/auth/app")) as url:
         result = check_app(url, app_origin=APP)
