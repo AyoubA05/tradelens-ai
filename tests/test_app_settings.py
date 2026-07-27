@@ -215,6 +215,8 @@ def test_set_setting_recovers_when_a_concurrent_insert_wins(monkeypatch, tmp_pat
 def test_ownerless_pages_do_not_call_or_persist_settings(monkeypatch, page):
     from streamlit.testing.v1 import AppTest
 
+    from src.tradelens.services import sample_data, trade_service
+
     service_calls = []
 
     def settings_service_called(*_args, **_kwargs):
@@ -227,6 +229,8 @@ def test_ownerless_pages_do_not_call_or_persist_settings(monkeypatch, page):
     monkeypatch.setattr(app_settings, "get_timezone", settings_service_called)
     monkeypatch.setattr(app_settings, "set_timezone", settings_service_called)
     monkeypatch.setattr(Path, "write_text", file_write_attempted)
+    monkeypatch.setattr(trade_service, "get_trades", lambda **_kwargs: [])
+    monkeypatch.setattr(sample_data, "count_sample_trades", lambda _user_id: 0)
 
     at = AppTest.from_file(
         str(ROOT / "src" / "tradelens" / "ui" / "pages" / page),

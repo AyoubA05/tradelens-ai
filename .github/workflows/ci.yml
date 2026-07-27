@@ -42,4 +42,8 @@ jobs:
         run: pytest --cov=src/tradelens/services --cov-fail-under=80 -q
 
       - name: Build marketing site (smoke test)
-        run: SITE_ORIGIN=https://www.tradelens-ai.com python -m scripts.build_site
+        env:
+          SITE_ORIGIN: https://www.tradelensai.io
+          APP_ORIGIN: https://tradelens-app.streamlit.app
+          SUPPORT_EMAIL: support@example.com
+        run: python -m scripts.build_site

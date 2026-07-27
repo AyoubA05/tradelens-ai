@@ -210,7 +210,7 @@ def test_monthly_cost_isolates_usage_log_costs_and_calls_by_user(in_memory_db):
 def test_ownerless_settings_page_does_not_read_cost_data(monkeypatch):
     from streamlit.testing.v1 import AppTest
 
-    from src.tradelens.services import cost
+    from src.tradelens.services import cost, sample_data, trade_service
 
     service_calls = []
 
@@ -219,6 +219,8 @@ def test_ownerless_settings_page_does_not_read_cost_data(monkeypatch):
         raise AssertionError("ownerless page must not read AI cost data")
 
     monkeypatch.setattr(cost, "monthly_cost_by_feature", cost_service_called)
+    monkeypatch.setattr(trade_service, "get_trades", lambda **_kwargs: [])
+    monkeypatch.setattr(sample_data, "count_sample_trades", lambda _user_id: 0)
 
     at = AppTest.from_file(
         str(ROOT / "src" / "tradelens" / "ui" / "pages" / "9_Settings.py"),
