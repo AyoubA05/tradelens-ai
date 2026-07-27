@@ -96,12 +96,39 @@ def test_brand_colors_collapse_to_design_system():
     assert theme.TEAL == ds.TL_PRIMARY
     assert theme.TEAL_HOVER == ds.TL_PRIMARY_HOVER
     assert theme.TEAL_SOFT == ds.TL_PRIMARY_DIM
-    assert theme.BG == ds.TL_BG
-    assert theme.TEXT_PRIMARY == ds.TL_TEXT
     # The legacy teal must be gone entirely.
     assert theme.TEAL != "#20808D"
     # TERRA is a separate semantic (ui.py callout border) and intentionally stays.
     assert theme.TERRA == "#A84B2F"
+
+
+def test_theme_reexports_the_hybrid_workspace_roles():
+    """Premium redesign: theme.py stays the compatibility surface for call
+    sites that import from it, so the new light-workspace and dark-instrument
+    roles must be reachable here without a second set of literals."""
+    from src.tradelens.ui import design_system as ds
+
+    assert theme.CANVAS == ds.TL_CANVAS
+    assert theme.PAPER == ds.TL_PAPER
+    assert theme.MIST == ds.TL_MIST
+    assert theme.INK == ds.TL_INK
+    assert theme.HAIRLINE == ds.TL_HAIRLINE
+    assert theme.RAIL == ds.TL_RAIL
+    assert theme.CHART_STAGE == ds.TL_CHART_STAGE
+    assert theme.ACTION == ds.TL_ACTION
+
+
+def test_theme_surface_tokens_follow_the_light_workspace():
+    """BG/SURFACE/TEXT_PRIMARY drive theme.py's own CSS (.tl-empty-state,
+    .tl-chat-*, .tl-grade-chip). Left on the dark values they would paint
+    white-on-white once the app canvas turns light."""
+    from src.tradelens.ui import design_system as ds
+
+    assert theme.BG == ds.TL_CANVAS
+    assert theme.SURFACE == ds.TL_PAPER
+    assert theme.BORDER == ds.TL_HAIRLINE
+    assert theme.TEXT_PRIMARY == ds.TL_INK
+    assert theme.TEXT_MUTED == ds.TL_MUTED
 
 
 def test_font_stacks_defined():
@@ -115,10 +142,12 @@ def test_font_stacks_defined():
 def test_grade_colors_span_success_to_danger():
     # Grade ramp comes from design_system (outcome semantics): A-tier is
     # success green, F is danger red — never the legacy teal/terra pair.
+    # Grade chips are read on PAPER, so the ramp follows the light-workspace
+    # semantics rather than the brighter dark-instrument ones.
     from src.tradelens.ui import design_system as ds
 
-    assert theme.GRADE_COLORS["A+"] == ds.TL_SUCCESS
-    assert theme.GRADE_COLORS["F"] == ds.TL_DANGER
+    assert theme.GRADE_COLORS["A+"] == ds.TL_SUCCESS_INK
+    assert theme.GRADE_COLORS["F"] == ds.TL_DANGER_INK
     assert theme.GRADE_COLORS["A+"] != theme.TEAL
     assert theme.GRADE_COLORS["F"] != theme.TERRA
 
@@ -136,10 +165,80 @@ def test_plotly_template_is_template_object():
     assert isinstance(theme.PLOTLY_TEMPLATE, go.layout.Template)
 
 
-def test_plotly_template_is_transparent():
+def test_plotly_template_paints_the_dark_chart_stage():
+    """Charts are dark instruments inside the light workspace, so a figure
+    carries its own stage instead of adopting the surface behind it. Left
+    transparent, the bright mark ramp landed on the mineral canvas."""
+    from src.tradelens.ui import design_system as ds
+
     layout = theme.PLOTLY_TEMPLATE.layout
-    assert layout.paper_bgcolor == "rgba(0,0,0,0)"
-    assert layout.plot_bgcolor == "rgba(0,0,0,0)"
+    assert layout.paper_bgcolor == ds.TL_CHART_STAGE
+    assert layout.plot_bgcolor == ds.TL_CHART_STAGE
+
+
+def test_charts_pin_the_stage_explicitly_so_streamlit_cannot_repaint_it():
+    """Streamlit's frontend injects the app theme's colours into every
+    figure as EXPLICIT layout values, which beat template ones. A
+    template-only stage therefore resolved to the light workspace on screen
+    even though the template was correct. These keys are what survive."""
+    from src.tradelens.ui import design_system as ds
+    from src.tradelens.ui.components import charts
+
+    assert charts._BASE_LAYOUT["plot_bgcolor"] == ds.TL_CHART_STAGE
+    assert charts._BASE_LAYOUT["paper_bgcolor"] == ds.TL_CHART_STAGE
+    assert charts._BASE_LAYOUT["font"]["color"] == ds.TL_TEXT
+    # never a literal — the stage has exactly one definition
+    assert "rgba(0,0,0,0)" not in repr(charts._BASE_LAYOUT)
+
+
+def test_every_plotly_call_site_opts_out_of_streamlits_own_theme():
+    """`st.plotly_chart` defaults to theme="streamlit", which repaints the
+    figure in the app's theme and discards our template. With the workspace
+    light that put bright teal marks on a near-white plot area — the stage
+    was correct in the template and invisible on screen."""
+    ui = ROOT / "src" / "tradelens" / "ui"
+    sources = [p for p in ui.rglob("*.py") if "_archive" not in p.parts]
+    call_sites = [
+        p for p in sources if "st.plotly_chart(" in p.read_text(encoding="utf-8")
+    ]
+    assert call_sites, "expected at least one chart call site"
+    for path in call_sites:
+        # comments explain the flag too, so count code lines only
+        code = "\n".join(
+            line
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        assert code.count("st.plotly_chart(") == code.count(
+            "theme=None"
+        ), f"{path.name} renders a chart without theme=None"
+
+
+def test_rendered_figures_resolve_to_the_dark_stage():
+    """End-to-end on a real figure, not just the constants.
+
+    A figure that never sets the background resolves it from the registered
+    default template at render time, so the contract is: the chart leaves
+    the key unset, and the template it resolves against paints the stage.
+    """
+    import pandas as pd
+
+    from src.tradelens.ui import design_system as ds
+    from src.tradelens.ui.components import charts
+
+    df = pd.DataFrame(
+        {
+            "trade_date": pd.to_datetime(["2026-07-01", "2026-07-02", "2026-07-03"]),
+            "pnl": [120.0, -45.0, 80.0],
+            "cumulative_pnl": [120.0, 75.0, 155.0],
+        }
+    )
+    fig = charts.equity_curve_chart(df)
+    assert fig.layout.paper_bgcolor == ds.TL_CHART_STAGE
+    assert fig.layout.plot_bgcolor == ds.TL_CHART_STAGE
+    assert fig.layout.template.layout.paper_bgcolor == ds.TL_CHART_STAGE
+    # and the trace drawn on it is a bright mark, not a light-surface one
+    assert fig.data[0].line.color == ds.TL_PRIMARY
 
 
 # ---------------------------------------------------------------------------

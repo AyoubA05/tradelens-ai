@@ -340,7 +340,15 @@ elif not eq.empty:
     with st.container(border=True):
         # plotly_chart has no width= on streamlit 1.50 — use_container_width
         # stays here until the pin bumps (unlike buttons/images/dataframes).
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        # theme=None keeps the TradeLens template's dark chart stage; the
+        # default theme="streamlit" repaints the figure in the app's own
+        # (now light) theme, which put bright teal marks on near-white.
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+            theme=None,
+            config={"displayModeBar": False},
+        )
 else:
     st.markdown(
         render_empty_state(

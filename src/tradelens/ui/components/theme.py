@@ -20,26 +20,52 @@ from __future__ import annotations
 
 from src.tradelens.ui.design_system import (
     PLOTLY_TEMPLATE as _DS_PLOTLY_TEMPLATE,
-    TL_BG as _DS_BG,
+    TL_ACTION as _DS_ACTION,
+    TL_ACTION_HOVER as _DS_ACTION_HOVER,
+    TL_ACTION_WASH as _DS_ACTION_WASH,
+    TL_CANVAS as _DS_CANVAS,
+    TL_CHART_STAGE as _DS_CHART_STAGE,
+    TL_FOCUS as _DS_FOCUS,
     TL_GRADE_A as _DS_GRADE_A,
     TL_GRADE_B as _DS_GRADE_B,
     TL_GRADE_C as _DS_GRADE_C,
     TL_GRADE_D as _DS_GRADE_D,
     TL_GRADE_F as _DS_GRADE_F,
+    TL_HAIRLINE as _DS_HAIRLINE,
+    TL_INK as _DS_INK,
+    TL_MIST as _DS_MIST,
+    TL_MUTED as _DS_MUTED,
+    TL_PAPER as _DS_PAPER,
     TL_PRIMARY as _DS_PRIMARY,
     TL_PRIMARY_DIM as _DS_PRIMARY_DIM,
     TL_PRIMARY_HOVER as _DS_PRIMARY_HOVER,
-    TL_TEXT as _DS_TEXT,
+    TL_RAIL as _DS_RAIL,
 )
 
+# ── Hybrid theme roles (re-exported for call sites that import from here) ──
+# The fixed theme has two surface families; see design_system.py for why they
+# are named separately rather than one being redefined.
+CANVAS = _DS_CANVAS
+PAPER = _DS_PAPER
+MIST = _DS_MIST
+INK = _DS_INK
+HAIRLINE = _DS_HAIRLINE
+ACTION = _DS_ACTION
+ACTION_HOVER = _DS_ACTION_HOVER
+ACTION_WASH = _DS_ACTION_WASH
+RAIL = _DS_RAIL
+CHART_STAGE = _DS_CHART_STAGE
+FOCUS = _DS_FOCUS
+
 # ── Surfaces ──────────────────────────────────────────────────────
-# SP4: BG/TEXT_PRIMARY/TEAL* now re-export design-system tokens so the app has
-# a single source of truth. These names stay for the existing call sites
-# (ui.py, demo_banner.py) which import them directly.
-BG = _DS_BG
-SURFACE = "rgba(255,255,255,0.06)"
-SURFACE_HOVER = "rgba(255,255,255,0.09)"
-BORDER = "rgba(255,255,255,0.10)"
+# These names drive theme.py's own CSS (.tl-empty-state, .tl-chat-*,
+# .tl-grade-chip) and are imported directly by ui.py and demo_banner.py.
+# They follow the LIGHT workspace: left on the pre-redesign dark values, a
+# 6%-white surface would paint white-on-white once the canvas turned light.
+BG = _DS_CANVAS
+SURFACE = _DS_PAPER
+SURFACE_HOVER = _DS_MIST
+BORDER = _DS_HAIRLINE
 
 # ── Brand ─────────────────────────────────────────────────────────
 TEAL = _DS_PRIMARY
@@ -51,14 +77,19 @@ TERRA = "#A84B2F"
 TERRA_SOFT = "rgba(168,75,47,0.15)"
 
 # ── Text hierarchy ────────────────────────────────────────────────
-TEXT_PRIMARY = _DS_TEXT
-TEXT_SECONDARY = "#B4B8BD"
-TEXT_MUTED = "#8E9196"
+# Two levels on light surfaces, per spec 8: ink for what is read, muted for
+# what qualifies it. SECONDARY and MUTED collapse onto the same role — the
+# third level existed only to separate two greys on a dark background.
+TEXT_PRIMARY = _DS_INK
+TEXT_SECONDARY = _DS_MUTED
+TEXT_MUTED = _DS_MUTED
 
 # ── Radii ─────────────────────────────────────────────────────────
-RADIUS_SM = "8px"
-RADIUS_MD = "12px"
-RADIUS_LG = "16px"
+# 6px controls, 8px panels, 10px overlays (spec 8) — the universal 16px
+# card radius is retired.
+RADIUS_SM = "6px"
+RADIUS_MD = "8px"
+RADIUS_LG = "10px"
 
 # ── Fonts ─────────────────────────────────────────────────────────
 # SP4: matches the marketing site (site/index.html) so site -> app is one brand.
@@ -138,8 +169,8 @@ def _build_css() -> str:
     letter-spacing: -0.01em;
 }}
 [data-testid="stSidebar"] {{
-    background: {BG};
-    border-right: 1px solid {BORDER};
+    background: {RAIL};
+    border-right: 1px solid {RAIL};
 }}
 .stMetric [data-testid="stMetricValue"] {{
     font-family: '{MONO_FONT}', monospace;
@@ -152,23 +183,24 @@ def _build_css() -> str:
 .stMetric [data-testid="stMetricLabel"] {{
     color: {TEXT_MUTED};
 }}
+/* Deep teal, not the bright instrument teal: this button carries white
+   text on a light surface, where #00E5CC measures 1.7:1. No lift and no
+   glow — a press must not move the layout under the pointer. */
 .stButton > button {{
-    background: {TEAL};
-    color: #ffffff;
-    border: 1px solid {TEAL};
+    background: {ACTION};
+    color: {PAPER};
+    border: 1px solid {ACTION};
     border-radius: {RADIUS_SM};
     font-weight: 500;
-    transition: transform 0.15s ease-out, box-shadow 0.15s ease-out, background 0.15s ease-out;
+    transition: background 0.16s ease-out;
 }}
 @media (hover: hover) and (pointer: fine) {{
     .stButton > button:hover {{
-        background: {TEAL_HOVER};
-        box-shadow: 0 0 16px {TEAL_SOFT};
-        transform: translateY(-1px);
+        background: {ACTION_HOVER};
     }}
 }}
 .stButton > button:focus-visible {{
-    outline: 2px solid {TEAL};
+    outline: 2px solid {ACTION};
     outline-offset: 2px;
 }}
 /* .tl-kpi-* and .tl-section-* rules moved to design_system.py (Phase 9
@@ -188,8 +220,8 @@ def _build_css() -> str:
     display: inline-block;
     padding: 2px 10px;
     border-radius: {RADIUS_SM};
-    background: {TEAL_SOFT};
-    color: {TEXT_SECONDARY};
+    background: {ACTION_WASH};
+    color: {ACTION};
     font-size: 0.78rem;
     font-weight: 500;
 }}
@@ -213,15 +245,15 @@ def _build_css() -> str:
 .tl-empty-cta {{
     display: inline-block;
     padding: 8px 18px;
-    background: {TEAL};
-    color: #ffffff;
+    background: {ACTION};
+    color: {PAPER};
     border-radius: {RADIUS_SM};
     font-weight: 500;
     text-decoration: none;
 }}
 .tl-chat-user {{
-    background: {TEAL_SOFT};
-    border: 1px solid {TEAL}59;
+    background: {ACTION_WASH};
+    border: 1px solid {BORDER};
     border-radius: {RADIUS_MD};
     padding: 10px 14px;
     margin: 6px 0 6px 12%;
@@ -236,9 +268,6 @@ def _build_css() -> str:
 @media (prefers-reduced-motion: reduce) {{
     .stButton > button {{
         transition: none;
-    }}
-    .stButton > button:hover {{
-        transform: none;
     }}
 }}
 </style>"""

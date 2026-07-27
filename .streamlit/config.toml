@@ -1,10 +1,16 @@
 [theme]
-base = "dark"
-# Palette source of truth: src/tradelens/ui/design_system.py (2026-07 polish pass)
-primaryColor = "#00c2b2"
-backgroundColor = "#0d0f11"
-secondaryBackgroundColor = "#13161a"
-textColor = "#e8eaed"
+# Fixed hybrid theme: a light mineral workspace for reading, forms, tables
+# and decisions; the navigation rail, chart stages and focused AI reading
+# surfaces are painted dark by src/tradelens/ui/design_system.py.
+# There is no theme toggle — a surface is light or dark because of the job
+# it does. Palette source of truth: design_system.py (premium redesign).
+base = "light"
+# Must equal design_system.TL_ACTION — Streamlit paints its own focus rings
+# and widget accents from this value (parity is tested).
+primaryColor = "#087C71"
+backgroundColor = "#F3F6F6"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#132125"
 font = "sans serif"
 
 [server]

@@ -43,9 +43,69 @@ from typing import Optional
 import plotly.graph_objects as go
 import plotly.io as pio
 
+from src.tradelens.ui.components.workspace import (
+    render_section_header as _render_section_header,
+)
+
 # =========================================================================
-# COLOR TOKENS (authoritative — PRODUCT.md palette)
+# COLOR TOKENS — the fixed hybrid theme
 # =========================================================================
+# The signed-in product runs ONE theme with two surface families. There is
+# no toggle; a view is light or dark because of what it does, not because
+# of a preference:
+#
+#   LIGHT WORKSPACE  reading, forms, tables, decisions  (canvas / paper)
+#   DARK INSTRUMENTS navigation rail, charts, focused AI reading surfaces
+#
+# Each family needs its own semantic ramp. Deep teal #087F74 is legible on
+# white and invisible on the rail; bright teal #00E5CC is the reverse. So
+# the two families are named separately rather than one being redefined —
+# charts.py reads TL_SUCCESS/TL_DANGER/TL_WARNING for marks drawn on the
+# dark stage, and repointing those at the light forms would put dark green
+# on near-black. Every pair below is contrast-tested in
+# tests/test_design_system.py, not asserted from the specification.
+# -------------------------------------------------------------------------
+# LIGHT WORKSPACE
+# -------------------------------------------------------------------------
+TL_CANVAS = "#F3F6F6"  # mineral workspace background
+TL_PAPER = "#FFFFFF"  # forms, tables, readable content
+TL_MIST = "#E9EFEF"  # selected rows, filter wells, grouping
+TL_INK = "#132125"  # primary text on light surfaces      15.19:1 on canvas
+TL_MUTED = "#5B6A70"  # secondary text on light surfaces    5.17:1 on canvas
+TL_HAIRLINE = "#D9E2E2"  # structural rules and panel borders
+# The specification proposed #087F74. Measured as text on the mineral canvas
+# it is 4.496:1 — under the 4.5:1 AA floor by four thousandths. Darkened one
+# step so the action reads as a link on canvas as well as a button fill.
+TL_ACTION = "#087C71"  # THE primary action on light surfaces
+TL_ACTION_HOVER = "#066A61"  # darker, so white label keeps its ratio
+# Semantic ramp for light surfaces. Darker than the instrument ramp because
+# these sit on white and mineral, not on near-black.
+TL_SUCCESS_INK = "#167A47"  # 4.94:1 on canvas
+TL_DANGER_INK = "#B53A43"  # 5.29:1 on canvas
+# The specification proposed #A76500; measured 4.29:1 on the mineral canvas,
+# below the 4.5:1 AA floor for normal text. Darkened one step to clear it.
+TL_WARNING_INK = "#9C5F00"  # 4.77:1 on canvas
+# Quiet grounds, not text colors. A 10% tint of a hue darkens the surface
+# toward that hue's own ink, so semantic-text-on-its-own-tint measures
+# 4.1-4.9:1 and cannot be rescued by adjusting the tint — the pattern is
+# what fails. The rule instead: semantic hue MARKS and NUMBERS, and never
+# tints the text sitting on it. Ink on any wash measures 13-14:1, and the
+# hue survives as a dot that clears the 3:1 non-text threshold.
+TL_SUCCESS_WASH = "rgba(22,122,71,0.10)"
+TL_DANGER_WASH = "rgba(181,58,67,0.10)"
+TL_WARNING_WASH = "rgba(156,95,0,0.10)"
+TL_ACTION_WASH = "rgba(8,124,113,0.10)"
+
+# -------------------------------------------------------------------------
+# DARK INSTRUMENTS
+# -------------------------------------------------------------------------
+TL_RAIL = "#0F171B"  # navigation rail
+TL_CHART_STAGE = "#101A1E"  # chart frames and focused AI reading surfaces
+TL_FOCUS = "#00E5CC"  # active marks on dark surfaces (== TL_PRIMARY)
+
+# -------------------------------------------------------------------------
+# DARK INSTRUMENT RAMP (pre-redesign palette, values unchanged)
+# -------------------------------------------------------------------------
 TL_BG = "#0d1117"
 TL_SURFACE = "#161b22"
 TL_SURFACE_2 = "#1c232b"
@@ -73,14 +133,15 @@ TL_WARNING_DIM = "rgba(245,158,11,0.12)"
 TL_NEUTRAL = "#374151"
 TL_NEUTRAL_DIM = "rgba(55,65,81,0.3)"
 
-# Grade scale (A → F): success green through amber to danger red. The two
-# intermediate steps are the same Tailwind-500 family as the semantic
-# tokens above (lime-500, orange-500), so the ramp reads as one system.
-TL_GRADE_A = TL_SUCCESS
-TL_GRADE_B = "#84cc16"
-TL_GRADE_C = TL_WARNING
-TL_GRADE_D = "#f97316"
-TL_GRADE_F = TL_DANGER
+# Grade scale (A → F): success green through amber to danger red. Grade
+# chips are read on PAPER — in the ledger and in trade detail — so the ramp
+# follows the light-workspace semantics. The two intermediate steps are the
+# matching darker lime and orange, so the ramp still reads as one system.
+TL_GRADE_A = TL_SUCCESS_INK
+TL_GRADE_B = "#4D7C0F"
+TL_GRADE_C = TL_WARNING_INK
+TL_GRADE_D = "#B45309"
+TL_GRADE_F = TL_DANGER_INK
 
 # =========================================================================
 # TYPOGRAPHY TOKENS
@@ -89,9 +150,36 @@ TL_GRADE_F = TL_DANGER
 # brand — Satoshi body, Schibsted Grotesk headings, JetBrains Mono numerals.
 # Satoshi is Fontshare-hosted (400/500/700 only — no 600); the rest are
 # Google. URLs mirror theme.py exactly so the browser fetches each once.
-TL_FONT_MONO = "'JetBrains Mono', 'Fira Code', monospace"
-TL_FONT_BODY = "'Satoshi', -apple-system, sans-serif"
-TL_FONT_HEADING = "'Schibsted Grotesk', 'Satoshi', sans-serif"
+# Three roles, three faces. Schibsted sets titles only, so it stays an event
+# rather than a texture; Satoshi carries everything read as language; mono
+# carries everything read as a quantity, where tabular figures stop columns
+# from shifting. Fallbacks are system faces — Inter is retired (spec 16
+# rejects generic Inter typography) and no new font dependency is added.
+TL_FONT_MONO = "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace"
+TL_FONT_BODY = "'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+TL_FONT_HEADING = "'Schibsted Grotesk', 'Avenir Next', 'Satoshi', sans-serif"
+# Role aliases used by the redesigned surfaces.
+TL_FONT_DISPLAY = TL_FONT_HEADING
+TL_FONT_UI = TL_FONT_BODY
+
+# =========================================================================
+# STRUCTURE TOKENS
+# =========================================================================
+# Two rule weights, deliberately. The hairline divides things that belong
+# together (table rows, KPI cells); the rule marks an aside that comments on
+# something else. The Evidence Rail uses the second — at hairline weight the
+# signature disappears, at ink weight it competes with the data.
+TL_RULE = "#AFBEC0"
+
+# =========================================================================
+# MOTION TOKENS (defined here; applied only after the static pass)
+# =========================================================================
+# Built-in CSS easings are too weak to read as intentional. These are the
+# strong variants; durations stay under the 300ms ceiling so no interaction
+# ever waits on an animation.
+TL_EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)"
+TL_EASE_IN_OUT = "cubic-bezier(0.77, 0, 0.175, 1)"
+TL_EASE_DRAWER = "cubic-bezier(0.32, 0.72, 0, 1)"
 
 _FONT_IMPORT = (
     "https://fonts.googleapis.com/css2?"
@@ -108,33 +196,50 @@ ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 # =========================================================================
 # PLOTLY TEMPLATE (single source of truth for chart theming)
 # =========================================================================
-# Transparent backgrounds so charts sit on whatever surface frames them
-# (page background or a bordered container). Registered as the plotly
-# default below, so every figure inherits this styling even when a call
-# site forgets to pass `template=`.
+# Charts are DARK INSTRUMENTS inside the light workspace (spec 7/11.4), so
+# the figure paints its own stage rather than inheriting whatever surface
+# frames it. This is what makes a chart legible on the light canvas without
+# darkening the page around it, and it keeps the bright semantic ramp —
+# which needs a dark ground — as the mark colours.
+#
+# The stage is set here, on the template, because design_system.py is the
+# single source of truth for chart theming. Task 6 may centralise a
+# `apply_chart_stage` wrapper and the framing radius/padding on top of it;
+# the colour contract lives here either way.
 PLOTLY_TEMPLATE = go.layout.Template(
     layout=go.Layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor=TL_CHART_STAGE,
+        plot_bgcolor=TL_CHART_STAGE,
         font=dict(family=TL_FONT_BODY, color=TL_TEXT, size=12),
         title=dict(font=dict(size=14, color=TL_TEXT), x=0.0, xanchor="left"),
+        # Six marks that stay separable on the stage. The sixth was
+        # TL_NEUTRAL, a near-black surface grey that measures 1.71:1 here —
+        # it was a background token doing duty as a data colour. TL_TEXT is
+        # the light end of the neutral ramp and reads clearly against the
+        # mid grey already at position four.
         colorway=[
             TL_PRIMARY,
             TL_WARNING,
             TL_SUCCESS,
             TL_TEXT_MUTED,
             TL_DANGER,
-            TL_NEUTRAL,
+            TL_TEXT,
         ],
+        # automargin: once the figure paints its own stage, the stage has a
+        # visible edge and pinned page margins clip the tick labels against
+        # it. Letting each axis reserve what its labels need fixes every
+        # chart at once instead of tuning margins per call site.
         xaxis=dict(
             gridcolor=TL_BORDER,
             zerolinecolor=TL_BORDER,
+            automargin=True,
             tickfont=dict(color=TL_TEXT_MUTED, size=11),
             title=dict(font=dict(color=TL_TEXT_MUTED, size=12)),
         ),
         yaxis=dict(
             gridcolor=TL_BORDER,
             zerolinecolor=TL_BORDER,
+            automargin=True,
             tickfont=dict(color=TL_TEXT_MUTED, size=11),
             title=dict(font=dict(color=TL_TEXT_MUTED, size=12)),
         ),
@@ -181,6 +286,18 @@ def build_css() -> str:
 
 /* === CSS VARIABLES === */
 :root {{
+  /* -- light workspace -- */
+  --tl-canvas: {TL_CANVAS}; --tl-paper: {TL_PAPER}; --tl-mist: {TL_MIST};
+  --tl-ink: {TL_INK}; --tl-muted: {TL_MUTED};
+  --tl-hairline: {TL_HAIRLINE}; --tl-rule: {TL_RULE};
+  --tl-action: {TL_ACTION}; --tl-action-hover: {TL_ACTION_HOVER};
+  --tl-success-ink: {TL_SUCCESS_INK}; --tl-danger-ink: {TL_DANGER_INK};
+  --tl-warning-ink: {TL_WARNING_INK};
+  --tl-success-wash: {TL_SUCCESS_WASH}; --tl-danger-wash: {TL_DANGER_WASH};
+  --tl-warning-wash: {TL_WARNING_WASH}; --tl-action-wash: {TL_ACTION_WASH};
+  /* -- dark instruments -- */
+  --tl-rail: {TL_RAIL}; --tl-chart-stage: {TL_CHART_STAGE};
+  --tl-focus: {TL_FOCUS};
   --tl-bg: {TL_BG}; --tl-surface: {TL_SURFACE};
   --tl-surface-2: {TL_SURFACE_2};
   --tl-border: {TL_BORDER}; --tl-border-subtle: {TL_BORDER_SUBTLE};
@@ -192,33 +309,45 @@ def build_css() -> str:
   --tl-danger: {TL_DANGER}; --tl-danger-dim: {TL_DANGER_DIM};
   --tl-warning: {TL_WARNING}; --tl-warning-dim: {TL_WARNING_DIM};
   --tl-neutral: {TL_NEUTRAL}; --tl-neutral-dim: {TL_NEUTRAL_DIM};
+  /* -- type roles -- */
+  --tl-font-display: {TL_FONT_DISPLAY};
+  --tl-font-ui: {TL_FONT_UI};
   --tl-font-mono: {TL_FONT_MONO};
   --tl-font-body: {TL_FONT_BODY};
   --tl-font-heading: {TL_FONT_HEADING};
+  /* -- rhythm: 4/8 base, page tiers 16/24/32/48 -- */
   --tl-space-1: 4px; --tl-space-2: 8px; --tl-space-3: 12px;
-  --tl-space-4: 16px; --tl-space-6: 24px; --tl-space-8: 32px;
-  --tl-space-12: 48px;
-  --tl-radius-sm: 6px; --tl-radius-md: 10px;
-  --tl-radius-lg: 16px; --tl-radius-full: 9999px;
-  --tl-shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
-  --tl-shadow-md: 0 4px 16px rgba(0,0,0,0.4);
-  --tl-shadow-lg: 0 12px 40px rgba(0,0,0,0.5);
+  --tl-space-4: 16px; --tl-space-5: 20px; --tl-space-6: 24px;
+  --tl-space-8: 32px; --tl-space-12: 48px;
+  /* -- 6px controls, 8px panels, 10px overlays -- */
+  --tl-radius-sm: 6px; --tl-radius-md: 8px;
+  --tl-radius-lg: 10px; --tl-radius-full: 9999px;
+  /* -- one elevation; borders and spacing carry hierarchy -- */
+  --tl-shadow: 0 1px 2px rgba(19,33,37,0.05), 0 8px 24px rgba(19,33,37,0.07);
+  /* -- motion: locked now, applied after the static pass -- */
+  --tl-ease-out: {TL_EASE_OUT};
+  --tl-ease-in-out: {TL_EASE_IN_OUT};
+  --tl-ease-drawer: {TL_EASE_DRAWER};
+  --tl-dur-press: 120ms; --tl-dur-state: 160ms;
+  --tl-dur-panel: 180ms; --tl-dur-drawer: 240ms;
 }}
 
 /* === BASE (proven selectors only) ===
-   Page background comes from .streamlit/config.toml [theme]. */
+   Background also comes from .streamlit/config.toml [theme]; declared here
+   so the workspace does not flash a stale surface before CSS lands. */
 [data-testid="stAppViewContainer"] {{
-  font-family: var(--tl-font-body);
-  color: var(--tl-text);
+  background: var(--tl-canvas);
+  font-family: var(--tl-font-ui);
+  color: var(--tl-ink);
 }}
-/* Headings use Schibsted Grotesk — the marketing site's heading face
-   (same selector as theme.py, injected later, so this wins ties). */
+/* Schibsted sets titles only — used everywhere it becomes texture. */
 [data-testid="stAppViewContainer"] h1,
 [data-testid="stAppViewContainer"] h2,
 [data-testid="stAppViewContainer"] h3 {{
-  font-family: var(--tl-font-heading);
+  font-family: var(--tl-font-display);
   font-weight: 700;
   letter-spacing: -0.01em;
+  color: var(--tl-ink);
 }}
 [data-testid="stHeader"] {{
   background: transparent;
@@ -229,19 +358,30 @@ def build_css() -> str:
 [data-testid="stAppViewContainer"] .block-container {{
   padding-top: 1.5rem;
   padding-bottom: 2rem;
-  max-width: 1200px;
+  max-width: 1320px;
 }}
 
-/* === SIDEBAR === */
+/* === SIDEBAR — the dark architectural rail ===
+   Ink-dark against the light canvas so the workspace reads as a plane the
+   navigation sits beside, not a panel floating on top of it. */
 [data-testid="stSidebar"] {{
-  background: var(--tl-surface);
+  background: var(--tl-rail);
   border-right: 1px solid var(--tl-border);
+  color: var(--tl-text);
+}}
+[data-testid="stSidebar"] a,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {{
+  color: var(--tl-text);
 }}
 /* Nav links (st.page_link renders an anchor): quiet rest state, surface
    hover, visible keyboard focus. */
 [data-testid="stSidebar"] a {{
   border-radius: var(--tl-radius-sm);
-  transition: background 0.15s ease-out;
+  transition: background var(--tl-dur-state) var(--tl-ease-out);
 }}
 @media (hover: hover) and (pointer: fine) {{
   [data-testid="stSidebar"] a:hover {{
@@ -286,8 +426,11 @@ def build_css() -> str:
   color: var(--tl-text);
   font-weight: 700;
 }}
+/* Active state, so the teal edge is functional rather than decoration.
+   The colour was a literal rgba(0,194,178,.3) — the pre-SP4 teal, left
+   behind when the brand collapsed onto one accent. */
 .tl-side-note.active {{
-  border-color: rgba(0,194,178,0.3);
+  border-color: var(--tl-focus);
   background: var(--tl-primary-dim);
   color: var(--tl-primary);
 }}
@@ -298,8 +441,8 @@ def build_css() -> str:
 /* === NATIVE METRICS (proven stMetric* set; replaces the legacy
        'metric-container' selector from the spec) === */
 .stMetric {{
-  background: var(--tl-surface);
-  border: 1px solid var(--tl-border);
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
   border-radius: var(--tl-radius-md);
   padding: 12px 16px;
 }}
@@ -307,13 +450,13 @@ def build_css() -> str:
   font-family: var(--tl-font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: var(--tl-text);
+  color: var(--tl-ink);
 }}
 .stMetric [data-testid="stMetricDelta"] {{
   font-family: var(--tl-font-mono);
 }}
 .stMetric [data-testid="stMetricLabel"] {{
-  color: var(--tl-text-muted);
+  color: var(--tl-muted);
 }}
 
 /* === BUTTONS (all states: rest, hover, focus, active) ===
@@ -321,29 +464,39 @@ def build_css() -> str:
    they get the identical treatment as .stButton. */
 .stButton > button,
 .stFormSubmitButton > button {{
-  background: var(--tl-primary);
-  color: #ffffff;
-  border: 1px solid var(--tl-primary);
+  background: var(--tl-action);
+  color: var(--tl-paper);
+  border: 1px solid var(--tl-action);
   border-radius: var(--tl-radius-sm);
+  font-family: var(--tl-font-ui);
   font-weight: 500;
-  transition: background 0.15s ease-out, box-shadow 0.15s ease-out;
+  transition: background var(--tl-dur-state) var(--tl-ease-out),
+              border-color var(--tl-dur-state) var(--tl-ease-out);
 }}
 @media (hover: hover) and (pointer: fine) {{
   .stButton > button:hover,
   .stFormSubmitButton > button:hover {{
-    background: var(--tl-primary-hover);
-    border-color: var(--tl-primary-hover);
-    box-shadow: 0 0 16px var(--tl-primary-dim);
+    background: var(--tl-action-hover);
+    border-color: var(--tl-action-hover);
   }}
 }}
 .stButton > button:focus-visible,
 .stFormSubmitButton > button:focus-visible {{
-  outline: 2px solid var(--tl-primary);
+  outline: 2px solid var(--tl-action);
   outline-offset: 2px;
 }}
 .stButton > button:active,
 .stFormSubmitButton > button:active {{
-  background: var(--tl-primary-hover);
+  background: var(--tl-action-hover);
+}}
+/* The rail is dark, so its buttons take the instrument teal instead. */
+[data-testid="stSidebar"] .stButton > button {{
+  background: var(--tl-focus);
+  border-color: var(--tl-focus);
+  color: var(--tl-rail);
+}}
+[data-testid="stSidebar"] .stButton > button:focus-visible {{
+  outline: 2px solid var(--tl-focus);
 }}
 
 /* === SECONDARY ACTIONS ===
@@ -354,71 +507,374 @@ def build_css() -> str:
    would repaint every button on the page. */
 [class*="st-key-secondary_"] button {{
   background: transparent;
-  color: var(--tl-text);
-  border-color: var(--tl-border);
-  box-shadow: none;
+  color: var(--tl-ink);
+  border-color: var(--tl-hairline);
 }}
 @media (hover: hover) and (pointer: fine) {{
   [class*="st-key-secondary_"] button:hover {{
-    background: var(--tl-surface-2);
-    border-color: var(--tl-text-muted);
-    box-shadow: none;
+    background: var(--tl-mist);
+    border-color: var(--tl-muted);
   }}
 }}
 [class*="st-key-secondary_"] button:active {{
-  background: var(--tl-surface-2);
+  background: var(--tl-mist);
 }}
 
-/* === KPI CARD === */
-.tl-kpi-card {{
-  background: var(--tl-surface);
-  border: 1px solid var(--tl-border);
-  border-radius: var(--tl-radius-md);
-  padding: var(--tl-space-4);
-  box-shadow: var(--tl-shadow-sm);
+/* =====================================================================
+   PREMIUM WORKSPACE PRIMITIVES (components/workspace.py)
+   ===================================================================== */
+
+/* --- text carried to screen readers only ---
+   Used where meaning is otherwise expressed by colour alone. Clipped
+   rather than display:none, which would remove it from the a11y tree. */
+.tl-visually-hidden {{
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }}
-.tl-kpi-label {{
-  font-size: 11px;
+
+/* --- page masthead --- */
+.tl-masthead {{
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--tl-space-4);
+  flex-wrap: wrap;
+  padding-bottom: var(--tl-space-4);
+  border-bottom: 1px solid var(--tl-hairline);
+  margin-bottom: var(--tl-space-6);
+}}
+.tl-masthead-lede {{ min-width: 0; }}
+.tl-masthead-eyebrow {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--tl-text-muted);
+  color: var(--tl-muted);
+  margin: 0 0 var(--tl-space-1) 0;
+}}
+.tl-masthead-title {{
+  font-family: var(--tl-font-display);
+  font-size: 30px;
+  line-height: 36px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--tl-ink);
+  margin: 0;
+}}
+.tl-masthead-subtitle {{
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-muted);
+  margin: var(--tl-space-1) 0 0 0;
+  max-width: 68ch;
+}}
+.tl-masthead-meta {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-muted);
+  margin: 0;
+  white-space: nowrap;
+}}
+
+/* --- ruled KPI strip ---
+   One measurement across a period, divided by hairlines. Six boxed tiles
+   would say these numbers are six separate things; they are not. */
+.tl-kpi-strip {{
+  display: flex;
+  flex-wrap: wrap;
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
+  border-radius: var(--tl-radius-md);
+  margin-bottom: var(--tl-space-6);
+}}
+.tl-kpi-cell {{
+  flex: 1 1 150px;
+  min-width: 0;
+  padding: var(--tl-space-3) var(--tl-space-4);
+}}
+.tl-kpi-cell + .tl-kpi-cell {{
+  border-left: 1px solid var(--tl-hairline);
+}}
+.tl-kpi-key {{
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-muted);
+  margin: 0;
+}}
+.tl-kpi-figure {{
+  font-family: var(--tl-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--tl-ink);
+  margin: var(--tl-space-1) 0 0 0;
+}}
+.tl-kpi-cell.tone-positive .tl-kpi-figure {{ color: var(--tl-success-ink); }}
+.tl-kpi-cell.tone-negative .tl-kpi-figure {{ color: var(--tl-danger-ink); }}
+.tl-kpi-cell.tone-warning .tl-kpi-figure {{ color: var(--tl-warning-ink); }}
+.tl-kpi-detail {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-muted);
+  margin: var(--tl-space-1) 0 0 0;
+}}
+
+/* --- EVIDENCE RAIL: the signature ---
+   A margin annotation, not a card: neutral rule, indented content, mono
+   metadata. No fill and no radius, so it reads as commentary beside the
+   data rather than another object competing with it. */
+.tl-evidence-rail {{
+  border-left: 2px solid var(--tl-rule);
+  padding-left: var(--tl-space-3);
+  margin: var(--tl-space-4) 0 0 0;
+  max-width: 68ch;
+}}
+.tl-evidence-label {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tl-muted);
+  margin: 0;
+}}
+.tl-evidence-claim {{
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-ink);
+  margin: var(--tl-space-1) 0 0 0;
+}}
+.tl-evidence-facts {{
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tl-space-1) var(--tl-space-4);
+  margin: var(--tl-space-2) 0 0 0;
+}}
+.tl-evidence-fact {{
+  display: flex;
+  align-items: baseline;
+  gap: var(--tl-space-2);
+  min-width: 0;
+}}
+.tl-evidence-facts dt {{
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--tl-muted);
+  margin: 0;
+}}
+.tl-evidence-facts dd {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-ink);
+  margin: 0;
+}}
+/* Confidence is spelled out and marked — never color alone. */
+.tl-evidence-confidence::before {{
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-muted);
+}}
+.tl-evidence-confidence.conf-high::before {{ background: var(--tl-success-ink); }}
+.tl-evidence-confidence.conf-medium::before {{ background: var(--tl-warning-ink); }}
+
+/* --- numbered research finding --- */
+.tl-finding {{
+  display: flex;
+  gap: var(--tl-space-4);
+  padding: var(--tl-space-6) 0;
+  border-top: 1px solid var(--tl-hairline);
+}}
+.tl-finding-number {{
+  font-family: var(--tl-font-mono);
+  font-size: 14px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--tl-muted);
+  margin: 0;
+  flex: 0 0 2.5rem;
+}}
+.tl-finding-body {{ min-width: 0; }}
+.tl-finding-title {{
+  font-family: var(--tl-font-ui);
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 700;
+  color: var(--tl-ink);
+  margin: 0;
+}}
+.tl-finding-text {{
+  font-size: 16px;
+  line-height: 25px;
+  color: var(--tl-ink);
+  margin: var(--tl-space-2) 0 0 0;
+  max-width: 68ch;
+}}
+
+/* --- editorial readout (interpretation beneath a chart) --- */
+.tl-readout {{
+  padding-top: var(--tl-space-4);
+  border-top: 1px solid var(--tl-hairline);
+  margin-top: var(--tl-space-4);
+}}
+.tl-readout-title {{
+  font-family: var(--tl-font-ui);
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 700;
+  color: var(--tl-ink);
+  margin: 0;
+}}
+.tl-readout-body {{
+  font-size: 16px;
+  line-height: 25px;
+  color: var(--tl-ink);
+  margin: var(--tl-space-2) 0 0 0;
+  max-width: 68ch;
+}}
+
+/* --- active filter summary --- */
+.tl-filter-summary {{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tl-space-2);
+  margin-bottom: var(--tl-space-3);
+}}
+.tl-filter-chip {{
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 1px solid var(--tl-hairline);
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-mist);
+  font-size: 12px;
+  line-height: 18px;
+}}
+.tl-filter-key {{
+  color: var(--tl-muted);
+  font-weight: 500;
+}}
+.tl-filter-value {{
+  font-family: var(--tl-font-mono);
+  color: var(--tl-ink);
+}}
+.tl-filter-empty {{
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-muted);
+}}
+
+/* --- surfaces: white sheet, dark instrument stage, dark reading sheet --- */
+.tl-sheet {{
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-6);
+}}
+.tl-chart-stage {{
+  background: var(--tl-chart-stage);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-4);
+  color: var(--tl-text);
+}}
+.tl-ink-sheet {{
+  background: var(--tl-chart-stage);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-6);
+  color: var(--tl-text);
+}}
+.tl-ink-sheet .tl-finding-title,
+.tl-ink-sheet .tl-finding-text,
+.tl-ink-sheet .tl-evidence-claim,
+.tl-ink-sheet .tl-readout-title,
+.tl-ink-sheet .tl-readout-body {{ color: var(--tl-text); }}
+.tl-ink-sheet .tl-evidence-label,
+.tl-ink-sheet .tl-finding-number,
+.tl-ink-sheet .tl-evidence-facts dt {{ color: var(--tl-text-muted); }}
+.tl-ink-sheet .tl-evidence-facts dd {{ color: var(--tl-text); }}
+.tl-ink-sheet .tl-evidence-rail {{ border-left-color: var(--tl-border); }}
+.tl-ink-sheet .tl-finding,
+.tl-ink-sheet .tl-readout {{ border-top-color: var(--tl-border); }}
+.tl-ink-sheet .tl-evidence-confidence.conf-high::before {{
+  background: var(--tl-success);
+}}
+.tl-ink-sheet .tl-evidence-confidence.conf-medium::before {{
+  background: var(--tl-warning);
+}}
+
+/* === KPI CARD (legacy single-card form; superseded by .tl-kpi-strip) === */
+.tl-kpi-card {{
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-4);
+}}
+.tl-kpi-label {{
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-muted);
 }}
 .tl-kpi-value {{
   font-size: 26px;
-  font-weight: 700;
+  font-weight: 500;
   font-family: var(--tl-font-mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
   white-space: nowrap;
-  color: var(--tl-text);
+  color: var(--tl-ink);
   line-height: 1.1;
   margin-top: 4px;
 }}
-.tl-kpi-value.positive {{ color: var(--tl-success); }}
-.tl-kpi-value.negative {{ color: var(--tl-danger); }}
-.tl-kpi-value.missing {{ color: var(--tl-text-muted); }}
+.tl-kpi-value.positive {{ color: var(--tl-success-ink); }}
+.tl-kpi-value.negative {{ color: var(--tl-danger-ink); }}
+.tl-kpi-value.missing {{ color: var(--tl-muted); }}
 .tl-kpi-delta {{
   font-size: 12px;
   font-family: var(--tl-font-mono);
   margin-top: 2px;
-  color: var(--tl-text-muted);
+  color: var(--tl-muted);
 }}
-.tl-kpi-delta.positive {{ color: var(--tl-success); }}
-.tl-kpi-delta.negative {{ color: var(--tl-danger); }}
+.tl-kpi-delta.positive {{ color: var(--tl-success-ink); }}
+.tl-kpi-delta.negative {{ color: var(--tl-danger-ink); }}
 
 /* === INSIGHT CARD ===
    Variants use tinted backgrounds + accent icon (NO colored side
    borders — PRODUCT.md anti-pattern; owner decision 2026-07-06). */
 .tl-insight-card {{
-  background: var(--tl-surface);
-  border: 1px solid var(--tl-border);
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-4);
 }}
-.tl-insight-card.strength {{ background: var(--tl-success-dim); }}
-.tl-insight-card.leak {{ background: var(--tl-danger-dim); }}
-.tl-insight-card.neutral {{ background: var(--tl-neutral-dim); }}
+.tl-insight-card.strength {{ background: var(--tl-success-wash); }}
+.tl-insight-card.leak {{ background: var(--tl-danger-wash); }}
+.tl-insight-card.neutral {{ background: var(--tl-mist); }}
 .tl-insight-head {{
   display: flex;
   align-items: center;
@@ -426,30 +882,33 @@ def build_css() -> str:
   margin-bottom: var(--tl-space-2);
 }}
 .tl-insight-icon {{ font-size: 16px; }}
-.tl-insight-card.strength .tl-insight-icon {{ color: var(--tl-success); }}
-.tl-insight-card.leak .tl-insight-icon {{ color: var(--tl-danger); }}
-.tl-insight-card.neutral .tl-insight-icon {{ color: var(--tl-text-muted); }}
+.tl-insight-card.strength .tl-insight-icon {{ color: var(--tl-success-ink); }}
+.tl-insight-card.leak .tl-insight-icon {{ color: var(--tl-danger-ink); }}
+.tl-insight-card.neutral .tl-insight-icon {{ color: var(--tl-muted); }}
 .tl-insight-title {{
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-text);
+  color: var(--tl-ink);
   flex: 1;
 }}
 .tl-insight-body {{
-  font-size: 13px;
-  color: var(--tl-text);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-ink);
   margin: 0 0 var(--tl-space-2) 0;
 }}
 .tl-insight-evidence {{
   font-size: 12px;
-  color: var(--tl-text-muted);
+  color: var(--tl-muted);
   margin: 0;
 }}
 
-/* === AI CARD === */
+/* === AI CARD ===
+   Neutral border, not a teal outline: a passive container that happens to
+   hold generated text is not an action (spec 8). */
 .tl-ai-card {{
-  background: var(--tl-surface);
-  border: 1px solid var(--tl-primary);
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-4);
   position: relative;
@@ -459,17 +918,17 @@ def build_css() -> str:
   position: absolute;
   top: var(--tl-space-2);
   right: var(--tl-space-3);
-  font-size: 9px;
-  font-weight: 700;
+  font-family: var(--tl-font-mono);
+  font-size: 10px;
+  font-weight: 500;
   letter-spacing: 0.12em;
-  color: var(--tl-primary);
-  opacity: 0.7;
+  color: var(--tl-muted);
 }}
 
 /* === FORM SECTION CARD === */
 .tl-form-card {{
-  background: var(--tl-surface);
-  border: 1px solid var(--tl-border);
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-6);
   margin-bottom: var(--tl-space-4);
@@ -477,16 +936,16 @@ def build_css() -> str:
 .tl-form-card h3 {{
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-text);
+  color: var(--tl-ink);
   margin-bottom: var(--tl-space-4);
 }}
 
 /* === EMPTY STATE CARD === */
 .tl-empty-card {{
-  background: var(--tl-surface);
-  border: 1px dashed var(--tl-border);
-  border-radius: var(--tl-radius-lg);
-  padding: var(--tl-space-12) var(--tl-space-8);
+  background: var(--tl-paper);
+  border: 1px dashed var(--tl-hairline);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-8);
   text-align: center;
 }}
 .tl-empty-card .icon {{
@@ -497,13 +956,14 @@ def build_css() -> str:
 .tl-empty-card h4 {{
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-text-muted);
+  color: var(--tl-ink);
   margin-bottom: var(--tl-space-2);
 }}
 .tl-empty-card p {{
-  font-size: 12px;
-  color: var(--tl-text-faint);
-  max-width: 280px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-muted);
+  max-width: 46ch;
   margin: 0 auto;
 }}
 /* Onboarding next step. Quiet by design: it sits above the dashboard a
@@ -511,27 +971,30 @@ def build_css() -> str:
    neutral hairline. The mono step count carries the only accent — a
    colored side border is a documented anti-pattern here. */
 .tl-next-step {{
-  border: 1px solid var(--tl-border);
+  border: 1px solid var(--tl-hairline);
   border-radius: var(--tl-radius-md);
-  background: var(--tl-surface);
+  background: var(--tl-paper);
   padding: var(--tl-space-4) var(--tl-space-5);
   margin-bottom: var(--tl-space-4);
 }}
 .tl-next-step-count {{
   font-family: var(--tl-font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--tl-primary);
+  color: var(--tl-action);
 }}
 .tl-next-step-label {{
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 700;
+  color: var(--tl-ink);
   margin-top: var(--tl-space-1);
 }}
 .tl-next-step-detail {{
-  font-size: 12px;
-  color: var(--tl-text-faint);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-muted);
   margin-top: var(--tl-space-1);
 }}
 
@@ -558,40 +1021,61 @@ def build_css() -> str:
 }}
 .tl-empty-action {{
   margin-top: var(--tl-space-3);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
-  color: var(--tl-primary);
+  color: var(--tl-action);
 }}
 
-/* === BADGES / CHIPS === */
+/* === BADGES / CHIPS ===
+   Ink label on a quiet ground, with the hue carried by a dot. Colored text
+   on a tint of its own hue is both the generic-SaaS badge look and a
+   contrast trap (see the wash tokens); a dot also means the state survives
+   for a reader who cannot separate the hues at all. */
 .tl-badge {{
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
+  gap: 6px;
+  padding: 2px 10px;
   border-radius: var(--tl-radius-full);
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 18px;
   font-weight: 500;
+  color: var(--tl-ink);
 }}
-.tl-badge-success {{ background: var(--tl-success-dim); color: var(--tl-success); }}
-.tl-badge-danger {{ background: var(--tl-danger-dim); color: var(--tl-danger); }}
-.tl-badge-warning {{ background: var(--tl-warning-dim); color: var(--tl-warning); }}
-.tl-badge-primary {{ background: var(--tl-primary-dim); color: var(--tl-primary); }}
+.tl-badge-success::before,
+.tl-badge-danger::before,
+.tl-badge-warning::before,
+.tl-badge-primary::before,
+.tl-confidence-high::before,
+.tl-confidence-medium::before {{
+  content: '';
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-muted);
+}}
+.tl-badge-success {{ background: var(--tl-success-wash); }}
+.tl-badge-success::before {{ background: var(--tl-success-ink); }}
+.tl-badge-danger {{ background: var(--tl-danger-wash); }}
+.tl-badge-danger::before {{ background: var(--tl-danger-ink); }}
+.tl-badge-warning {{ background: var(--tl-warning-wash); }}
+.tl-badge-warning::before {{ background: var(--tl-warning-ink); }}
+.tl-badge-primary {{ background: var(--tl-action-wash); }}
+.tl-badge-primary::before {{ background: var(--tl-action); }}
+/* Neutral chips carry setup and tag names — a grey dot on every tag is
+   noise, so the neutral variant stays unmarked. */
 .tl-badge-neutral {{
-  background: var(--tl-neutral-dim);
-  color: var(--tl-text-muted);
+  background: var(--tl-mist);
+  color: var(--tl-muted);
 }}
-.tl-confidence-high {{
-  background: var(--tl-success-dim);
-  color: var(--tl-success);
-}}
-.tl-confidence-medium {{
-  background: var(--tl-warning-dim);
-  color: var(--tl-warning);
-}}
+.tl-confidence-high {{ background: var(--tl-success-wash); }}
+.tl-confidence-high::before {{ background: var(--tl-success-ink); }}
+.tl-confidence-medium {{ background: var(--tl-warning-wash); }}
+.tl-confidence-medium::before {{ background: var(--tl-warning-ink); }}
 .tl-confidence-low {{
-  background: var(--tl-neutral-dim);
-  color: var(--tl-text-muted);
+  background: var(--tl-mist);
+  color: var(--tl-muted);
 }}
 .tl-chip-row {{
   display: flex;
@@ -604,59 +1088,92 @@ def build_css() -> str:
    Signature mark: the short teal top-rule (same motif as the landing
    feature cards) replaces generic dividers as the section break. */
 .tl-section-header {{
-  margin: var(--tl-space-6) 0 var(--tl-space-4) 0;
+  margin: var(--tl-space-8) 0 var(--tl-space-4) 0;
 }}
 .tl-section-header::before {{
   content: '';
   display: block;
   width: 20px;
   height: 2px;
-  border-radius: 1px;
-  background: var(--tl-primary);
+  background: var(--tl-action);
   margin-bottom: var(--tl-space-2);
 }}
 .tl-section-title {{
-  font-size: 18px;
+  font-family: var(--tl-font-display);
+  font-size: 22px;
+  line-height: 28px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  color: var(--tl-text);
+  color: var(--tl-ink);
 }}
 .tl-section-subtitle {{
-  font-size: 13px;
-  color: var(--tl-text-muted);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-muted);
   margin-top: 2px;
 }}
 /* Chart card title (analytics) — one quiet weight below section titles. */
 .tl-chart-title {{
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.01em;
-  color: var(--tl-text);
+  color: var(--tl-ink);
   margin: 0 0 var(--tl-space-2) 0;
 }}
+.tl-chart-stage .tl-chart-title {{ color: var(--tl-text); }}
 
-/* === BANNERS === */
+/* === ERROR BOX (components/ui.error_box) ===
+   Red is reserved for errors, so this is one of the few places the danger
+   hue is load-bearing. Same rule as the banners: ink copy on the danger
+   wash with the hue as a border and mark, never as the text colour. */
+.tl-error-box {{
+  border: 1px solid var(--tl-danger-ink);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-danger-wash);
+  padding: var(--tl-space-3) var(--tl-space-4);
+  color: var(--tl-ink);
+  font-size: 14px;
+  line-height: 20px;
+  white-space: pre-wrap;
+}}
+.tl-error-box::before {{
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--tl-space-2);
+  vertical-align: 1px;
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-danger-ink);
+}}
+
+/* === BANNERS ===
+   Same rule as badges: ink copy on a quiet ground, hue carried by a mark. */
 .tl-banner {{
   border-radius: var(--tl-radius-sm);
+  border: 1px solid var(--tl-hairline);
   padding: var(--tl-space-3) var(--tl-space-4);
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-ink);
   margin-bottom: var(--tl-space-4);
 }}
-.tl-banner-warning {{
-  background: var(--tl-warning-dim);
-  color: var(--tl-warning);
-  border: 1px solid rgba(245,158,11,0.25);
+.tl-banner::before {{
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--tl-space-2);
+  vertical-align: 1px;
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-muted);
 }}
-.tl-banner-info {{
-  background: var(--tl-primary-dim);
-  color: var(--tl-primary);
-  border: 1px solid rgba(0,194,178,0.25);
-}}
-.tl-banner-danger {{
-  background: var(--tl-danger-dim);
-  color: var(--tl-danger);
-  border: 1px solid rgba(239,68,68,0.25);
-}}
+.tl-banner-warning {{ background: var(--tl-warning-wash); }}
+.tl-banner-warning::before {{ background: var(--tl-warning-ink); }}
+.tl-banner-info {{ background: var(--tl-action-wash); }}
+.tl-banner-info::before {{ background: var(--tl-action); }}
+.tl-banner-danger {{ background: var(--tl-danger-wash); }}
+.tl-banner-danger::before {{ background: var(--tl-danger-ink); }}
 
 /* === STEP INDICATOR === */
 .tl-stepper {{
@@ -680,19 +1197,20 @@ def build_css() -> str:
   font-size: 13px;
   font-weight: 700;
 }}
-.tl-step-circle.done {{ background: var(--tl-primary); color: #fff; }}
+.tl-step-circle.done {{ background: var(--tl-action); color: var(--tl-paper); }}
 .tl-step-circle.active {{
-  background: var(--tl-primary);
-  color: #fff;
-  box-shadow: 0 0 0 3px var(--tl-primary-dim);
+  background: var(--tl-action);
+  color: var(--tl-paper);
+  box-shadow: 0 0 0 3px var(--tl-action-wash);
 }}
 .tl-step-circle.future {{
-  background: var(--tl-border);
-  color: var(--tl-text-muted);
+  background: var(--tl-mist);
+  color: var(--tl-muted);
 }}
 .tl-step-label {{
-  font-size: 11px;
-  color: var(--tl-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-muted);
   margin-top: 4px;
 }}
 .tl-step-connector {{
@@ -700,41 +1218,40 @@ def build_css() -> str:
   height: 2px;
   margin-bottom: 16px;
 }}
-.tl-step-connector.done {{ background: var(--tl-primary); }}
-.tl-step-connector.future {{ background: var(--tl-border); }}
+.tl-step-connector.done {{ background: var(--tl-action); }}
+.tl-step-connector.future {{ background: var(--tl-hairline); }}
 
 /* === QUICK ACTION CARD (rest, hover, focus-within states) === */
 .tl-action-card {{
   display: block;
-  background: var(--tl-surface);
-  border: 1px solid var(--tl-border);
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-4);
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--tl-dur-state) var(--tl-ease-out);
 }}
 @media (hover: hover) and (pointer: fine) {{
   .tl-action-card:hover {{
-    border-color: var(--tl-primary);
-    box-shadow: var(--tl-shadow-md);
+    border-color: var(--tl-action);
   }}
 }}
 .tl-action-card:focus-within {{
-  border-color: var(--tl-primary);
-  box-shadow: var(--tl-shadow-md);
+  border-color: var(--tl-action);
+  box-shadow: var(--tl-shadow);
 }}
 
 /* === HERO KPI ROW (dashboard) ===
-   Background image is set inline (data URI + rgba(13,15,17,0.65) overlay)
-   because the asset is embedded per-page via get_asset_as_base64(). */
+   Superseded by .tl-kpi-strip; kept legible until Overview is recomposed.
+   The background image the dark hero carried is not reinstated on the
+   light workspace — decoration behind figures is what made the old
+   dashboard hard to read. */
 .tl-hero-wrap {{
-  border: 1px solid var(--tl-border);
-  border-radius: var(--tl-radius-lg);
+  border: 1px solid var(--tl-hairline);
+  border-radius: var(--tl-radius-md);
   padding: var(--tl-space-6);
   margin-bottom: var(--tl-space-4);
-  background-color: var(--tl-surface);
-  background-size: cover;
-  background-position: center;
+  background-color: var(--tl-paper);
 }}
 .tl-kpi-row {{
   display: flex;
@@ -744,40 +1261,49 @@ def build_css() -> str:
 .tl-kpi-row .tl-kpi-card {{
   flex: 1 1 150px;
   min-width: 150px;
-  background: rgba(19, 22, 26, 0.78);
+  background: var(--tl-paper);
 }}
 
-/* === DATA TABLE (recent trades etc.) === */
+/* === DATA LEDGER (recent trades etc.) ===
+   Ledger density: 14px text, generous row padding, hairline row rules, and
+   tabular figures so money columns line up on the decimal. Rows change
+   background on hover only — a ledger is scanned dozens of times a session,
+   and rows that lift or scale make that feel slow. */
 .tl-table-wrap {{ overflow-x: auto; }}
 .tl-table {{
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 20px;
 }}
 .tl-table th {{
   text-align: left;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--tl-text-muted);
-  padding: 10px var(--tl-space-3);
-  border-bottom: 1px solid var(--tl-border);
+  color: var(--tl-muted);
+  padding: var(--tl-space-2) var(--tl-space-3);
+  border-bottom: 1px solid var(--tl-hairline);
 }}
 .tl-table td {{
-  padding: 10px var(--tl-space-3);
-  border-bottom: 1px solid var(--tl-border-subtle);
-  color: var(--tl-text);
-  transition: background 0.15s ease-out;
+  padding: var(--tl-space-3);
+  border-bottom: 1px solid var(--tl-hairline);
+  color: var(--tl-ink);
+  transition: background var(--tl-dur-state) var(--tl-ease-out);
 }}
 .tl-table td.mono {{
   font-family: var(--tl-font-mono);
   font-variant-numeric: tabular-nums;
 }}
 .tl-table th.num, .tl-table td.num {{ text-align: right; }}
-.tl-table td.pnl-pos {{ color: var(--tl-success); }}
-.tl-table td.pnl-neg {{ color: var(--tl-danger); }}
-.tl-table tr:hover td {{ background: var(--tl-surface-2); }}
+.tl-table td.pnl-pos {{ color: var(--tl-success-ink); }}
+.tl-table td.pnl-neg {{ color: var(--tl-danger-ink); }}
+/* Gated: on a touch device :hover latches after a tap, leaving a row
+   tinted as though it were selected. */
+@media (hover: hover) and (pointer: fine) {{
+  .tl-table tr:hover td {{ background: var(--tl-mist); }}
+}}
 
 /* === WELCOME (dashboard first-run empty state) === */
 .tl-welcome {{
@@ -786,18 +1312,21 @@ def build_css() -> str:
 }}
 .tl-welcome-img {{
   width: 100%;
-  border-radius: var(--tl-radius-lg);
+  border-radius: var(--tl-radius-md);
   margin-bottom: var(--tl-space-6);
 }}
 .tl-welcome-title {{
-  font-size: 24px;
+  font-family: var(--tl-font-display);
+  font-size: 30px;
+  line-height: 36px;
   font-weight: 700;
-  color: var(--tl-text);
+  color: var(--tl-ink);
   margin: 0 0 var(--tl-space-2) 0;
 }}
 .tl-welcome-sub {{
-  font-size: 14px;
-  color: var(--tl-text-muted);
+  font-size: 16px;
+  line-height: 25px;
+  color: var(--tl-muted);
   margin: 0 0 var(--tl-space-4) 0;
 }}
 .tl-welcome-cta-img {{
@@ -822,20 +1351,20 @@ def build_css() -> str:
   display: block;
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-text);
+  color: var(--tl-ink);
   margin-bottom: 2px;
 }}
 .tl-action-sub {{
   display: block;
   font-size: 12px;
-  color: var(--tl-text-muted);
+  color: var(--tl-muted);
   margin-bottom: var(--tl-space-2);
 }}
 .tl-action-go {{
   display: block;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
-  color: var(--tl-primary);
+  color: var(--tl-action);
 }}
 
 /* === STREAMLIT CHROME ===
@@ -846,17 +1375,31 @@ def build_css() -> str:
    proven in this repo. */
 
 /* === INLINE CODE (markdown) ===
-   Streamlit's default renders code spans red — red is reserved for
-   errors. Recolor onto the brand teal over an elevated surface. */
+   Streamlit's default renders code spans red — red is reserved for errors.
+   Ink on mist: the mono face already separates code from prose, so the
+   span does not need a hue as well. */
 [data-testid="stAppViewContainer"] code {{
-  color: var(--tl-primary);
-  background: var(--tl-surface-2);
+  color: var(--tl-ink);
+  background: var(--tl-mist);
   border-radius: 4px;
+}}
+
+/* === FOCUS ===
+   One visible ring everywhere, on both surface families. Focus is never
+   removed; keyboard users navigate the whole product. */
+[data-testid="stAppViewContainer"] :focus-visible {{
+  outline: 2px solid var(--tl-action);
+  outline-offset: 2px;
+  border-radius: 2px;
+}}
+[data-testid="stSidebar"] :focus-visible {{
+  outline: 2px solid var(--tl-focus);
+  outline-offset: 2px;
 }}
 
 /* === AI REVIEW BODY (Insights & Review) ===
    The model's markdown ## / ### headings must sit BELOW the page's
-   18px section titles — inside the keyed tl_review_* containers they
+   section titles — inside the keyed tl_review_* containers they
    render at body-plus scale instead of full H2/H3 size. */
 [class*="st-key-tl_review_"] h1,
 [class*="st-key-tl_review_"] h2,
@@ -900,13 +1443,13 @@ def build_css() -> str:
   border-radius: var(--tl-radius-full);
   margin-right: 6px;
   vertical-align: 1px;
-  background: var(--tl-text-muted);
+  background: var(--tl-muted);
 }}
 [class*="st-key-calday_"][class*="_positive"] button::before {{
-  background: var(--tl-success);
+  background: var(--tl-success-ink);
 }}
 [class*="st-key-calday_"][class*="_negative"] button::before {{
-  background: var(--tl-danger);
+  background: var(--tl-danger-ink);
 }}
 .tl-cal-legend {{
   display: flex;
@@ -914,7 +1457,7 @@ def build_css() -> str:
   flex-wrap: wrap;
   gap: var(--tl-space-4);
   font-size: 12px;
-  color: var(--tl-text-muted);
+  color: var(--tl-muted);
   margin: var(--tl-space-2) 0 var(--tl-space-3) 0;
 }}
 .tl-cal-key {{
@@ -926,16 +1469,20 @@ def build_css() -> str:
   width: 7px;
   height: 7px;
   border-radius: var(--tl-radius-full);
-  background: var(--tl-text-muted);
+  background: var(--tl-muted);
   display: inline-block;
 }}
-.tl-cal-dot.positive {{ background: var(--tl-success); }}
-.tl-cal-dot.negative {{ background: var(--tl-danger); }}
+.tl-cal-dot.positive {{ background: var(--tl-success-ink); }}
+.tl-cal-dot.negative {{ background: var(--tl-danger-ink); }}
 
-/* === MOTION (accessibility — PRODUCT.md) === */
+/* === MOTION (accessibility — PRODUCT.md) ===
+   Reduced motion means fewer and gentler, not zero: color feedback that
+   aids comprehension stays, movement goes. Nothing here translates or
+   scales, so removing transitions entirely is the correct reduction. */
 @media (prefers-reduced-motion: reduce) {{
   .tl-action-card,
   .stButton > button,
+  .stFormSubmitButton > button,
   .tl-table td,
   [data-testid="stSidebar"] a {{
     transition: none;
@@ -943,13 +1490,20 @@ def build_css() -> str:
 }}
 
 /* === MOBILE (SP4 Phase B, <=640px) ===
-   Streamlit stacks its own widgets, but our custom HTML does not: the KPI
-   hero row is a flex row and the HTML tables have no scroll container.
-   These rules let KPI cards stack and keep tables scrollable inside their
-   card instead of overflowing the page. Touch targets to >=44px. */
+   Streamlit stacks its own widgets, but our custom HTML does not: flex
+   rows and HTML tables need explicit reflow. The KPI strip becomes a
+   two-column compact list rather than six full-width rows, tables scroll
+   inside their own frame, and touch targets reach >=44px. */
 @media (max-width: 640px) {{
   .tl-kpi-row {{ flex-direction: column; gap: var(--tl-space-2); }}
   .tl-kpi-card {{ width: 100%; }}
+  .tl-kpi-cell {{ flex: 1 1 50%; }}
+  .tl-kpi-cell:nth-child(odd) {{ border-left-width: 0; }}
+  .tl-kpi-cell:nth-child(n+3) {{ border-top: 1px solid var(--tl-hairline); }}
+  .tl-kpi-figure {{ font-size: 22px; line-height: 28px; }}
+  .tl-masthead {{ align-items: flex-start; flex-direction: column; gap: var(--tl-space-2); }}
+  .tl-masthead-title {{ font-size: 24px; line-height: 30px; }}
+  .tl-finding {{ flex-direction: column; gap: var(--tl-space-2); }}
   .tl-table-wrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
   .tl-table {{ min-width: 560px; }}
   .stButton > button,
@@ -1160,14 +1714,10 @@ def render_banner(text: str, variant: str = "warning") -> str:
 
 
 def render_section_header(title: str, subtitle: Optional[str] = None) -> str:
-    sub = (
-        f'<div class="tl-section-subtitle">{escape(subtitle)}</div>' if subtitle else ""
-    )
-    return (
-        '<div class="tl-section-header">'
-        f'<div class="tl-section-title">{escape(title)}</div>'
-        f"{sub}</div>"
-    )
+    """Section break. Delegates to ``components/workspace.py``, which owns
+    the markup for every shared workspace primitive — this and
+    ``components/ui.section_header`` were byte-identical copies."""
+    return _render_section_header(title, subtitle)
 
 
 def render_ai_card(content_html: str) -> str:

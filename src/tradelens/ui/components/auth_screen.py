@@ -18,6 +18,7 @@ from src.tradelens.ui.design_system import (
     TL_DANGER_DIM,
     TL_PRIMARY,
     TL_SURFACE,
+    TL_SURFACE_2,
     TL_TEXT,
     TL_TEXT_MUTED,
     get_asset_as_base64,
@@ -79,6 +80,129 @@ def auth_css() -> str:
   border-radius: 16px;
   padding: 30px 30px 22px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}}
+/* --- native Streamlit widgets inside the dark card ---
+   The workspace base is light, so Streamlit paints labels, expander
+   summaries and captions in ink (#132125) and text inputs on white. On the
+   dark auth card that renders the labels invisible against their own
+   background. Every rule below is scoped to .st-key-tl_auth_card: the card
+   is the one dark surface in a light product, and widgets everywhere else
+   must keep the framework's own chrome.
+   Selectors use the data-testid values verified in the browser against the
+   pinned streamlit==1.50.0 DOM, not guessed class names. */
+.st-key-tl_auth_card [data-testid="stWidgetLabel"],
+.st-key-tl_auth_card [data-testid="stWidgetLabel"] p,
+.st-key-tl_auth_card [data-testid="stExpander"] summary,
+.st-key-tl_auth_card [data-testid="stExpanderDetails"] p {{
+  color: {TL_TEXT};
+}}
+.st-key-tl_auth_card [data-testid="stCaptionContainer"],
+.st-key-tl_auth_card [data-testid="stCaptionContainer"] p {{
+  color: {TL_TEXT_MUTED};
+}}
+.st-key-tl_auth_card [data-testid="stExpander"] details {{
+  background: transparent;
+  border-color: {TL_BORDER};
+}}
+.st-key-tl_auth_card [data-testid="stExpander"] summary {{
+  min-height: 44px;
+  align-items: center;
+}}
+/* Text and password fields. 44px minimum so the controls are comfortable
+   on touch; Streamlit's own default is 38px. */
+.st-key-tl_auth_card [data-testid="stTextInputRootElement"] {{
+  background: {TL_SURFACE_2};
+  border: 1px solid {TL_BORDER};
+  min-height: 44px;
+}}
+/* BaseWeb nests its own container inside the root element and paints it
+   white. Styling the root alone leaves a white field on the dark card —
+   verified in the browser, not assumed. */
+.st-key-tl_auth_card [data-baseweb="base-input"] {{
+  background: {TL_SURFACE_2};
+}}
+.st-key-tl_auth_card [data-testid="stTextInputRootElement"] input {{
+  color: {TL_TEXT};
+  -webkit-text-fill-color: {TL_TEXT};
+  caret-color: {TL_PRIMARY};
+  background: transparent;
+  min-height: 42px;
+}}
+.st-key-tl_auth_card [data-testid="stTextInputRootElement"] input::placeholder {{
+  color: {TL_TEXT_MUTED};
+}}
+/* Focus lands on the wrapper, not the bare input — the wrapper is what the
+   user sees as the field. Bright teal reads 11.3:1 on this card. */
+.st-key-tl_auth_card [data-testid="stTextInputRootElement"]:focus-within {{
+  border-color: {TL_PRIMARY};
+  outline: 2px solid {TL_PRIMARY};
+  outline-offset: 1px;
+}}
+/* One ring, not two: the wrapper carries focus, so the inner input must
+   not also draw the workspace's own focus outline. */
+.st-key-tl_auth_card [data-testid="stTextInputRootElement"] input:focus-visible {{
+  outline: none;
+}}
+.st-key-tl_auth_card [data-testid="stTextInputRootElement"] button {{
+  background: transparent;
+  border: none;
+  color: {TL_TEXT_MUTED};
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  flex: 0 0 44px;
+}}
+.st-key-tl_auth_card [data-testid="stTextInputRootElement"] button:focus-visible {{
+  outline: 2px solid {TL_PRIMARY};
+  outline-offset: 2px;
+}}
+/* Sign in / Create account switch. Streamlit's light chrome renders the
+   inactive half as a near-white pill on the dark card. */
+.st-key-tl_auth_card [data-testid="stBaseButton-segmented_control"] {{
+  background: transparent;
+  color: {TL_TEXT_MUTED};
+  border-color: {TL_BORDER};
+  min-height: 44px;
+}}
+.st-key-tl_auth_card [data-testid="stBaseButton-segmented_controlActive"] {{
+  background: {TL_SURFACE_2};
+  color: {TL_TEXT};
+  border-color: {TL_PRIMARY};
+  min-height: 44px;
+}}
+/* The card's single primary action. Bright teal is the action colour on a
+   dark surface (deep teal is its light-surface counterpart); dark label on
+   bright teal reads 11.3:1 against white-on-deep-teal's 5.1:1. */
+.st-key-tl_auth_card [data-testid="stFormSubmitButton"] button {{
+  background: {TL_PRIMARY};
+  color: {TL_BG};
+  border: 1px solid {TL_PRIMARY};
+  font-weight: 600;
+  min-height: 44px;
+}}
+.st-key-tl_auth_card [data-testid="stFormSubmitButton"] button:focus-visible {{
+  outline: 2px solid {TL_PRIMARY};
+  outline-offset: 2px;
+}}
+/* Streamlit's markdown anchor rule outranks a bare class, so the back link
+   rendered in the browser's default blue.
+   inline-flex + min-height gives the link a 44px hit area without changing
+   how it looks: the text keeps its size, colour and weight and is centred
+   in the taller box. The base rule's 10px top margin is dropped because the
+   box now supplies that space itself — growing downward rather than with a
+   negative margin, which would put the hit area on top of the compliance
+   copy above it. */
+.st-key-tl_auth_card a.tl-auth-back {{
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 0;
+  color: {TL_TEXT_MUTED};
+  text-decoration: none;
+}}
+.st-key-tl_auth_card a.tl-auth-back:focus-visible {{
+  outline: 2px solid {TL_PRIMARY};
+  outline-offset: 2px;
 }}
 .tl-auth-brand {{ display: flex; align-items: center; gap: 10px; }}
 .tl-auth-word {{ font-weight: 700; font-size: 1.05rem; color: {TL_TEXT};

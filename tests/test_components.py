@@ -168,5 +168,9 @@ def test_error_box_escapes_and_styles():
 
     out = error_box("Analysis failed: <script>alert(1)</script>")
     assert "&lt;script&gt;" in out  # escaped, never raw HTML
-    assert "white-space:pre-wrap" in out
-    assert "#A84B2F" in out  # terra border token
+    # Styling moved to the design system (.tl-error-box): the inline copy
+    # colour was a literal light terracotta that measured 2.2:1 once the
+    # workspace turned light. No raw colour may survive in the builder.
+    assert 'class="tl-error-box"' in out
+    assert 'role="alert"' in out
+    assert "#" not in out, "error_box must not carry a colour literal"

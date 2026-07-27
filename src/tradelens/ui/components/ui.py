@@ -20,9 +20,9 @@ from src.tradelens.ui.components.theme import (
     MONO_FONT,
     TEAL,
     TERRA,
-    TERRA_SOFT,
     TEXT_MUTED,
 )
+from src.tradelens.ui.components.workspace import render_section_header
 
 _ARROW_UP = (
     '<svg width="10" height="10" viewBox="0 0 10 10" style="vertical-align:middle">'
@@ -101,26 +101,28 @@ def killzone_badge(killzone: Optional[str]) -> str:
 
 
 def error_box(message: str) -> str:
-    """Persistent inline error block (terra glass box). Escapes the message.
+    """Persistent inline error block. Escapes the message.
 
     One shared builder so AI failures render identically everywhere — a lasting,
     readable message rather than a transient toast/warning.
+
+    Styling lives in the design system (``.tl-error-box``) rather than inline:
+    the copy used to be a literal ``#e0855f``, a light terracotta chosen for a
+    dark surface, which measured 2.2:1 once the workspace turned light. The
+    message a trader needs when something failed is the last text that should
+    be hard to read.
     """
-    return (
-        f'<div style="background:{TERRA_SOFT};border:1px solid {TERRA};'
-        'border-radius:8px;padding:10px 14px;color:#e0855f;white-space:pre-wrap">'
-        f"{html.escape(str(message))}</div>"
-    )
+    return f'<div class="tl-error-box" role="alert">{html.escape(str(message))}</div>'
 
 
 def section_header(title: str, subtitle: Optional[str] = None) -> str:
-    """A styled section header with an optional muted subtitle."""
-    parts = [f'<div class="tl-section-title">{html.escape(str(title))}</div>']
-    if subtitle:
-        parts.append(
-            f'<div class="tl-section-subtitle">{html.escape(str(subtitle))}</div>'
-        )
-    return f'<div class="tl-section-header">{"".join(parts)}</div>'
+    """A styled section header with an optional muted subtitle.
+
+    Delegates to ``components/workspace.py``: this and
+    ``design_system.render_section_header`` were byte-identical copies of the
+    same markup, which is how one header quietly becomes three.
+    """
+    return render_section_header(title, subtitle)
 
 
 def empty_state(

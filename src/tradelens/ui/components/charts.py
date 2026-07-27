@@ -6,6 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from src.tradelens.ui.design_system import (
+    TL_CHART_STAGE,
     TL_DANGER,
     TL_DANGER_DIM,
     TL_PRIMARY,
@@ -13,6 +14,7 @@ from src.tradelens.ui.design_system import (
     TL_SUCCESS,
     TL_SUCCESS_DIM,
     TL_SURFACE_2,
+    TL_TEXT,
     TL_TEXT_FAINT,
     TL_TEXT_MUTED,
     TL_WARNING,
@@ -32,12 +34,21 @@ _TEAL_FILL = TL_PRIMARY_DIM
 _NEG_FILL = TL_DANGER_DIM
 _REF_LINE = TL_TEXT_FAINT
 
-# Transparent backgrounds so charts adapt to Streamlit light/dark themes.
+# The dark chart stage, restated explicitly rather than left to the
+# template. Verified in the browser on streamlit==1.50.0: the frontend
+# injects the app theme's backgroundColor/secondaryBackgroundColor/textColor
+# into every figure's layout as EXPLICIT values, and an explicit value beats
+# a template one — so with the workspace light, a template-only stage
+# resolved to paper #F3F6F6 / plot #FFFFFF and put the bright mark ramp on
+# near-white. `theme=None` at the call site stops the template swap; these
+# keys are what survive the colour injection. Values stay tokenised, so the
+# template and the layout cannot drift apart.
 # hovermode is NOT set here — each chart picks the appropriate mode.
 _BASE_LAYOUT = dict(
     margin=dict(l=0, r=0, t=32, b=0),
-    plot_bgcolor="rgba(0,0,0,0)",
-    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor=TL_CHART_STAGE,
+    paper_bgcolor=TL_CHART_STAGE,
+    font=dict(color=TL_TEXT),
     showlegend=False,
 )
 
