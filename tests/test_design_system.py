@@ -237,6 +237,21 @@ def test_css_uses_only_proven_testids():
         # stElementContainer → stVerticalBlock → stColumn → stHorizontalBlock).
         "stColumn",
         "stHorizontalBlock",
+        # AI Reviews dark reading sheet: generated prose is rendered by
+        # Streamlit's own markdown renderer, so it arrives as ordinary
+        # elements inside this wrapper rather than as our classed markup.
+        # Observed in the live DOM on streamlit 1.50.0.
+        "stMarkdownContainer",
+        # Touch-target pass on Streamlit's own controls. All four observed in
+        # the live DOM at 375px on streamlit 1.50.0: stRadio wraps the lens
+        # selector (option labels carry data-baseweb="radio", the widget's
+        # own label carries data-testid="stWidgetLabel"); stDateInput wraps
+        # an <input>; stSidebarCollapseButton wraps a <button> while
+        # stExpandSidebarButton sits on the button itself.
+        "stRadio",
+        "stDateInput",
+        "stSidebarCollapseButton",
+        "stExpandSidebarButton",
     }
     used = set(re.findall(r'data-testid="([^"]+)"', ds.build_css()))
     assert used <= proven, f"unproven testids: {used - proven}"

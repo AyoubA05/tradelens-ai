@@ -294,3 +294,73 @@ def test_analytics_timing_calendar_follows_the_asset_filter(tmp_path):
         "No matching trades",
         json.dumps({"analytics_lens": "Timing", "an_asset": ["NOT_A_REAL_ASSET"]}),
     )
+
+
+# ---------------------------------------------------------------------------
+# AI Reviews — each lens boots in each data state (Task 7).
+# ---------------------------------------------------------------------------
+
+_INSIGHTS = "6_Insights.py"
+
+
+@pytest.mark.parametrize("lens", ["Patterns", "Weekly Recap", "Daily Debrief"])
+def test_ai_review_lens_boots_with_rich_data(lens, tmp_path):
+    _boot(
+        _INSIGHTS,
+        tmp_path / f"i-{lens}.db",
+        "1",
+        "-",
+        json.dumps({"ai_review_lens": lens}),
+    )
+
+
+@pytest.mark.parametrize("lens", ["Patterns", "Weekly Recap", "Daily Debrief"])
+def test_ai_review_lens_boots_with_one_trade(lens, tmp_path):
+    _boot(
+        _INSIGHTS,
+        tmp_path / f"i1-{lens}.db",
+        "one",
+        "-",
+        json.dumps({"ai_review_lens": lens}),
+    )
+
+
+def test_patterns_lens_renders_a_research_note(tmp_path):
+    """The note's own thesis heading, not a grid of insight cards."""
+    _boot(
+        _INSIGHTS,
+        tmp_path / "i-note.db",
+        "1",
+        "tl-note-thesis",
+        json.dumps({"ai_review_lens": "Patterns"}),
+    )
+
+
+def test_patterns_lens_numbers_its_findings(tmp_path):
+    _boot(
+        _INSIGHTS,
+        tmp_path / "i-findings.db",
+        "1",
+        "tl-finding-number",
+        json.dumps({"ai_review_lens": "Patterns"}),
+    )
+
+
+def test_patterns_lens_carries_an_evidence_rail(tmp_path):
+    _boot(
+        _INSIGHTS,
+        tmp_path / "i-rail.db",
+        "1",
+        "tl-evidence-rail",
+        json.dumps({"ai_review_lens": "Patterns"}),
+    )
+
+
+def test_patterns_lens_collapses_its_evidence_used(tmp_path):
+    _boot(
+        _INSIGHTS,
+        tmp_path / "i-details.db",
+        "1",
+        "<details",
+        json.dumps({"ai_review_lens": "Patterns"}),
+    )

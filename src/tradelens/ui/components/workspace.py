@@ -215,6 +215,105 @@ def render_research_finding(item: ResearchFinding) -> str:
     )
 
 
+@dataclass(frozen=True)
+class ResearchNote:
+    """A generated review, shaped as a research note rather than a feed.
+
+    The order is the argument: one thesis, then the findings that support
+    it in reading order, then what to do about it. Everything a reader
+    needs to weigh the claim travels with it — sample, per-finding
+    confidence, and a stated limitation — so nothing has to be taken on
+    trust because it appeared in an official-looking box.
+    """
+
+    title: str
+    thesis: str
+    findings: Sequence[ResearchFinding]
+    actions: Sequence[str]
+    evidence_used: Sequence[str]
+    sample: str
+    limitation: str
+    generated_at: str | None = None
+
+
+def render_evidence_disclosure(rows: Sequence[str]) -> str:
+    """What a note was based on, collapsed.
+
+    A native ``<details>``: no script, keyboard-reachable by default, and
+    the summary carries the 44px hit area. Every lens uses this one builder
+    — a generated review previously used ``st.expander`` instead, which put
+    the same disclosure on the light workspace at 38px while the composed
+    note's sat on the dark surface at 44px. One pattern, one measurement.
+    """
+    items = "".join(f"<li>{escape(str(row))}</li>" for row in rows)
+    return (
+        '<details class="tl-note-evidence">'
+        "<summary>Evidence used</summary>"
+        f"<ul>{items}</ul></details>"
+    )
+
+
+def render_research_note(note: ResearchNote) -> str:
+    """One note: thesis, numbered findings, actions, collapsed evidence.
+
+    Evidence-used is a native ``<details>`` — collapsed by default,
+    keyboard-reachable, and needing no script. Long-form supporting detail
+    should never be the first thing between a reader and the finding.
+    """
+    parts = [
+        '<article class="tl-note">',
+        '<header class="tl-note-head">',
+        f'<h2 class="tl-note-title">{escape(str(note.title))}</h2>',
+        f'<p class="tl-note-sample">{escape(str(note.sample))}</p>',
+        "</header>",
+        f'<p class="tl-note-thesis">{escape(str(note.thesis))}</p>',
+    ]
+
+    parts.extend(render_research_finding(finding) for finding in note.findings)
+
+    if note.actions:
+        items = "".join(f"<li>{escape(str(a))}</li>" for a in note.actions)
+        parts.append(
+            '<section class="tl-note-actions">'
+            '<h3 class="tl-note-actions-title">Next review action</h3>'
+            f"<ul>{items}</ul></section>"
+        )
+
+    if note.limitation:
+        parts.append(
+            f'<p class="tl-note-limitation">{escape(str(note.limitation))}</p>'
+        )
+
+    if note.evidence_used:
+        parts.append(render_evidence_disclosure(note.evidence_used))
+
+    if note.generated_at:
+        parts.append(
+            f'<p class="tl-note-generated">{escape(str(note.generated_at))}</p>'
+        )
+
+    parts.append("</article>")
+    return "".join(parts)
+
+
+def render_note_skeleton() -> str:
+    """A stand-in with the note's own geometry.
+
+    A spinner that collapses the panel makes the page jump when the note
+    lands, and the reader loses their place. This holds the space and
+    announces itself, so a screen-reader user knows work is in progress.
+    """
+    lines = "".join(
+        f'<div class="tl-skeleton-line w{width}"></div>' for width in (90, 70, 80, 60)
+    )
+    return (
+        '<div class="tl-note tl-note-skeleton" role="status" aria-busy="true" '
+        'aria-live="polite">'
+        '<p class="tl-visually-hidden">Writing this review…</p>'
+        f"{lines}</div>"
+    )
+
+
 def render_editorial_readout(title: str, body: str, evidence: EvidenceItem) -> str:
     """A short interpretation beneath a chart: what changed, and what the
     evidence does and does not support."""

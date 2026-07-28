@@ -143,8 +143,16 @@ def test_no_emoji_in_headings(page):
 
 @pytest.mark.parametrize("page", AI_PAGES)
 def test_ai_spinner_has_no_model_brand(page):
-    spinners = re.findall(r"st\.spinner\(\s*[\"'](.+?)[\"']", _src(page))
-    assert spinners, f"{page}: expected at least one st.spinner"
+    """Whatever the waiting state says, it names the product, not the model.
+
+    AI Reviews now waits with a geometry-preserving skeleton rather than a
+    spinner, so a page may legitimately have no st.spinner at all.
+    """
+    src = _src(page)
+    spinners = re.findall(r"st\.spinner\(\s*[\"'](.+?)[\"']", src)
+    assert (
+        spinners or "render_note_skeleton" in src
+    ), f"{page}: expected visible loading feedback"
     for text in spinners:
         low = text.lower()
         assert "fable" not in low, f"{page}: spinner leaks a model brand: {text!r}"
@@ -204,9 +212,15 @@ _AI_CALL_OWNERS = [
 @pytest.mark.parametrize("path", _AI_CALL_OWNERS, ids=lambda p: p.name)
 def test_ai_call_owners_show_loading_feedback(path):
     """SP4 Phase B: AI calls take seconds — every module that makes one must
-    show a spinner rather than freezing the pane with no feedback."""
+    show progress rather than freezing the pane with no feedback.
+
+    A skeleton counts, and on AI Reviews it is the better answer: it holds
+    the note's geometry, so the page does not jump when the review lands.
+    """
     src = path.read_text(encoding="utf-8")
-    assert "st.spinner" in src, f"{path.name}: AI call path needs st.spinner feedback"
+    assert (
+        "st.spinner" in src or "render_note_skeleton" in src
+    ), f"{path.name}: AI call path needs visible loading feedback"
 
 
 # ---------------------------------------------------------------------------

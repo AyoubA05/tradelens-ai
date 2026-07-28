@@ -44,8 +44,15 @@ def test_ai_runs_automatically_not_button_gated():
     assert 'st.button("Generate weekly review"' not in src
 
 
-def test_uses_spinner_loading_indicator():
-    assert "st.spinner(" in _src()
+def test_generation_shows_visible_progress():
+    """A spinner collapses the panel, so the page jumps when the review
+    lands and the reader loses their place. The skeleton stands in the
+    note's own geometry instead, and announces itself."""
+    src = _src()
+    assert "render_note_skeleton()" in src
+    assert src.count("placeholder.markdown(render_note_skeleton()") == 2
+    # …and it is cleared once the call returns, whatever the outcome.
+    assert src.count("placeholder.empty()") == 2
 
 
 def test_caches_ai_result_in_session_state():
@@ -114,11 +121,29 @@ def test_journal_does_not_render_generation_cost():
     assert "Generation cost" not in src
 
 
+def test_every_lens_uses_the_same_evidence_disclosure():
+    """st.expander put the generated lenses' disclosure on the LIGHT
+    workspace at 38px, while the composed note's sat on the dark sheet at
+    44px — one component, two treatments, two surfaces. Measured at 375px.
+    """
+    src = _src()
+    assert "render_evidence_disclosure(" in src
+    assert "st.expander(" not in src, "the shared <details> builder, not st.expander"
+
+
 def test_insights_shows_evidence_and_confidence():
+    """What a review was based on travels with it. Confidence is now a
+    per-finding fact on the Evidence Rail rather than a footer line, so the
+    assertion follows the rail rather than the old label."""
     src = (_UI_PAGES / "6_Insights.py").read_text(encoding="utf-8")
-    assert "Evidence used" in src
     assert "Trades reviewed" in src
-    assert "Confidence" in src
+    assert "render_evidence_rail" in src
+    assert "_confidence_for(" in src
+    # "Evidence used" is now the shared builder's own summary text.
+    from src.tradelens.ui.components.workspace import render_evidence_disclosure
+
+    assert "render_evidence_disclosure(" in src
+    assert "Evidence used" in render_evidence_disclosure(("Trades reviewed: 3",))
 
 
 def test_confidence_bands_follow_sample_size():
@@ -132,13 +157,16 @@ def test_confidence_bands_follow_sample_size():
     src = (_UI_PAGES / "6_Insights.py").read_text(encoding="utf-8")
     assert spec is not None
     ns: dict = {}
-    start = src.index("def _confidence_label")
-    end = src.index("def _render_review_body")
+    # The bands are unchanged; they now return the Evidence Rail's own
+    # vocabulary (low/medium/high) instead of a second set of words for
+    # the same three levels.
+    start = src.index("_CONF_BY_SAMPLE = ")
+    end = src.index("def _md_safe")
     exec(src[start:end], ns)  # noqa: S102 — isolated pure function
-    label = ns["_confidence_label"]
-    assert label(0) == "Low"
-    assert label(9) == "Low"
-    assert label(10) == "Developing"
-    assert label(19) == "Developing"
-    assert label(20) == "Higher"
-    assert label(200) == "Higher"
+    level = ns["_confidence_for"]
+    assert level(0) == "low"
+    assert level(9) == "low"
+    assert level(10) == "medium"
+    assert level(19) == "medium"
+    assert level(20) == "high"
+    assert level(200) == "high"

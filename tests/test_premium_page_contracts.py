@@ -10,6 +10,7 @@ Task 5 covers Journal. Later tasks extend this file for Analytics, AI
 Reviews, Strategy Profile and Settings.
 """
 
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -617,3 +618,309 @@ def test_one_category_note_does_not_double_escape():
     src = _src("4_Analytics.py")
     assert 'f"One {noun} so far: {row[column]}"' in src
     assert "escape(str(row[column]))" not in src
+
+
+# ---------------------------------------------------------------------------
+# AI Reviews — research notes, not a feed of cards (Task 7)
+# ---------------------------------------------------------------------------
+
+
+def test_ai_reviews_exposes_exactly_three_lenses():
+    src = _src("6_Insights.py")
+    assert 'AI_REVIEW_LENSES = ("Patterns", "Weekly Recap", "Daily Debrief")' in src
+
+
+def test_ai_reviews_renders_one_lens_at_a_time():
+    src = _src("6_Insights.py")
+    assert "_LENS_BODIES[lens]()" in src
+    for fn in (
+        "def _render_patterns_lens(",
+        "def _render_weekly_lens(",
+        "def _render_daily_lens(",
+    ):
+        assert fn in src, fn
+
+
+def test_patterns_is_a_research_note_not_a_card_grid():
+    """Spec 11.5: numbered findings in a real reading sequence, replacing
+    the two-column grid of red and green insight cards."""
+    src = _src("6_Insights.py")
+    assert "render_research_note(" in src
+    assert "ResearchNote(" in src
+    assert "_insight_card_html" not in src, "the card grid is gone"
+    assert "tl-insight-card" not in src
+    assert "dcols = st.columns(2)" not in src
+
+
+def test_patterns_leads_with_a_thesis():
+    """One claim first, then the findings that support it. A page of equally
+    weighted cards never said which one mattered most."""
+    src = _src("6_Insights.py")
+    assert "thesis=" in src
+    assert "lead, rest = ordered[0], ordered[1:5]" in src
+
+
+def test_findings_are_capped_at_five():
+    src = _src("6_Insights.py")
+    assert "ordered[1:5]" in src
+
+
+def test_next_actions_are_review_actions_never_trade_actions():
+    """The product reviews completed trades. An 'action' here is something
+    to go and re-read, never something to take."""
+    src = _src("6_Insights.py")
+    assert "Re-read the trades behind" in src
+    body = src[
+        src.index("actions = [") : src.index(
+            "st.markdown(\n        render_research_note"
+        )
+    ]
+    lowered = body.lower()
+    for banned in (
+        "buy",
+        "sell",
+        "go long",
+        "go short",
+        "signal",
+        "entry",
+        "take this",
+    ):
+        assert banned not in lowered, banned
+
+
+def test_generated_prose_never_reaches_an_html_allowing_path():
+    """Same rule as the Journal summary: model markdown goes through
+    Streamlit's renderer with unsafe HTML off."""
+    src = _src("6_Insights.py")
+    assert 'st.markdown(_md_safe(review["content_md"]))' in src
+
+
+def test_the_note_body_gets_the_dark_reading_surface():
+    """Spec 7: filters and controls stay on the light workspace; the thing
+    being read gets its own plane."""
+    from src.tradelens.ui import design_system as ds
+
+    src = _src("6_Insights.py")
+    assert 'st.container(key="tl_note_sheet")' in src
+    css = ds.build_css()
+    assert ".st-key-tl_note_sheet" in css
+    block = css[css.index(".st-key-tl_note_sheet {") :][:220]
+    assert "var(--tl-chart-stage)" in block
+
+
+def test_confidence_is_stated_once_per_finding_not_as_a_footer():
+    src = _src("6_Insights.py")
+    assert "render_evidence_rail(" in src
+    assert "_confidence_label" not in src, "the repeated footer label is gone"
+
+
+def test_generation_keeps_the_previous_note_until_a_replacement_succeeds():
+    """A failed regeneration must not cost the trader the review they had."""
+    src = _src("6_Insights.py")
+    regen = src[src.index("Regenerate this week") :]
+    regen = regen[: regen.index("elif err:")]
+    assert "save_weekly_review(review, overwrite=True" in regen
+    assert "Could not regenerate" in regen
+    # nothing clears the saved review before the new one is written
+    assert "delete_weekly_review" not in regen
+
+
+def test_every_failure_path_offers_retry():
+    src = _src("6_Insights.py")
+    assert "Retry weekly review" in src
+    assert "Retry debrief" in src
+
+
+def test_daily_debrief_links_back_to_the_journal():
+    """Spec 11.5: contributing trades can be opened without losing the note."""
+    src = _src("6_Insights.py")
+    daily = src[src.index("def _render_daily_lens(") :]
+    assert "Open these trades in the Journal" in daily
+
+
+def test_ai_reviews_lens_selector_never_writes_its_own_widget_key():
+    src = _src("6_Insights.py")
+    assert '_LENS_KEY = "ai_review_lens"' in src
+    assert '_LENS_WIDGET_KEY = "ai_review_lens_pick"' in src
+
+
+def test_ai_reviews_keeps_its_generation_services():
+    src = _src("6_Insights.py")
+    for fn in (
+        "generate_insights",
+        "generate_weekly_review",
+        "generate_debrief",
+        "save_weekly_review",
+        "get_weekly_review",
+        "log_ai_usage",
+    ):
+        assert fn in src, fn
+
+
+def _selectors(css: str) -> list[str]:
+    """Every individual selector in the stylesheet, comments stripped."""
+    body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    out: list[str] = []
+    for chunk in re.findall(r"(?m)^([^{}]+)\{", body):
+        for sel in chunk.split(","):
+            sel = " ".join(sel.split())
+            if sel and not sel.startswith("@"):
+                out.append(sel)
+    return out
+
+
+_APP = '[data-testid="stAppViewContainer"]'
+_SHEET = ".st-key-tl_note_sheet"
+
+
+def _unanchored(sels: list[str]) -> list[str]:
+    """Selectors with the app-container anchor stripped off the front."""
+    return [s[len(_APP) + 1 :] if s.startswith(_APP + " ") else s for s in sels]
+
+
+def test_note_headings_outrank_the_global_heading_rule():
+    """The workspace paints every h1-h3 in ink, anchored to the app
+    container (specificity 0,1,1). A lone class loses to it, which rendered
+    the note's own title near-black on the dark sheet — caught in the
+    browser. Two classes, or the heading disappears."""
+    from src.tradelens.ui import design_system as ds
+
+    sels = _unanchored(_selectors(ds.build_css()))
+    for selector in (".tl-note .tl-note-title", ".tl-note .tl-note-actions-title"):
+        assert selector in sels, selector
+    # the single-class forms must not be what carries the colour
+    for weak in (".tl-note-title", ".tl-note-actions-title"):
+        assert weak not in sels, weak
+
+
+_TYPE_SCALE_SELECTORS = (
+    ".tl-note-thesis",
+    ".tl-note-sample",
+    ".tl-note-limitation",
+    ".tl-note-generated",
+    ".tl-finding-title",
+    ".tl-finding-number",
+    ".tl-finding-text",
+    ".tl-evidence-label",
+    ".tl-evidence-claim",
+)
+
+
+def test_component_type_scale_outranks_streamlits_markdown_stylesheet():
+    """Streamlit sizes markdown itself: `<container> p { font-size: inherit }`
+    and its own h1-h4 sizes, both at specificity 0,1,1. A lone class loses.
+
+    Unanchored, the Evidence Rail's 12px label, 14px claim and 16px body all
+    rendered at 16px, and a 17px finding title rendered at 28px — larger than
+    the note's own title. The rail had no hierarchy left and the note's was
+    inverted. Measured at 375px; no assertion saw it.
+    """
+    from src.tradelens.ui import design_system as ds
+
+    sels = _selectors(ds.build_css())
+    for selector in _TYPE_SCALE_SELECTORS:
+        assert selector not in sels, (
+            f"{selector} declares type with one class — Streamlit's markdown "
+            f"stylesheet outranks it; anchor it to {_APP}"
+        )
+        assert f"{_APP} {selector}" in sels, selector
+
+
+def test_the_skeleton_pulse_is_opt_in_not_opt_out():
+    """The only motion on this page. Declared inside
+    `prefers-reduced-motion: no-preference` rather than switched off inside
+    a `reduce` block, so a reader who has asked for less motion never gets
+    it at all — not even for the first frame. Verified in the browser with
+    the media feature emulated: animation-name computes to `none`.
+    """
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+    opt_in = css.index("@media (prefers-reduced-motion: no-preference)")
+    end = css.index("@media", opt_in + 10)
+    assert "tl-skeleton-pulse" in css[opt_in:end]
+    # and it is not also declared unconditionally somewhere above
+    assert "animation: tl-skeleton-pulse" not in css[:opt_in]
+
+
+def test_dark_surface_overrides_name_both_reading_surfaces():
+    """There are TWO dark reading surfaces: `.tl-note`, the note we compose
+    ourselves, and `.st-key-tl_note_sheet`, the container a generated review
+    is written into. The Evidence Rail and the numbered finding are built
+    once and used on both, so they carry the light workspace's ink by
+    default and every repaint has to name both.
+
+    Naming only `.tl-note` left the rail's claim and values at 1.07:1 on the
+    generated note — the signature component, invisible, in two of the three
+    lenses. No assertion caught it; a contrast probe at 375px did.
+    """
+    from src.tradelens.ui import design_system as ds
+
+    sels = _unanchored(_selectors(ds.build_css()))
+    orphans = [
+        s
+        for s in sels
+        if s.startswith(".tl-note ") and f"{_SHEET} {s[len('.tl-note '):]}" not in sels
+    ]
+    assert not orphans, f"dark-surface rules missing a sheet twin: {orphans}"
+
+
+def test_streamlit_own_controls_reach_the_44px_floor():
+    """Our components carry the floor themselves; Streamlit's defaults do
+    not. Measured at 375px on 1.50.0: lens options 26px, date field 38px,
+    sidebar handle 28px. Asserted by selector, not by counting occurrences
+    of "44px", so the specific controls stay protected."""
+    from src.tradelens.ui import design_system as ds
+
+    css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
+    for selector in (
+        '[data-testid="stRadio"] label[data-baseweb="radio"]',
+        '[data-testid="stDateInput"] input',
+        '[data-testid="stSidebarCollapseButton"] button',
+        '[data-testid="stExpandSidebarButton"]',
+    ):
+        block = re.search(
+            re.escape(selector) + r"[^{}]*\{([^{}]*)\}",
+            css,
+        )
+        assert block, f"no rule for {selector}"
+        assert "44px" in block.group(1), selector
+
+    # The widget's own label collapses to 0px under label_visibility=
+    # "collapsed"; giving it a 44px floor would inject empty space above
+    # every lens selector, so the rule must stay on the option labels.
+    assert "stWidgetLabel" not in _selectors(css)
+
+
+def test_the_44px_floor_is_not_hidden_behind_the_phone_breakpoint():
+    """A target is a target at every width. A rule that only exists below
+    767px regresses silently the moment anyone measures at 1440px."""
+    from src.tradelens.ui import design_system as ds
+
+    css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
+    phone = css.index("@media (max-width: 767px)")
+    for selector in (
+        '[data-testid="stRadio"] label[data-baseweb="radio"]',
+        '[data-testid="stDateInput"] input',
+        '[data-testid="stExpandSidebarButton"]',
+        '[data-testid="stPageLink-NavLink"]',
+        ".stButton button",
+    ):
+        # the rule that DECLARES the floor, wherever it sits
+        declaring = [
+            m.start()
+            for m in re.finditer(re.escape(selector) + r"[^{}]*\{([^{}]*)\}", css)
+            if "min-height: 44px" in m.group(1)
+        ]
+        assert declaring, f"nothing declares a 44px floor for {selector}"
+        assert min(declaring) < phone, f"{selector}'s 44px floor is phone-only"
+
+    # …and the rule that declares the button floor must use the descendant
+    # combinator: a button passing help= is wrapped in a tooltip div, so
+    # `.stButton > button` never reaches it.
+    floor = next(
+        m
+        for m in re.finditer(r"([^{}]*\.stButton[^{}]*)\{([^{}]*)\}", css)
+        if "min-height: 44px" in m.group(2) and "stSidebar" not in m.group(1)
+    )
+    assert ">" not in floor.group(1), floor.group(1).strip()

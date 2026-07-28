@@ -837,14 +837,25 @@ def build_css() -> str:
 /* --- EVIDENCE RAIL: the signature ---
    A margin annotation, not a card: neutral rule, indented content, mono
    metadata. No fill and no radius, so it reads as commentary beside the
-   data rather than another object competing with it. */
+   data rather than another object competing with it.
+
+   Every type rule from here through the research note is anchored to
+   [data-testid="stAppViewContainer"]. Streamlit's markdown stylesheet
+   forces its own font-size onto every p/ol/ul/dl and h1-h4 it renders,
+   from a container-class selector at specificity 0,1,1 — which beats a
+   lone class of ours. Unanchored, every <p> we
+   render came out at the inherited 16px and every <h3> at 28px: the rail's
+   12px label, 14px claim and 16px body all collapsed to one size, and a
+   finding title outgrew the note's own title. The anchor makes these 0,2,0.
+   Measured at 375px on streamlit 1.50.0; test_component_type_scale_outranks
+   _streamlits_markdown_stylesheet holds it. */
 .tl-evidence-rail {{
   border-left: 2px solid var(--tl-rule);
   padding-left: var(--tl-space-3);
   margin: var(--tl-space-4) 0 0 0;
   max-width: 68ch;
 }}
-.tl-evidence-label {{
+[data-testid="stAppViewContainer"] .tl-evidence-label {{
   font-family: var(--tl-font-mono);
   font-size: 12px;
   line-height: 18px;
@@ -854,7 +865,7 @@ def build_css() -> str:
   color: var(--tl-muted);
   margin: 0;
 }}
-.tl-evidence-claim {{
+[data-testid="stAppViewContainer"] .tl-evidence-claim {{
   font-size: 14px;
   line-height: 20px;
   color: var(--tl-ink);
@@ -872,14 +883,14 @@ def build_css() -> str:
   gap: var(--tl-space-2);
   min-width: 0;
 }}
-.tl-evidence-facts dt {{
+[data-testid="stAppViewContainer"] .tl-evidence-facts dt {{
   font-size: 12px;
   line-height: 18px;
   font-weight: 500;
   color: var(--tl-muted);
   margin: 0;
 }}
-.tl-evidence-facts dd {{
+[data-testid="stAppViewContainer"] .tl-evidence-facts dd {{
   font-family: var(--tl-font-mono);
   font-size: 12px;
   line-height: 18px;
@@ -906,7 +917,7 @@ def build_css() -> str:
   padding: var(--tl-space-6) 0;
   border-top: 1px solid var(--tl-hairline);
 }}
-.tl-finding-number {{
+[data-testid="stAppViewContainer"] .tl-finding-number {{
   font-family: var(--tl-font-mono);
   font-size: 14px;
   line-height: 24px;
@@ -916,7 +927,7 @@ def build_css() -> str:
   flex: 0 0 2.5rem;
 }}
 .tl-finding-body {{ min-width: 0; }}
-.tl-finding-title {{
+[data-testid="stAppViewContainer"] .tl-finding-title {{
   font-family: var(--tl-font-ui);
   font-size: 17px;
   line-height: 24px;
@@ -924,7 +935,7 @@ def build_css() -> str:
   color: var(--tl-ink);
   margin: 0;
 }}
-.tl-finding-text {{
+[data-testid="stAppViewContainer"] .tl-finding-text {{
   font-size: 16px;
   line-height: 25px;
   color: var(--tl-ink);
@@ -1421,6 +1432,205 @@ def build_css() -> str:
 .tl-step-connector.done {{ background: var(--tl-action); }}
 .tl-step-connector.future {{ background: var(--tl-hairline); }}
 
+/* === AI REVIEWS — the research note ===
+   The note body is a focused DARK reading surface inside the light
+   workspace (spec 7): filters and controls stay on the workspace, the
+   thing being read gets its own plane. */
+.tl-note {{
+  background: var(--tl-chart-stage);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-6);
+  color: var(--tl-text);
+  max-width: 72ch;
+}}
+.tl-note-head {{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tl-space-4);
+  flex-wrap: wrap;
+  padding-bottom: var(--tl-space-3);
+  border-bottom: 1px solid var(--tl-border);
+}}
+/* Two classes, not one: the global heading rule is
+   `[data-testid="stAppViewContainer"] h2` (specificity 0,1,1), which beats
+   a lone class and painted these near-black on the dark sheet. */
+[data-testid="stAppViewContainer"] .tl-note .tl-note-title,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-note-title {{
+  font-family: var(--tl-font-display);
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 700;
+  color: var(--tl-text);
+  margin: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-note-sample {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-text-muted);
+  margin: 0;
+}}
+/* The thesis is the one sentence a reader must not miss, so it is the
+   largest text on the surface — one step above the findings that support
+   it, not a heading competing with the title. */
+[data-testid="stAppViewContainer"] .tl-note-thesis {{
+  font-size: 19px;
+  line-height: 28px;
+  color: var(--tl-text);
+  margin: var(--tl-space-4) 0 0 0;
+}}
+/* --- dark-surface repaint for the shared components ---
+   The Evidence Rail and the numbered finding are built once and used on
+   BOTH surfaces, so they carry the light workspace's ink by default. Every
+   rule below must therefore name BOTH reading surfaces: `.tl-note` (the
+   note we compose ourselves) and `.st-key-tl_note_sheet` (the container
+   the generated note is written into). Listing only `.tl-note` left the
+   rail's claim and values at 1.07:1 on the generated note — invisible, and
+   caught only in the browser. test_dark_surface_overrides_name_both_reading_surfaces
+   holds the pair together. */
+[data-testid="stAppViewContainer"] .tl-note .tl-finding,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-finding {{ border-top-color: var(--tl-border); }}
+[data-testid="stAppViewContainer"] .tl-note .tl-finding-title,
+[data-testid="stAppViewContainer"] .tl-note .tl-finding-text,
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-claim,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-finding-title,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-finding-text,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-claim {{ color: var(--tl-text); }}
+[data-testid="stAppViewContainer"] .tl-note .tl-finding-number,
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-label,
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-facts dt,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-finding-number,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-label,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-facts dt {{ color: var(--tl-text-muted); }}
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-facts dd,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-facts dd {{ color: var(--tl-text); }}
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-rail,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-rail {{ border-left-color: var(--tl-border); }}
+/* The confidence dot is a mark, so it needs the 3:1 non-text floor against
+   the stage — the workspace's muted grey does not clear it. */
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-confidence::before,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-confidence::before {{
+  background: var(--tl-text-muted);
+}}
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-confidence.conf-high::before,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-confidence.conf-high::before {{
+  background: var(--tl-success);
+}}
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-confidence.conf-medium::before,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-confidence.conf-medium::before {{
+  background: var(--tl-warning);
+}}
+.tl-note-actions {{
+  margin-top: var(--tl-space-6);
+  padding-top: var(--tl-space-4);
+  border-top: 1px solid var(--tl-border);
+}}
+[data-testid="stAppViewContainer"] .tl-note .tl-note-actions-title,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-note-actions-title {{
+  font-family: var(--tl-font-ui);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-text-muted);
+  margin: 0 0 var(--tl-space-2) 0;
+}}
+.tl-note-actions ul {{
+  margin: 0;
+  padding-left: var(--tl-space-4);
+}}
+[data-testid="stAppViewContainer"] .tl-note-actions li {{
+  font-size: 16px;
+  line-height: 25px;
+  color: var(--tl-text);
+  margin-bottom: var(--tl-space-1);
+}}
+[data-testid="stAppViewContainer"] .tl-note-limitation {{
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-text-muted);
+  margin: var(--tl-space-4) 0 0 0;
+}}
+/* Supporting detail, collapsed. A native <details> needs no script and is
+   keyboard-reachable by default. */
+.tl-note-evidence {{
+  margin-top: var(--tl-space-4);
+  border-top: 1px solid var(--tl-border);
+  padding-top: var(--tl-space-3);
+}}
+[data-testid="stAppViewContainer"] .tl-note-evidence summary {{
+  font-size: 14px;
+  color: var(--tl-text-muted);
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}}
+.tl-note-evidence summary:focus-visible {{
+  outline: 2px solid var(--tl-focus);
+  outline-offset: 2px;
+}}
+[data-testid="stAppViewContainer"] .tl-note-evidence ul {{
+  margin: 0;
+  padding-left: var(--tl-space-4);
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--tl-text-muted);
+}}
+[data-testid="stAppViewContainer"] .tl-note-generated {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  color: var(--tl-text-muted);
+  margin: var(--tl-space-4) 0 0 0;
+}}
+
+/* Skeleton: the note's own geometry while generation runs, so the page
+   does not jump when the note lands. */
+.tl-note-skeleton .tl-skeleton-line {{
+  height: 16px;
+  border-radius: 4px;
+  background: var(--tl-surface-2);
+  margin-bottom: var(--tl-space-3);
+}}
+.tl-skeleton-line.w90 {{ width: 90%; }}
+.tl-skeleton-line.w80 {{ width: 80%; }}
+.tl-skeleton-line.w70 {{ width: 70%; }}
+.tl-skeleton-line.w60 {{ width: 60%; }}
+@media (prefers-reduced-motion: no-preference) {{
+  .tl-note-skeleton .tl-skeleton-line {{
+    animation: tl-skeleton-pulse 1.4s ease-in-out infinite;
+  }}
+  @keyframes tl-skeleton-pulse {{
+    0%, 100% {{ opacity: 1; }}
+    50% {{ opacity: 0.55; }}
+  }}
+}}
+
+/* Generated prose keeps the dark surface too. The model's markdown is
+   rendered by Streamlit, so it arrives as ordinary elements that need
+   colouring rather than our own classed markup. */
+/* The plane hugs the reading measure. Stretched to the full column it is
+   a dark slab with prose down one edge — the surface should be the shape
+   of the thing being read. */
+.st-key-tl_note_sheet {{
+  background: var(--tl-chart-stage);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-6);
+  max-width: 78ch;
+}}
+.st-key-tl_note_sheet [data-testid="stMarkdownContainer"] {{
+  color: var(--tl-text);
+  max-width: 72ch;
+}}
+.st-key-tl_note_sheet [data-testid="stMarkdownContainer"] h1,
+.st-key-tl_note_sheet [data-testid="stMarkdownContainer"] h2,
+.st-key-tl_note_sheet [data-testid="stMarkdownContainer"] h3,
+.st-key-tl_note_sheet [data-testid="stMarkdownContainer"] h4,
+.st-key-tl_note_sheet [data-testid="stMarkdownContainer"] strong {{
+  color: var(--tl-text);
+}}
+
 /* === JOURNAL === */
 /* The result count, beside the view selector. Mono so the figure lines up
    with the ledger's own numerals, and right-aligned so it reads as a
@@ -1783,6 +1993,54 @@ def build_css() -> str:
   }}
 }}
 
+/* === TOUCH TARGETS ON STREAMLIT'S OWN CONTROLS ===
+   Our components carry the 44px floor themselves. Streamlit's defaults do
+   not. Measured on 1.50.0: lens options 26px, date field 38px, sidebar
+   handle 28px, in-content page link 32px, and buttons 40px above the phone
+   breakpoint. Every rule here is set at EVERY width — a pointer is not the
+   only reason for a comfortable target, and a floor that exists only below
+   767px is one that regresses the moment anyone measures at 1440px, which
+   is exactly how the button case was found. */
+
+/* Radio options only. `[data-baseweb="radio"]` is on the option labels;
+   the widget's own <label> carries the stWidgetLabel testid instead and
+   collapses to 0px when label_visibility="collapsed" — matching it would
+   inject 44px of empty space above every lens selector. */
+[data-testid="stRadio"] label[data-baseweb="radio"] {{
+  min-height: 44px;
+  align-items: center;
+}}
+[data-testid="stDateInput"] input {{
+  min-height: 44px;
+}}
+/* The collapse handle carries its testid on the wrapper, the expand handle
+   on the button itself — hence the two shapes. */
+[data-testid="stSidebarCollapseButton"] button,
+[data-testid="stExpandSidebarButton"] {{
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}}
+/* Buttons. Descendant, not `>`: a button that passes `help=` is wrapped in
+   a tooltip div, so `.stButton > button` never reaches it. This lived
+   inside the phone breakpoint and made the same control 44px on a phone
+   and 40px on a desktop — "Regenerate this week", measured at 1440px. */
+.stButton button,
+.stFormSubmitButton button {{
+  min-height: 44px;
+}}
+/* Page links in the page body. The sidebar's nav links are already 44px
+   from the shell pass; an in-content one ("Open these trades in the
+   Journal") was 32px. inline-flex gives the hit area without changing how
+   the link reads. */
+[data-testid="stPageLink-NavLink"] {{
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}}
+
 /* === MOBILE (SP4 Phase B, <=767px) ===
    Streamlit stacks its own widgets, but our custom HTML does not: flex
    rows and HTML tables need explicit reflow. The KPI strip becomes a
@@ -1846,8 +2104,6 @@ def build_css() -> str:
   .tl-finding {{ flex-direction: column; gap: var(--tl-space-2); }}
   .tl-table-wrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
   .tl-table {{ min-width: 560px; }}
-  .stButton > button,
-  .stFormSubmitButton > button {{ min-height: 44px; }}
   [data-testid="stTextInput"] input {{ min-height: 44px; }}
 }}
 </style>"""

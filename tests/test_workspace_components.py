@@ -360,3 +360,193 @@ def test_section_header_is_the_single_source_for_both_call_sites():
     expected = render_section_header("Performance", "Last 30 days")
     assert ds.render_section_header("Performance", "Last 30 days") == expected
     assert section_header("Performance", "Last 30 days") == expected
+
+
+# ---------------------------------------------------------------------------
+# Research note — the AI Reviews reading surface (Task 7)
+# ---------------------------------------------------------------------------
+
+
+def _note(**overrides):
+    from src.tradelens.ui.components.workspace import ResearchNote
+
+    fields = {
+        "title": "Patterns",
+        "thesis": "London entries closed above 1R more often than New York.",
+        "findings": (
+            ResearchFinding(1, "Late entries cost", "Body one", _evidence()),
+            ResearchFinding(2, "Sweeps held", "Body two", _evidence()),
+        ),
+        "actions": ("Re-read the six London trades before next week.",),
+        "evidence_used": ("21 trades", "Jul 1-24", "Strategy profile included"),
+        "sample": "n=21 · Jul 1-24",
+        "limitation": "Directional only.",
+    }
+    fields.update(overrides)
+    return ResearchNote(**fields)
+
+
+def test_research_note_leads_with_thesis_sample_and_confidence():
+    """Spec 11.5: the first viewport carries the thesis, sample, confidence
+    and the first finding — not a grid of cards."""
+    from src.tradelens.ui.components.workspace import render_research_note
+
+    html = render_research_note(_note())
+    assert 'class="tl-note"' in html
+    assert "tl-note-thesis" in html
+    assert "n=21 · Jul 1-24" in html
+    assert html.index("tl-note-thesis") < html.index("tl-finding")
+
+
+def test_research_note_numbers_its_findings_in_reading_order():
+    from src.tradelens.ui.components.workspace import render_research_note
+
+    html = render_research_note(_note())
+    assert html.count('class="tl-finding"') == 2
+    assert html.index(">01<") < html.index(">02<")
+
+
+def test_every_finding_carries_its_own_evidence_rail():
+    """Confidence and sample are said once per finding, not repeated as a
+    footer under every card."""
+    from src.tradelens.ui.components.workspace import render_research_note
+
+    html = render_research_note(_note())
+    assert html.count('class="tl-evidence-rail"') == 2
+
+
+def test_research_note_lists_next_actions():
+    from src.tradelens.ui.components.workspace import render_research_note
+
+    html = render_research_note(_note())
+    assert "tl-note-actions" in html
+    assert "Re-read the six London trades" in html
+
+
+def test_evidence_used_is_collapsed_by_default():
+    """A <details> element, so it is collapsed, keyboard-reachable and needs
+    no script."""
+    from src.tradelens.ui.components.workspace import render_research_note
+
+    html = render_research_note(_note())
+    assert "<details" in html and "<summary" in html
+    assert "open" not in html.split("<details")[1][:40]
+    assert "Evidence used" in html
+
+
+def test_evidence_disclosure_is_one_builder_for_every_lens():
+    """A generated review used st.expander for the same disclosure the
+    composed note renders itself: two treatments of one component, on two
+    different surfaces, at 38px and 44px. Both go through this builder now,
+    so the composed note's own markup is the proof for all three lenses."""
+    from src.tradelens.ui.components.workspace import (
+        render_evidence_disclosure,
+        render_research_note,
+    )
+
+    rows = ("Trades reviewed: 21", "Period: 2026-07-06")
+    html = render_evidence_disclosure(rows)
+    assert html.startswith('<details class="tl-note-evidence">')
+    assert "<summary>Evidence used</summary>" in html
+    assert "open" not in html.split("<summary")[0]
+    for row in rows:
+        assert f"<li>{row}</li>" in html
+    # the composed note delegates rather than repeating the markup
+    assert render_evidence_disclosure(_note().evidence_used) in render_research_note(
+        _note()
+    )
+
+
+def test_evidence_disclosure_escapes_its_rows():
+    from src.tradelens.ui.components.workspace import render_evidence_disclosure
+
+    html = render_evidence_disclosure(("BOS & FVG <script>", "a > b"))
+    assert "<script>" not in html
+    assert "&amp;" in html and "&lt;script&gt;" in html
+
+
+def test_research_note_states_its_limitation():
+    from src.tradelens.ui.components.workspace import render_research_note
+
+    html = render_research_note(_note())
+    assert "Directional only." in html
+
+
+def test_research_note_omits_absent_optional_parts():
+    from src.tradelens.ui.components.workspace import render_research_note
+
+    bare = render_research_note(
+        _note(actions=(), evidence_used=(), limitation="", generated_at=None)
+    )
+    assert "tl-note-actions" not in bare
+    assert "<details" not in bare
+    assert "tl-note-generated" not in bare
+
+
+def test_research_note_escapes_every_field():
+    """Thesis, actions and evidence are model-authored."""
+    from src.tradelens.ui.components.workspace import render_research_note
+
+    html = render_research_note(
+        _note(
+            thesis="<b>thesis</b>",
+            actions=("<i>act</i>",),
+            evidence_used=("<u>ev</u>",),
+            limitation="<s>lim</s>",
+            title="<h1>t</h1>",
+        )
+    )
+    for raw in ("<b>thesis", "<i>act", "<u>ev", "<s>lim", "<h1>t"):
+        assert raw not in html
+    assert "&lt;b&gt;thesis" in html
+
+
+def test_research_note_has_one_root_element():
+    from src.tradelens.ui.components.workspace import render_research_note
+
+    assert _root_count(render_research_note(_note())) == 1
+
+
+def test_research_note_never_carries_generation_internals():
+    """Model reasoning, prompts, token counts and cost stay out of the
+    reader's path (spec 11.5)."""
+    from src.tradelens.ui.components.workspace import render_research_note
+
+    # Neutral fixture content, so a hit is the renderer leaking rather than
+    # the sample text happening to contain the word.
+    html = render_research_note(
+        _note(
+            findings=(ResearchFinding(1, "Alpha", "Beta", _evidence()),),
+            actions=("Gamma",),
+            thesis="Delta",
+            evidence_used=("Epsilon",),
+            limitation="Zeta",
+        )
+    ).lower()
+    for leak in ("token", "prompt", "cost", "$0.0", "reasoning", "thinking"):
+        assert leak not in html
+
+
+# ---------------------------------------------------------------------------
+# Skeleton — geometry preserved while generating
+# ---------------------------------------------------------------------------
+
+
+def test_note_skeleton_preserves_the_note_geometry():
+    """A spinner that collapses the panel makes the page jump when the note
+    lands. The skeleton stands in the note's own shape."""
+    from src.tradelens.ui.components.workspace import render_note_skeleton
+
+    html = render_note_skeleton()
+    assert 'class="tl-note tl-note-skeleton"' in html
+    assert html.count("tl-skeleton-line") >= 3
+    assert _root_count(html) == 1
+
+
+def test_note_skeleton_is_announced_to_assistive_technology():
+    """A silent placeholder tells a screen-reader user nothing is happening."""
+    from src.tradelens.ui.components.workspace import render_note_skeleton
+
+    html = render_note_skeleton()
+    assert 'role="status"' in html
+    assert "aria-busy" in html
