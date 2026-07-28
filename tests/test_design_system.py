@@ -419,6 +419,14 @@ def test_banner_variants_and_fallback():
     assert "tl-banner-warning" in ds.render_banner("hi", "bogus")
 
 
+def test_banner_only_announces_when_the_caller_marks_it_dynamic():
+    assert 'role="alert"' not in ds.render_banner("Static policy", "warning")
+    announced = ds.render_banner(
+        "Needed before you continue: Asset.", "warning", announce=True
+    )
+    assert 'role="alert"' in announced
+
+
 def test_section_header_with_and_without_subtitle():
     with_sub = ds.render_section_header("Today", "Mon 6 Jul")
     without = ds.render_section_header("Today")

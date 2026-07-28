@@ -47,7 +47,10 @@ from src.tradelens.ui.components.charts import (  # noqa: E402
     win_rate_rules_chart,
 )
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
-from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
+from src.tradelens.ui.components.sidebar import (  # noqa: E402
+    render_sidebar,
+    route_href,
+)
 from src.tradelens.ui.components.theme import PLOTLY_TEMPLATE, inject_css  # noqa: E402
 from src.tradelens.ui.design_system import (  # noqa: E402
     inject_design_system,
@@ -236,8 +239,11 @@ if df_raw.empty:
     try:
         st.page_link("pages/1_NewTrade.py", label="Log a trade →")
     except Exception:  # noqa: BLE001 — registry-less boots (AppTest) raise
+        _new_trade_href = escape(
+            route_href("/NewTrade", st.query_params.get("auth")), quote=True
+        )
         st.markdown(
-            '<a href="/NewTrade" target="_self">Log a trade →</a>',
+            f'<a href="{_new_trade_href}" target="_self">Log a trade →</a>',
             unsafe_allow_html=True,
         )
     st.stop()

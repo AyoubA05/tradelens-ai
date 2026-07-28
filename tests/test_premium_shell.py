@@ -205,6 +205,33 @@ def test_mobile_navigation_marks_the_current_destination():
     assert "is-active" in html
 
 
+def test_mobile_navigation_preserves_the_signed_auth_token():
+    """A bottom-nav click performs a hard navigation. Dropping the signed
+    query token there signs the trader out even though their session is valid."""
+    html = sidebar._mobile_nav_html(
+        "/Trades", auth_token="signed token?with&reserved=characters"
+    )
+    assert 'href="/NewTrade?auth=signed+token%3Fwith%26reserved%3Dcharacters"' in html
+    assert html.count("?auth=") == len(sidebar.MOBILE_NAV)
+
+
+def test_route_href_is_plain_without_a_token_and_encoded_with_one():
+    assert sidebar.route_href("/NewTrade") == "/NewTrade"
+    assert sidebar.route_href("/Settings", "") == "/Settings"
+    assert sidebar.route_href("/Trades", "a&b=c") == "/Trades?auth=a%26b%3Dc"
+
+
+def test_live_empty_state_fallbacks_preserve_the_signed_session():
+    """Registry-less page boots use real anchors, so they need the same
+    signed-session recovery URL as the mobile shell."""
+    pages_dir = ROOT / "src" / "tradelens" / "ui" / "pages"
+    for filename in ("4_Analytics.py", "6_Insights.py"):
+        source = (pages_dir / filename).read_text(encoding="utf-8")
+        assert "route_href" in source
+        assert 'st.query_params.get("auth")' in source
+        assert '<a href="/NewTrade"' not in source
+
+
 def test_mobile_navigation_tolerates_an_unknown_path():
     html = sidebar._mobile_nav_html("/SomewhereElse")
     assert 'aria-current="page"' not in html
@@ -312,13 +339,13 @@ def test_mobile_bar_is_hidden_on_desktop_and_shown_on_phones():
     assert ".tl-mobile-nav {" in css
     desktop = css[css.index(".tl-mobile-nav {") :][:260]
     assert "display: none" in desktop, "the bar must not exist on desktop"
-    assert "@media (max-width: 640px)" in css
+    assert "@media (max-width: 767px)" in css
 
 
 def test_mobile_bar_reserves_its_own_space():
     """A fixed bar that covers the last row of a table is a bug, not a bar."""
     css = _css()
-    mobile_block = css[css.index("@media (max-width: 640px)") :]
+    mobile_block = css[css.index("@media (max-width: 767px)") :]
     assert "padding-bottom" in mobile_block
     assert "safe-area-inset-bottom" in mobile_block, "phones have a gesture bar"
 
@@ -366,3 +393,16 @@ def test_shell_motion_is_restrained_and_reduced_motion_safe():
         assert duration not in shell
     reduced = css[css.index("prefers-reduced-motion") :]
     assert "tl-mobile-nav-item" in reduced or "transition: none" in reduced
+
+
+def test_shell_has_a_keyboard_skip_path_to_page_content():
+    html = sidebar._skip_link_html()
+    assert 'href="#tl-main-content"' in html
+    assert 'id="tl-main-content"' in html
+    assert 'tabindex="-1"' in html
+    assert "Skip to main content" in html
+
+    css = _css()
+    assert "a.tl-skip-link" in css
+    focus = css[css.index("a.tl-skip-link:focus-visible") :][:220]
+    assert "transform: none" in focus

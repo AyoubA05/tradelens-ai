@@ -26,7 +26,7 @@ RENDER-ONLY: every value comes from a service; no DB queries or business logic.
 from __future__ import annotations
 
 from html import escape
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from src.tradelens.ui.design_system import TL_PRIMARY
 
@@ -102,6 +102,20 @@ def _nav_container_key(slug: str, active: bool) -> str:
     return f"tl_nav_{name}_active" if active else f"tl_nav_{name}"
 
 
+def route_href(slug: str, auth_token: object = None) -> str:
+    """A hard-navigation URL that keeps the signed session recoverable.
+
+    Streamlit's ``page_link`` performs soft navigation, but the custom mobile
+    bar and HTML empty states use real anchors. A hard reload clears
+    ``session_state``; the signed ``auth`` query token is what restores it.
+    Query encoding is centralized here so reserved characters can never alter
+    the destination or append an unintended parameter.
+    """
+    if auth_token is None or not str(auth_token):
+        return slug
+    return f"{slug}?{urlencode({'auth': str(auth_token)})}"
+
+
 def _nav_link(st, path: str, slug: str, label: str, icon: str) -> None:
     """Render one soft-nav link. page_link does in-session navigation (the login
     state survives). It needs the multipage registry, which AppTest standalone
@@ -117,7 +131,7 @@ def _nav_link(st, path: str, slug: str, label: str, icon: str) -> None:
         )
 
 
-def _mobile_nav_html(active_slug: str) -> str:
+def _mobile_nav_html(active_slug: str, auth_token: object = None) -> str:
     """Fixed bottom navigation for narrow screens.
 
     Pure string builder. Uses the same Material Symbols family Streamlit
@@ -131,8 +145,9 @@ def _mobile_nav_html(active_slug: str) -> str:
         is_active = slug == active_slug
         current = ' aria-current="page"' if is_active else ""
         state = " is-active" if is_active else ""
+        href = escape(route_href(slug, auth_token), quote=True)
         items.append(
-            f'<a class="tl-mobile-nav-item{state}" href="{escape(slug)}"'
+            f'<a class="tl-mobile-nav-item{state}" href="{href}"'
             f' target="_self"{current}>'
             f'<span class="tl-mobile-nav-icon" aria-hidden="true">{escape(icon)}</span>'
             f'<span class="tl-mobile-nav-label">{escape(label)}</span>'
@@ -140,6 +155,16 @@ def _mobile_nav_html(active_slug: str) -> str:
         )
     return (
         '<nav class="tl-mobile-nav" aria-label="Primary">' f'{"".join(items)}' "</nav>"
+    )
+
+
+def _skip_link_html() -> str:
+    """Keyboard escape from persistent navigation to the page workspace."""
+    return (
+        '<div class="tl-skip-shell">'
+        '<a class="tl-skip-link" href="#tl-main-content">Skip to main content</a>'
+        '<span id="tl-main-content" class="tl-main-anchor" tabindex="-1"></span>'
+        "</div>"
     )
 
 
@@ -195,7 +220,10 @@ def render_primary_action(st) -> None:
 
 def render_mobile_navigation(st, active_path: str) -> None:
     """Five-item bottom navigation, shown only at the mobile breakpoint."""
-    st.markdown(_mobile_nav_html(active_path), unsafe_allow_html=True)
+    st.markdown(
+        _mobile_nav_html(active_path, st.query_params.get("auth")),
+        unsafe_allow_html=True,
+    )
 
 
 def render_sidebar(df=None, today=None) -> None:
@@ -219,6 +247,10 @@ def render_sidebar(df=None, today=None) -> None:
     strategy = get_active_strategy(uid) if uid is not None else None
     strategy_name = (strategy or {}).get("name")
     active = _active_slug(st)
+
+    # First focusable control in the workspace. The target sits immediately
+    # before page content, so keyboard users can bypass the persistent rail.
+    st.markdown(_skip_link_html(), unsafe_allow_html=True)
 
     with st.sidebar:
         st.markdown(

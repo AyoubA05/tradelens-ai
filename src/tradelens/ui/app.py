@@ -52,7 +52,10 @@ from src.tradelens.ui.components.data_state import (  # noqa: E402
     render_data_state,
     sample_state,
 )
-from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
+from src.tradelens.ui.components.sidebar import (  # noqa: E402
+    render_sidebar,
+    route_href,
+)
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.trade_calendar import (  # noqa: E402
     render_trade_calendar,
@@ -356,6 +359,9 @@ st.markdown(
 if df.empty:
     _welcome_b64 = get_asset_as_base64("welcome.png")
     _cta_b64 = get_asset_as_base64("cta_log_trade.png")
+    _auth_token = st.query_params.get("auth")
+    _new_trade_href = escape(route_href("/NewTrade", _auth_token), quote=True)
+    _settings_href = escape(route_href("/Settings", _auth_token), quote=True)
     _parts = ['<div class="tl-empty-state tl-welcome">']
     if _welcome_b64:
         _parts.append(
@@ -370,9 +376,9 @@ if df.empty:
             f'src="data:image/png;base64,{_cta_b64}" />'
         )
     _parts.append(
-        '<a class="tl-empty-action" href="/NewTrade" target="_self">'
+        f'<a class="tl-empty-action" href="{_new_trade_href}" target="_self">'
         "Log Your First Trade →</a><br/>"
-        '<a class="tl-empty-action" href="/Settings" target="_self">'
+        f'<a class="tl-empty-action" href="{_settings_href}" target="_self">'
         "Load sample trades</a>"
     )
     _parts.append("</div>")

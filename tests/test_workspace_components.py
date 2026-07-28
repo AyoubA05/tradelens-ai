@@ -347,6 +347,8 @@ def test_section_header_with_and_without_subtitle():
     without = render_section_header("Today")
     assert "tl-section-subtitle" in with_sub
     assert "tl-section-subtitle" not in without
+    assert '<h2 class="tl-section-title">Today</h2>' in with_sub
+    assert '<div class="tl-section-title">' not in with_sub
 
 
 def test_section_header_is_the_single_source_for_both_call_sites():

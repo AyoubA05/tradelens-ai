@@ -55,7 +55,11 @@ from src.tradelens.ui.components.ai_autofill_review import (  # noqa: E402
     persist_analysis_for_trade,
     render_autofill_review,
 )
-from src.tradelens.ui.components.auth import current_user_id, require_auth  # noqa: E402
+from src.tradelens.ui.components.auth import (  # noqa: E402
+    current_user,
+    current_user_id,
+    require_auth,
+)
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
@@ -69,6 +73,8 @@ from src.tradelens.ui.components.trade_wizard import (  # noqa: E402
     next_step,
     previous_step,
     reset_wizard_state,
+    safe_save_failure_message,
+    scope_wizard_to_owner,
     set_step,
 )
 from src.tradelens.ui.components.ui import error_box  # noqa: E402
@@ -98,6 +104,8 @@ inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
 uid = current_user_id()
+_wizard_owner = f"id:{uid}" if uid is not None else f"user:{current_user() or 'legacy'}"
+scope_wizard_to_owner(st.session_state, _wizard_owner)
 render_demo_banner()
 render_sidebar()
 
@@ -356,6 +364,7 @@ def _step_screenshot() -> None:
 # Step 2 — Market Context (Timing + Market Context merged; Change B)
 # ══════════════════════════════════════════════════════════════════
 def _step_context() -> None:
+    attempted_errors = set(st.session_state.get("_nt_step_errors") or [])
     st.markdown(render_section_header("When and what"), unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
@@ -371,6 +380,8 @@ def _step_context() -> None:
         if entry_time is None and entry_time_raw.strip():
             # Inline, next to the field that caused it.
             st.caption("Not a readable time — try 09:30 or 9:30 AM.")
+        elif "Entry time" in attempted_errors:
+            st.caption("Enter a trade time, such as 09:30 or 9:30 AM.")
     st.markdown(
         f"Session &nbsp;{render_badge(session, 'primary')}",
         unsafe_allow_html=True,
@@ -395,6 +406,8 @@ def _step_context() -> None:
                 on_change=mark_field_edited,
                 args=("asset",),
             )
+            if "Asset" in attempted_errors and not _txt("nt_asset_custom"):
+                st.caption("Enter a custom asset, such as MNQ.")
     with m2:
         st.selectbox(
             "Timeframe",
@@ -829,10 +842,7 @@ def _do_save(override: bool) -> None:
     except Exception as exc:  # noqa: BLE001 — never crash the app on save
         st.session_state["trade_submit_in_progress"] = False
         _log.exception("Trade save failed")
-        _error_box(
-            "Could not save this trade. Please review your inputs and try again.\n"
-            f"Details: {exc}"
-        )
+        _error_box(safe_save_failure_message(exc))
 
 
 _NOT_ENTERED = f"<span style='{_FAINT}'>Not entered yet</span>"
@@ -1118,6 +1128,7 @@ with st.container(key="tl_wizard_bar"):
             render_banner(
                 "Needed before you continue: " + ", ".join(_step_errors) + ".",
                 "warning",
+                announce=True,
             ),
             unsafe_allow_html=True,
         )

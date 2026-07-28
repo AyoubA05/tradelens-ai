@@ -260,6 +260,6 @@ def render_section_header(title: str, subtitle: str | None = None) -> str:
     )
     return (
         '<div class="tl-section-header">'
-        f'<div class="tl-section-title">{escape(str(title))}</div>'
+        f'<h2 class="tl-section-title">{escape(str(title))}</h2>'
         f"{sub}</div>"
     )

@@ -30,6 +30,7 @@ WIZARD_STEPS: tuple[str, ...] = (
     "Review",
 )
 WIZARD_STATE_KEY = "new_trade_step"
+WIZARD_OWNER_KEY = "_nt_wizard_owner"
 
 FIRST_STEP = 1
 LAST_STEP = len(WIZARD_STEPS)
@@ -38,6 +39,8 @@ LAST_STEP = len(WIZARD_STEPS)
 # nothing outside the wizard (auth, demo flags, other pages' widgets) can be
 # cleared by finishing a trade.
 FIELD_PREFIX = "nt_"
+PRIVATE_PREFIX = "_nt_"
+_AUXILIARY_KEYS = frozenset({"trade_submit_in_progress", "just_saved_trade_id"})
 
 # (field, label) pairs that block moving on, by step. Kept deliberately
 # short: each entry is a field a trade is not a trade without.
@@ -154,8 +157,40 @@ def wizard_owned_keys(state: Iterable[str]) -> list[str]:
     return [
         key
         for key in list(state)
-        if str(key).startswith(FIELD_PREFIX) or key == WIZARD_STATE_KEY
+        if (
+            str(key).startswith(FIELD_PREFIX)
+            or (str(key).startswith(PRIVATE_PREFIX) and key != WIZARD_OWNER_KEY)
+            or key == WIZARD_STATE_KEY
+            or key in _AUXILIARY_KEYS
+        )
     ]
+
+
+def scope_wizard_to_owner(state: MutableMapping[str, object], owner: str) -> bool:
+    """Bind a draft to one authenticated identity.
+
+    Streamlit session state survives page navigation and can survive the
+    sign-out/sign-in path in the same browser tab. If the authenticated
+    identity changes, every draft field and staged AI result is cleared
+    before widgets render. An older unowned draft is also cleared once:
+    there is no safe way to infer who created it.
+
+    Returns ``True`` when an ownership boundary was crossed.
+    """
+    normalized_owner = str(owner)
+    if state.get(WIZARD_OWNER_KEY) == normalized_owner:
+        return False
+
+    for key in wizard_owned_keys(state):
+        state.pop(key, None)
+    state[WIZARD_OWNER_KEY] = normalized_owner
+    set_step(state, FIRST_STEP)
+    return True
+
+
+def safe_save_failure_message(_error: BaseException) -> str:
+    """User-facing save failure copy with no exception or infrastructure data."""
+    return "Could not save this trade. Please review your inputs and try again."
 
 
 def keep_alive(state: MutableMapping[str, object]) -> None:

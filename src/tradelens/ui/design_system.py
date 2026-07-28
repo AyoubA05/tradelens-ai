@@ -478,12 +478,46 @@ def build_css() -> str:
 }}
 
 /* --- tablet: a narrower rail, same hierarchy --- */
-@media (min-width: 641px) and (max-width: 1023px) {{
+@media (min-width: 768px) and (max-width: 1023px) {{
   [data-testid="stSidebar"] {{ width: 208px; min-width: 208px; }}
   [data-testid="stAppViewContainer"] .block-container {{
     padding-left: var(--tl-space-4);
     padding-right: var(--tl-space-4);
   }}
+}}
+
+/* --- keyboard bypass ---
+   Off-canvas until focused; it appears immediately rather than animating
+   focus, then moves focus to the content anchor before each page masthead. */
+.tl-skip-shell {{
+  height: 0;
+  overflow: visible;
+}}
+[data-testid="stAppViewContainer"] a.tl-skip-link {{
+  position: fixed;
+  top: var(--tl-space-2);
+  left: var(--tl-space-2);
+  z-index: 1000;
+  transform: translateY(calc(-100% - var(--tl-space-4)));
+  min-height: 44px;
+  padding: 0 var(--tl-space-3);
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-rail);
+  color: var(--tl-rail-ink);
+  text-decoration: none;
+  font-weight: 700;
+}}
+[data-testid="stAppViewContainer"] a.tl-skip-link:focus-visible {{
+  transform: none;
+  outline: 2px solid var(--tl-focus);
+  outline-offset: 2px;
+}}
+.tl-main-anchor {{
+  position: relative;
+  display: block;
+  scroll-margin-top: var(--tl-space-4);
 }}
 
 /* --- mobile bottom navigation ---
@@ -1264,6 +1298,7 @@ def build_css() -> str:
   margin-bottom: var(--tl-space-2);
 }}
 .tl-section-title {{
+  margin: 0;
   font-family: var(--tl-font-display);
   font-size: 22px;
   line-height: 28px;
@@ -1715,12 +1750,12 @@ def build_css() -> str:
   }}
 }}
 
-/* === MOBILE (SP4 Phase B, <=640px) ===
+/* === MOBILE (SP4 Phase B, <=767px) ===
    Streamlit stacks its own widgets, but our custom HTML does not: flex
    rows and HTML tables need explicit reflow. The KPI strip becomes a
    two-column compact list rather than six full-width rows, tables scroll
    inside their own frame, and touch targets reach >=44px. */
-@media (max-width: 640px) {{
+@media (max-width: 767px) {{
   /* The bottom bar appears only here, and reserves its own height plus the
      gesture-bar inset so it never covers the last row of a table. */
   .tl-mobile-nav {{
@@ -1956,12 +1991,20 @@ def render_empty_state(
     )
 
 
-def render_banner(text: str, variant: str = "warning") -> str:
+def render_banner(
+    text: str, variant: str = "warning", *, announce: bool = False
+) -> str:
     """Inline banner: warning | info | danger. Unknown variants fall back
-    to warning (visible but non-alarming)."""
+    to warning (visible but non-alarming).
+
+    Static guidance stays quiet to assistive technology. Callers set
+    ``announce`` only for a message created by the latest interaction, such
+    as blocked wizard navigation.
+    """
     if variant not in _BANNER_VARIANTS:
         variant = "warning"
-    return f'<div class="tl-banner tl-banner-{variant}">{escape(text)}</div>'
+    role = ' role="alert"' if announce else ""
+    return f'<div class="tl-banner tl-banner-{variant}"{role}>{escape(text)}</div>'
 
 
 def render_section_header(title: str, subtitle: Optional[str] = None) -> str:

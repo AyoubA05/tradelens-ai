@@ -49,7 +49,10 @@ from src.tradelens.services.weekly import (  # noqa: E402
 )
 from src.tradelens.ui.components.auth import current_user_id, require_auth  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
-from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
+from src.tradelens.ui.components.sidebar import (  # noqa: E402
+    render_sidebar,
+    route_href,
+)
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import error_box  # noqa: E402
 from src.tradelens.ui.design_system import (  # noqa: E402
@@ -139,8 +142,11 @@ if df.empty:
     try:
         st.page_link("pages/1_NewTrade.py", label="Log a trade →")
     except Exception:  # noqa: BLE001 — registry-less boots/tests only
+        _new_trade_href = escape(
+            route_href("/NewTrade", st.query_params.get("auth")), quote=True
+        )
         st.markdown(
-            '<a href="/NewTrade" target="_self">Log a trade →</a>',
+            f'<a href="{_new_trade_href}" target="_self">Log a trade →</a>',
             unsafe_allow_html=True,
         )
     st.stop()

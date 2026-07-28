@@ -271,6 +271,25 @@ def test_wizard_owned_keys_are_the_nt_prefix_and_the_step():
     assert owned == {"nt_asset", "nt_pnl", WIZARD_STATE_KEY}
 
 
+def test_wizard_owned_keys_include_private_ai_and_submit_state_but_not_owner():
+    state = {
+        "nt_asset": "NQ",
+        "_nt_ai_result": {"asset": "NQ"},
+        "_nt_step_errors": ["Asset"],
+        "trade_submit_in_progress": True,
+        "just_saved_trade_id": 42,
+        tw.WIZARD_OWNER_KEY: "id:7",
+        "authenticated": True,
+    }
+    assert set(wizard_owned_keys(state)) == {
+        "nt_asset",
+        "_nt_ai_result",
+        "_nt_step_errors",
+        "trade_submit_in_progress",
+        "just_saved_trade_id",
+    }
+
+
 def test_reset_clears_only_wizard_keys():
     """A reset that takes the session with it signs the trader out at the
     moment they finish their first trade."""
@@ -280,14 +299,18 @@ def test_reset_clears_only_wizard_keys():
         WIZARD_STATE_KEY: 4,
         "authenticated": True,
         "current_user": "ayoub",
+        "_nt_ai_result": {"asset": "NQ"},
         "just_saved_trade_id": 12,
+        tw.WIZARD_OWNER_KEY: "id:7",
     }
     reset_wizard_state(state)
     assert "nt_asset" not in state
     assert "nt_pnl" not in state
     assert state["authenticated"] is True
     assert state["current_user"] == "ayoub"
-    assert state["just_saved_trade_id"] == 12
+    assert "_nt_ai_result" not in state
+    assert "just_saved_trade_id" not in state
+    assert state[tw.WIZARD_OWNER_KEY] == "id:7"
 
 
 def test_keep_alive_preserves_values_without_changing_them():
@@ -325,6 +348,72 @@ def test_reset_returns_the_wizard_to_step_one():
     assert current_step(state) == 1
 
 
+def test_same_owner_keeps_the_entire_draft():
+    state = {
+        tw.WIZARD_OWNER_KEY: "id:7",
+        WIZARD_STATE_KEY: 4,
+        "nt_asset": "NQ",
+        "_nt_ai_result": {"asset": "NQ"},
+        "authenticated": True,
+    }
+    before = dict(state)
+    assert tw.scope_wizard_to_owner(state, "id:7") is False
+    assert state == before
+
+
+def test_account_change_clears_draft_and_private_ai_state():
+    """Session state survives navigation and sign-out. A draft owned by one
+    trader must never become visible or saveable after another trader signs in."""
+    state = {
+        tw.WIZARD_OWNER_KEY: "id:7",
+        WIZARD_STATE_KEY: 4,
+        "nt_asset": "NQ",
+        "nt_process_notes": "private journal note",
+        "_nt_ai_result": {"summary": "private model output"},
+        "trade_submit_in_progress": True,
+        "just_saved_trade_id": 42,
+        "authenticated": True,
+        "current_user": "second-user",
+    }
+    assert tw.scope_wizard_to_owner(state, "id:9") is True
+    assert state[tw.WIZARD_OWNER_KEY] == "id:9"
+    assert current_step(state) == FIRST_STEP
+    for private_key in (
+        "nt_asset",
+        "nt_process_notes",
+        "_nt_ai_result",
+        "trade_submit_in_progress",
+        "just_saved_trade_id",
+    ):
+        assert private_key not in state
+    assert state["authenticated"] is True
+    assert state["current_user"] == "second-user"
+
+
+def test_unowned_legacy_draft_is_cleared_before_being_claimed():
+    """After this boundary is introduced, an existing unscoped draft has no
+    trustworthy owner. Clearing it once is safer than assigning it to whoever
+    happens to sign in next."""
+    state = {
+        WIZARD_STATE_KEY: 3,
+        "nt_asset": "ES",
+        "_nt_ai_result": {"asset": "ES"},
+    }
+    assert tw.scope_wizard_to_owner(state, "user:ayoub") is True
+    assert state == {
+        tw.WIZARD_OWNER_KEY: "user:ayoub",
+        WIZARD_STATE_KEY: FIRST_STEP,
+    }
+
+
+def test_save_failure_copy_never_exposes_exception_details():
+    secret = "postgresql://user:password@private-host/tradelens"
+    message = tw.safe_save_failure_message(RuntimeError(secret))
+    assert secret not in message
+    assert "RuntimeError" not in message
+    assert "try again" in message.lower()
+
+
 # ---------------------------------------------------------------------------
 # AppTest — the wizard as a trader actually drives it.
 #
@@ -351,6 +440,8 @@ def _wizard(**state):
     os.environ.setdefault("DEMO_MODE", "true")
     at = AppTest.from_file(str(_PAGE), default_timeout=60)
     at.session_state["authenticated"] = True
+    at.session_state["current_user"] = "test-trader"
+    at.session_state[tw.WIZARD_OWNER_KEY] = "user:test-trader"
     for key, value in state.items():
         at.session_state[key] = value
     return at.run()
@@ -415,6 +506,7 @@ def test_blank_required_field_blocks_continue_and_says_why():
     assert at.session_state[WIZARD_STATE_KEY] == 2, "must not advance"
     assert at.session_state["_nt_step_errors"] == ["Asset"]
     assert any("Asset" in m.value for m in at.markdown)
+    assert any("Enter a custom asset" in c.value for c in at.caption)
 
 
 def test_filling_the_required_field_unblocks_continue():
@@ -432,6 +524,14 @@ def test_unreadable_entry_time_blocks_continue():
     cont.click().run()
     assert at.session_state[WIZARD_STATE_KEY] == 2
     assert at.session_state["_nt_step_errors"] == ["Entry time"]
+
+
+def test_blank_entry_time_gets_recovery_copy_beside_the_field():
+    at = _wizard(new_trade_step=2, nt_entry_time="")
+    cont = next(b for b in at.button if b.label == "Continue →")
+    cont.click().run()
+    assert at.session_state["_nt_step_errors"] == ["Entry time"]
+    assert any("Enter a trade time" in c.value for c in at.caption)
 
 
 def test_review_saves_with_every_reflection_field_blank():
