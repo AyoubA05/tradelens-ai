@@ -89,8 +89,14 @@ def render_trade_calendar(
     *,
     compact: bool = False,
     selected_date: str | None = None,
-) -> None:
+) -> "str | None":
     """Render the monthly calendar for `df` trades.
+
+    Returns the selected day as an ISO "YYYY-MM-DD" string, or None when no
+    day is open. Callers that want to act on the selection — the Journal
+    offers openers for that day's trades — read the return value instead of
+    reaching into session state. Overview and Analytics ignore it, so their
+    behaviour is unchanged.
 
     ``compact`` is the Overview preview: the grid and its month control only.
     The legend and the inline day table belong to the full view, where there
@@ -108,7 +114,7 @@ def render_trade_calendar(
     daily = daily_outcomes(df)
     if not daily:
         st.caption("No dated trades yet — the calendar fills in as you log.")
-        return
+        return None
 
     if selected_date and selected_date in daily:
         st.session_state[_SELECTED_KEY] = selected_date
@@ -134,7 +140,8 @@ def render_trade_calendar(
             st.caption(
                 f"{selected} · {info['trades']} trade(s) · net ${info['pnl']:,.2f}"
             )
-        return
+            return selected
+        return None
 
     header = st.columns(7)
     for i, name in enumerate(_WEEKDAYS):
@@ -204,3 +211,5 @@ def render_trade_calendar(
         if st.button("Close day view", key="dash_cal_close"):
             st.session_state.pop(_SELECTED_KEY, None)
             st.rerun()
+        return selected
+    return None

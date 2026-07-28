@@ -232,6 +232,11 @@ def test_css_uses_only_proven_testids():
         # active nav link — that hash changes between releases.
         "stPageLink-NavLink",
         "stCaptionContainer",
+        # Journal calendar mobile grid: both observed in the live DOM on
+        # streamlit 1.50.0 (a calday button's ancestor chain is
+        # stElementContainer → stVerticalBlock → stColumn → stHorizontalBlock).
+        "stColumn",
+        "stHorizontalBlock",
     }
     used = set(re.findall(r'data-testid="([^"]+)"', ds.build_css()))
     assert used <= proven, f"unproven testids: {used - proven}"

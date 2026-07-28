@@ -40,17 +40,24 @@ from src.tradelens.ui.components.screenshot_analyzer import (  # noqa: E402
 )
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
+from src.tradelens.ui.components.trade_calendar import (  # noqa: E402
+    render_trade_calendar,
+)
+from src.tradelens.ui.components.workspace import (  # noqa: E402
+    EvidenceItem,
+    render_evidence_rail,
+    render_filter_summary,
+    render_section_header,
+    render_workspace_header,
+)
 from src.tradelens.ui.design_system import (  # noqa: E402
-    TL_DANGER,
-    TL_DANGER_DIM,
-    TL_SUCCESS,
-    TL_SUCCESS_DIM,
+    TL_DANGER_INK,
+    TL_SUCCESS_INK,
     inject_design_system,
     render_badge,
     render_banner,
     render_chip_row,
     render_empty_state,
-    render_section_header,
 )
 from src.tradelens.utils.ai_utils import ai_available  # noqa: E402
 from src.tradelens.utils.format import humanize  # noqa: E402
@@ -64,12 +71,27 @@ _strategy_profile = get_active_strategy(uid) if uid is not None else None
 render_demo_banner()
 render_sidebar()
 render_corrections_sidebar()
-st.markdown(
-    render_section_header("Journal", "Review, filter, and reflect on your trades"),
-    unsafe_allow_html=True,
-)
+
+# ── Views ─────────────────────────────────────────────────────────
+# One destination, three ways of working the same trades: scan them, find
+# them by date, or read one closely. They are views rather than sections
+# because stacking all three down one page is the wall this replaces.
+JOURNAL_VIEWS = ("Trades", "Calendar", "Trade Detail")
+# The view a trader is on is stored SEPARATELY from the selector widget.
+# Streamlit forbids writing a widget's own key once that widget has been
+# instantiated, so "open this trade" — which happens further down the page,
+# long after the selector exists — cannot set the selector's key directly.
+# It records an intent instead, and the intent is applied at the top of the
+# next run, before any widget is created.
+_VIEW_KEY = "journal_view"
+_VIEW_WIDGET_KEY = "journal_view_pick"
+_GOTO_KEY = "_journal_goto"
 
 _RESULT_VARIANT = {"win": "success", "loss": "danger", "breakeven": "neutral"}
+
+# The semantic edge. A glyph, not a fill: it survives greyscale, colour
+# blindness, and a printed page, and it does not shout on every row.
+_LEDGER_MARKS = {"Win": "▲", "Loss": "▼", "Breakeven": "■"}
 
 # Evidence chips are derived from the saved SMC flag columns (schema read-only).
 _EVIDENCE_FLAGS = [
@@ -101,6 +123,68 @@ def _clear_filters() -> None:
         st.session_state.pop(key, None)
 
 
+def _active_filters(
+    *,
+    date_from,
+    date_to,
+    assets,
+    session,
+    result,
+    setup,
+    default_from,
+    default_to,
+) -> list:
+    """Only the filters actually narrowing the view, as (label, value) pairs.
+
+    Defaults are omitted deliberately: a summary that lists every control at
+    its default value states nothing and reads as clutter above the data it
+    is meant to qualify.
+    """
+    pairs = []
+    if str(date_from) != str(default_from) or str(date_to) != str(default_to):
+        pairs.append(("Dates", f"{date_from} → {date_to}"))
+    if assets:
+        pairs.append(("Asset", ", ".join(str(a) for a in assets)))
+    for label, value in (("Session", session), ("Result", result), ("Setup", setup)):
+        if value and value != "All":
+            pairs.append((label, str(value)))
+    return pairs
+
+
+def _result_count_html(shown: int, total: int) -> str:
+    """The count, next to the view selector.
+
+    States the filtered figure against the total so a trader can tell an
+    empty result from an empty journal without scrolling.
+    """
+    noun = "trade" if shown == 1 else "trades"
+    suffix = "" if shown == total else f" of {total}"
+    return f'<p class="tl-journal-count">{shown}{suffix} {noun}</p>'
+
+
+def _ledger_styles(row) -> list:
+    """Per-cell styles for one ledger row.
+
+    Neutral rows by design (spec 11.3). Colour survives in exactly one
+    place — the monetary columns — because there the sign IS the meaning.
+    The result itself is carried by a glyph, so nothing depends on colour.
+    """
+    styles = [""] * len(row)
+    for column in ("P&L", "R"):
+        if column not in row.index:
+            continue
+        value = str(row[column])
+        if value.startswith("-"):
+            colour = TL_DANGER_INK
+        elif value in ("—", "$0.00", "0.00R"):
+            colour = ""  # breakeven is neither a win nor a loss
+        else:
+            colour = TL_SUCCESS_INK
+        if colour:
+            styles[row.index.get_loc(column)] = f"color: {colour}"
+    return styles
+
+
 def _sanitize_multiselect(key: str, options: list) -> None:
     """Drop stale selections that fell out of the option set (date change)."""
     stale = st.session_state.get(key)
@@ -113,34 +197,46 @@ def _sanitize_selectbox(key: str, options: list) -> None:
         st.session_state.pop(key, None)
 
 
-# ── Filters ───────────────────────────────────────────────────────
-with st.container(border=True):
-    today = datetime.date.today()
-    d1, d2, d3 = st.columns([1, 1, 2])
-    with d1:
-        start_date = st.date_input(
-            "From", value=today - datetime.timedelta(days=90), key="jf_from"
-        )
-    with d2:
-        end_date = st.date_input("To", value=today, key="jf_to")
+st.markdown(
+    render_workspace_header(
+        "Journal",
+        "Find a trade, work a month, or read one closely.",
+    ),
+    unsafe_allow_html=True,
+)
 
-    # One fetch per run: server-side date + user scope, page-side facets.
-    trades_all = get_trades(
-        start_date=str(start_date),
-        end_date=str(end_date),
-        user_id=uid,
+# ── Filters — one compact bar, secondary controls disclosed ───────
+today = datetime.date.today()
+_DEFAULT_FROM = today - datetime.timedelta(days=90)
+_DEFAULT_TO = today
+
+d1, d2, d3 = st.columns([1, 1, 2])
+with d1:
+    start_date = st.date_input("From", value=_DEFAULT_FROM, key="jf_from")
+with d2:
+    end_date = st.date_input("To", value=_DEFAULT_TO, key="jf_to")
+
+# One fetch per run: server-side date + user scope, page-side facets.
+trades_all = get_trades(
+    start_date=str(start_date),
+    end_date=str(end_date),
+    user_id=uid,
+)
+asset_opts = sorted({t.asset for t in trades_all if t.asset})
+setup_opts = ["All"] + sorted({t.setup_type for t in trades_all if t.setup_type})
+session_opts = ["All"] + sorted({t.session for t in trades_all if t.session})
+
+with d3:
+    _sanitize_multiselect("jf_assets", asset_opts)
+    assets_sel = st.multiselect(
+        "Asset", asset_opts, key="jf_assets", placeholder="All assets"
     )
-    asset_opts = sorted({t.asset for t in trades_all if t.asset})
-    setup_opts = ["All"] + sorted({t.setup_type for t in trades_all if t.setup_type})
-    session_opts = ["All"] + sorted({t.session for t in trades_all if t.session})
 
-    with d3:
-        _sanitize_multiselect("jf_assets", asset_opts)
-        assets_sel = st.multiselect(
-            "Asset", asset_opts, key="jf_assets", placeholder="All assets"
-        )
-
-    f1, f2, f3, f4 = st.columns([1, 1, 1, 1])
+# Session / result / setup are the ones a trader reaches for occasionally.
+# Behind a disclosure they stop being a second page above the page, and the
+# active-filter summary below keeps their state visible when collapsed.
+with st.expander("More filters"):
+    f1, f2, f3 = st.columns(3)
     with f1:
         _sanitize_selectbox("jf_session", session_opts)
         session_sel = st.selectbox("Session", session_opts, key="jf_session")
@@ -151,14 +247,11 @@ with st.container(border=True):
     with f3:
         _sanitize_selectbox("jf_setup", setup_opts)
         setup_sel = st.selectbox("Setup", setup_opts, key="jf_setup")
-    with f4:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        st.button(
-            "Clear Filters",
-            on_click=_clear_filters,
-            width="stretch",
-            key="secondary_jf_clear",
-        )
+    st.button(
+        "Clear filters",
+        on_click=_clear_filters,
+        key="secondary_jf_clear",
+    )
 
 trades = [
     t
@@ -236,80 +329,170 @@ rows = []
 for t in trades:
     ids.append(t.id)
     labels[t.id] = f"#{t.id} · {t.trade_date or '—'} · {t.asset} · {t.result or '?'}"
+    _result = humanize(t.result) if t.result else "—"
     rows.append(
         {
+            # Spec 11.3's scannable set. Killzone and Direction moved to Trade
+            # Detail: they are read once, when studying a trade, not scanned.
             "Date": t.trade_date or "—",
-            "Killzone": humanize(t.killzone),
             "Asset": t.asset or "—",
             "Session": humanize(t.session),
             "Setup": humanize(t.setup_type),
-            "Direction": humanize(t.direction),
-            "Result": humanize(t.result) if t.result else "—",
+            # The glyph is the semantic edge — the result stays legible with
+            # no colour at all.
+            "Result": f"{_LEDGER_MARKS.get(_result, '·')} {_result}",
             "P&L": _fmt_money(t.pnl),
             "R": f"{t.rr_realized:.2f}R" if t.rr_realized is not None else "—",
             "Grade": t.user_grade or t.ai_grade or "—",
-            "📷": "📷" if t.screenshots else "",
+            "Shot": "Yes" if t.screenshots else "",
         }
     )
 
 df = pd.DataFrame(rows)
 
-
-def _row_style(row):
-    """Result tint on the row; sign color on the P&L and R cells."""
-    if row["Result"] == "Win":
-        base = f"background-color: {TL_SUCCESS_DIM}"
-    elif row["Result"] == "Loss":
-        base = f"background-color: {TL_DANGER_DIM}"
-    else:
-        base = ""
-    styles = [base] * len(row)
-    for col in ("P&L", "R"):
-        i = row.index.get_loc(col)
-        val = row[col]
-        if val.startswith("-"):
-            color = f"color: {TL_DANGER}"
-        elif val not in ("—", "$0.00", "0.00R"):
-            color = f"color: {TL_SUCCESS}"
-        else:
-            color = ""
-        styles[i] = f"{base}; {color}".strip("; ")
-    return styles
-
-
-st.markdown(
-    render_badge(f"{len(trades)} trades", "neutral"),
-    unsafe_allow_html=True,
+# ── Active filters + view selector ────────────────────────────────
+_filters = _active_filters(
+    date_from=start_date,
+    date_to=end_date,
+    assets=assets_sel,
+    session=session_sel,
+    result=result_sel,
+    setup=setup_sel,
+    default_from=_DEFAULT_FROM,
+    default_to=_DEFAULT_TO,
 )
-event = st.dataframe(
-    df.style.apply(_row_style, axis=1),
-    hide_index=True,
-    width="stretch",
-    on_select="rerun",
-    selection_mode="single-row",
-    key="journal_table",
+st.markdown(render_filter_summary(_filters), unsafe_allow_html=True)
+
+# Apply any pending view change BEFORE the selector is instantiated. After
+# that point Streamlit treats the selector's key as owned by the widget and
+# raises on any write to it.
+_goto = st.session_state.pop(_GOTO_KEY, None)
+if _goto in JOURNAL_VIEWS:
+    st.session_state[_VIEW_KEY] = _goto
+    # Drop the widget's own state so it re-initialises from the new default.
+    st.session_state.pop(_VIEW_WIDGET_KEY, None)
+
+_default_view = st.session_state.get(_VIEW_KEY, JOURNAL_VIEWS[0])
+if _default_view not in JOURNAL_VIEWS:
+    _default_view = JOURNAL_VIEWS[0]
+
+_view_col, _count_col = st.columns([2, 1], vertical_alignment="center")
+with _view_col:
+    # A radio group, not st.segmented_control: three mutually exclusive
+    # views ARE a radio group semantically (one role, arrow-key navigation,
+    # announced as "1 of 3"), and st.segmented_control cannot be driven
+    # under AppTest on the pinned Streamlit — it raises on state
+    # serialisation, which would leave this page's primary navigation with
+    # no automated coverage at all.
+    _picked_view = st.radio(
+        "Journal view",
+        JOURNAL_VIEWS,
+        index=JOURNAL_VIEWS.index(_default_view),
+        horizontal=True,
+        key=_VIEW_WIDGET_KEY,
+        label_visibility="collapsed",
+    )
+view = _picked_view or _default_view
+# _VIEW_KEY is a plain key, not the widget's — safe to write at any point.
+st.session_state[_VIEW_KEY] = view
+_count_col.markdown(
+    _result_count_html(len(trades), len(trades_all)), unsafe_allow_html=True
 )
 
-selected_rows = []
-try:
-    selected_rows = event.selection["rows"]
-except Exception:  # noqa: BLE001 — older/edge AppTest selection shapes
+
+def _open_trade(trade_id: int) -> None:
+    """Selecting a trade moves the trader to the focused view.
+
+    Records an intent rather than setting the selector directly: this runs
+    below the selector, and writing a widget's key after instantiation is a
+    StreamlitAPIException.
+    """
+    st.session_state["selected_trade_id"] = trade_id
+    st.session_state[_GOTO_KEY] = "Trade Detail"
+
+
+# ══════════════════════════════════════════════════════════════════
+# View — Trades ledger
+# ══════════════════════════════════════════════════════════════════
+if view == "Trades":
+    event = st.dataframe(
+        df.style.apply(_ledger_styles, axis=1),
+        hide_index=True,
+        width="stretch",
+        on_select="rerun",
+        selection_mode="single-row",
+        key="journal_table",
+    )
+
     selected_rows = []
-if selected_rows:
-    st.session_state["selected_trade_id"] = ids[selected_rows[0]]
+    try:
+        selected_rows = event.selection["rows"]
+    except Exception:  # noqa: BLE001 — older/edge AppTest selection shapes
+        selected_rows = []
+    if selected_rows:
+        _open_trade(ids[selected_rows[0]])
+        st.rerun()
 
-with st.expander("Or pick a trade from a list"):
     picked = st.selectbox(
-        "Trade",
+        "Open a trade",
         [None] + ids,
         format_func=lambda i: "—" if i is None else labels.get(i, str(i)),
         key="journal_pick",
+        help="Or click a row above.",
     )
-    if picked is not None:
-        st.session_state["selected_trade_id"] = picked
+    if picked is not None and picked != st.session_state.get("selected_trade_id"):
+        _open_trade(picked)
+        st.rerun()
+
+# ══════════════════════════════════════════════════════════════════
+# View — Calendar (the full interactive month; Overview owns the preview)
+# ══════════════════════════════════════════════════════════════════
+if view == "Calendar":
+    # `id` travels with the calendar data so a selected day can offer real
+    # openers. Overview and Analytics build their own frames and are
+    # unaffected; the calendar itself only ever reads the columns it needs.
+    _cal_df = pd.DataFrame(
+        [
+            {
+                "id": t.id,
+                "trade_date": t.trade_date,
+                "pnl": t.pnl,
+                "asset": t.asset,
+                "direction": t.direction,
+                "setup_type": t.setup_type,
+                "result": t.result,
+            }
+            for t in trades
+        ]
+    )
+    # Keyed so the design system can keep this month a real 7-across grid at
+    # phone widths. Scoped to the Journal on purpose: Overview and Analytics
+    # keep exactly the calendar behaviour they already had.
+    with st.container(key="tl_journal_calendar"):
+        _day = render_trade_calendar(_cal_df)
+    if _day:
+        _day_trades = [t for t in trades if str(t.trade_date) == str(_day)]
+        if _day_trades:
+            st.markdown(
+                render_section_header(f"Open a trade from {_day}"),
+                unsafe_allow_html=True,
+            )
+            # Buttons, not links: they are focusable and activate on Enter or
+            # Space, so a day's trades are reachable without a mouse. Each
+            # routes through the same intent mechanism as a ledger row, so the
+            # widget-state crash cannot come back through this path.
+            for _t in _day_trades:
+                st.button(
+                    f"{_t.asset or '—'} · {humanize(_t.result) or '—'} · "
+                    f"{_fmt_money(_t.pnl)}",
+                    key=f"journal_calopen_{_t.id}",
+                    on_click=_open_trade,
+                    args=(_t.id,),
+                    width="stretch",
+                )
 
 # ── AI summary of the filtered trades (multi-trade reflection) ────
-if len(trades) >= 2:
+if view == "Trades" and len(trades) >= 2:
     with st.expander(f"AI summary of these {len(trades)} trades"):
         st.caption(
             "Patterns across the trades matching your filters — recurring "
@@ -335,10 +518,44 @@ if len(trades) >= 2:
             _cached = st.session_state.get("_trades_summary") or {}
             _is_current = _cached.get("sig") == _sum_sig
             if _is_current:
-                st.markdown(_cached["review"].get("content_md") or "")
+                # The generated prose keeps the shared evidence treatment, but
+                # it is a five-section Markdown document — headings, bold, and
+                # lists. Passing it as a readout BODY escapes every one of
+                # those into literal ###, ** and - characters.
+                #
+                # So it is rendered by Streamlit's own Markdown renderer with
+                # unsafe HTML OFF: model output must never reach an
+                # HTML-allowing path. The Evidence Rail is our own markup with
+                # escaped values, so it is emitted separately.
+                #
                 # What the call cost is operator accounting, not something a
                 # trader needs while reading a review — see Settings.
-                st.caption(f"Based on {len(trades)} trades in the current filter.")
+                _capped = min(len(trades), 40)
+                st.markdown(
+                    render_section_header("Across the trades in this filter"),
+                    unsafe_allow_html=True,
+                )
+                st.markdown(_cached["review"].get("content_md") or "")
+                st.markdown(
+                    render_evidence_rail(
+                        EvidenceItem(
+                            evidence="Trades matching the current Journal filters",
+                            sample=f"n={_capped} · {start_date} → {end_date}",
+                            confidence=(
+                                "high"
+                                if _capped >= 20
+                                else "medium" if _capped >= 8 else "low"
+                            ),
+                            limitation=(
+                                "Only the newest 40 trades of this selection "
+                                "were reviewed."
+                                if len(trades) > 40
+                                else None
+                            ),
+                        )
+                    ),
+                    unsafe_allow_html=True,
+                )
             if len(trades) > 40:
                 st.caption("Large selection — the newest 40 trades are included.")
             _sum_label = (
@@ -380,13 +597,13 @@ if selected_id not in ids:
 def _detail_header_html(trade) -> str:
     pnl = trade.pnl
     if pnl is None:
-        pnl_color = "var(--tl-text-muted)"
+        pnl_color = "var(--tl-muted)"
     elif pnl > 0:
-        pnl_color = "var(--tl-success)"
+        pnl_color = "var(--tl-success-ink)"
     elif pnl < 0:
-        pnl_color = "var(--tl-danger)"
+        pnl_color = "var(--tl-danger-ink)"
     else:
-        pnl_color = "var(--tl-text)"
+        pnl_color = "var(--tl-ink)"
     chips = render_badge(humanize(trade.session) or "—", "neutral")
     chips += _result_badge_html(trade.result)
     return (
@@ -409,12 +626,12 @@ def _price_grid_html(trade) -> str:
             f"<span style='font-family:var(--tl-font-mono)'>{escape(str(value))}"
             "</span>"
             if value is not None
-            else "<span style='color:var(--tl-text-muted)'>—</span>"
+            else "<span style='color:var(--tl-muted)'>—</span>"
         )
         return (
             '<div style="display:flex;justify-content:space-between;'
             'gap:16px;padding:3px 0">'
-            f'<span style="color:var(--tl-text-muted)">{escape(label)}</span>'
+            f'<span style="color:var(--tl-muted)">{escape(label)}</span>'
             f"{shown}</div>"
         )
 
@@ -478,14 +695,40 @@ def _render_screenshot(file_path) -> bool:
     return False
 
 
-# ── Trade detail panel ────────────────────────────────────────────
-if selected_id is not None:
+# ══════════════════════════════════════════════════════════════════
+# View — Trade Detail
+# ══════════════════════════════════════════════════════════════════
+if view == "Trade Detail":
+    if selected_id is None:
+        st.markdown(
+            render_empty_state(
+                "",
+                "No trade selected",
+                "Pick a trade from the Trades ledger or the Calendar to read it here.",
+            ),
+            unsafe_allow_html=True,
+        )
+        st.stop()
+
     trade = get_trade(selected_id, user_id=uid)
     if trade is None:
         st.stop()
 
-    st.divider()
-    st.markdown(_detail_header_html(trade), unsafe_allow_html=True)
+    # A predictable back path. Selecting a row is a one-way door without it.
+    def _back_to_trades() -> None:
+        st.session_state[_GOTO_KEY] = "Trades"
+
+    st.button(
+        "← Back to trades", key="secondary_journal_back", on_click=_back_to_trades
+    )
+
+    # The one animation on this page. Opening a trade is a real change of
+    # context, so a brief reveal explains where the content came from. The
+    # ledger itself stays instant: rows are scanned dozens of times a
+    # session, and anything that takes time there reads as lag.
+    _detail_panel = st.container(key="tl_trade_detail")
+    with _detail_panel:
+        st.markdown(_detail_header_html(trade), unsafe_allow_html=True)
 
     left, right = st.columns([5, 7], gap="large")
 

@@ -26,6 +26,10 @@ import sys
 
 def main() -> int:
     root, app_path, marker, seed = sys.argv[1:5]
+    # Optional 5th arg: JSON session state, applied before the first run.
+    # Lets a caller boot a page in a specific state (a Journal view, a
+    # selected trade) without the runner knowing anything about that page.
+    preset = sys.argv[5] if len(sys.argv) > 5 else "{}"
     sys.path.insert(0, root)
 
     # Isolate from a developer's real .streamlit/secrets.toml BEFORE config is
@@ -97,6 +101,10 @@ def main() -> int:
 
     at = AppTest.from_file(app_path)
     at.session_state["authenticated"] = True  # bypass the login gate during boot
+    import json as _json
+
+    for _key, _value in _json.loads(preset).items():
+        at.session_state[_key] = _value
     at = at.run()
     if at.exception:
         print(f"app raised: {at.exception}", file=sys.stderr)
@@ -110,8 +118,11 @@ def main() -> int:
         marker = marker[len("no-charts:") :]
 
     if marker != "-":
-        markdowns = [m.value for m in at.markdown]
-        if not any(marker in v for v in markdowns):
+        # Captions are their own element type in AppTest, not markdown, and
+        # plenty of user-facing copy (empty-state guidance, demo notices)
+        # is written with st.caption.
+        rendered = [m.value for m in at.markdown] + [c.value for c in at.caption]
+        if not any(marker in v for v in rendered):
             print(f"marker not found: {marker}", file=sys.stderr)
             return 3
 

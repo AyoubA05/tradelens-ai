@@ -1421,6 +1421,38 @@ def build_css() -> str:
 .tl-step-connector.done {{ background: var(--tl-action); }}
 .tl-step-connector.future {{ background: var(--tl-hairline); }}
 
+/* === JOURNAL === */
+/* The result count, beside the view selector. Mono so the figure lines up
+   with the ledger's own numerals, and right-aligned so it reads as a
+   caption on the selector rather than a heading of its own. */
+.tl-journal-count {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-muted);
+  text-align: right;
+  margin: 0;
+}}
+/* Opening a trade is a real change of context, so the detail gets one brief
+   reveal — the ONLY animation on this page. Rows, sorting, filtering and
+   hover stay instant: those happen dozens of times a session, and motion
+   there reads as lag rather than feedback. */
+.st-key-tl_trade_detail {{
+  animation: tl-detail-in 180ms var(--tl-ease-out) both;
+}}
+@keyframes tl-detail-in {{
+  from {{ opacity: 0; transform: translateY(4px); }}
+  to {{ opacity: 1; transform: none; }}
+}}
+
+/* A calendar day is a button a thumb has to hit, so it carries the same
+   44px floor as every other control — at every width, not just on a phone.
+   Descendant combinator, not `>`: these buttons pass `help=`, which wraps
+   them in a tooltip div, so `.stButton > button` never matches them. */
+.st-key-tl_journal_calendar [data-testid="stColumn"] .stButton button {{
+  min-height: 44px;
+}}
+
 /* === TRADE WIZARD (components/trade_wizard.py + pages/1_NewTrade.py) === */
 
 /* Step transition. The step container's key changes with the step, so
@@ -1745,7 +1777,8 @@ def build_css() -> str:
   .st-key-tl_nav_action [data-testid="stPageLink-NavLink"]:active {{
     transform: none;
   }}
-  [class*="st-key-tl_step_"] {{
+  [class*="st-key-tl_step_"],
+  .st-key-tl_trade_detail {{
     animation: none;
   }}
 }}
@@ -1776,6 +1809,27 @@ def build_css() -> str:
   /* The numbered rail wraps into two rows of circles at this width; the
      masthead's "Step N of 5" carries the position instead. */
   .tl-wizard-progress {{ display: none; }}
+  /* Journal calendar: st.columns wrap at this width, which turns a month
+     into a 31-row list. Measured at 375px. The columns are told not to
+     wrap and to share the row instead, so it stays a calendar. Scoped to
+     the Journal — Overview uses its own compact grid and Analytics keeps
+     the behaviour it already had. */
+  .st-key-tl_journal_calendar [data-testid="stHorizontalBlock"] {{
+    flex-wrap: nowrap;
+    gap: 2px;
+  }}
+  .st-key-tl_journal_calendar [data-testid="stColumn"] {{
+    flex: 1 1 0;
+    min-width: 0;
+  }}
+  /* Only the horizontal padding is surrendered to fit seven columns across
+     — at 375px each column is ~47px wide. The height is set outside this
+     media query, because a day cell is a touch target at every width. */
+  .st-key-tl_journal_calendar [data-testid="stColumn"] .stButton button {{
+    padding-left: 0;
+    padding-right: 0;
+    font-size: 12px;
+  }}
   /* Clear the bottom navigation so the wizard's primary action is never
      underneath it. */
   .st-key-tl_wizard_bar {{
