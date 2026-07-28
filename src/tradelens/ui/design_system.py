@@ -1386,6 +1386,57 @@ def build_css() -> str:
 .tl-step-connector.done {{ background: var(--tl-action); }}
 .tl-step-connector.future {{ background: var(--tl-hairline); }}
 
+/* === TRADE WIZARD (components/trade_wizard.py + pages/1_NewTrade.py) === */
+
+/* Step transition. The step container's key changes with the step, so
+   Streamlit mounts a new element and this replays — transform and opacity
+   only, inside the 180-240ms window, and never on focus or validation
+   text, which must appear the instant they exist. */
+[class*="st-key-tl_step_"] {{
+  animation: tl-step-in 200ms var(--tl-ease-out) both;
+}}
+@keyframes tl-step-in {{
+  from {{ opacity: 0; transform: translateY(4px); }}
+  to {{ opacity: 1; transform: none; }}
+}}
+
+/* Progress. One system: the numbered rail on desktop, and the masthead
+   eyebrow's "Step N of 5" everywhere. Below the phone breakpoint the rail
+   would wrap into two lines of circles, so it is withdrawn rather than
+   shrunk. */
+.tl-wizard-progress {{
+  margin-bottom: var(--tl-space-6);
+}}
+.tl-wizard-progress .tl-stepper {{
+  margin-bottom: 0;
+}}
+
+/* Sticky action bar. Sticky, not fixed: it stays in the document flow, so
+   it can never sit on top of the last field of a step. */
+.st-key-tl_wizard_bar {{
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  background: var(--tl-canvas);
+  border-top: 1px solid var(--tl-hairline);
+  padding: var(--tl-space-3) 0 var(--tl-space-2) 0;
+  margin-top: var(--tl-space-6);
+}}
+.tl-wizard-draft {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-muted);
+  text-align: center;
+  margin: 0;
+  padding-top: var(--tl-space-3);
+}}
+/* The bar's controls are the ones a trader hits five times per trade, so
+   they carry the 44px minimum at every width — not only on touch. */
+.st-key-tl_wizard_bar .stButton > button {{
+  min-height: 44px;
+}}
+
 /* === QUICK ACTION CARD (rest, hover, focus-within states) === */
 .tl-action-card {{
   display: block;
@@ -1659,6 +1710,9 @@ def build_css() -> str:
   .st-key-tl_nav_action [data-testid="stPageLink-NavLink"]:active {{
     transform: none;
   }}
+  [class*="st-key-tl_step_"] {{
+    animation: none;
+  }}
 }}
 
 /* === MOBILE (SP4 Phase B, <=640px) ===
@@ -1683,6 +1737,14 @@ def build_css() -> str:
   .tl-mobile-nav-item {{ position: relative; }}
   [data-testid="stAppViewContainer"] .block-container {{
     padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }}
+  /* The numbered rail wraps into two rows of circles at this width; the
+     masthead's "Step N of 5" carries the position instead. */
+  .tl-wizard-progress {{ display: none; }}
+  /* Clear the bottom navigation so the wizard's primary action is never
+     underneath it. */
+  .st-key-tl_wizard_bar {{
+    bottom: calc(51px + env(safe-area-inset-bottom, 0px));
   }}
   .tl-kpi-row {{ flex-direction: column; gap: var(--tl-space-2); }}
   .tl-kpi-card {{ width: 100%; }}

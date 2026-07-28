@@ -52,11 +52,40 @@ _FORBIDDEN_BARE = {
 }
 
 
+def _strip_keyframes(css: str) -> str:
+    """Remove whole @keyframes blocks, braces and all.
+
+    Their `from` / `to` / `50%` stops are keyframe selectors, not element
+    selectors — scanning them for bare tags reports `from` as an unscoped
+    selector, which is a false positive, not an R1 violation.
+    """
+    out, i = [], 0
+    while True:
+        start = css.find("@keyframes", i)
+        if start == -1:
+            out.append(css[i:])
+            return "".join(out)
+        out.append(css[i:start])
+        depth, j = 0, css.find("{", start)
+        if j == -1:
+            return "".join(out)
+        while j < len(css):
+            if css[j] == "{":
+                depth += 1
+            elif css[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        i = j + 1
+
+
 def _top_level_selectors(css: str) -> list[str]:
     """Extract each selector group (text before a `{`), dropping at-rules."""
     css = css.replace("<style>", "").replace("</style>", "")
     css = re.sub(r"@import\s+url\([^)]*\)\s*;", "", css)
     css = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+    css = _strip_keyframes(css)
     groups = re.findall(r"([^{}]+)\{", css)
     out = []
     for g in groups:
@@ -484,7 +513,9 @@ def test_marketing_site_palette_is_untouched_by_the_app_redesign():
 def _relative_luminance(hex_color: str) -> float:
     raw = hex_color.lstrip("#")
     channels = [int(raw[i : i + 2], 16) / 255 for i in (0, 2, 4)]
-    linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    linear = [
+        c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels
+    ]
     return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
 
 
@@ -563,7 +594,9 @@ def test_error_box_copy_is_legible_on_its_own_composited_surface():
         assert copy_ratio >= 4.5, f"error copy is {copy_ratio:.2f}:1"
         assert edge_ratio >= 3.0, f"error border is {edge_ratio:.2f}:1"
     # the retired literal, measured, so the regression is documented
-    assert contrast_ratio("#e0855f", _composite(ds.TL_DANGER_INK, 0.10, ds.TL_PAPER)) < 3.0
+    assert (
+        contrast_ratio("#e0855f", _composite(ds.TL_DANGER_INK, 0.10, ds.TL_PAPER)) < 3.0
+    )
 
 
 def test_error_box_is_styled_by_the_design_system():
@@ -677,9 +710,9 @@ def test_streamlit_config_primary_matches_the_action_token():
     """Streamlit paints its own focus rings and widget accents from
     primaryColor. Drift there means the framework's teal and the design
     system's teal are two different colours on the same screen."""
-    config = (Path(__file__).resolve().parents[1] / ".streamlit" / "config.toml").read_text(
-        encoding="utf-8"
-    )
+    config = (
+        Path(__file__).resolve().parents[1] / ".streamlit" / "config.toml"
+    ).read_text(encoding="utf-8")
     primary = re.search(r'primaryColor\s*=\s*"(#[0-9a-fA-F]{6})"', config)
     background = re.search(r'backgroundColor\s*=\s*"(#[0-9a-fA-F]{6})"', config)
     secondary = re.search(r'secondaryBackgroundColor\s*=\s*"(#[0-9a-fA-F]{6})"', config)
