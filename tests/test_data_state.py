@@ -124,10 +124,16 @@ def _boot(app_path, marker, seed, tmp_path):
 
 
 def test_dashboard_with_one_trade_draws_no_chart(tmp_path):
-    """One trade earns KPIs and an explanation — never an equity curve."""
+    """One trade earns KPIs and an explanation — never an equity curve.
+
+    The marker copy changed with the Overview redesign: the dominant chart
+    now needs four dated points, not two, so the old "Two trading dates are
+    needed" wording would state a threshold the page no longer applies. The
+    behaviour under test is unchanged.
+    """
     proc = _boot(
         APP,
-        "no-charts:Two trading dates are needed",
+        "no-charts:will unlock the equity curve",
         "one",
         tmp_path,
     )
