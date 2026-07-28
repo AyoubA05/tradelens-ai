@@ -878,6 +878,7 @@ def test_streamlit_own_controls_reach_the_44px_floor():
         '[data-testid="stDateInput"] input',
         '[data-testid="stSidebarCollapseButton"] button',
         '[data-testid="stExpandSidebarButton"]',
+        '[data-testid="stExpander"] summary',
     ):
         block = re.search(
             re.escape(selector) + r"[^{}]*\{([^{}]*)\}",
@@ -904,6 +905,8 @@ def test_the_44px_floor_is_not_hidden_behind_the_phone_breakpoint():
         '[data-testid="stDateInput"] input',
         '[data-testid="stExpandSidebarButton"]',
         '[data-testid="stPageLink-NavLink"]',
+        '[data-testid="stExpander"] summary',
+        '[data-testid="stTextInput"] input',
         ".stButton button",
     ):
         # the rule that DECLARES the floor, wherever it sits
@@ -924,3 +927,324 @@ def test_the_44px_floor_is_not_hidden_behind_the_phone_breakpoint():
         if "min-height: 44px" in m.group(2) and "stSidebar" not in m.group(1)
     )
     assert ">" not in floor.group(1), floor.group(1).strip()
+
+
+# ---------------------------------------------------------------------------
+# Strategy Profile — a playbook, not a settings dump
+# ---------------------------------------------------------------------------
+
+
+def _strategy_src() -> str:
+    return _src("5_Strategy.py")
+
+
+def test_playbook_declares_its_six_sections():
+    src = _strategy_src()
+    assert (
+        'PLAYBOOK_SECTIONS = (\n    "Identity",\n    "Entry Rules",\n'
+        '    "Exit Rules",\n    "Risk Rules",\n    "Setups",\n'
+        '    "Self-Awareness",\n)' in src
+    )
+
+
+def test_identity_is_open_and_the_rule_groups_are_accordions():
+    """Spec 11.6: identity stays open; rule groups are accordions. A page that
+    opens with nine expanded panels is the wall this replaces."""
+    src = _strategy_src()
+    # Identity is not behind a disclosure at all
+    assert 'st.expander("Identity"' not in src
+    # …and no section opens expanded
+    assert "expanded=True" not in src
+
+
+def test_expander_count_matches_the_five_collapsed_sections():
+    """Eight disclosures for six sections is a settings dump. Stop/Take-profit
+    become Exit Rules; setups traded, avoided and session filters become
+    Setups."""
+    src = _strategy_src()
+    assert src.count("st.expander(") == 5
+
+
+def test_profile_completion_is_reported():
+    src = _strategy_src()
+    assert "def _profile_completion(" in src
+    assert "_render_profile_summary(" in src
+
+
+def test_the_playbook_says_what_it_is_for():
+    """A page of rule fields with no stated purpose reads as configuration.
+    This one grounds the AI reviews, and says so once."""
+    src = _strategy_src()
+    assert "grade" in src.lower() and "review" in src.lower()
+
+
+def test_save_is_anchored_not_stretched():
+    """A full-viewport primary button is a banner, not an action."""
+    src = _strategy_src()
+    assert 'width="stretch"' not in src
+    assert "st.form_submit_button(" in src
+
+
+def test_required_field_error_is_inline_and_persistent():
+    """A toast auto-dismisses and never sits near the field it is about.
+    Spec: error below the related field, and it must survive the rerun."""
+    src = _strategy_src()
+    assert 'st.toast("Strategy Name is required.' not in src
+    assert "_NAME_ERROR_KEY" in src
+
+
+def test_the_photographic_banner_is_gone():
+    """PRODUCT.md anti-pattern: decoration behind information. The banner also
+    hardcoded rgba(13,15,17,0.75), which is not a token."""
+    src = _strategy_src()
+    assert "strategy_banner.png" not in src
+    assert "rgba(13,15,17" not in src
+    assert "background-image" not in src
+
+
+def test_saved_chips_do_not_sit_inside_the_edit_fields():
+    """Chips previewed the SAVED profile directly under the input that edits
+    it, so a changed field showed stale values beside itself. Read-only and
+    editable states have to be visibly distinct (spec 11.6)."""
+    src = _strategy_src()
+    form = src[src.index('st.form("strategy_form")') :]
+    assert "render_chip_row" not in form
+
+
+def test_every_stored_field_survives_the_regrouping():
+    src = _strategy_src()
+    for field in (
+        "name",
+        "trading_style",
+        "markets",
+        "timeframes",
+        "entry_rules",
+        "stop_rules",
+        "take_profit_rules",
+        "risk_rules",
+        "setups_traded",
+        "setups_avoided",
+        "news_session_rules",
+        "common_mistakes",
+    ):
+        assert f"{field}=" in src, field
+
+
+def test_starter_template_and_service_calls_are_preserved():
+    src = _strategy_src()
+    assert "STARTER_TEMPLATE" in src
+    assert "upsert_strategy_profile(" in src
+    assert "get_active_strategy(" in src
+
+
+def test_starter_template_leads_only_while_the_playbook_is_empty():
+    """One primary action per screen. With a profile saved, Save is the
+    primary and the template drops to secondary."""
+    src = _strategy_src()
+    assert 'type="secondary" if profile else "primary"' in src
+
+
+def test_completion_is_read_from_the_saved_profile_not_the_form():
+    """A figure driven by unsaved keystrokes would claim the AI has context
+    it has not been given."""
+    src = _strategy_src()
+    assert "_render_profile_summary(profile or {})" in src
+    body = src[src.index("def _profile_completion(") : src.index("def _facet(")]
+    assert "profile.get(" in body
+    assert "st.session_state" not in body
+
+
+def test_the_playbook_animates_the_disclosure_and_nothing_else():
+    """Emil pass. Opening a rule section is the one state change worth
+    conveying — the panel's contents otherwise appear out of nothing. Save
+    is a submit a trader repeats all session, and validation text has to be
+    readable the instant it exists; animating either makes the interface
+    feel slower at the two moments the user is watching most closely.
+    """
+    from src.tradelens.ui import design_system as ds
+
+    css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
+    reveal = re.search(
+        r'\.st-key-tl_playbook_form \[data-testid="stExpander"\] '
+        r"details\[open\] > summary \+ div \{([^{}]*)\}",
+        css,
+    )
+    assert reveal, "no accordion reveal"
+    body = reveal.group(1)
+    # opacity and transform only, inside the UI window, on the shared curve
+    assert "tl-section-in" in body
+    assert "180ms" in body
+    assert "var(--tl-ease-out)" in body
+    frames = re.search(r"@keyframes tl-section-in \{(.*?)\n\}", css, re.S).group(1)
+    for banned in ("height", "width", "margin", "padding"):
+        assert banned not in frames, banned
+
+    # the two things that must never move
+    for still in (".tl-field-error", ".tl-playbook-progress"):
+        block = re.search(re.escape(still) + r"[^{}]*\{([^{}]*)\}", css)
+        assert block and "animation" not in block.group(1), still
+
+
+def test_the_accordion_reveal_is_withdrawn_under_reduced_motion():
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+    start = css.index("@media (prefers-reduced-motion: reduce)")
+    depth, i = 0, css.index("{", start)
+    while i < len(css):
+        depth += (css[i] == "{") - (css[i] == "}")
+        if depth == 0:
+            break
+        i += 1
+    reduce_block = css[start : i + 1]
+    assert "st-key-tl_playbook_form" in reduce_block
+    assert "details[open] > summary + div" in reduce_block
+    assert "animation: none" in reduce_block
+
+
+def test_the_reveal_is_scoped_to_the_playbook_not_every_expander():
+    """Every st.expander in the app carries the same testid. An unscoped
+    rule animates the Journal's filters, the wizard's screenshot panel,
+    Settings and the auth screen — a page-load flicker on five pages that
+    asked for none. The keyed container is what confines it."""
+    from src.tradelens.ui import design_system as ds
+
+    css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
+    for match in re.finditer(r"([^{}]*)\{([^{}]*)\}", css):
+        if "tl-section-in" not in match.group(2):
+            continue
+        assert "st-key-tl_playbook_form" in match.group(1), match.group(1).strip()
+    # …and the page actually renders that container around the form
+    src = _strategy_src()
+    assert 'st.container(key="tl_playbook_form")' in src
+
+
+def test_the_44px_expander_floor_stays_global():
+    """The reveal is Strategy-only; the touch target is not. An accordion
+    header is a control on every page that has one."""
+    from src.tradelens.ui import design_system as ds
+
+    css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
+    floor = re.search(
+        r'(?<![\w-])\[data-testid="stExpander"\] summary \{([^{}]*)\}', css
+    )
+    assert floor, "the expander touch target must stay unscoped"
+    assert "min-height: 44px" in floor.group(1)
+
+
+def test_the_starter_button_says_that_it_saves():
+    """It calls upsert_strategy_profile immediately. Copy promising a review
+    step before anything is stored describes a different button."""
+    src = _strategy_src()
+    assert "Apply the ICT/SMC starter playbook" in src
+    assert "Saves a complete starter playbook as your active profile" in src
+    # the retired promises
+    for lie in ("edit before saving", "review and save", "Starter template loaded"):
+        assert lie not in src, lie
+
+
+def test_both_writes_go_through_the_one_protected_path():
+    """The starter button wrote outside the guarded path, so a driver error
+    there propagated to the page with whatever the exception carried. There
+    is now a single _write(); nothing may call the service directly."""
+    src = _strategy_src()
+    body = src[src.index("def _write(") :]
+    calls = [
+        line
+        for line in body.splitlines()
+        if "upsert_strategy_profile(" in line and "def " not in line
+    ]
+    assert len(calls) == 1, f"writes outside _write(): {calls}"
+    assert "_write(_STARTER_ERROR_KEY, **STARTER_TEMPLATE)" in src
+    assert "_write(\n            _SAVE_ERROR_KEY," in src
+
+
+def test_a_failed_starter_write_reports_beside_its_own_button():
+    """The save slot is at the foot of a form the trader never opened."""
+    src = _strategy_src()
+    assert "starter_error_slot" in src
+    assert src.index("starter_error_slot = st.empty()") < src.index(
+        'st.form("strategy_form")'
+    )
+
+
+def test_save_failure_never_shows_the_exception_to_the_trader():
+    """Driver text can carry a database URL, a dialect message or a fragment
+    of the row. It belongs in the log."""
+    src = _strategy_src()
+    assert "Could not save the playbook. Try again." in src
+    assert "_log.exception(" in src
+    # The exception is never even bound to a name, so there is nothing to
+    # interpolate. Checked as code, not as text: the docstring explaining
+    # why says "str(exc)" out loud.
+    assert "except Exception as" not in src
+    assert "{exc}" not in src
+    # and the box it lands in still escapes
+    from src.tradelens.ui.components.ui import error_box
+
+    assert "<script>" not in error_box("<script>x</script>")
+
+
+# ---------------------------------------------------------------------------
+# Strategy Profile — real interactions, driven under AppTest in a subprocess.
+#
+# These click, type and then read the DATABASE back. A marker test can only
+# prove the page rendered a string; it cannot prove the starter template
+# persisted, that a blank name was refused before any write, or that saving
+# an edit left the untouched sections alone.
+# ---------------------------------------------------------------------------
+
+_STRATEGY_RUNNER = ROOT / "tests" / "strategy_flow_check.py"
+
+
+def _strategy_flow(scenario: str, tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    env = dict(os.environ)
+    env["DATABASE_URL"] = f"sqlite:///{tmp_path / (scenario + '.db')}"
+    env["DEMO_MODE"] = "true"  # never touch the network
+    proc = subprocess.run(
+        [sys.executable, str(_STRATEGY_RUNNER), str(ROOT), scenario],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=240,
+    )
+    assert proc.returncode == 0, (
+        f"{scenario} failed (rc={proc.returncode})\n"
+        f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+    )
+
+
+def test_starter_playbook_actually_persists(tmp_path):
+    """The button says it saves a complete playbook as the active profile.
+    This reads the row back and checks every section is written, then that
+    the summary reports 6 of 6."""
+    _strategy_flow("starter_template_persists", tmp_path)
+
+
+def test_blank_name_is_refused_before_anything_is_written(tmp_path):
+    """No row, plus a field-level message carrying role="alert"."""
+    _strategy_flow("blank_name_is_refused", tmp_path)
+
+
+def test_correcting_the_name_saves_and_clears_the_error(tmp_path):
+    """The draft survives the refusal, the corrected form writes, and the
+    completion figure follows the saved profile rather than the form."""
+    _strategy_flow("correcting_the_name_saves", tmp_path)
+
+
+def test_a_failed_starter_write_is_contained(tmp_path):
+    """The starter write raises with a credential-bearing driver message.
+    The page must survive it, render the generic recovery message, leak none
+    of the DSN, create no row, and leave an existing playbook untouched."""
+    _strategy_flow("starter_write_failure_is_contained", tmp_path)
+
+
+def test_editing_one_section_preserves_the_untouched_ones(tmp_path):
+    """A full profile, one field changed, eleven left alone. The failure
+    this catches is a collapsed section's widget defaulting to "" instead
+    of the stored value, which silently blanks it on the next save."""
+    _strategy_flow("editing_preserves_untouched_fields", tmp_path)

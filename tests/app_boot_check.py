@@ -138,6 +138,30 @@ def main() -> int:
         session.commit()
         session.close()
 
+    if seed == "profile":
+        # A real user with a saved, partially-filled strategy profile. The
+        # Strategy page reads it through get_active_strategy(uid), which
+        # rejects a None user id, so the row and the account both have to
+        # exist — and the caller must preset current_user_id in state.
+        from src.tradelens.db.models import User
+        from src.tradelens.db.session import SessionLocal
+        from src.tradelens.services.strategy import upsert_strategy_profile
+
+        s = SessionLocal()
+        s.add(User(id=1, username="booter", password_hash="x"))
+        s.commit()
+        s.close()
+        upsert_strategy_profile(
+            1,
+            name="ICT Continuation",
+            trading_style="ICT / SMC",
+            markets="NQ, ES",
+            timeframes="15m entry, 4H HTF",
+            entry_rules="BOS then OB retest",
+            # exit, risk, setups and self-awareness deliberately left empty so
+            # the completion figure has something to be less than.
+        )
+
     if seed == "1":
         from src.tradelens.db.models import Trade
         from src.tradelens.db.session import SessionLocal

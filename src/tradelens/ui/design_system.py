@@ -1631,6 +1631,137 @@ def build_css() -> str:
   color: var(--tl-text);
 }}
 
+/* === STRATEGY PROFILE — the playbook summary ===
+   A compact functional header, not a hero. The page it introduces is a
+   long form, so this states three things and stops: whose playbook, how
+   complete, and what reads it. The photographic banner it replaces put a
+   75%-dimmed image behind that information.
+
+   Type rules here carry the app-container anchor for the reason given at
+   the Evidence Rail: Streamlit sizes every p and h1-h4 it renders from a
+   0,1,1 selector, which beats a lone class of ours. */
+.tl-playbook {{
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-5) var(--tl-space-6);
+  margin-bottom: var(--tl-space-4);
+}}
+.tl-playbook-head {{
+  display: flex;
+  align-items: baseline;
+  gap: var(--tl-space-3);
+  flex-wrap: wrap;
+}}
+[data-testid="stAppViewContainer"] .tl-playbook-name {{
+  font-family: var(--tl-font-display);
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 700;
+  color: var(--tl-ink);
+  margin: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-playbook-meta {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-muted);
+  margin: 0 0 0 auto;
+}}
+/* Completion. The figure is the message; the rule underneath is a second
+   reading of the same number, so it is aria-hidden rather than announced
+   twice. */
+.tl-playbook-progress {{
+  display: block;
+  height: 3px;
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-hairline);
+  margin: var(--tl-space-3) 0 var(--tl-space-2) 0;
+  overflow: hidden;
+}}
+.tl-playbook-progress span {{
+  display: block;
+  height: 100%;
+  background: var(--tl-action);
+}}
+[data-testid="stAppViewContainer"] .tl-playbook-count {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  letter-spacing: 0.04em;
+  color: var(--tl-muted);
+  margin: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-playbook-why {{
+  font-size: 14px;
+  line-height: 21px;
+  color: var(--tl-muted);
+  margin: var(--tl-space-2) 0 0 0;
+  max-width: 68ch;
+}}
+/* Saved values, read-only. Grouped under their own label so a chip row is
+   never mistaken for the field that edits it. */
+.tl-playbook-facets {{
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-2);
+  margin-top: var(--tl-space-4);
+  padding-top: var(--tl-space-3);
+  border-top: 1px solid var(--tl-hairline);
+}}
+.tl-playbook-facet {{
+  display: flex;
+  align-items: baseline;
+  gap: var(--tl-space-3);
+  flex-wrap: wrap;
+}}
+[data-testid="stAppViewContainer"] .tl-playbook-facet-label {{
+  font-family: var(--tl-font-mono);
+  font-size: 11px;
+  line-height: 18px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tl-muted);
+  margin: 0;
+  flex: 0 0 5.5rem;
+}}
+.tl-playbook-facet .tl-chip-row {{ margin: 0; }}
+
+/* Opening a rule section is the one state change on this page worth
+   conveying: without it the panel's contents appear out of nothing, which
+   reads as a glitch rather than a disclosure. Opacity and a 4px lift only,
+   at 180ms on the project's ease-out — the same reveal as the Journal's
+   trade detail and the wizard's step, so the product has one rhythm rather
+   than a third.
+
+   Scoped to the playbook form, not to [data-testid="stExpander"]: every
+   st.expander in the app carries that testid, so an unscoped rule would
+   animate the Journal's filters, the wizard's screenshot panel, Settings
+   and the auth screen — motion on five pages that asked for none.
+
+   Nothing else on this page moves. Save is a form submit a trader repeats
+   all session, and validation text has to be readable the instant it
+   exists — animating either would make the interface feel slower at the
+   two moments the user is watching most closely. */
+.st-key-tl_playbook_form [data-testid="stExpander"] details[open] > summary + div {{
+  animation: tl-section-in 180ms var(--tl-ease-out) both;
+}}
+@keyframes tl-section-in {{
+  from {{ opacity: 0; transform: translateY(4px); }}
+  to {{ opacity: 1; transform: none; }}
+}}
+
+/* Field-level validation. Sits under the input it is about, stays until
+   the value is fixed, and announces itself — a toast did none of the
+   three. Red is reserved for errors, which this is. */
+[data-testid="stAppViewContainer"] .tl-field-error {{
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--tl-danger-ink);
+  margin: var(--tl-space-1) 0 0 0;
+}}
+
 /* === JOURNAL === */
 /* The result count, beside the view selector. Mono so the figure lines up
    with the ledger's own numerals, and right-aligned so it reads as a
@@ -1988,7 +2119,9 @@ def build_css() -> str:
     transform: none;
   }}
   [class*="st-key-tl_step_"],
-  .st-key-tl_trade_detail {{
+  .st-key-tl_trade_detail,
+  .st-key-tl_playbook_form
+    [data-testid="stExpander"] details[open] > summary + div {{
     animation: none;
   }}
 }}
@@ -2012,6 +2145,19 @@ def build_css() -> str:
 }}
 [data-testid="stDateInput"] input {{
   min-height: 44px;
+}}
+/* Text fields. This too lived inside the phone breakpoint, so every input
+   on the playbook form was 38px on a desktop and 44px on a phone. */
+[data-testid="stTextInput"] input {{
+  min-height: 44px;
+}}
+/* An accordion header is the control that opens a section — on the
+   playbook it is the only way to reach five of the six. Streamlit gives it
+   4px 12px of padding and nothing else. */
+[data-testid="stExpander"] summary {{
+  min-height: 44px;
+  display: flex;
+  align-items: center;
 }}
 /* The collapse handle carries its testid on the wrapper, the expand handle
    on the button itself — hence the two shapes. */
@@ -2104,7 +2250,6 @@ def build_css() -> str:
   .tl-finding {{ flex-direction: column; gap: var(--tl-space-2); }}
   .tl-table-wrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
   .tl-table {{ min-width: 560px; }}
-  [data-testid="stTextInput"] input {{ min-height: 44px; }}
 }}
 </style>"""
 

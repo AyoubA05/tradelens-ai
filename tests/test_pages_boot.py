@@ -364,3 +364,61 @@ def test_patterns_lens_collapses_its_evidence_used(tmp_path):
         "<details",
         json.dumps({"ai_review_lens": "Patterns"}),
     )
+
+
+# ---------------------------------------------------------------------------
+# Strategy Profile — playbook states
+# ---------------------------------------------------------------------------
+
+_STRATEGY = "5_Strategy.py"
+_SIGNED_IN = json.dumps({"current_user_id": 1})
+
+
+def test_strategy_empty_profile_says_what_is_lost_until_it_is_filled(tmp_path):
+    """No profile: the page has to say what filling this in buys, not just
+    present twelve empty fields. (The starter-template button is the other
+    half of the invitation; buttons are not markdown, so it is asserted in
+    the page contracts instead.)"""
+    _boot(_STRATEGY, tmp_path / "s-empty.db", "0", "fall back to generic")
+
+
+def test_strategy_empty_profile_reports_zero_completion(tmp_path):
+    _boot(_STRATEGY, tmp_path / "s-zero.db", "0", "0 of 6 sections")
+
+
+def test_strategy_summarizes_a_saved_profile(tmp_path):
+    _boot(_STRATEGY, tmp_path / "s-name.db", "profile", "ICT Continuation", _SIGNED_IN)
+
+
+def test_strategy_reports_partial_completion(tmp_path):
+    """The seeded profile fills Identity and Entry Rules only. A completion
+    figure that cannot go down is not feedback."""
+    _boot(_STRATEGY, tmp_path / "s-part.db", "profile", "2 of 6 sections", _SIGNED_IN)
+
+
+def test_strategy_shows_saved_values_as_read_only_chips(tmp_path):
+    """Chips describe the SAVED profile, so they belong with the summary and
+    not under the input that edits them."""
+    _boot(_STRATEGY, tmp_path / "s-chips.db", "profile", "tl-chip-row", _SIGNED_IN)
+
+
+def test_strategy_states_what_the_playbook_grounds(tmp_path):
+    _boot(_STRATEGY, tmp_path / "s-why.db", "profile", "grading", _SIGNED_IN)
+
+
+def test_strategy_name_error_survives_the_rerun(tmp_path):
+    """A toast would be gone before the trader looked up. The error is state,
+    so a page booted with it set must render it."""
+    _boot(
+        _STRATEGY,
+        tmp_path / "s-err.db",
+        "0",
+        "Strategy name is required",
+        json.dumps({"_strategy_name_error": True}),
+    )
+
+
+def test_strategy_boots_signed_out_without_a_profile(tmp_path):
+    """uid is None for the secrets-fallback legacy user; the page must not
+    call the service with it."""
+    _boot(_STRATEGY, tmp_path / "s-anon.db", "0", "-")

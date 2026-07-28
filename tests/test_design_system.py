@@ -250,6 +250,9 @@ def test_css_uses_only_proven_testids():
         # stExpandSidebarButton sits on the button itself.
         "stRadio",
         "stDateInput",
+        # Playbook accordions: five <details> whose <summary> is the only way
+        # into five of the six sections. Observed at 375px on 1.50.0.
+        "stExpander",
         "stSidebarCollapseButton",
         "stExpandSidebarButton",
     }
