@@ -1,9 +1,23 @@
 """
-Sidebar for TradeLens AI (Session A).
+App shell and navigation architecture for TradeLens AI.
 
-Renders the brand block, the custom navigation menu (exactly six destinations
-with clean labels), an active-strategy badge, and the sign-out control. The
-default Streamlit page nav is disabled via `.streamlit/config.toml`
+The shell is the only UI present on every destination, so it carries the
+product's information architecture:
+
+- FIVE primary destinations — Overview, Journal, Analytics, AI Reviews and
+  Strategy Profile — in the order a trader works through them.
+- ONE persistent action, "Log completed trade". Logging is the thing a
+  trader comes here to do; it is a button above the list, not a sixth peer
+  of the places they browse.
+- A quiet utility group (Settings, identity, sign out) below a divider.
+- A separate five-item mobile hierarchy, because the desktop rail shrunk
+  down is not a mobile navigation.
+
+Renaming is presentational only. Dashboard reads as Overview and Insights &
+Review as AI Reviews, but no page file moves and no URL slug changes — a
+slug is a bookmark somebody already has.
+
+The default Streamlit page nav is disabled via `.streamlit/config.toml`
 (showSidebarNavigation = false) so this is the single source of navigation.
 
 RENDER-ONLY: every value comes from a service; no DB queries or business logic.
@@ -12,25 +26,80 @@ RENDER-ONLY: every value comes from a service; no DB queries or business logic.
 from __future__ import annotations
 
 from html import escape
+from urllib.parse import urlparse
 
 from src.tradelens.ui.design_system import TL_PRIMARY
 
-# Custom nav: (page path relative to the entrypoint, URL slug, label, Material
-# icon). Paths/slugs keep the existing files — only the labels are friendly.
-_NAV = [
-    ("app.py", "/", "Dashboard", ":material/dashboard:"),
-    ("pages/1_NewTrade.py", "/NewTrade", "New Trade", ":material/add_chart:"),
+# (page path relative to the entrypoint, URL slug, label, Material icon).
+# Paths and slugs keep the existing files — only the labels are friendly.
+PRIMARY_NAV = (
+    ("app.py", "/", "Overview", ":material/space_dashboard:"),
     ("pages/2_Trades.py", "/Trades", "Journal", ":material/menu_book:"),
     ("pages/4_Analytics.py", "/Analytics", "Analytics", ":material/analytics:"),
-    (
-        "pages/6_Insights.py",
-        "/Insights",
-        "Insights & Review",
-        ":material/psychology:",
-    ),
+    ("pages/6_Insights.py", "/Insights", "AI Reviews", ":material/psychology:"),
     ("pages/5_Strategy.py", "/Strategy", "Strategy Profile", ":material/flag:"),
-    ("pages/9_Settings.py", "/Settings", "Settings", ":material/settings:"),
-]
+)
+
+# The one action, promoted out of the destination list.
+PRIMARY_ACTION = (
+    "pages/1_NewTrade.py",
+    "/NewTrade",
+    "Log completed trade",
+    ":material/add_chart:",
+)
+
+# Present, reachable, and deliberately quiet.
+UTILITY_NAV = (("pages/9_Settings.py", "/Settings", "Settings", ":material/settings:"),)
+
+# Mobile bottom navigation: (slug, short label, Material icon name).
+# The four required mobile journeys lead (spec 13) and the fifth slot is the
+# utility escape. Analytics and Strategy Profile are reached through the rail
+# drawer on mobile rather than competing for a bottom-bar slot.
+MOBILE_NAV = (
+    ("/", "Home", "space_dashboard"),
+    ("/NewTrade", "Log", "add_chart"),
+    ("/Trades", "Journal", "menu_book"),
+    ("/Insights", "Review", "psychology"),
+    ("/Settings", "Settings", "settings"),
+)
+
+
+def _slug_from_url(url: str) -> str:
+    """Reduce a full URL to the slug form used by the nav tables.
+
+    Pure so the active-state logic is testable without a browser.
+    """
+    if not url:
+        return ""
+    path = urlparse(url).path.rstrip("/")
+    if not path:
+        return "/"
+    return "/" + path.rsplit("/", 1)[-1]
+
+
+def _active_slug(st) -> str:
+    """Current destination, or "" when it cannot be determined.
+
+    `st.context.url` is unavailable in registry-less AppTest boots, so this
+    degrades to no active item rather than raising inside a render path.
+    """
+    try:
+        return _slug_from_url(st.context.url or "")
+    except Exception:  # noqa: BLE001 — render path must never raise
+        return ""
+
+
+def _nav_container_key(slug: str, active: bool) -> str:
+    """Stable CSS hook for one nav row.
+
+    Streamlit marks the current page only with a generated emotion class
+    (`st-emotion-cache-<hash>`), which changes between releases and cannot
+    be styled safely. Keying the container gives us `.st-key-…` instead, and
+    the `_active` suffix carries the state — the same technique the trade
+    calendar already uses for day outcomes.
+    """
+    name = "home" if slug == "/" else slug.strip("/").lower()
+    return f"tl_nav_{name}_active" if active else f"tl_nav_{name}"
 
 
 def _nav_link(st, path: str, slug: str, label: str, icon: str) -> None:
@@ -46,6 +115,32 @@ def _nav_link(st, path: str, slug: str, label: str, icon: str) -> None:
             'style="display:block;padding:4px 0">{}</a>'.format(label),
             unsafe_allow_html=True,
         )
+
+
+def _mobile_nav_html(active_slug: str) -> str:
+    """Fixed bottom navigation for narrow screens.
+
+    Pure string builder. Uses the same Material Symbols family Streamlit
+    already loads for the rail icons, so the product has one icon family
+    rather than a second hand-rolled set. Every item pairs its icon with a
+    text label; the current item is announced with aria-current, which
+    Streamlit's own page_link does not emit.
+    """
+    items = []
+    for slug, label, icon in MOBILE_NAV:
+        is_active = slug == active_slug
+        current = ' aria-current="page"' if is_active else ""
+        state = " is-active" if is_active else ""
+        items.append(
+            f'<a class="tl-mobile-nav-item{state}" href="{escape(slug)}"'
+            f' target="_self"{current}>'
+            f'<span class="tl-mobile-nav-icon" aria-hidden="true">{escape(icon)}</span>'
+            f'<span class="tl-mobile-nav-label">{escape(label)}</span>'
+            "</a>"
+        )
+    return (
+        '<nav class="tl-mobile-nav" aria-label="Primary">' f'{"".join(items)}' "</nav>"
+    )
 
 
 _WORDMARK_SVG = (
@@ -72,6 +167,9 @@ def _brand_html(logo_b64: str = "") -> str:
 
 
 def _strategy_badge_html(strategy_name: str | None) -> str:
+    """Active-strategy context. Compact by design: it tells the trader which
+    playbook their reviews are graded against, without competing with the
+    destinations above it."""
     if strategy_name:
         return (
             '<div class="tl-side-note active">Active strategy: '
@@ -83,11 +181,29 @@ def _strategy_badge_html(strategy_name: str | None) -> str:
     )
 
 
-def render_sidebar(df=None, today=None) -> None:
-    """Render brand, navigation, active-strategy badge, and sign-out in the sidebar.
+def render_primary_action(st) -> None:
+    """The persistent "Log completed trade" action, directly under the brand.
 
-    `df` / `today` are accepted for backward compatibility but unused — the sidebar
-    no longer shows per-period stats, keeping navigation the focus.
+    Rendered as a page_link inside a keyed container so it keeps soft
+    navigation (and the registry-less fallback) while the design system can
+    style it as the one filled action in the rail.
+    """
+    path, slug, label, icon = PRIMARY_ACTION
+    with st.container(key="tl_nav_action"):
+        _nav_link(st, path, slug, label, icon)
+
+
+def render_mobile_navigation(st, active_path: str) -> None:
+    """Five-item bottom navigation, shown only at the mobile breakpoint."""
+    st.markdown(_mobile_nav_html(active_path), unsafe_allow_html=True)
+
+
+def render_sidebar(df=None, today=None) -> None:
+    """Render the app shell: brand, primary action, destinations, active
+    strategy context, and the quiet utility group.
+
+    `df` / `today` are accepted for backward compatibility but unused — the
+    sidebar no longer shows per-period stats, keeping navigation the focus.
     """
     import streamlit as st
 
@@ -102,19 +218,39 @@ def render_sidebar(df=None, today=None) -> None:
     uid = current_user_id()
     strategy = get_active_strategy(uid) if uid is not None else None
     strategy_name = (strategy or {}).get("name")
+    active = _active_slug(st)
 
     with st.sidebar:
         st.markdown(
             _brand_html(get_asset_as_base64("logo_mark.png")), unsafe_allow_html=True
         )
 
-        for path, slug, label, icon in _NAV:
-            _nav_link(st, path, slug, label, icon)
+        render_primary_action(st)
+
+        for path, slug, label, icon in PRIMARY_NAV:
+            is_active = slug == active
+            with st.container(key=_nav_container_key(slug, is_active)):
+                _nav_link(st, path, slug, label, icon)
+                if is_active:
+                    # page_link emits no aria-current, so the only way to
+                    # announce the current destination is to say it.
+                    st.markdown(
+                        '<span class="tl-visually-hidden">Current page</span>',
+                        unsafe_allow_html=True,
+                    )
 
         st.markdown(_strategy_badge_html(strategy_name), unsafe_allow_html=True)
 
         st.divider()
+        for path, slug, label, icon in UTILITY_NAV:
+            with st.container(key=_nav_container_key(slug, slug == active)):
+                _nav_link(st, path, slug, label, icon)
+
         uname = current_user()
         if uname:
             st.caption(f"Signed in as: **{uname}**")
         render_logout_button()
+
+    # Outside the rail: the bar is fixed to the viewport and must stay
+    # reachable when the rail is collapsed off-canvas on a phone.
+    render_mobile_navigation(st, active)

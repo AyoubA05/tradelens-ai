@@ -60,3 +60,40 @@ def test_page_boots_empty_db(page, tmp_path):
 @pytest.mark.parametrize("page", SEED_PAGES)
 def test_page_boots_seed_db(page, tmp_path):
     _boot(page, tmp_path / "seed.db", "1")
+
+
+# ---------------------------------------------------------------------------
+# Shell contract — the custom navigation is the ONLY navigation
+# ---------------------------------------------------------------------------
+
+
+def test_streamlits_own_page_navigation_stays_disabled():
+    """TradeLens renders its own labelled rail. With Streamlit's automatic
+    nav also on, a trader sees two menus listing the same pages under
+    different names — the file names, which say `6_Insights`."""
+    config = (ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
+    assert "showSidebarNavigation = false" in config
+
+
+@pytest.mark.parametrize("page", ALL_PAGES)
+def test_every_page_renders_the_custom_shell(page):
+    """A page that forgets the shell loses navigation entirely — there is no
+    fallback menu to fall back to."""
+    src = (PAGES_DIR / page).read_text(encoding="utf-8")
+    assert "render_sidebar" in src, f"{page} renders no navigation"
+
+
+def test_the_entrypoint_renders_the_custom_shell():
+    src = (ROOT / "src" / "tradelens" / "ui" / "app.py").read_text(encoding="utf-8")
+    assert "render_sidebar" in src
+
+
+def test_no_page_hardcodes_its_own_navigation_list():
+    """Navigation lives in components/sidebar.py. A page building its own
+    list is how the rail and the page disagree about what exists."""
+    pages = [PAGES_DIR / p for p in ALL_PAGES]
+    pages.append(ROOT / "src" / "tradelens" / "ui" / "app.py")
+    for path in pages:
+        src = path.read_text(encoding="utf-8")
+        assert "PRIMARY_NAV = " not in src, f"{path.name} redefines the nav"
+        assert "MOBILE_NAV = " not in src, f"{path.name} redefines the mobile nav"

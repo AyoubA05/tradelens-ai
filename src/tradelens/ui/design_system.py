@@ -392,6 +392,162 @@ def build_css() -> str:
   outline: 2px solid var(--tl-primary);
   outline-offset: 2px;
 }}
+/* === APP SHELL — navigation architecture (components/sidebar.py) ===
+   Selectors are the data-testid values verified in the browser against the
+   pinned streamlit==1.50.0 DOM. Streamlit marks the current page only with
+   a generated class whose hash changes between releases, so the active
+   state rides on our own keyed containers instead. */
+
+/* --- destination rows --- */
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {{
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  padding: 0 var(--tl-space-3);
+  border-radius: var(--tl-radius-sm);
+  color: var(--tl-text);
+  position: relative;
+  transition: background var(--tl-dur-state) var(--tl-ease-out);
+}}
+@media (hover: hover) and (pointer: fine) {{
+  [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover {{
+    background: var(--tl-surface-2);
+  }}
+}}
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:focus-visible {{
+  outline: 2px solid var(--tl-focus);
+  outline-offset: -2px;
+}}
+/* Press feedback only — these rows are visited dozens of times a session,
+   so nothing here is allowed to take time to finish. */
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:active {{
+  background: var(--tl-surface-2);
+}}
+
+/* --- the current destination ---
+   Three cues, none of them colour on its own: a teal indicator bar, a
+   heavier label, and a raised surface. */
+[class*="st-key-tl_nav_"][class*="_active"] [data-testid="stPageLink-NavLink"] {{
+  background: var(--tl-surface-2);
+  font-weight: 700;
+}}
+[class*="st-key-tl_nav_"][class*="_active"]
+  [data-testid="stPageLink-NavLink"]::before {{
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--tl-focus);
+}}
+
+/* --- the persistent action ---
+   One filled control in the rail. Bright teal is the action colour on a
+   dark surface; the rail ink reads 11.3:1 on it. */
+.st-key-tl_nav_action {{
+  margin: var(--tl-space-2) 0 var(--tl-space-4) 0;
+}}
+.st-key-tl_nav_action [data-testid="stPageLink-NavLink"] {{
+  background: var(--tl-focus);
+  color: var(--tl-rail);
+  font-weight: 600;
+  justify-content: center;
+  transition: opacity var(--tl-dur-state) var(--tl-ease-out),
+              transform var(--tl-dur-press) var(--tl-ease-out);
+}}
+@media (hover: hover) and (pointer: fine) {{
+  .st-key-tl_nav_action [data-testid="stPageLink-NavLink"]:hover {{
+    background: var(--tl-focus);
+    opacity: 0.92;
+  }}
+}}
+.st-key-tl_nav_action [data-testid="stPageLink-NavLink"]:active {{
+  background: var(--tl-focus);
+  transform: scale(0.98);
+}}
+.st-key-tl_nav_action [data-testid="stPageLink-NavLink"]::before {{
+  content: none;
+}}
+
+/* --- utility group --- */
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {{
+  color: var(--tl-text-muted);
+}}
+
+/* --- tablet: a narrower rail, same hierarchy --- */
+@media (min-width: 641px) and (max-width: 1023px) {{
+  [data-testid="stSidebar"] {{ width: 208px; min-width: 208px; }}
+  [data-testid="stAppViewContainer"] .block-container {{
+    padding-left: var(--tl-space-4);
+    padding-right: var(--tl-space-4);
+  }}
+}}
+
+/* --- mobile bottom navigation ---
+   Its own five-item hierarchy, not the rail shrunk down. Hidden entirely
+   above the phone breakpoint so it is never a second nav competing with
+   the rail. */
+.tl-mobile-nav {{
+  display: none;
+}}
+/* Anchored to the app container: Streamlit's own markdown-anchor rule
+   outranks a bare class, so an unanchored selector leaves the bar rendering
+   in the browser's default link blue with underlines. */
+[data-testid="stAppViewContainer"] a.tl-mobile-nav-item,
+.tl-mobile-nav-item {{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex: 1 1 0;
+  min-height: 44px;
+  padding: 6px 4px;
+  text-decoration: none;
+  color: var(--tl-text-muted);
+  transition: color var(--tl-dur-state) var(--tl-ease-out),
+              transform var(--tl-dur-press) var(--tl-ease-out);
+}}
+.tl-mobile-nav-item:active {{
+  transform: scale(0.96);
+}}
+.tl-mobile-nav-item:focus-visible {{
+  outline: 2px solid var(--tl-focus);
+  outline-offset: -2px;
+  border-radius: var(--tl-radius-sm);
+}}
+.tl-mobile-nav-icon {{
+  font-family: 'Material Symbols Rounded';
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 300;
+}}
+.tl-mobile-nav-label {{
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+}}
+/* Current item: teal, heavier, and topped by an indicator bar. */
+[data-testid="stAppViewContainer"] a.tl-mobile-nav-item.is-active,
+.tl-mobile-nav-item.is-active {{
+  color: var(--tl-focus);
+}}
+.tl-mobile-nav-item.is-active .tl-mobile-nav-label {{
+  font-weight: 700;
+}}
+.tl-mobile-nav-item.is-active::before {{
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 24px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--tl-focus);
+}}
+
 /* Sidebar brand block + status note (replaces inline styles in sidebar.py) */
 .tl-side-brand {{
   display: flex;
@@ -489,11 +645,20 @@ def build_css() -> str:
 .stFormSubmitButton > button:active {{
   background: var(--tl-action-hover);
 }}
-/* The rail is dark, so its buttons take the instrument teal instead. */
+/* The rail holds exactly ONE filled action — "Log completed trade". Sign
+   out is a utility control, so it is outlined: two filled teal buttons in
+   one column read as two primaries and the eye cannot tell which matters. */
 [data-testid="stSidebar"] .stButton > button {{
-  background: var(--tl-focus);
-  border-color: var(--tl-focus);
-  color: var(--tl-rail);
+  background: transparent;
+  border-color: var(--tl-border);
+  color: var(--tl-text);
+  min-height: 44px;
+}}
+@media (hover: hover) and (pointer: fine) {{
+  [data-testid="stSidebar"] .stButton > button:hover {{
+    background: var(--tl-surface-2);
+    border-color: var(--tl-text-muted);
+  }}
 }}
 [data-testid="stSidebar"] .stButton > button:focus-visible {{
   outline: 2px solid var(--tl-focus);
@@ -1484,8 +1649,15 @@ def build_css() -> str:
   .stButton > button,
   .stFormSubmitButton > button,
   .tl-table td,
-  [data-testid="stSidebar"] a {{
+  .tl-mobile-nav-item,
+  [data-testid="stSidebar"] a,
+  [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {{
     transition: none;
+  }}
+  /* Colour feedback stays; the movement goes. */
+  .tl-mobile-nav-item:active,
+  .st-key-tl_nav_action [data-testid="stPageLink-NavLink"]:active {{
+    transform: none;
   }}
 }}
 
@@ -1495,6 +1667,23 @@ def build_css() -> str:
    two-column compact list rather than six full-width rows, tables scroll
    inside their own frame, and touch targets reach >=44px. */
 @media (max-width: 640px) {{
+  /* The bottom bar appears only here, and reserves its own height plus the
+     gesture-bar inset so it never covers the last row of a table. */
+  .tl-mobile-nav {{
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 100;
+    background: var(--tl-rail);
+    border-top: 1px solid var(--tl-border);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }}
+  .tl-mobile-nav-item {{ position: relative; }}
+  [data-testid="stAppViewContainer"] .block-container {{
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }}
   .tl-kpi-row {{ flex-direction: column; gap: var(--tl-space-2); }}
   .tl-kpi-card {{ width: 100%; }}
   .tl-kpi-cell {{ flex: 1 1 50%; }}

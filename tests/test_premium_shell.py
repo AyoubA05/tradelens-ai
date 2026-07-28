@@ -1,0 +1,368 @@
+"""
+Tests for the premium app shell and navigation architecture (Task 2).
+
+The shell is the one piece of UI present on every destination, so its
+contract is structural rather than cosmetic:
+
+- exactly FIVE primary destinations, in the approved reading order;
+- "Log completed trade" is a persistent ACTION, not a sixth destination;
+- Settings sits in a quiet utility group, outside the primary set;
+- renaming is presentational only — page files and URL slugs never move,
+  because a slug is a bookmark someone already has;
+- mobile navigation is a separate hierarchy (max five items), not the
+  desktop rail shrunk down;
+- every interactive state carries a non-colour cue.
+"""
+
+from pathlib import Path
+
+from src.tradelens.ui.components import sidebar
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+# ---------------------------------------------------------------------------
+# Primary navigation
+# ---------------------------------------------------------------------------
+
+
+def test_primary_nav_has_exactly_five_destinations():
+    """Five is the ceiling the spec sets, and the ceiling bottom navigation
+    can carry on mobile. A sixth destination means something was promoted
+    that should have been grouped."""
+    assert len(sidebar.PRIMARY_NAV) == 5
+
+
+def test_primary_nav_matches_the_target_information_architecture():
+    assert sidebar.PRIMARY_NAV == (
+        ("app.py", "/", "Overview", ":material/space_dashboard:"),
+        ("pages/2_Trades.py", "/Trades", "Journal", ":material/menu_book:"),
+        ("pages/4_Analytics.py", "/Analytics", "Analytics", ":material/analytics:"),
+        ("pages/6_Insights.py", "/Insights", "AI Reviews", ":material/psychology:"),
+        ("pages/5_Strategy.py", "/Strategy", "Strategy Profile", ":material/flag:"),
+    )
+
+
+def test_relabelling_never_moves_a_page_file_or_a_url():
+    """Dashboard became Overview and Insights & Review became AI Reviews.
+    Both are presentation: a moved slug breaks every existing bookmark and
+    every link the marketing site or a password-reset email may hold."""
+    slugs = {slug for _, slug, _, _ in sidebar.PRIMARY_NAV}
+    paths = {path for path, _, _, _ in sidebar.PRIMARY_NAV}
+    assert slugs == {"/", "/Trades", "/Analytics", "/Insights", "/Strategy"}
+    assert paths == {
+        "app.py",
+        "pages/2_Trades.py",
+        "pages/4_Analytics.py",
+        "pages/6_Insights.py",
+        "pages/5_Strategy.py",
+    }
+    for path, _, _, _ in sidebar.PRIMARY_NAV:
+        assert (ROOT / "src" / "tradelens" / "ui" / path).is_file(), path
+
+
+def test_old_labels_are_gone_from_the_primary_group():
+    labels = {label for _, _, label, _ in sidebar.PRIMARY_NAV}
+    assert "Dashboard" not in labels
+    assert "Insights & Review" not in labels
+    assert {"Overview", "AI Reviews"} <= labels
+
+
+def test_every_destination_pairs_an_icon_with_a_text_label():
+    """Icon-only navigation harms discoverability; the label is the control."""
+    for _path, _slug, label, icon in sidebar.PRIMARY_NAV:
+        assert label and not label.startswith(":material/")
+        assert icon.startswith(":material/") and icon.endswith(":")
+
+
+# ---------------------------------------------------------------------------
+# The persistent action
+# ---------------------------------------------------------------------------
+
+
+def test_logging_a_trade_is_an_action_not_a_sixth_destination():
+    """New Trade is the one thing a trader comes here to do, so it is a
+    button above the list rather than a peer of the places they browse."""
+    paths = {path for path, _, _, _ in sidebar.PRIMARY_NAV}
+    assert "pages/1_NewTrade.py" not in paths
+
+    assert sidebar.PRIMARY_ACTION == (
+        "pages/1_NewTrade.py",
+        "/NewTrade",
+        "Log completed trade",
+        ":material/add_chart:",
+    )
+
+
+def test_primary_action_copy_is_post_trade_and_unambiguous():
+    _, _, label, _ = sidebar.PRIMARY_ACTION
+    assert label == "Log completed trade"
+    lowered = label.lower()
+    for banned in ("signal", "live trade", "buy now", "go long", "go short", "alert"):
+        assert banned not in lowered
+
+
+# ---------------------------------------------------------------------------
+# Utility group
+# ---------------------------------------------------------------------------
+
+
+def test_settings_is_present_but_outside_the_primary_group():
+    primary_slugs = {slug for _, slug, _, _ in sidebar.PRIMARY_NAV}
+    assert "/Settings" not in primary_slugs
+
+    utility_slugs = {slug for _, slug, _, _ in sidebar.UTILITY_NAV}
+    assert "/Settings" in utility_slugs
+
+
+def test_every_pre_redesign_destination_is_still_reachable():
+    """Regrouping must not strand a route. Every page the old flat menu
+    exposed still has a home somewhere in the shell."""
+    reachable = (
+        {slug for _, slug, _, _ in sidebar.PRIMARY_NAV}
+        | {slug for _, slug, _, _ in sidebar.UTILITY_NAV}
+        | {sidebar.PRIMARY_ACTION[1]}
+    )
+    for slug in (
+        "/",
+        "/NewTrade",
+        "/Trades",
+        "/Analytics",
+        "/Insights",
+        "/Strategy",
+        "/Settings",
+    ):
+        assert slug in reachable, f"{slug} became unreachable"
+
+
+# ---------------------------------------------------------------------------
+# Mobile navigation — a separate hierarchy, not a shrunken rail
+# ---------------------------------------------------------------------------
+
+
+def test_mobile_navigation_carries_at_most_five_items():
+    assert 0 < len(sidebar.MOBILE_NAV) <= 5
+
+
+def test_mobile_navigation_leads_with_the_required_mobile_journeys():
+    """Spec 13: the required mobile journeys are Overview, Log, Journal and
+    AI Review. Those four lead; the fifth slot is the utility escape."""
+    slugs = [slug for slug, _, _ in sidebar.MOBILE_NAV]
+    assert slugs[:4] == ["/", "/NewTrade", "/Trades", "/Insights"]
+
+
+def test_mobile_labels_are_short_enough_for_a_bottom_bar():
+    for _slug, label, _icon in sidebar.MOBILE_NAV:
+        assert len(label) <= 8, f"{label!r} will wrap in a 5-up bottom bar"
+
+
+def test_mobile_navigation_does_not_duplicate_the_desktop_hierarchy():
+    """Spec 10: mobile navigation is its own hierarchy. If it were the same
+    five destinations it would just be the rail, shrunk."""
+    desktop = [slug for _, slug, _, _ in sidebar.PRIMARY_NAV]
+    mobile = [slug for slug, _, _ in sidebar.MOBILE_NAV]
+    assert mobile != desktop
+
+
+# ---------------------------------------------------------------------------
+# Render surface
+# ---------------------------------------------------------------------------
+
+
+def test_shell_renderers_exist_and_are_callable():
+    for name in (
+        "render_sidebar",
+        "render_primary_action",
+        "render_mobile_navigation",
+    ):
+        assert callable(getattr(sidebar, name)), name
+
+
+def test_nav_link_keeps_its_registry_less_fallback():
+    """page_link needs the multipage registry, which standalone AppTest
+    boots do not build. Losing the fallback turns every page test into a
+    crash instead of a boot."""
+    source = Path(sidebar.__file__).read_text(encoding="utf-8")
+    assert "st.page_link(" in source
+    assert "except Exception" in source
+
+
+def test_mobile_navigation_markup_is_escaped_and_labelled():
+    html = sidebar._mobile_nav_html("/")
+    assert 'class="tl-mobile-nav"' in html
+    assert html.count("tl-mobile-nav-item") == len(sidebar.MOBILE_NAV)
+    # a nav landmark, so screen readers can skip to and past it
+    assert "<nav" in html and 'aria-label="Primary"' in html
+    for _slug, label, _icon in sidebar.MOBILE_NAV:
+        assert f">{label}<" in html
+
+
+def test_mobile_navigation_marks_the_current_destination():
+    """Current location must be announced, not just tinted."""
+    html = sidebar._mobile_nav_html("/Trades")
+    assert 'aria-current="page"' in html
+    assert html.count('aria-current="page"') == 1
+    assert "is-active" in html
+
+
+def test_mobile_navigation_tolerates_an_unknown_path():
+    html = sidebar._mobile_nav_html("/SomewhereElse")
+    assert 'aria-current="page"' not in html
+    assert 'class="tl-mobile-nav"' in html
+
+
+# ---------------------------------------------------------------------------
+# Active-destination detection
+# ---------------------------------------------------------------------------
+
+
+def test_slug_is_derived_from_the_browser_url():
+    cases = {
+        "http://localhost:8501/": "/",
+        "http://localhost:8501": "/",
+        "http://localhost:8501/Trades": "/Trades",
+        "http://localhost:8501/Trades/": "/Trades",
+        "https://app.tradelensai.io/Analytics?auth=abc": "/Analytics",
+        "": "",
+    }
+    for url, expected in cases.items():
+        assert sidebar._slug_from_url(url) == expected, url
+
+
+def test_active_slug_degrades_instead_of_raising():
+    """st.context is unavailable in registry-less boots. No active item is a
+    fine outcome; an exception in the shell blanks every page."""
+
+    class _NoContext:
+        @property
+        def context(self):
+            raise RuntimeError("no script run context")
+
+    assert sidebar._active_slug(_NoContext()) == ""
+
+
+def test_nav_container_key_carries_the_active_state():
+    assert sidebar._nav_container_key("/", False) == "tl_nav_home"
+    assert sidebar._nav_container_key("/", True) == "tl_nav_home_active"
+    assert sidebar._nav_container_key("/Trades", True) == "tl_nav_trades_active"
+    # keys become CSS class names, so they must stay selector-safe
+    for _path, slug, _label, _icon in sidebar.PRIMARY_NAV + sidebar.UTILITY_NAV:
+        for state in (True, False):
+            key = sidebar._nav_container_key(slug, state)
+            assert key.replace("_", "").isalnum(), key
+
+
+def test_active_state_does_not_depend_on_streamlits_emotion_hash():
+    """Streamlit marks the current page with a generated class whose hash
+    changes between releases. Styling it would break on the next upgrade."""
+    from src.tradelens.ui import design_system as ds
+
+    assert "st-emotion-cache" not in ds.build_css()
+
+
+# ---------------------------------------------------------------------------
+# Shell CSS contract
+# ---------------------------------------------------------------------------
+
+
+def _css() -> str:
+    from src.tradelens.ui import design_system as ds
+
+    return ds.build_css()
+
+
+def test_nav_rows_meet_the_touch_target_minimum():
+    """Measured in the browser before the shell pass: 32px."""
+    css = _css()
+    block = css[css.index('[data-testid="stPageLink-NavLink"] {') :][:420]
+    assert "min-height: 44px" in block
+
+
+def test_active_destination_has_a_non_colour_cue():
+    """Colour alone cannot carry 'you are here'."""
+    css = _css()
+    marker = '[class*="st-key-tl_nav_"][class*="_active"]'
+    assert marker in css
+    block = css[css.index(marker) :][:700]
+    assert "font-weight" in block, "weight change is the type-level cue"
+    assert (
+        "::before" in css[css.index(marker) :][:1200]
+    ), "indicator bar is the shape cue"
+
+
+def test_nav_states_are_all_defined():
+    css = _css()
+    for state in (":hover", ":focus-visible", ":active"):
+        assert f'[data-testid="stPageLink-NavLink"]{state}' in css, state
+
+
+def test_nav_hover_is_gated_to_hover_capable_pointers():
+    """A latched hover on touch reads as a selected destination."""
+    css = _css()
+    hover_rule = css.index('[data-testid="stPageLink-NavLink"]:hover')
+    preceding = css[:hover_rule]
+    assert (
+        preceding.rindex("(hover: hover) and (pointer: fine)")
+        > preceding.rindex("@media") - 1
+    )
+
+
+def test_mobile_bar_is_hidden_on_desktop_and_shown_on_phones():
+    css = _css()
+    assert ".tl-mobile-nav {" in css
+    desktop = css[css.index(".tl-mobile-nav {") :][:260]
+    assert "display: none" in desktop, "the bar must not exist on desktop"
+    assert "@media (max-width: 640px)" in css
+
+
+def test_mobile_bar_reserves_its_own_space():
+    """A fixed bar that covers the last row of a table is a bug, not a bar."""
+    css = _css()
+    mobile_block = css[css.index("@media (max-width: 640px)") :]
+    assert "padding-bottom" in mobile_block
+    assert "safe-area-inset-bottom" in mobile_block, "phones have a gesture bar"
+
+
+def test_mobile_bar_items_meet_the_touch_target_minimum():
+    css = _css()
+    block = css[css.index(".tl-mobile-nav-item {") :][:420]
+    assert "min-height: 44px" in block
+
+
+def test_mobile_bar_outranks_streamlits_markdown_anchor_rule():
+    """Verified in the browser: an unanchored `.tl-mobile-nav-item` selector
+    loses to Streamlit's own markdown-anchor rule, and the whole bar renders
+    in default link blue with underlines."""
+    css = _css()
+    assert '[data-testid="stAppViewContainer"] a.tl-mobile-nav-item' in css
+    assert '[data-testid="stAppViewContainer"] a.tl-mobile-nav-item.is-active' in css
+    block = css[css.index('[data-testid="stAppViewContainer"] a.tl-mobile-nav-item') :][
+        :520
+    ]
+    assert "text-decoration: none" in block
+    assert "color: var(--tl-text-muted)" in block
+
+
+def test_the_rail_holds_exactly_one_filled_action():
+    """Spec 8: one primary action per screen. Sign out rendered as a second
+    filled teal button, which gave the rail two things shouting equally."""
+    css = _css()
+    action = css[css.index(".st-key-tl_nav_action [data-testid=") :][:300]
+    assert "background: var(--tl-focus)" in action
+
+    signout = css[css.index('[data-testid="stSidebar"] .stButton > button {') :][:300]
+    assert "background: transparent" in signout
+    assert "var(--tl-focus)" not in signout, "sign out must not be a second primary"
+
+
+def test_shell_motion_is_restrained_and_reduced_motion_safe():
+    """Emil: transform/opacity only, under 300ms, and never on a keyboard
+    navigation. Nav rows are visited dozens of times a session, so they get
+    colour feedback and a press response — nothing that has to finish."""
+    css = _css()
+    shell = css[css.index("/* === APP SHELL") :]
+    assert "transition: all" not in shell
+    for duration in ("0.4s", "400ms", "500ms"):
+        assert duration not in shell
+    reduced = css[css.index("prefers-reduced-motion") :]
+    assert "tl-mobile-nav-item" in reduced or "transition: none" in reduced

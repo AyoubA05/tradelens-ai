@@ -196,6 +196,13 @@ def test_css_uses_only_proven_testids():
         # SP4 mobile pass: verified live on streamlit 1.50 (New Trade renders
         # six [data-testid="stTextInput"] wrappers with input children).
         "stTextInput",
+        # Shell pass: both observed in the live sidebar DOM on streamlit
+        # 1.50.0. stPageLink-NavLink is the anchor st.page_link renders;
+        # stCaptionContainer wraps the "Signed in as" caption. Deliberately
+        # NOT added: the st-emotion-cache-* class Streamlit puts on the
+        # active nav link — that hash changes between releases.
+        "stPageLink-NavLink",
+        "stCaptionContainer",
     }
     used = set(re.findall(r'data-testid="([^"]+)"', ds.build_css()))
     assert used <= proven, f"unproven testids: {used - proven}"
