@@ -8,6 +8,7 @@ the read-only data pages with rows present. Marker "-" means boot-only: assert
 the page raises no exception.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -174,3 +175,122 @@ def test_journal_empty_db_under_demo_mode_shows_demo_data(tmp_path):
     DEMO_MODE on and nothing logged, the Journal shows demo trades rather
     than an empty state, and says so."""
     _boot(_JOURNAL, tmp_path / "j6.db", "0", "Showing demo data")
+
+
+# ---------------------------------------------------------------------------
+# Analytics — every lens boots in every data state (Task 6).
+# ---------------------------------------------------------------------------
+
+_ANALYTICS = "4_Analytics.py"
+
+
+@pytest.mark.parametrize("lens", ["Performance", "Risk", "Timing", "Setups"])
+def test_analytics_lens_boots_with_rich_data(lens, tmp_path):
+    _boot(
+        _ANALYTICS,
+        tmp_path / f"a-{lens}.db",
+        "1",
+        "-",
+        json.dumps({"analytics_lens": lens}),
+    )
+
+
+@pytest.mark.parametrize("lens", ["Performance", "Risk", "Timing", "Setups"])
+def test_analytics_lens_boots_with_one_trade(lens, tmp_path):
+    """A single trade must degrade to explanations, never a chart drawn
+    through one point."""
+    _boot(
+        _ANALYTICS,
+        tmp_path / f"a1-{lens}.db",
+        "one",
+        "-",
+        json.dumps({"analytics_lens": lens}),
+    )
+
+
+def test_analytics_performance_lens_shows_its_readout(tmp_path):
+    _boot(
+        _ANALYTICS,
+        tmp_path / "a-readout.db",
+        "1",
+        "tl-readout",
+        json.dumps({"analytics_lens": "Performance"}),
+    )
+
+
+def test_analytics_risk_lens_states_fixed_risk_instead_of_charting_it(tmp_path):
+    """Every seeded trade risks the same amount, so a 'risk over time' line
+    would be a flat rule presented as a finding."""
+    _boot(
+        _ANALYTICS,
+        tmp_path / "a-fixedrisk.db",
+        "fixedrisk",
+        "Risk is fixed at",
+        json.dumps({"analytics_lens": "Risk"}),
+    )
+
+
+def test_analytics_renders_only_the_selected_lens(tmp_path):
+    """The Setups leaderboard must not appear while Performance is open."""
+    _boot(
+        _ANALYTICS,
+        tmp_path / "a-onelens.db",
+        "1",
+        "How did this period actually go?",
+        json.dumps({"analytics_lens": "Performance"}),
+    )
+
+
+def test_analytics_timing_never_ranks_a_single_day(tmp_path):
+    """One weekday in range has nothing to be strongest of."""
+    _boot(
+        _ANALYTICS,
+        tmp_path / "a-oneday.db",
+        "onecategory",
+        "Only day",
+        json.dumps({"analytics_lens": "Timing"}),
+    )
+
+
+def test_analytics_setups_never_ranks_a_single_setup(tmp_path):
+    _boot(
+        _ANALYTICS,
+        tmp_path / "a-onesetup.db",
+        "onecategory",
+        "Only setup",
+        json.dumps({"analytics_lens": "Setups"}),
+    )
+
+
+def test_analytics_single_setup_readout_does_not_claim_a_ranking(tmp_path):
+    _boot(
+        _ANALYTICS,
+        tmp_path / "a-onesetup-readout.db",
+        "onecategory",
+        "was traded in range",
+        json.dumps({"analytics_lens": "Setups"}),
+    )
+
+
+def test_analytics_category_names_are_escaped_exactly_once(tmp_path):
+    """'BOS & FVG' must reach the reader as an ampersand, not '&amp;'."""
+    _boot(
+        _ANALYTICS,
+        tmp_path / "a-escape.db",
+        "onecategory",
+        "BOS &amp; FVG",
+        json.dumps({"analytics_lens": "Setups"}),
+    )
+
+
+def test_analytics_timing_calendar_follows_the_asset_filter(tmp_path):
+    """The calendar answers the same filtered question as the strip and the
+    heatmap above it. Filtering to an asset that is not in range empties the
+    lens rather than leaving a full-month calendar behind."""
+    _boot(
+        _ANALYTICS,
+        tmp_path / "a-calfilter.db",
+        "1",
+        "No matching trades",
+        json.dumps({"analytics_lens": "Timing", "an_asset": ["NOT_A_REAL_ASSET"]}),
+    )

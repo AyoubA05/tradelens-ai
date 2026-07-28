@@ -48,6 +48,42 @@ def main() -> int:
 
     init_db()
 
+    if seed == "fixedrisk":
+        # Several dated trades that all risked the SAME amount. A "risk per
+        # trade" line through one repeated value is a flat rule drawn at
+        # full height, so the page must state the constant instead.
+        # A separate seed, not a change to "1": the other boots assert
+        # behaviour that depends on that fixture staying as it is.
+        from src.tradelens.db.models import Trade
+        from src.tradelens.db.session import SessionLocal
+
+        session = SessionLocal()
+        session.add_all(
+            [
+                Trade(
+                    trade_date=f"2026-06-{day:02d}",
+                    asset="NQ",
+                    direction="Long",
+                    result="Win" if pnl > 0 else "Loss",
+                    pnl=pnl,
+                    risk_amount=125.0,
+                    rr_realized=pnl / 125.0,
+                    setup_type="BOS + FVG",
+                    killzone="ny_am",
+                    session="New York",
+                )
+                for day, pnl in (
+                    (15, 250.0),
+                    (16, -125.0),
+                    (17, 375.0),
+                    (18, -125.0),
+                    (19, 125.0),
+                )
+            ]
+        )
+        session.commit()
+        session.close()
+
     if seed == "one":
         # Exactly one trade: the low-data case. Charts must be withheld.
         from src.tradelens.db.models import Trade
@@ -66,6 +102,41 @@ def main() -> int:
         )
         s.commit()
         s.close()
+
+    if seed == "onecategory":
+        # Enough trades to rank, but only ONE session, ONE weekday and ONE
+        # setup. Nothing here has anything to be "strongest" of, and the
+        # setup name carries an ampersand so double-escaping would show.
+        from src.tradelens.db.models import Trade
+        from src.tradelens.db.session import SessionLocal
+
+        session = SessionLocal()
+        session.add_all(
+            [
+                Trade(
+                    # every date is a Monday, so day-of-week has one value
+                    trade_date=day,
+                    asset="NQ",
+                    direction="Long",
+                    result="Win" if pnl > 0 else "Loss",
+                    pnl=pnl,
+                    rr_realized=pnl / 100.0,
+                    setup_type="BOS & FVG",
+                    killzone="ny_am",
+                    session="New York",
+                )
+                for day, pnl in (
+                    ("2026-06-01", 200.0),
+                    ("2026-06-08", -100.0),
+                    ("2026-06-15", 300.0),
+                    ("2026-06-22", -100.0),
+                    ("2026-06-29", 150.0),
+                    ("2026-07-06", 250.0),
+                )
+            ]
+        )
+        session.commit()
+        session.close()
 
     if seed == "1":
         from src.tradelens.db.models import Trade

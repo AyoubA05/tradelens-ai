@@ -430,3 +430,190 @@ def test_journal_calendar_stays_a_grid_on_a_phone():
     # and nothing anywhere may shrink a day cell back below the floor
     for shrunk in ("min-height: 34px", "min-height: 36px", "min-height: 40px"):
         assert shrunk not in css, f"{shrunk} is below the 44px touch minimum"
+
+
+# ---------------------------------------------------------------------------
+# Analytics — one composed instrument panel per lens (Task 6)
+# ---------------------------------------------------------------------------
+
+
+def test_analytics_exposes_exactly_four_lenses():
+    src = _src("4_Analytics.py")
+    assert 'ANALYTICS_LENSES = ("Performance", "Risk", "Timing", "Setups")' in src
+
+
+def test_analytics_renders_one_lens_at_a_time():
+    """Six stacked sections is the wall this replaces: a trader scrolling
+    past four charts to reach the one they wanted is not analysing."""
+    src = _src("4_Analytics.py")
+    assert "_LENS_BODIES[lens](df)" in src
+    for fn in (
+        "def _render_performance_lens(",
+        "def _render_risk_lens(",
+        "def _render_timing_lens(",
+        "def _render_setups_lens(",
+    ):
+        assert fn in src, fn
+
+
+def test_every_lens_follows_the_same_composition():
+    """Spec 11.4: question/scope, ruled strip, dominant instrument, ranked
+    evidence, editorial readout. Same order every time, so moving between
+    lenses does not mean relearning the page."""
+    src = _src("4_Analytics.py")
+    assert src.count("render_kpi_strip(") >= 4
+    # One readout builder, called once per lens — four copies of the same
+    # composition is how they drift apart.
+    assert "render_editorial_readout(" in src
+    assert src.count("    _readout(") == 4
+
+
+def test_analytics_uses_the_shared_chart_stage_everywhere():
+    """A chart that skips the stage arrives with different margins, a
+    different height, and light text on a dark ground."""
+    src = _src("4_Analytics.py")
+    assert "apply_chart_stage(" in src
+    # no page-local restyling of figures survives
+    assert "def _styled(" not in src
+    assert "template=PLOTLY_TEMPLATE" not in src
+
+
+def test_analytics_has_no_giant_one_off_metric_cards():
+    """Best/Worst Session were full st.metric cards that truncated their own
+    values. They belong in the ruled strip with the other measures."""
+    src = _src("4_Analytics.py")
+    assert "st.metric(" not in src
+    assert "Best Session" not in src
+    assert "Worst Session" not in src
+
+
+def test_analytics_keeps_every_calculation():
+    """This is a presentation change. Nothing here recomputes anything."""
+    src = _src("4_Analytics.py")
+    for fn in (
+        "compute_basic_metrics",
+        "compute_expectancy",
+        "compute_profit_factor_raw",
+        "compute_max_drawdown",
+        "compute_equity_curve",
+        "equity_curve_series",
+        "drawdown_series",
+        "by_session",
+        "by_day_of_week",
+        "compute_breakdown",
+        "outcome_masks",
+    ):
+        assert fn in src, fn
+
+
+def test_analytics_keeps_every_chart_it_had():
+    src = _src("4_Analytics.py")
+    for chart in (
+        "equity_curve_chart",
+        "drawdown_chart",
+        "risk_over_time_chart",
+        "pnl_by_session_chart",
+        "pnl_by_dow_chart",
+        "session_dow_heatmap",
+        "win_rate_rules_chart",
+        "pnl_by_emotion_chart",
+    ):
+        assert chart in src, chart
+
+
+def test_analytics_keeps_the_calendar_under_timing():
+    """Daily P&L across a month IS a timing question, so the calendar keeps
+    a home rather than being dropped in the regrouping."""
+    src = _src("4_Analytics.py")
+    assert "render_calendar(" in src
+    timing = src[src.index("def _render_timing_lens(") :]
+    assert "render_calendar(" in timing[: timing.index("def _render_setups_lens(")]
+
+
+def test_analytics_states_its_sample_on_the_panel_not_per_chart():
+    """Spec 11.4: sample-size annotations at the panel level, not repeated
+    inside every chart."""
+    src = _src("4_Analytics.py")
+    assert "add_sample_annotation(" in src
+    assert src.count("add_sample_annotation(") <= 4, "one per lens, not per chart"
+
+
+def test_analytics_filters_and_empty_states_are_preserved():
+    src = _src("4_Analytics.py")
+    for key in ("an_from", "an_to", "an_asset", "an_session", "an_strat"):
+        assert key in src, key
+    assert "No trades in this range yet" in src
+    assert "No matching trades" in src
+
+
+def test_analytics_lens_selector_never_writes_its_own_widget_key():
+    """Same Streamlit rule the Journal hit: a write to a widget's key after
+    the widget exists raises."""
+    src = _src("4_Analytics.py")
+    assert "_LENS_WIDGET_KEY" in src
+    assert '_LENS_KEY = "analytics_lens"' in src
+
+
+def test_risk_lens_withholds_a_chart_with_one_distinct_value():
+    """A 'risk over time' line through one repeated value is a flat rule
+    presented as a finding."""
+    from src.tradelens.ui.components.data_state import has_variation
+
+    assert not has_variation(pd.Series([100.0, 100.0, 100.0]))
+    assert has_variation(pd.Series([100.0, 250.0]))
+    assert not has_variation(pd.Series([], dtype=float))
+    assert not has_variation(None)
+    assert not has_variation(pd.Series([None, None], dtype=object))
+
+
+# ---------------------------------------------------------------------------
+# Analytics — correction pass
+# ---------------------------------------------------------------------------
+
+
+def test_timing_calendar_uses_the_filtered_frame():
+    """Every other figure in the lens answers the filtered question. A
+    calendar built from df_raw would quietly disagree with the strip and the
+    heatmap directly above it."""
+    src = _src("4_Analytics.py")
+    assert "render_calendar(frame)" in src
+    assert "render_calendar(df_raw)" not in src
+
+
+def test_a_single_category_is_never_labelled_strongest():
+    """'Strongest' implies a field to have been strongest of."""
+    src = _src("4_Analytics.py")
+    for ranked, only in (
+        ("Strongest session", "Only session"),
+        ("Strongest day", "Only day"),
+        ("Strongest setup", "Only setup"),
+    ):
+        assert f'"{ranked}" if ' in src, ranked
+        assert f'else "{only}"' in src, only
+
+
+def test_setups_lens_computes_its_own_comparability():
+    src = _src("4_Analytics.py")
+    assert '_setups_comparable = enough_categories(setup_df, "setup_type")' in src
+
+
+def test_single_category_readouts_do_not_claim_a_ranking():
+    """The readout sentence must not say one thing beat another when there
+    was nothing to beat."""
+    src = _src("4_Analytics.py")
+    assert "Every trade in range was in " in src
+    assert "Only {best_setup['setup_type']} was traded in range" in src
+
+
+def test_one_category_note_does_not_double_escape():
+    """render_empty_state escapes its own inputs, so a caller that escapes
+    first ships '&amp;' to the reader."""
+    from src.tradelens.ui.design_system import render_empty_state
+
+    html = render_empty_state("◆", "One setup so far: BOS & FVG", "body")
+    assert "BOS &amp; FVG" in html
+    assert "&amp;amp;" not in html
+
+    src = _src("4_Analytics.py")
+    assert 'f"One {noun} so far: {row[column]}"' in src
+    assert "escape(str(row[column]))" not in src

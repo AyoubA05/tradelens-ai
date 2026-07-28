@@ -137,6 +137,24 @@ def leading_category(
     )
 
 
+def has_variation(values, minimum_distinct: int = 2) -> bool:
+    """True when a column actually varies enough to plot over time.
+
+    A "risk per trade" line through one repeated value is a flat rule drawn
+    at full height, which reads as a finding about behaviour rather than as
+    the constant it is. Same idea as ``enough_categories``, for a numeric
+    series rather than a breakdown.
+    """
+    if values is None:
+        return False
+    series = pd.Series(values)
+    if series.empty:
+        return False
+    return int(pd.to_numeric(series, errors="coerce").dropna().nunique()) >= (
+        minimum_distinct
+    )
+
+
 def enough_categories(
     df: pd.DataFrame | None, column: str, minimum: int = _MIN_CATEGORIES
 ) -> bool:

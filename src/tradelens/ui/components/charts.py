@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 
 from src.tradelens.ui.design_system import (
     TL_CHART_STAGE,
+    TL_FONT_MONO,
     TL_DANGER,
     TL_DANGER_DIM,
     TL_PRIMARY,
@@ -51,6 +52,80 @@ _BASE_LAYOUT = dict(
     font=dict(color=TL_TEXT),
     showlegend=False,
 )
+
+
+# One dominant instrument per panel, one supporting height for everything
+# else. Naming them here is what stops a new chart arriving at a fourth size.
+_STAGE_HEIGHT = 360
+_STAGE_HEIGHT_COMPACT = 240
+
+# The sample caption hangs below the plot area. The offset is in paper
+# units; the margin is the pixel band that keeps it inside the stage.
+_SAMPLE_OFFSET = 0.10
+_SAMPLE_MARGIN = 48
+
+
+def apply_chart_stage(fig, *, title: Optional[str] = None, compact: bool = False):
+    """Frame a figure as a dark instrument on the light workspace.
+
+    Every Plotly figure on an analytical surface goes through here, so grid,
+    typography, margins, background and height come from one place rather
+    than from whichever call site drew the chart. Mutates and returns the
+    same figure, so it composes: ``apply_chart_stage(build(df))``.
+
+    The backgrounds are set explicitly, not left to the template: Streamlit's
+    frontend injects the app theme's colours into every figure as EXPLICIT
+    layout values, and an explicit value beats a template one.
+    """
+    # Never shrink a bottom margin another helper already reserved:
+    # add_sample_annotation books space for its caption, and the two may be
+    # applied in either order.
+    existing_bottom = getattr(fig.layout.margin, "b", None) or 0
+    fig.update_layout(
+        paper_bgcolor=TL_CHART_STAGE,
+        plot_bgcolor=TL_CHART_STAGE,
+        font=dict(color=TL_TEXT),
+        height=_STAGE_HEIGHT_COMPACT if compact else _STAGE_HEIGHT,
+        margin=dict(l=8, r=8, t=32 if title else 8, b=max(8, existing_bottom)),
+    )
+    # automargin: the stage has a visible edge, so pinned margins clip the
+    # tick labels against it.
+    fig.update_xaxes(automargin=True)
+    fig.update_yaxes(automargin=True)
+    if title:
+        fig.update_layout(title=dict(text=title))
+    return fig
+
+
+def add_sample_annotation(fig, *, sample_size: int, minimum: int):
+    """State on the chart itself what it was drawn from.
+
+    A reader who scrolled straight to a chart never saw the panel's caveat,
+    so the sample travels with the figure. Below the threshold it says the
+    sample is small — an unqualified chart of four trades reads as a
+    finding.
+    """
+    noun = "trade" if sample_size == 1 else "trades"
+    text = f"n={sample_size} {noun}"
+    if sample_size < minimum:
+        text += f" · small sample, {minimum} needed to read a pattern"
+    # The caption sits BELOW the plot area, so it needs room reserved in the
+    # bottom margin. Without it Plotly draws the text outside the figure's
+    # painted region and the stage clips it — measured in the browser.
+    fig.add_annotation(
+        text=text,
+        xref="paper",
+        yref="paper",
+        x=1.0,
+        y=-_SAMPLE_OFFSET,
+        xanchor="right",
+        yanchor="top",
+        showarrow=False,
+        font=dict(family=TL_FONT_MONO, size=11, color=TL_TEXT_MUTED),
+    )
+    existing_bottom = getattr(fig.layout.margin, "b", None) or 0
+    fig.update_layout(margin_b=max(existing_bottom, _SAMPLE_MARGIN))
+    return fig
 
 
 def _empty_figure(message: str = "No trades in this period yet.") -> go.Figure:
