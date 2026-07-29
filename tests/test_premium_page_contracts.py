@@ -880,12 +880,15 @@ def test_streamlit_own_controls_reach_the_44px_floor():
         '[data-testid="stExpandSidebarButton"]',
         '[data-testid="stExpander"] summary',
     ):
-        block = re.search(
-            re.escape(selector) + r"[^{}]*\{([^{}]*)\}",
-            css,
-        )
-        assert block, f"no rule for {selector}"
-        assert "44px" in block.group(1), selector
+        # search every block for this selector, not the first: a selector
+        # legitimately appears in more than one rule (size here, colour
+        # elsewhere), and the floor is only in one of them.
+        blocks = [
+            m.group(1)
+            for m in re.finditer(re.escape(selector) + r"[^{}]*\{([^{}]*)\}", css)
+        ]
+        assert blocks, f"no rule for {selector}"
+        assert any("44px" in b for b in blocks), selector
 
     # The widget's own label collapses to 0px under label_visibility=
     # "collapsed"; giving it a 44px floor would inject empty space above
@@ -1464,3 +1467,209 @@ def test_destructive_actions_are_actually_gated(tmp_path):
     it reads as protection. Checked with wrong text, near-miss text, and
     the exact phrase, for both actions."""
     _settings_flow("destructive_actions_are_gated", tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Task 10 — cross-page hardening
+# ---------------------------------------------------------------------------
+
+_UI_PAGES_ALL = [
+    "1_NewTrade.py",
+    "2_Trades.py",
+    "4_Analytics.py",
+    "5_Strategy.py",
+    "6_Insights.py",
+    "9_Settings.py",
+]
+
+
+def test_no_live_page_renders_a_bare_exception():
+    """A domain error carries a message written for the trader and may be
+    shown. Anything caught by a bare `except Exception` is a driver, network
+    or parser message that can carry a DSN, an API key or a fragment of the
+    row — it goes to the log, never to the page.
+    """
+    import re as _re
+
+    offenders = []
+    roots = [PAGES] + [
+        ROOT / "src" / "tradelens" / "ui" / "components",
+        ROOT / "src" / "tradelens" / "services",
+    ]
+    for root in roots:
+        for path in root.glob("*.py"):
+            src = path.read_text(encoding="utf-8")
+            for match in _re.finditer(
+                r"except\s+Exception(?:\s*\)?)?\s+as\s+(\w+)\s*:(.*?)(?=\n    (?:except|else|finally)|\n\S|\Z)",
+                src,
+                _re.S,
+            ):
+                name, body = match.group(1), match.group(2)
+                rendered = [
+                    line
+                    for line in body.splitlines()
+                    if f"{{{name}}}" in line or f"str({name})" in line
+                ]
+                if rendered:
+                    offenders.append(f"{path.name}: {rendered[0].strip()[:70]}")
+    assert not offenders, "bare exception text reaching the UI:\n" + "\n".join(
+        offenders
+    )
+
+
+def test_the_csv_boundary_keeps_the_row_number_and_nothing_else():
+    from src.tradelens.services import csvio
+
+    assert "Row {row}" in csvio._ROW_FAILED
+    assert "{exc}" not in csvio._ROW_FAILED
+    assert "{exc}" not in csvio._PARSE_FAILED
+
+
+def test_every_live_page_scopes_its_reads_to_the_signed_in_user():
+    """One account must never read another's rows. Checked at the call site
+    because that is where the scope is either passed or forgotten."""
+    import re as _re
+
+    scoped = (
+        "get_trades",
+        "get_active_strategy",
+        "get_weekly_review",
+        "get_timezone",
+        "count_sample_trades",
+        "delete_all_trades",
+        "monthly_cost_by_feature",
+    )
+    offenders = []
+    for name in _UI_PAGES_ALL + ["../app.py"]:
+        path = (PAGES / name).resolve()
+        src = path.read_text(encoding="utf-8")
+        for fn in scoped:
+            for match in _re.finditer(rf"\b{fn}\(", src):
+                depth, i = 0, match.end() - 1
+                while i < len(src):
+                    depth += (src[i] == "(") - (src[i] == ")")
+                    if depth == 0:
+                        break
+                    i += 1
+                call = src[match.end() : i]
+                if "user_id" not in call and "uid" not in call:
+                    offenders.append(f"{path.name}: {fn}({call.strip()[:40]})")
+    assert not offenders, "unscoped reads:\n" + "\n".join(offenders)
+
+
+def test_the_primary_action_label_inherits_its_link_colour():
+    """The link paints dark-on-teal, but Streamlit renders the label as a
+    <p> inside a markdown container and the rail's text rule repainted it
+    near-white — 1.33:1 on the product's most prominent action."""
+    from src.tradelens.ui import design_system as ds
+
+    css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
+    rule = re.search(
+        r'\.st-key-tl_nav_action \[data-testid="stPageLink-NavLink"\] \*[^{}]*\{([^{}]*)\}',
+        css,
+    )
+    assert rule, "the label is not tied to the link's colour"
+    assert "color: inherit" in rule.group(1)
+
+
+def test_page_chrome_type_is_anchored_so_the_system_controls_it():
+    """A lone class loses to Streamlit's markdown stylesheet: the masthead
+    declared 30px and rendered 44, the section title declared 22 and
+    rendered 36. (24px was the phone override, which never applied.)"""
+    from src.tradelens.ui import design_system as ds
+
+    sels = _selectors(ds.build_css())
+    for selector in (
+        ".tl-masthead-title",
+        ".tl-masthead-subtitle",
+        ".tl-section-title",
+        ".tl-section-subtitle",
+    ):
+        assert selector not in sels, f"{selector} declares type unanchored"
+        assert f"{_APP} {selector}" in sels, selector
+
+
+def test_a_data_table_scrolls_inside_its_own_frame():
+    from src.tradelens.ui import design_system as ds
+
+    css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
+    rule = re.search(r'\[data-testid="stDataFrame"\] \{([^{}]*)\}', css)
+    assert rule and "overflow-x: auto" in rule.group(1)
+
+
+def test_anchored_headings_keep_a_line_box_taller_than_their_type():
+    """Anchoring the font-size made the declaration authoritative — and the
+    old line-heights, previously overridden by Streamlit, suddenly applied.
+    44px text on a 36px line collides on any title that wraps."""
+    from src.tradelens.ui import design_system as ds
+
+    css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
+    for selector in (".tl-masthead-title", ".tl-section-title"):
+        for block in re.finditer(re.escape(selector) + r"[^{}]*\{([^{}]*)\}", css):
+            body = block.group(1)
+            size = re.search(r"font-size:\s*(\d+)px", body)
+            lead = re.search(r"line-height:\s*(\d+)px", body)
+            if size and lead:
+                assert int(lead.group(1)) > int(size.group(1)), (
+                    f"{selector}: {size.group(1)}px type on a "
+                    f"{lead.group(1)}px line"
+                )
+
+
+def test_disabled_controls_keep_streamlits_dimming():
+    """WCAG 1.4.3 exempts text in an inactive control, and the dimming IS
+    the disabled affordance — a disabled multiselect's label measured
+    2.42:1 on Analytics and must stay that way. Raising it would make an
+    unavailable control look available, which is the worse defect."""
+    from src.tradelens.ui import design_system as ds
+
+    css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
+    for match in re.finditer(r"([^{}]*)\{([^{}]*)\}", css):
+        selector, body = match.group(1), match.group(2)
+        if "disabled" not in selector:
+            continue
+        if "color:" not in body:
+            continue
+        # the only permitted disabled recolour is the danger zone stepping
+        # its own buttons DOWN to the muted token, never up to ink
+        assert "var(--tl-ink)" not in body, selector.strip()
+
+
+def test_baseline_legibility_never_sits_inside_a_hover_query():
+    """Legibility is not a hover state.
+
+    The primary action's label inherits the link's dark colour so it is not
+    repainted near-white on teal. That rule was written INSIDE
+    `@media (hover: hover) and (pointer: fine)`, which meant every touch
+    device kept the 1.33:1 label — and a desktop browser merely resized to
+    375px would never reveal it, because `hover: hover` still matches when
+    only the viewport changes. Colour rules stay out; :hover stays in.
+    """
+    from src.tradelens.ui import design_system as ds
+
+    css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
+    for match in re.finditer(r"@media\s*\(hover:\s*hover\)[^{]*\{", css):
+        depth, i = 1, match.end()
+        while i < len(css) and depth:
+            depth += (css[i] == "{") - (css[i] == "}")
+            i += 1
+        block = css[match.end() : i - 1]
+        for rule in re.finditer(r"([^{}]+)\{([^{}]*)\}", block):
+            selector, body = rule.group(1).strip(), rule.group(2)
+            if "color:" not in body:
+                continue
+            assert (
+                ":hover" in selector or ":active" in selector
+            ), f"non-hover colour rule inside a hover query: {selector}"
+
+    # …and the inheritance rule itself sits at nesting depth 0, i.e. inside
+    # no at-rule at all. Splitting the stylesheet on the first "@media"
+    # would be wrong: the rail has hover queries above this one.
+    needle = '.st-key-tl_nav_action [data-testid="stPageLink-NavLink"] p'
+    depth = 0
+    for token in re.finditer(r"[{}]", css[: css.index(needle)]):
+        depth += 1 if token.group(0) == "{" else -1
+    assert depth == 0, (
+        f"the label inheritance rule is nested {depth} level(s) deep, "
+        "so it is conditional"
+    )

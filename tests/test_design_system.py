@@ -261,6 +261,17 @@ def test_css_uses_only_proven_testids():
         # Selectbox: the visible control is the [data-baseweb="select"]
         # wrapper, not the 22px a11y <input> inside it. Measured at 40px.
         "stSelectbox",
+        # Cross-page hardening pass. All observed in the live DOM on 1.50.0:
+        # stMultiSelect and stFileUploaderDropzoneInstructions carry
+        # Streamlit's own secondary text, which measured 4.4:1 and 2.46:1 on
+        # white; stDataFrame is the grid whose content ran 9px past its box.
+        "stMultiSelect",
+        "stFileUploaderDropzoneInstructions",
+        "stDataFrame",
+        # The nav icon span. It sets its OWN colour, so the rail's text rule
+        # never reached it and all six icons rendered workspace ink on the
+        # dark rail at 1.1:1. Observed in the live DOM on 1.50.0.
+        "stIconMaterial",
         "stSidebarCollapseButton",
         "stExpandSidebarButton",
     }

@@ -458,8 +458,23 @@ def build_css() -> str:
   transition: opacity var(--tl-dur-state) var(--tl-ease-out),
               transform var(--tl-dur-press) var(--tl-ease-out);
 }}
+/* The link sets dark-on-teal, but Streamlit renders the label as a <p>
+   inside a markdown container, and the rail's own text rule repaints that
+   <p> near-white — 1.33:1 on the brightest surface in the product, on its
+   single most prominent action. Every descendant inherits the link.
+
+   UNCONDITIONAL, and deliberately outside the hover query below: legibility
+   is not a hover state. Nested inside it, the label stayed near-white on
+   every touch device, and a desktop browser merely resized to 375px would
+   never show it — `hover: hover` still matches when you only change the
+   viewport. */
+.st-key-tl_nav_action [data-testid="stPageLink-NavLink"] *,
+.st-key-tl_nav_action [data-testid="stPageLink-NavLink"] p {{
+  color: inherit;
+}}
+
 @media (hover: hover) and (pointer: fine) {{
-  .st-key-tl_nav_action [data-testid="stPageLink-NavLink"]:hover {{
+.st-key-tl_nav_action [data-testid="stPageLink-NavLink"]:hover {{
     background: var(--tl-focus);
     opacity: 0.92;
   }}
@@ -760,17 +775,28 @@ def build_css() -> str:
   color: var(--tl-muted);
   margin: 0 0 var(--tl-space-1) 0;
 }}
-.tl-masthead-title {{
+/* === PAGE CHROME TYPE, ANCHORED ===
+   These four carried a single class, so Streamlit's markdown stylesheet
+   (a 0,1,1 container selector) decided their size instead: the masthead
+   title declared 30px and rendered 44, the section title declared 22 and
+   rendered 36, the subtitle declared 14 and rendered 16. The phone override
+   declared 24px and never applied at all. Anchoring them to
+   the app container puts the design system back in control.
+
+   The VALUES here are the ones that shipped and were approved across six
+   pages, transcribed so declaration and rendering finally agree — not a new
+   scale. Changing the scale is a visual decision, and a separate one. */
+[data-testid="stAppViewContainer"] .tl-masthead-title {{
   font-family: var(--tl-font-display);
-  font-size: 30px;
-  line-height: 36px;
+  font-size: 44px;
+  line-height: 50px;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--tl-ink);
   margin: 0;
 }}
-.tl-masthead-subtitle {{
-  font-size: 14px;
+[data-testid="stAppViewContainer"] .tl-masthead-subtitle {{
+  font-size: 16px;
   line-height: 20px;
   color: var(--tl-muted);
   margin: var(--tl-space-1) 0 0 0;
@@ -1308,16 +1334,16 @@ def build_css() -> str:
   background: var(--tl-action);
   margin-bottom: var(--tl-space-2);
 }}
-.tl-section-title {{
+[data-testid="stAppViewContainer"] .tl-section-title {{
   margin: 0;
   font-family: var(--tl-font-display);
-  font-size: 22px;
-  line-height: 28px;
+  font-size: 36px;
+  line-height: 42px;
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--tl-ink);
 }}
-.tl-section-subtitle {{
+[data-testid="stAppViewContainer"] .tl-section-subtitle {{
   font-size: 14px;
   line-height: 20px;
   color: var(--tl-muted);
@@ -2302,6 +2328,12 @@ def build_css() -> str:
 }}
 /* The collapse handle carries its testid on the wrapper, the expand handle
    on the button itself — hence the two shapes. */
+/* The collapse chevron inherits workspace ink, so on the dark rail it was
+   1.05:1 — a control you cannot see is a control you do not have. */
+[data-testid="stSidebarCollapseButton"] button,
+[data-testid="stSidebarCollapseButton"] button * {{
+  color: var(--tl-text);
+}}
 [data-testid="stSidebarCollapseButton"] button,
 [data-testid="stExpandSidebarButton"] {{
   min-width: 44px;
@@ -2333,6 +2365,54 @@ def build_css() -> str:
   min-height: 44px;
   display: inline-flex;
   align-items: center;
+}}
+
+/* Nav icons. stIconMaterial sets its OWN colour, so the rail's text rule
+   never reached it: every icon in the sidebar rendered workspace ink on
+   the dark rail at 1.1:1, and on the active item's surface at 1.04:1 —
+   six invisible icons. Inheriting the link means the nav icons go light
+   and the teal action's icon stays dark, from one rule. */
+[data-testid="stSidebar"] [data-testid="stIconMaterial"] {{
+  color: inherit;
+}}
+
+/* === STREAMLIT'S OWN SECONDARY TEXT ===
+   Measured on white: the multiselect placeholder and the file-uploader's
+   "Limit 200MB per file" line both land at 4.4:1, and an empty menu's
+   "No options to select" at 2.46:1. Close is not passing — these carry the
+   workspace's muted token, which IS measured. */
+/* The multiselect placeholder is a plain div BaseWeb gives no attribute
+   to, painted rgba(ink, 0.6) — 4.4:1 over white. Once values are chosen
+   they render as [data-baseweb="tag"] chips instead, so recolouring the
+   plain text inside a MULTIselect only ever hits the placeholder. */
+/* Streamlit paints its secondary text as rgba(ink, 0.4-0.6), which lands
+   at 4.4:1 for a placeholder and 2.46:1 for an empty menu — the alpha is
+   not ours to change, so the colour is replaced with the measured muted
+   token. Chosen values (tags, the selected option) are restored to ink
+   below: a value the trader picked is content, not a hint. */
+[data-testid="stMultiSelect"] [data-baseweb="select"] div,
+[data-baseweb="popover"] [data-baseweb="menu"] li,
+[data-testid="stFileUploader"] small,
+[data-testid="stFileUploaderDropzoneInstructions"] span,
+[data-baseweb="menu"] li {{
+  color: var(--tl-muted);
+}}
+
+/* A multiselect shows chosen values as tags, so the plain text inside one
+   is only ever the placeholder — but the tags sit inside the same subtree
+   and must stay content-coloured. A SELECTBOX always has a value and never
+   shows a placeholder at all, which is why it is absent above: muting it
+   greyed out the chosen value, measured at 5.61:1 where ink belongs. */
+[data-testid="stMultiSelect"] [data-baseweb="tag"],
+[data-testid="stMultiSelect"] [data-baseweb="tag"] div,
+[data-baseweb="popover"] [data-baseweb="menu"] li[aria-selected="true"] {{
+  color: var(--tl-ink);
+}}
+
+/* A data table must scroll inside its own frame rather than push the page
+   sideways; Streamlit leaves overflow-x visible and its grid ran 9px wide. */
+[data-testid="stDataFrame"] {{
+  overflow-x: auto;
 }}
 
 /* === MOBILE (SP4 Phase B, <=767px) ===
@@ -2394,7 +2474,17 @@ def build_css() -> str:
   .tl-kpi-cell:nth-child(n+3) {{ border-top: 1px solid var(--tl-hairline); }}
   .tl-kpi-figure {{ font-size: 22px; line-height: 28px; }}
   .tl-masthead {{ align-items: flex-start; flex-direction: column; gap: var(--tl-space-2); }}
-  .tl-masthead-title {{ font-size: 24px; line-height: 30px; }}
+  /* Anchored for the same reason as the desktop rule — unanchored, this
+     lost to Streamlit's h1 sizing and the masthead never shrank on a
+     phone at all. */
+  [data-testid="stAppViewContainer"] .tl-masthead-title {{
+    font-size: 28px;
+    line-height: 34px;
+  }}
+  [data-testid="stAppViewContainer"] .tl-section-title {{
+    font-size: 26px;
+    line-height: 32px;
+  }}
   .tl-finding {{ flex-direction: column; gap: var(--tl-space-2); }}
   .tl-table-wrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
   .tl-table {{ min-width: 560px; }}

@@ -6,11 +6,14 @@ the unified Weekly Recap — ONE AI call that receives both the weekly trade dat
 and the deterministic pattern statistics and returns performance/process review
 plus observed patterns — and the on-demand Daily Debrief. The recap auto-runs on
 page load and a saved recap is reused instead of paying for a new call.
-Failures surface a specific inline reason — never a generic "AI unavailable".
+A domain failure (WeeklyReviewError, DebriefError) surfaces its own specific,
+trader-safe explanation. An unexpected one surfaces fixed generic recovery copy
+and logs the exception, because driver and network text can carry a DSN or a key.
 
 This is post-trade reflection only — never live signals, predictions, or advice.
 """
 
+import logging
 import sys
 import datetime
 from html import escape
@@ -176,6 +179,14 @@ if df.empty:
 # ══════════════════════════════════════════════════════════════════
 # Shared note plumbing
 # ══════════════════════════════════════════════════════════════════
+_log = logging.getLogger(__name__)
+
+# A domain error (WeeklyReviewError, DebriefError) carries a message written
+# for the trader and is shown. Anything else is a driver, network or parser
+# message that can carry a DSN, an API key or a fragment of the row, so it
+# goes to the log and the trader gets this instead.
+_AI_FAILED = "The review could not be generated. Try again."
+
 _CONF_BY_SAMPLE = ((20, "high"), (10, "medium"))
 
 
@@ -420,9 +431,14 @@ def _auto_run_weekly(monday: str, uid) -> None:
         if not review["empty"]:
             save_weekly_review(review, overwrite=False, user_id=uid)
     except WeeklyReviewError as exc:
+        # A domain error carries a message written for the trader.
         st.session_state[err_key] = str(exc)
-    except Exception as exc:  # noqa: BLE001 — specific inline reason, no crash
-        st.session_state[err_key] = str(exc)
+    except Exception:  # noqa: BLE001 — never crash the page
+        # Anything else is a driver, network or parser message that can
+        # carry a DSN, a key or a fragment of the row: log it, do not
+        # render it.
+        _log.exception("weekly review failed for user %s week %s", uid, monday)
+        st.session_state[err_key] = _AI_FAILED
     finally:
         placeholder.empty()
 
@@ -473,8 +489,11 @@ def _render_weekly_lens() -> None:
                     save_weekly_review(review, overwrite=True, user_id=uid)
                     st.session_state.pop(f"_wk_err_{monday}", None)
                     st.rerun()
-            except (WeeklyReviewError, Exception) as exc:  # noqa: BLE001
+            except WeeklyReviewError as exc:
                 _error_box(f"Could not regenerate: {exc}")
+            except Exception:  # noqa: BLE001 — never crash the page
+                _log.exception("weekly regeneration failed for user %s", uid)
+                _error_box(_AI_FAILED)
     elif err:
         _error_box(f"AI weekly review couldn't run: {err}")
         if st.button("Retry weekly review", key="secondary_ins_wk_retry"):
@@ -513,8 +532,9 @@ def _run_daily_debrief(day_iso: str, day_trades: list, cache_key: str) -> None:
         log_ai_usage("Daily Debrief", usage, user_id=uid)
     except DebriefError as exc:
         st.session_state[cache_key + "_err"] = str(exc)
-    except Exception as exc:  # noqa: BLE001 — specific inline reason, no crash
-        st.session_state[cache_key + "_err"] = str(exc)
+    except Exception:  # noqa: BLE001 — never crash the page
+        _log.exception("daily debrief failed for user %s day %s", uid, day_iso)
+        st.session_state[cache_key + "_err"] = _AI_FAILED
     finally:
         placeholder.empty()
 

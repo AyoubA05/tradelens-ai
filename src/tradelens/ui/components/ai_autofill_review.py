@@ -20,6 +20,7 @@ Reuses, unchanged:
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -40,6 +41,8 @@ from src.tradelens.services.vision import (
     analyze_screenshot_v3,
     check_screenshot_quality,
 )
+
+_log = logging.getLogger(__name__)
 
 # Editable suggestion fields, in display order, mapped to their nt_* widget keys.
 # "asset" is handled separately (it may route to the custom-asset text field).
@@ -412,8 +415,14 @@ def _analyze(screenshot_file, screenshot_url, strategy_profile, known_assets) ->
         _clear_selection_state()  # fresh defaults for the new detection
     except ScreenshotAnalysisError as exc:
         st.session_state[_ERROR_KEY] = str(exc)
-    except Exception as exc:  # noqa: BLE001 — never crash the form on analysis
-        st.session_state[_ERROR_KEY] = f"Couldn't analyze that screenshot: {exc}"
+    except Exception:  # noqa: BLE001 — never crash the form on analysis
+        # ScreenshotAnalysisError above carries a message written for the
+        # trader. Anything reaching here is a driver, network or vision-API
+        # message that can carry a key or a request body.
+        _log.exception("screenshot autofill analysis failed")
+        st.session_state[_ERROR_KEY] = (
+            "That screenshot could not be analyzed. Try again."
+        )
     finally:
         if tmp is not None:
             try:
