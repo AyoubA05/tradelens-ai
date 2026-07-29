@@ -1762,6 +1762,141 @@ def build_css() -> str:
   margin: var(--tl-space-1) 0 0 0;
 }}
 
+/* === SETTINGS — deliberately the quietest page ===
+   Nothing here is the product. No card, no chart, no promotion: labelled
+   rows on the workspace, one rule between sections instead of six
+   dividers, and the only bordered object on the page reserved for the two
+   actions that destroy data. */
+.tl-settings-row {{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tl-space-4);
+  flex-wrap: wrap;
+  padding: var(--tl-space-3) 0;
+  border-bottom: 1px solid var(--tl-hairline);
+}}
+[data-testid="stAppViewContainer"] .tl-settings-label {{
+  font-size: 14px;
+  line-height: 21px;
+  font-weight: 500;
+  color: var(--tl-ink);
+  margin: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-settings-value {{
+  font-family: var(--tl-font-mono);
+  font-size: 13px;
+  line-height: 21px;
+  color: var(--tl-muted);
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}}
+[data-testid="stAppViewContainer"] .tl-settings-note {{
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--tl-muted);
+  margin: var(--tl-space-2) 0 0 0;
+  max-width: 68ch;
+}}
+
+/* Save feedback, beside the control that changed. Settings are saved one
+   at a time, so a toast in the corner is both too far away and gone before
+   the eye gets there. The status is a live region: it appears after an
+   action the user took, and a screen reader has to hear it. */
+[data-testid="stAppViewContainer"] .tl-setting-status {{
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  margin: var(--tl-space-2) 0 0 0;
+}}
+.tl-setting-status::before {{
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  border-radius: var(--tl-radius-full);
+  vertical-align: middle;
+}}
+/* Ink on the quiet ground, hue only in the dot — the wash-as-text-
+   background pattern fails AA at every tint strength (measured, Task 1). */
+[data-testid="stAppViewContainer"] .tl-setting-status.ok {{
+  color: var(--tl-ink);
+}}
+.tl-setting-status.ok::before {{ background: var(--tl-success-ink); }}
+[data-testid="stAppViewContainer"] .tl-setting-status.fail {{
+  color: var(--tl-danger-ink);
+}}
+.tl-setting-status.fail::before {{ background: var(--tl-danger-ink); }}
+
+/* Integration state. Not an error when it is unset — an optional key that
+   has not been supplied is a state with an action attached, so it gets the
+   neutral dot and a sentence, not a red panel. */
+[data-testid="stAppViewContainer"] .tl-settings-state {{
+  font-size: 14px;
+  line-height: 21px;
+  color: var(--tl-ink);
+  margin: 0;
+}}
+.tl-settings-state::before {{
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 10px;
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-muted);
+  vertical-align: middle;
+}}
+.tl-settings-state.on::before {{ background: var(--tl-success-ink); }}
+
+/* The one bordered object on the page. A full border, not a red side
+   stripe: the section is dangerous, so it is enclosed rather than
+   decorated, and the hue stays on the heading and the buttons. */
+/* The border goes on the KEYED CONTAINER, not on the heading markup: the
+   expanders, their confirmation fields and their buttons are Streamlit
+   elements rendered as siblings of that markup, so a border drawn around
+   the heading alone would enclose a title and leave both destructive
+   actions outside the box it is supposed to be warning about. */
+.st-key-tl_danger_zone {{
+  border: 1px solid var(--tl-danger-ink);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-5) var(--tl-space-6);
+  margin-top: var(--tl-space-12);
+}}
+.tl-danger-zone {{
+  margin-bottom: var(--tl-space-4);
+}}
+[data-testid="stAppViewContainer"] .tl-danger-zone-title {{
+  font-family: var(--tl-font-ui);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tl-danger-ink);
+  margin: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-danger-zone-lede {{
+  font-size: 14px;
+  line-height: 21px;
+  color: var(--tl-muted);
+  margin: var(--tl-space-2) 0 0 0;
+  max-width: 68ch;
+}}
+/* Every control inside the zone is destructive, so the confirm buttons
+   carry the danger hue rather than the brand teal — which everywhere else
+   in the product means "the useful thing to do next". */
+.st-key-tl_danger_zone .stButton button {{
+  border-color: var(--tl-danger-ink);
+  color: var(--tl-danger-ink);
+}}
+.st-key-tl_danger_zone .stButton button:disabled {{
+  border-color: var(--tl-hairline);
+  color: var(--tl-muted);
+}}
+
 /* === JOURNAL === */
 /* The result count, beside the view selector. Mono so the figure lines up
    with the ledger's own numerals, and right-aligned so it reads as a
@@ -2146,6 +2281,12 @@ def build_css() -> str:
 [data-testid="stDateInput"] input {{
   min-height: 44px;
 }}
+/* Selectboxes. The <input> BaseWeb nests inside is a 22px a11y shim, not
+   the target — the control a thumb actually hits is the wrapper div, which
+   measured 40px. Settings' timezone picker is the whole of Preferences. */
+[data-testid="stSelectbox"] [data-baseweb="select"] > div {{
+  min-height: 44px;
+}}
 /* Text fields. This too lived inside the phone breakpoint, so every input
    on the playbook form was 38px on a desktop and 44px on a phone. */
 [data-testid="stTextInput"] input {{
@@ -2175,6 +2316,13 @@ def build_css() -> str:
    and 40px on a desktop — "Regenerate this week", measured at 1440px. */
 .stButton button,
 .stFormSubmitButton button {{
+  min-height: 44px;
+}}
+/* Download and upload render their own buttons outside .stButton, so the
+   rule above never reached them: Settings' export and its CSV browse
+   button both measured 40px. */
+[data-testid="stDownloadButton"] button,
+[data-testid="stFileUploader"] button {{
   min-height: 44px;
 }}
 /* Page links in the page body. The sidebar's nav links are already 44px

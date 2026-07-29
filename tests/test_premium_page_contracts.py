@@ -907,6 +907,9 @@ def test_the_44px_floor_is_not_hidden_behind_the_phone_breakpoint():
         '[data-testid="stPageLink-NavLink"]',
         '[data-testid="stExpander"] summary',
         '[data-testid="stTextInput"] input',
+        '[data-testid="stDownloadButton"] button',
+        '[data-testid="stFileUploader"] button',
+        '[data-testid="stSelectbox"] [data-baseweb="select"] > div',
         ".stButton button",
     ):
         # the rule that DECLARES the floor, wherever it sits
@@ -1248,3 +1251,216 @@ def test_editing_one_section_preserves_the_untouched_ones(tmp_path):
     this catches is a collapsed section's widget defaulting to "" instead
     of the stored value, which silently blanks it on the next save."""
     _strategy_flow("editing_preserves_untouched_fields", tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Settings — quiet, safe, and clearly secondary
+# ---------------------------------------------------------------------------
+
+
+def _settings_src() -> str:
+    return _src("9_Settings.py")
+
+
+def test_settings_declares_its_four_sections():
+    src = _settings_src()
+    assert (
+        'SETTINGS_SECTIONS = (\n    "Profile",\n    "Preferences",\n'
+        '    "Data",\n    "Danger Zone",\n)' in src
+    )
+
+
+def test_settings_stops_being_seven_stacked_subheaders():
+    """Seven st.subheaders behind six dividers is a list of everything the
+    app can do, not a settings page."""
+    src = _settings_src()
+    assert "st.subheader(" not in src
+    assert src.count("st.divider()") == 0
+
+
+def test_settings_uses_the_shared_masthead_like_every_other_page():
+    src = _settings_src()
+    assert "render_workspace_header(" in src
+    assert "section_header(" not in src.replace("render_section_header(", "")
+
+
+def test_no_status_paints_semantic_text_on_its_own_tint():
+    """Measured in Task 1: any semantic hue on a 10% tint of the same hue
+    fails AA at every tint strength. Three of these were inline-styled here,
+    which also retyped tokens the page is not allowed to override."""
+    src = _settings_src()
+    for banned in (
+        "var(--tl-success-dim)",
+        "var(--tl-danger-dim)",
+        "var(--tl-primary-dim)",
+    ):
+        assert banned not in src, banned
+    assert "style=" not in src, "no inline style overrides on this page"
+
+
+def test_a_missing_api_key_is_not_painted_as_an_error():
+    """Red means an error or a loss. Not having configured an optional
+    integration is neither — it is a state with an action attached."""
+    src = _settings_src()
+    assert "AI Disabled" not in src
+    assert "❌" not in src and "✅" not in src and "🔬" not in src
+
+
+def test_saving_a_preference_reports_in_place():
+    """A toast auto-dismisses and sits nowhere near the control. Settings
+    are saved one at a time, so the confirmation belongs beside the one that
+    changed."""
+    src = _settings_src()
+    assert "def _render_setting_status(" in src
+    assert "_render_setting_status(" in src
+    assert 'st.toast("Trading timezone saved' not in src
+
+
+def test_settings_has_no_oversized_or_promotional_button():
+    """Nothing on this page is the primary action of the product."""
+    src = _settings_src()
+    assert 'width="stretch"' not in src
+    assert 'type="primary"' not in src
+    assert "Open Dashboard" not in src
+
+
+def test_destructive_actions_sit_in_their_own_bordered_section():
+    src = _settings_src()
+    assert "tl-danger-zone" in src
+    # …and it is the last thing on the page
+    assert src.index("tl-danger-zone") > src.index('"Data"')
+
+
+def test_destructive_actions_keep_typed_confirmation_and_consequences():
+    src = _settings_src()
+    assert "DELETE MY ACCOUNT" in src
+    assert 'typed != "DELETE"' in src
+    assert "cannot be undone" in src
+    assert "Export your trades first" in src
+
+
+def test_settings_never_shows_the_exception_to_the_trader():
+    """Same rule as the playbook: driver text can carry a DSN."""
+    src = _settings_src()
+    assert "{exc}" not in src
+    assert "str(exc)" not in src
+    assert "_log.exception(" in src
+
+
+def test_the_csv_service_does_not_hand_the_page_an_exception_to_render():
+    """Settings renders import errors verbatim, so the leak was transitive:
+    the page was clean and the service was not."""
+    import inspect
+
+    from src.tradelens.services import csvio
+
+    source = inspect.getsource(csvio)
+    assert "{exc}" not in source
+    assert "except Exception as exc" not in source
+    assert "_log.exception(" in source
+    # the row number is the actionable part and must survive
+    assert "Row {row}" in source
+
+
+def test_the_danger_zone_border_encloses_the_whole_container():
+    """A border on the heading markup alone would draw a box around a title
+    and leave both destructive actions outside it. Streamlit renders the
+    expanders as siblings of that markup, so the border belongs on the
+    keyed container."""
+    from src.tradelens.ui import design_system as ds
+
+    css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
+    keyed = re.search(r"\.st-key-tl_danger_zone \{([^{}]*)\}", css)
+    assert keyed, "the keyed container carries no rule"
+    assert "border: 1px solid var(--tl-danger-ink)" in keyed.group(1)
+    # …and the heading markup does not draw its own box
+    heading = re.search(r"(?<![\w-])\.tl-danger-zone \{([^{}]*)\}", css)
+    if heading:
+        assert "border:" not in heading.group(1), heading.group(1)
+
+
+def test_settings_keeps_every_action_it_had():
+    src = _settings_src()
+    for call in (
+        "export_trades_csv(",
+        "import_trades_csv(",
+        "load_sample_trades(",
+        "clear_sample_trades(",
+        "set_timezone(",
+        "set_email(",
+        "delete_all_trades(",
+        "delete_account(",
+        "monthly_cost_by_feature(",
+    ):
+        assert call in src, call
+
+
+def test_settings_stays_out_of_primary_navigation():
+    from src.tradelens.ui.components import sidebar
+
+    assert all("Settings" not in label for label, *_ in sidebar.PRIMARY_NAV)
+    assert any("Settings" in label for label, *_ in sidebar.UTILITY_NAV)
+
+
+# ---------------------------------------------------------------------------
+# Settings — real interactions, driven under AppTest in a subprocess.
+# ---------------------------------------------------------------------------
+
+_SETTINGS_RUNNER = ROOT / "tests" / "settings_flow_check.py"
+
+
+def _settings_flow(scenario: str, tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    env = dict(os.environ)
+    env["DATABASE_URL"] = f"sqlite:///{tmp_path / (scenario + '.db')}"
+    env["DEMO_MODE"] = "true"
+    proc = subprocess.run(
+        [sys.executable, str(_SETTINGS_RUNNER), str(ROOT), scenario],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=240,
+    )
+    assert proc.returncode == 0, (
+        f"{scenario} failed (rc={proc.returncode})\n"
+        f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+    )
+
+
+def test_changing_a_preference_saves_and_reports_beside_it(tmp_path):
+    _settings_flow("timezone_saves_and_reports_in_place", tmp_path)
+
+
+def test_sample_data_loads_clears_and_leaves_real_trades_alone(tmp_path):
+    _settings_flow("sample_data_loads_and_clears", tmp_path)
+
+
+def test_export_supplies_only_the_signed_in_users_rows(tmp_path):
+    """The bytes the PAGE hands to the download control are captured and
+    inspected. Recreating the same CSV in the test would prove the service
+    works, not the page — an export wired to an unscoped query would pass."""
+    _settings_flow("export_supplies_only_the_signed_in_users_rows", tmp_path)
+
+
+def test_account_deletion_completes_and_clears_the_session(tmp_path):
+    """Locked for a wrong phrase and two near misses, unlocked by the exact
+    one, then: no UI exception, the row gone, the session cleared, and a
+    second account and its trades untouched."""
+    _settings_flow("account_deletion_completes", tmp_path)
+
+
+def test_a_failed_csv_import_leaks_nothing(tmp_path):
+    """The page renders whatever import_trades_csv puts in `errors`, so the
+    service is the boundary. A driver error there used to arrive verbatim,
+    DSN and SQL included."""
+    _settings_flow("csv_import_failure_leaks_nothing", tmp_path)
+
+
+def test_destructive_actions_are_actually_gated(tmp_path):
+    """A confirmation that renders but does not gate is worse than none —
+    it reads as protection. Checked with wrong text, near-miss text, and
+    the exact phrase, for both actions."""
+    _settings_flow("destructive_actions_are_gated", tmp_path)

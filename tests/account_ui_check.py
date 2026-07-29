@@ -73,7 +73,9 @@ def main() -> int:
             return _fail(f"settings raised: {at.exception}")
 
         if scenario == "settings-email":
-            fields = [i for i in at.text_input if "Email address" in i.label]
+            # Renamed in the Settings pass: the label now says what the
+            # address is FOR, since that is the whole point of storing it.
+            fields = [i for i in at.text_input if "Recovery email" in i.label]
             if not fields:
                 return _fail("no email field on Settings")
             fields[0].set_value("Trader@Example.COM")

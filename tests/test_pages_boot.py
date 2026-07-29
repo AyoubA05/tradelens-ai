@@ -422,3 +422,24 @@ def test_strategy_boots_signed_out_without_a_profile(tmp_path):
     """uid is None for the secrets-fallback legacy user; the page must not
     call the service with it."""
     _boot(_STRATEGY, tmp_path / "s-anon.db", "0", "-")
+
+
+# ---------------------------------------------------------------------------
+# Settings — quiet sections
+# ---------------------------------------------------------------------------
+
+_SETTINGS = "9_Settings.py"
+
+
+@pytest.mark.parametrize("section", ["Profile", "Preferences", "Data", "Danger Zone"])
+def test_settings_renders_each_section(section, tmp_path):
+    _boot(_SETTINGS, tmp_path / f"set-{section[:4]}.db", "0", section)
+
+
+def test_settings_encloses_its_destructive_actions(tmp_path):
+    """The only bordered object on the page."""
+    _boot(_SETTINGS, tmp_path / "set-danger.db", "0", "tl-danger-zone")
+
+
+def test_settings_states_the_ai_integration_without_calling_it_an_error(tmp_path):
+    _boot(_SETTINGS, tmp_path / "set-ai.db", "0", "tl-settings-state")

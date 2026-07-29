@@ -253,6 +253,14 @@ def test_css_uses_only_proven_testids():
         # Playbook accordions: five <details> whose <summary> is the only way
         # into five of the six sections. Observed at 375px on 1.50.0.
         "stExpander",
+        # Settings export and CSV import: both render their button outside
+        # .stButton, so the shared floor never reached them — measured at
+        # 40px on 1.50.0.
+        "stDownloadButton",
+        "stFileUploader",
+        # Selectbox: the visible control is the [data-baseweb="select"]
+        # wrapper, not the 22px a11y <input> inside it. Measured at 40px.
+        "stSelectbox",
         "stSidebarCollapseButton",
         "stExpandSidebarButton",
     }

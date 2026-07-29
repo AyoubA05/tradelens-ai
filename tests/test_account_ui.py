@@ -65,7 +65,9 @@ def test_deletion_requires_a_typed_confirmation_phrase():
 def test_deletion_signs_the_user_out():
     """Leaving a session pointing at a deleted user row is a broken state."""
     src = (PAGES / "pages" / "9_Settings.py").read_text(encoding="utf-8")
-    block = src[src.index("Permanently delete my account") :]
+    # Renamed in the Settings pass; the assertion is about what follows the
+    # confirm control, not about its wording.
+    block = src[src.index('key="secondary_delete_account"') :]
     assert "sign_out()" in block
 
 
