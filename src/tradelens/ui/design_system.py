@@ -597,6 +597,93 @@ def build_css() -> str:
   background: var(--tl-focus);
 }}
 
+/* --- More: the fifth slot ---
+   A native <details>. The summary IS the fifth tab, so it inherits every
+   tab rule above — including the 44px floor and the active indicator — and
+   the marker is removed because the tab is already labelled. */
+.tl-mobile-more {{
+  flex: 1 1 0;
+  position: relative;
+}}
+.tl-mobile-more > summary {{
+  list-style: none;
+  cursor: pointer;
+}}
+.tl-mobile-more > summary::-webkit-details-marker {{ display: none; }}
+.tl-mobile-more > summary::marker {{ content: ''; }}
+
+/* A closed <details> normally collapses its content out of the layout, but
+   an absolutely positioned child escapes that: the sheet stayed invisible
+   and still TABBABLE, so a keyboard user hit three links inside a shut
+   menu. Closed means gone, for the pointer and the keyboard alike. */
+.tl-mobile-more:not([open]) > .tl-mobile-more-sheet {{
+  display: none;
+}}
+
+/* The sheet rises from the bar rather than pushing it, so the four tabs
+   never move under a thumb that is already reaching for them. */
+.tl-mobile-more-sheet {{
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  min-width: 208px;
+  background: var(--tl-rail);
+  border: 1px solid var(--tl-border);
+  border-radius: var(--tl-radius-md) var(--tl-radius-md) 0 0;
+  padding: var(--tl-space-2);
+  box-shadow: var(--tl-shadow);
+}}
+[data-testid="stAppViewContainer"] a.tl-mobile-more-item,
+.tl-mobile-more-item {{
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-3);
+  min-height: 44px;
+  padding: 0 var(--tl-space-3);
+  border-radius: var(--tl-radius-sm);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--tl-text);
+}}
+.tl-mobile-more-icon {{
+  font-family: 'Material Symbols Rounded';
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 300;
+}}
+[data-testid="stAppViewContainer"] a.tl-mobile-more-item.is-active,
+.tl-mobile-more-item.is-active {{
+  color: var(--tl-focus);
+}}
+/* Settings stays the quiet utility here too: muted, and set below a rule
+   rather than reading as a third piece of work. */
+[data-testid="stAppViewContainer"] a.tl-mobile-more-item.is-quiet,
+.tl-mobile-more-item.is-quiet {{
+  color: var(--tl-text-muted);
+  font-weight: 400;
+  margin-top: var(--tl-space-2);
+  padding-top: var(--tl-space-2);
+  border-top: 1px solid var(--tl-border);
+  border-radius: 0;
+}}
+
+/* Opening More is a state change worth conveying: a panel that appears
+   from nothing over a fixed bar reads as a glitch. 160ms — the short end of
+   the range, because this is a menu a thumb is already moving through —
+   opacity and a 4px rise only, on the shared curve. Nothing else here
+   moves, and the tabs themselves never animate: they are hit dozens of
+   times a session. */
+@media (prefers-reduced-motion: no-preference) {{
+  .tl-mobile-more[open] > .tl-mobile-more-sheet {{
+    animation: tl-more-in 160ms var(--tl-ease-out) both;
+  }}
+  @keyframes tl-more-in {{
+    from {{ opacity: 0; transform: translateY(4px); }}
+    to {{ opacity: 1; transform: none; }}
+  }}
+}}
+
 /* Sidebar brand block + status note (replaces inline styles in sidebar.py) */
 .tl-side-brand {{
   display: flex;

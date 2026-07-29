@@ -374,3 +374,153 @@ def test_sidebar_does_not_cover_the_dashboard_on_a_phone():
     app = (PAGES_DIR.parent / "app.py").read_text(encoding="utf-8")
     assert 'initial_sidebar_state="auto"' in app
     assert 'initial_sidebar_state="expanded"' not in app
+
+
+# ---------------------------------------------------------------------------
+# Marketing screenshots (Task 11)
+#
+# The four in-app stills are the only view of the product a prospective user
+# gets before signing up. These guard the contract between the capture
+# script, the files on disk, and the markup that declares their box.
+# ---------------------------------------------------------------------------
+
+_SITE = Path(__file__).resolve().parents[1] / "site"
+_CAPTURE = (
+    Path(__file__).resolve().parents[1] / "scripts" / "capture_app_screenshots.py"
+)
+
+
+def _index_html() -> str:
+    return (_SITE / "index.html").read_text(encoding="utf-8")
+
+
+def test_capture_script_targets_the_paths_the_site_actually_references():
+    """A capture written to a path nothing references refreshes nothing."""
+    from scripts.capture_app_screenshots import CAPTURES
+
+    html = _index_html()
+    for _name, _route, out_path, _w, _h, _s in CAPTURES:
+        asset = out_path.split("site/")[-1]
+        assert asset in html, f"{asset} is not referenced by the marketing site"
+
+
+def test_marketing_screenshots_match_their_declared_dimensions():
+    """width/height reserve the image's box before it loads. A file whose
+    real size disagrees changes the page's aspect ratio as it arrives —
+    exactly the layout shift those attributes exist to prevent."""
+    from PIL import Image
+
+    from scripts.capture_app_screenshots import CAPTURES
+
+    html = _index_html()
+    for name, _route, out_path, width, height, _scale in CAPTURES:
+        path = Path(__file__).resolve().parents[1] / out_path
+        assert path.exists(), f"{name}: {out_path} is missing"
+        with Image.open(path) as image:
+            assert image.format == "WEBP", f"{name}: {image.format}, expected WEBP"
+            assert image.size == (width, height), (
+                f"{name}: file is {image.size}, capture script declares "
+                f"{(width, height)}"
+            )
+        asset = out_path.split("site/")[-1]
+        for tag in re.findall(r"<img[^>]*>", html, re.S):
+            if asset not in tag:
+                continue
+            declared_w = re.search(r'width="(\d+)"', tag)
+            declared_h = re.search(r'height="(\d+)"', tag)
+            assert declared_w and declared_h, f"{asset}: no width/height attributes"
+            assert (int(declared_w.group(1)), int(declared_h.group(1))) == (
+                width,
+                height,
+            ), f"{asset}: markup declares a different box than the file"
+
+
+def test_every_product_screenshot_is_lazy_and_described():
+    """Below-the-fold stills must not block the first paint, and an image
+    with no alt text is invisible to a screen reader."""
+    html = _index_html()
+    for tag in re.findall(r"<img[^>]*>", html, re.S):
+        if "shot-" not in tag:
+            continue
+        assert 'loading="lazy"' in tag, f"not lazy: {tag[:90]}"
+        alt = re.search(r'alt="([^"]*)"', tag)
+        assert alt, f"no alt attribute: {tag[:90]}"
+        text = alt.group(1).strip()
+        # Descriptive, not a filename and not a bare label: it must name
+        # what is ON the screen, so a reader who cannot see the image
+        # learns what a sighted reader does.
+        assert len(text) > 30, f"alt text too thin to describe a screen: {text!r}"
+        assert "shot-" not in text and ".webp" not in text, f"filename as alt: {text!r}"
+
+
+def test_the_capture_script_verifies_what_it_wrote():
+    """A capture run that reports success without re-reading the files is
+    how a 0-byte or wrongly-sized asset ships."""
+    src = _CAPTURE.read_text(encoding="utf-8")
+    assert "def verify(" in src
+    assert "prefers-reduced-motion" in src, "stills must not catch an animation"
+    assert "stException" in src, "a page that errored must not be published"
+
+
+def test_the_capture_never_writes_to_the_development_database():
+    """A marketing shot needs a configured strategy and sample trades, and
+    creating those is a write. It goes into a throwaway SQLite file, never
+    whatever database the developer happens to be working in."""
+    from scripts import capture_app_screenshots as capture
+
+    src = _CAPTURE.read_text(encoding="utf-8")
+    assert "def seed_capture_db(" in src
+    assert 'os.environ["DATABASE_URL"]' in src
+    assert "tempfile.mkdtemp" in src
+    assert capture.CAPTURE_DIR_PREFIX.startswith("tradelens-capture")
+    # …and there is a documented, ownership-scoped way to remove one again.
+    # Deletion behaviour itself is covered in tests/test_capture_cleanup.py.
+    assert "def clean_capture_dir(" in src
+    assert "def clean_capture_dirs(" not in src, "the temp-directory sweep is back"
+    assert "--clean" in src
+
+
+def test_the_capture_fails_when_the_expected_strategy_is_absent():
+    """Better to stop than to publish four screenshots of an empty product.
+    Checked twice: after seeding, and against the RUNNING app, because a
+    correctly seeded database the app was never pointed at still yields
+    empty shots."""
+    src = _CAPTURE.read_text(encoding="utf-8")
+    assert "capture db has no active strategy after seeding" in src
+    assert "capture db has no sample trades after seeding" in src
+    assert "_assert_app_shows_the_seeded_strategy" in src
+    assert "No active strategy" in src
+
+
+def test_the_capture_never_prints_the_session_token():
+    """The token grants a session. Echoing it into a terminal, a CI log or a
+    shell scrollback is handing out access to the account."""
+    import ast
+
+    tree = ast.parse(_CAPTURE.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "print"):
+            continue
+        printed = ast.dump(node)
+        assert "token" not in printed.lower(), ast.unparse(node)
+
+
+def test_the_starter_playbook_has_exactly_one_definition():
+    """The capture reads it out of the page that owns it rather than
+    keeping a second copy that would drift."""
+    from scripts.capture_app_screenshots import starter_playbook
+
+    page = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "tradelens"
+        / "ui"
+        / "pages"
+        / "5_Strategy.py"
+    ).read_text(encoding="utf-8")
+    assert page.count("STARTER_TEMPLATE = {") == 1
+    playbook = starter_playbook()
+    assert playbook["name"] == "ICT/SMC Day Trading"
+    # every playbook section is filled, which is what "6 of 6" depends on
+    for field in ("entry_rules", "stop_rules", "risk_rules", "common_mistakes"):
+        assert playbook[field].strip()

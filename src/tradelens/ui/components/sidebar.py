@@ -52,16 +52,29 @@ PRIMARY_ACTION = (
 UTILITY_NAV = (("pages/9_Settings.py", "/Settings", "Settings", ":material/settings:"),)
 
 # Mobile bottom navigation: (slug, short label, Material icon name).
-# The four required mobile journeys lead (spec 13) and the fifth slot is the
-# utility escape. Analytics and Strategy Profile are reached through the rail
-# drawer on mobile rather than competing for a bottom-bar slot.
+# The four journeys a trader repeats on a phone (spec 13) take the first
+# four slots; the fifth is More.
 MOBILE_NAV = (
     ("/", "Home", "space_dashboard"),
     ("/NewTrade", "Log", "add_chart"),
     ("/Trades", "Journal", "menu_book"),
     ("/Insights", "Review", "psychology"),
+)
+
+# What More opens. These are real destinations, not a renamed Settings link:
+# a bottom bar whose fifth slot went straight to Settings left Analytics and
+# Strategy Profile with no route on a phone except the collapsed rail.
+#
+# Order is deliberate. Analytics and Strategy Profile are work; Settings is
+# the quiet utility, so it sits last and keeps the muted treatment it has
+# everywhere else in the product.
+MOBILE_MORE = (
+    ("/Analytics", "Analytics", "analytics"),
+    ("/Strategy", "Strategy Profile", "flag"),
     ("/Settings", "Settings", "settings"),
 )
+
+MOBILE_MORE_SLUGS = tuple(slug for slug, _label, _icon in MOBILE_MORE)
 
 
 def _slug_from_url(url: str) -> str:
@@ -153,6 +166,48 @@ def _mobile_nav_html(active_slug: str, auth_token: object = None) -> str:
             f'<span class="tl-mobile-nav-label">{escape(label)}</span>'
             "</a>"
         )
+    # More is a native <details>. A <summary> is focusable and toggles on
+    # Enter or Space with no script at all, so the sheet is keyboard-
+    # operable by construction rather than by an added handler — and it
+    # still works if script never runs.
+    #
+    # It is NEVER rendered with `open`. A menu that reopens itself after
+    # every navigation is a menu the trader has to dismiss on every page,
+    # and on a phone it covers the content they just asked for. The bar
+    # instead does what a tab bar does: the summary carries the current
+    # state, so a trader on Analytics sees the More tab lit without the
+    # sheet in the way — and finds Analytics marked when they open it.
+    more_active = active_slug in MOBILE_MORE_SLUGS
+    sheet = []
+    for slug, label, icon in MOBILE_MORE:
+        is_active = slug == active_slug
+        # "true" rather than "page" on the nested link: the summary is the
+        # navigation item representing the current location, and two
+        # aria-current="page" in one nav announces the destination twice.
+        current = ' aria-current="true"' if is_active else ""
+        quiet = " is-quiet" if slug == "/Settings" else ""
+        state = " is-active" if is_active else ""
+        href = escape(route_href(slug, auth_token), quote=True)
+        sheet.append(
+            f'<a class="tl-mobile-more-item{quiet}{state}" href="{href}"'
+            f' target="_self"{current}>'
+            f'<span class="tl-mobile-more-icon" aria-hidden="true">'
+            f"{escape(icon)}</span>"
+            f"<span>{escape(label)}</span>"
+            "</a>"
+        )
+    more_state = " is-active" if more_active else ""
+    more_current = ' aria-current="page"' if more_active else ""
+    items.append(
+        '<details class="tl-mobile-more">'
+        f'<summary class="tl-mobile-nav-item{more_state}"{more_current}>'
+        '<span class="tl-mobile-nav-icon" aria-hidden="true">more_horiz</span>'
+        '<span class="tl-mobile-nav-label">More</span>'
+        "</summary>"
+        '<div class="tl-mobile-more-sheet">'
+        f'{"".join(sheet)}'
+        "</div></details>"
+    )
     return (
         '<nav class="tl-mobile-nav" aria-label="Primary">' f'{"".join(items)}' "</nav>"
     )

@@ -14,6 +14,7 @@ contract is structural rather than cosmetic:
 - every interactive state carries a non-colour cue.
 """
 
+import re
 from pathlib import Path
 
 from src.tradelens.ui.components import sidebar
@@ -141,12 +142,13 @@ def test_every_pre_redesign_destination_is_still_reachable():
 
 
 def test_mobile_navigation_carries_at_most_five_items():
-    assert 0 < len(sidebar.MOBILE_NAV) <= 5
+    """Four journey tabs plus More is the five-item ceiling."""
+    assert 0 < len(sidebar.MOBILE_NAV) + 1 <= 5
 
 
 def test_mobile_navigation_leads_with_the_required_mobile_journeys():
     """Spec 13: the required mobile journeys are Overview, Log, Journal and
-    AI Review. Those four lead; the fifth slot is the utility escape."""
+    AI Review. Those four lead; the fifth slot is More."""
     slugs = [slug for slug, _, _ in sidebar.MOBILE_NAV]
     assert slugs[:4] == ["/", "/NewTrade", "/Trades", "/Insights"]
 
@@ -190,11 +192,13 @@ def test_nav_link_keeps_its_registry_less_fallback():
 def test_mobile_navigation_markup_is_escaped_and_labelled():
     html = sidebar._mobile_nav_html("/")
     assert 'class="tl-mobile-nav"' in html
-    assert html.count("tl-mobile-nav-item") == len(sidebar.MOBILE_NAV)
+    # four journey tabs plus the More summary, which is the fifth tab
+    assert html.count("tl-mobile-nav-item") == len(sidebar.MOBILE_NAV) + 1
     # a nav landmark, so screen readers can skip to and past it
     assert "<nav" in html and 'aria-label="Primary"' in html
     for _slug, label, _icon in sidebar.MOBILE_NAV:
         assert f">{label}<" in html
+    assert ">More<" in html
 
 
 def test_mobile_navigation_marks_the_current_destination():
@@ -212,7 +216,11 @@ def test_mobile_navigation_preserves_the_signed_auth_token():
         "/Trades", auth_token="signed token?with&reserved=characters"
     )
     assert 'href="/NewTrade?auth=signed+token%3Fwith%26reserved%3Dcharacters"' in html
-    assert html.count("?auth=") == len(sidebar.MOBILE_NAV)
+    # every tab AND every destination inside More — a sheet link that drops
+    # the token signs the trader out just as surely as a tab that does.
+    assert html.count("?auth=") == len(sidebar.MOBILE_NAV) + len(sidebar.MOBILE_MORE)
+    for slug, _label, _icon in sidebar.MOBILE_MORE:
+        assert f'href="{slug}?auth=' in html
 
 
 def test_route_href_is_plain_without_a_token_and_encoded_with_one():
@@ -406,3 +414,145 @@ def test_shell_has_a_keyboard_skip_path_to_page_content():
     assert "a.tl-skip-link" in css
     focus = css[css.index("a.tl-skip-link:focus-visible") :][:220]
     assert "transform: none" in focus
+
+
+# ---------------------------------------------------------------------------
+# More — the fifth mobile slot (Task 11 correction)
+# ---------------------------------------------------------------------------
+
+
+def test_the_fifth_mobile_slot_is_more_not_a_renamed_settings_link():
+    """Spec 10: the bottom bar is Home, Log, Journal, Review, More — and
+    Analytics, Strategy Profile and Settings live under More. A fifth slot
+    wired straight to Settings leaves the other two with no route on a
+    phone except the collapsed rail."""
+    assert len(sidebar.MOBILE_NAV) == 4
+    assert [slug for slug, _, _ in sidebar.MOBILE_NAV] == [
+        "/",
+        "/NewTrade",
+        "/Trades",
+        "/Insights",
+    ]
+    assert [slug for slug, _, _ in sidebar.MOBILE_MORE] == [
+        "/Analytics",
+        "/Strategy",
+        "/Settings",
+    ]
+    html = sidebar._mobile_nav_html("/")
+    assert ">More<" in html
+    # Settings is reachable, but not as the tab itself
+    assert 'class="tl-mobile-nav-item" href="/Settings"' not in html
+
+
+def test_more_is_operable_without_script():
+    """A native <details>: the summary is focusable and toggles on Enter or
+    Space with no handler, so the sheet works for a keyboard user and
+    survives script never running."""
+    html = sidebar._mobile_nav_html("/")
+    assert "<details" in html and "<summary" in html
+    assert "onclick" not in html and "<script" not in html
+    # closed by default when the trader is elsewhere
+    detail = html[html.index("<details") : html.index("<summary")]
+    assert "open" not in detail
+
+
+def test_more_is_never_rendered_open():
+    """A menu that reopens itself after every navigation is one the trader
+    has to dismiss on every page, and on a phone it covers the content they
+    just asked for. The bar does what a tab bar does instead."""
+    for slug in ("/", "/Trades", "/Analytics", "/Strategy", "/Settings"):
+        html = sidebar._mobile_nav_html(slug)
+        detail = html[html.index("<details") : html.index("<summary")]
+        assert " open" not in detail, f"{slug} rendered More already open"
+
+
+def test_the_more_tab_carries_the_current_state_for_its_destinations():
+    """On Analytics the More tab is lit and announced, without the sheet in
+    the way — and the nested destination is still identified when the sheet
+    is opened by hand."""
+    for slug, label in (
+        ("/Analytics", "Analytics"),
+        ("/Strategy", "Strategy Profile"),
+        ("/Settings", "Settings"),
+    ):
+        html = sidebar._mobile_nav_html(slug)
+        summary = html[html.index("<summary") : html.index("</summary>")]
+        assert "is-active" in summary, f"{slug}: More tab is not lit"
+        assert 'aria-current="page"' in summary, f"{slug}: More tab not announced"
+        # exactly one "page" in the whole bar — the summary's
+        assert html.count('aria-current="page"') == 1
+        # …and the nested link keeps its own identification, on a distinct
+        # token so the destination is not announced twice
+        assert f'href="{slug}" target="_self" aria-current="true"' in html
+        assert f">{label}<" in html
+
+
+def test_a_destination_outside_more_leaves_the_more_tab_quiet():
+    html = sidebar._mobile_nav_html("/Trades")
+    summary = html[html.index("<summary") : html.index("</summary>")]
+    assert "is-active" not in summary
+    assert "aria-current" not in summary
+    assert 'aria-current="true"' not in html
+
+
+def test_settings_stays_visually_secondary_inside_more():
+    """It is present and reachable, never a third piece of work."""
+    html = sidebar._mobile_nav_html("/")
+    assert 'class="tl-mobile-more-item is-quiet" href="/Settings"' in html
+    for slug in ("/Analytics", "/Strategy"):
+        assert f'class="tl-mobile-more-item" href="{slug}"' in html
+
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+    quiet = css[css.index(".tl-mobile-more-item.is-quiet") :]
+    quiet = quiet[: quiet.index("}")]
+    assert "var(--tl-text-muted)" in quiet
+    assert "border-top" in quiet, "the utility is separated, not just dimmed"
+
+
+def test_the_more_sheet_meets_the_touch_floor():
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+    block = css[css.index(".tl-mobile-more-item,") :]
+    block = block[: block.index("}")]
+    assert "min-height: 44px" in block
+
+
+def test_the_more_reveal_is_withdrawn_under_reduced_motion():
+    """Emil: opening a panel over a fixed bar is a state change worth
+    conveying, but only for readers who have not asked for less motion."""
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+    start = css.index("@media (prefers-reduced-motion: no-preference)")
+    depth, i = 0, css.index("{", start)
+    while i < len(css):
+        depth += (css[i] == "{") - (css[i] == "}")
+        if depth == 0:
+            break
+        i += 1
+    opt_in = css[start : i + 1]
+    assert "tl-more-in" in opt_in
+    assert "animation: tl-more-in" not in css[:start]
+    frames = re.search(r"@keyframes tl-more-in \{(.*?)\n  \}", css, re.S)
+    assert frames, "no keyframes for the More reveal"
+    for banned in ("width", "height", "margin", "padding"):
+        assert banned not in frames.group(1), banned
+
+
+def test_a_closed_more_sheet_is_gone_for_the_keyboard_too():
+    """A closed <details> collapses its content out of the layout — but an
+    absolutely positioned child escapes that. The sheet was invisible and
+    still tabbable, so a keyboard user landed on three links inside a shut
+    menu. Caught by measuring tabbability in the browser, not by looking."""
+    from src.tradelens.ui import design_system as ds
+
+    css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
+    rule = re.search(
+        r"\.tl-mobile-more:not\(\[open\]\) > \.tl-mobile-more-sheet \{([^{}]*)\}",
+        css,
+    )
+    assert rule, "nothing hides the sheet while More is closed"
+    assert "display: none" in rule.group(1)

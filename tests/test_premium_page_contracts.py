@@ -836,11 +836,30 @@ def test_the_skeleton_pulse_is_opt_in_not_opt_out():
     from src.tradelens.ui import design_system as ds
 
     css = ds.build_css()
-    opt_in = css.index("@media (prefers-reduced-motion: no-preference)")
-    end = css.index("@media", opt_in + 10)
-    assert "tl-skeleton-pulse" in css[opt_in:end]
-    # and it is not also declared unconditionally somewhere above
-    assert "animation: tl-skeleton-pulse" not in css[:opt_in]
+    # Every opt-in block, not just the first: there is now more than one,
+    # and taking css.index() made this test depend on their order.
+    # A brace-depth walk, not a regex: these blocks contain @keyframes, so
+    # any fixed-nesting pattern strips only part of them and the "outside"
+    # half then still contains what it was meant to exclude.
+    inside, outside, cursor = "", "", 0
+    for match in re.finditer(
+        r"@media \(prefers-reduced-motion: no-preference\)[^{]*\{", css
+    ):
+        if match.start() < cursor:
+            continue
+        depth, i = 1, match.end()
+        while i < len(css) and depth:
+            depth += (css[i] == "{") - (css[i] == "}")
+            i += 1
+        outside += css[cursor : match.start()]
+        inside += css[match.end() : i - 1]
+        cursor = i
+    outside += css[cursor:]
+
+    assert "tl-skeleton-pulse" in inside
+    # …and it is not ALSO declared outside one, where it would run for a
+    # reader who asked for less motion.
+    assert "animation: tl-skeleton-pulse" not in outside
 
 
 def test_dark_surface_overrides_name_both_reading_surfaces():
