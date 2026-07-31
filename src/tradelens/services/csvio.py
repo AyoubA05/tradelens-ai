@@ -1,4 +1,5 @@
 import io
+import logging
 
 import pandas as pd
 
@@ -38,6 +39,19 @@ CSV_COLUMNS = [
 
 _REQUIRED_IMPORT_COLS = {"trade_date", "asset", "direction", "result", "pnl"}
 
+_log = logging.getLogger(__name__)
+
+# Import errors are rendered straight into the UI, so they are written here
+# rather than taken from the exception. A driver or parser message can carry
+# a database URL, a SQL statement or a fragment of the row; the row number
+# is the part the user actually needs to act on, and it is safe.
+_PARSE_FAILED = (
+    "Could not read that file as a CSV. Export a file first to see the expected format."
+)
+_ROW_FAILED = (
+    "Row {row}: could not be imported. Check its values against an exported file."
+)
+
 
 def export_trades_csv(df: pd.DataFrame) -> bytes:
     """
@@ -59,8 +73,9 @@ def import_trades_csv(file, user_id=None) -> tuple[int, int, list[str]]:
     """
     try:
         df = pd.read_csv(io.BytesIO(file.read()))
-    except Exception as exc:
-        return 0, 0, [f"Could not parse CSV: {exc}"]
+    except Exception:
+        _log.exception("CSV import failed to parse the uploaded file")
+        return 0, 0, [_PARSE_FAILED]
 
     missing = _REQUIRED_IMPORT_COLS - set(df.columns)
     if missing:
@@ -86,7 +101,10 @@ def import_trades_csv(file, user_id=None) -> tuple[int, int, list[str]]:
 
             create_trade(trade_data)
             rows_inserted += 1
-        except Exception as exc:
-            errors.append(f"Row {i + 2}: {exc}")  # +2: 1-based + header row
+        except Exception:
+            # +2: 1-based + header row. The number is the actionable part;
+            # the exception itself goes to the log, never to the page.
+            _log.exception("CSV import failed on row %s", i + 2)
+            errors.append(_ROW_FAILED.format(row=i + 2))
 
     return rows_inserted, skipped, errors

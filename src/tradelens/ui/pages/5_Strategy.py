@@ -1,3 +1,15 @@
+"""
+Strategy Profile — the trader's playbook, and the context every AI review reads.
+
+This is not a settings page. The rules stored here are what grading, the weekly
+recap and the pattern lenses compare a trade against, so the page opens with a
+compact summary of the saved playbook and how complete it is, then discloses the
+rule groups one at a time instead of presenting twelve fields at once.
+
+Post-trade reflection only — these are the trader's own rules, never advice.
+"""
+
+import logging
 import sys
 from html import escape
 from pathlib import Path
@@ -10,9 +22,7 @@ import streamlit as st  # noqa: E402
 
 from src.tradelens.services.strategy import (  # noqa: E402
     get_active_strategy,
-    parse_list,
     parse_markets,
-    parse_mistakes,
     parse_setups,
     parse_timeframes,
     upsert_strategy_profile,
@@ -21,13 +31,14 @@ from src.tradelens.ui.components.auth import current_user_id, require_auth  # no
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
+from src.tradelens.ui.components.ui import error_box  # noqa: E402
+from src.tradelens.ui.components.workspace import (  # noqa: E402
+    render_workspace_header,
+)
 from src.tradelens.ui.design_system import (  # noqa: E402
-    get_asset_as_base64,
     inject_design_system,
     render_badge,
-    render_banner,
     render_chip_row,
-    render_section_header,
 )
 
 st.set_page_config(page_title="Strategy Profile")
@@ -37,14 +48,70 @@ require_auth()
 uid = current_user_id()
 render_demo_banner()
 render_sidebar()
+
 st.markdown(
-    render_section_header(
+    render_workspace_header(
         "Strategy Profile",
-        "Define your strategy so AI analysis, journal, and grading are "
-        "strategy-aware.",
+        "Your own rules, written down.",
     ),
     unsafe_allow_html=True,
 )
+
+# ── The six sections a playbook is made of ────────────────────────
+# Stop-loss and take-profit are one decision — where a trade ends — so they
+# share Exit Rules. Setups traded, setups avoided and the session/news filter
+# are all "what I will and will not take", so they share Setups. Eight
+# disclosures for six ideas was the settings dump.
+PLAYBOOK_SECTIONS = (
+    "Identity",
+    "Entry Rules",
+    "Exit Rules",
+    "Risk Rules",
+    "Setups",
+    "Self-Awareness",
+)
+
+# Which stored fields count a section as written. Any one of them is enough:
+# a trader who states an exit rule but no take-profit target has still made
+# that decision.
+_SECTION_FIELDS = {
+    "Identity": ("name",),
+    "Entry Rules": ("entry_rules",),
+    "Exit Rules": ("stop_rules", "take_profit_rules"),
+    "Risk Rules": ("risk_rules",),
+    "Setups": ("setups_traded", "setups_avoided", "news_session_rules"),
+    "Self-Awareness": ("common_mistakes",),
+}
+
+_NAME_ERROR_KEY = "_strategy_name_error"
+_SAVE_ERROR_KEY = "_strategy_save_error"
+_STARTER_ERROR_KEY = "_strategy_starter_error"
+
+# Both writes on this page fail the same way, so they say the same thing.
+# Driver text can carry a database URL, a dialect message or a fragment of
+# the row, so it never reaches the page — see _write().
+_WRITE_FAILED = "Could not save the playbook. Try again."
+
+_log = logging.getLogger(__name__)
+
+
+def _write(error_key: str, **fields) -> bool:
+    """Persist the profile. Returns True on success.
+
+    The single protected path for every write on this page: the exception
+    goes to the log with its stack, and the trader gets a message they can
+    act on. A page that renders str(exc) leaks whatever the driver put in
+    it; a page that lets it propagate loses the form.
+    """
+    try:
+        upsert_strategy_profile(uid, **fields)
+    except Exception:  # noqa: BLE001 — never crash the page
+        _log.exception("strategy profile write failed for user %s", uid)
+        st.session_state[error_key] = _WRITE_FAILED
+        return False
+    st.session_state.pop(error_key, None)
+    return True
+
 
 STARTER_TEMPLATE = {
     "name": "ICT/SMC Day Trading",
@@ -64,84 +131,140 @@ STARTER_TEMPLATE = {
     "common_mistakes": "FOMO entry, moving SL, off-session trades, overtrading",
 }
 
-# Load active profile (if any)
+
+def _profile_completion(profile: dict) -> tuple:
+    """How many of the six sections have been written, and out of how many.
+
+    Completion is read from the SAVED profile, so the figure describes what
+    the AI can actually use — not what is currently typed into the form.
+    """
+    written = 0
+    for section in PLAYBOOK_SECTIONS:
+        if any(str(profile.get(f) or "").strip() for f in _SECTION_FIELDS[section]):
+            written += 1
+    return written, len(PLAYBOOK_SECTIONS)
+
+
+def _facet(label: str, items: list, variant: str) -> str:
+    """One read-only row of saved values. Empty facets are omitted entirely
+    rather than rendered as a label with nothing beside it."""
+    if not items:
+        return ""
+    return (
+        '<div class="tl-playbook-facet">'
+        f'<p class="tl-playbook-facet-label">{escape(label)}</p>'
+        f"{render_chip_row(items, {c: variant for c in items})}"
+        "</div>"
+    )
+
+
+def _render_profile_summary(profile: dict) -> None:
+    """The compact functional header: whose playbook, how complete, what
+    reads it, and the saved values worth scanning."""
+    done, total = _profile_completion(profile)
+    name = str(profile.get("name") or "").strip()
+    updated = (profile.get("updated_at") or "")[:10]
+
+    timeframes = parse_timeframes(profile)
+    parts = [
+        '<section class="tl-playbook">',
+        '<div class="tl-playbook-head">',
+        f'<p class="tl-playbook-name">{escape(name or "No playbook yet")}</p>',
+        render_badge("Active", "success") if name else "",
+        f'<p class="tl-playbook-meta">Updated {escape(updated)}</p>' if updated else "",
+        "</div>",
+        '<div class="tl-playbook-progress" aria-hidden="true">'
+        f'<span style="width:{round(done / total * 100)}%"></span></div>',
+        f'<p class="tl-playbook-count">{done} of {total} sections written</p>',
+        '<p class="tl-playbook-why">'
+        + (
+            "Reviews and grading fall back to generic reflection until you "
+            "describe how you trade."
+            if done < total
+            else "Every review and grade is read against these rules."
+        )
+        + "</p>",
+    ]
+
+    # Three facets, not five. Saved values earn a chip when scanning them is
+    # faster than reading the field — which is true of a set of instruments,
+    # not of a paragraph. "Setups I avoid" is deliberately absent: the only
+    # variant that would distinguish it is red, and red here means an error
+    # or a loss, never an ordinary choice the trader made on purpose.
+    facets = "".join(
+        (
+            _facet("Markets", parse_markets(profile), "primary"),
+            _facet(
+                "Timeframes",
+                [
+                    f"{label} {value}"
+                    for label, value in (
+                        ("Entry", timeframes.get("entry")),
+                        ("HTF", timeframes.get("htf")),
+                    )
+                    if value
+                ],
+                "neutral",
+            ),
+            _facet("Setups", parse_setups(profile), "primary"),
+        )
+    )
+    if facets:
+        parts.append(f'<div class="tl-playbook-facets">{facets}</div>')
+    parts.append("</section>")
+
+    st.markdown("".join(parts), unsafe_allow_html=True)
+
+
+# ── Load, summarize, offer a starting point ───────────────────────
 profile = get_active_strategy(uid) if uid is not None else None
 
 if st.session_state.pop("_strategy_saved", False):
-    st.toast("Strategy Profile saved — AI reviews will now use your rules.", icon="✅")
+    st.toast("Playbook saved — AI reviews will now use your rules.", icon="✅")
 
-# ── Active strategy banner (strategy_banner.png + overlay) ────────
-_banner_b64 = get_asset_as_base64("strategy_banner.png")
-_BANNER_STYLE = (
-    (
-        "background-image: linear-gradient(rgba(13,15,17,0.75), "
-        f"rgba(13,15,17,0.75)), url(data:image/png;base64,{_banner_b64}); "
-        "background-size: cover; background-position: center;"
-    )
-    if _banner_b64
-    else ""
-)
+_render_profile_summary(profile or {})
 
-if profile:
-    _updated = (profile.get("updated_at") or "")[:10] or "—"
-    _pname = escape(str(profile.get("name") or "—"))
-    st.markdown(
-        f'<div class="tl-ai-card" style="{_BANNER_STYLE}">'
-        '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
-        f'<span style="font-size:1.35rem;font-weight:600">{_pname}</span>'
-        f"{render_badge('Active', 'success')}"
-        '<span style="color:var(--tl-text-muted);font-size:0.85rem;'
-        f'margin-left:auto">Last updated: {escape(_updated)}</span>'
-        "</div></div>",
-        unsafe_allow_html=True,
-    )
-else:
-    st.markdown(
-        render_banner(
-            "No strategy profile yet. Fill this in to unlock "
-            "strategy-aware AI analysis.",
-            "info",
-        ),
-        unsafe_allow_html=True,
-    )
-
-# Primary CTA while empty; quiet secondary once a profile exists.
-if st.button(
-    "Use ICT/SMC Starter Template",
+# This writes immediately — it is a save, not a draft — so the label, the
+# help and the confirmation all say so. Copy that promises a review step
+# before anything is stored would be describing a different button.
+_starter_clicked = st.button(
+    "Apply the ICT/SMC starter playbook",
     key="strategy_starter",
     type="secondary" if profile else "primary",
     disabled=uid is None,
-):
-    upsert_strategy_profile(uid, **STARTER_TEMPLATE)
-    st.toast("Starter template loaded — review and save.", icon="✅")
-    st.rerun()
+    help=(
+        "Saves a complete starter playbook as your active profile; "
+        "review and customize it afterward."
+    ),
+)
+# The failure belongs beside the control that caused it, not at the foot of
+# a form the trader never touched.
+starter_error_slot = st.empty()
 
-st.markdown("---")
+if _starter_clicked:
+    if _write(_STARTER_ERROR_KEY, **STARTER_TEMPLATE):
+        st.toast("Starter playbook saved as your active profile.", icon="✅")
+        st.rerun()
 
-# Pre-fill form with existing values; chips preview the SAVED profile.
+if st.session_state.get(_STARTER_ERROR_KEY):
+    starter_error_slot.markdown(
+        error_box(str(st.session_state[_STARTER_ERROR_KEY])), unsafe_allow_html=True
+    )
+
 p = profile or {}
-_markets = parse_markets(p)
-_tf = parse_timeframes(p)
-_tf_chips = [
-    f"{label} {val}"
-    for label, val in (("Entry", _tf.get("entry")), ("HTF", _tf.get("htf")))
-    if val
-]
-_setups = parse_setups(p)
-_avoided = parse_list(p.get("setups_avoided"))
-_mistakes = parse_mistakes(p)
 
-
-def _chips(items: list, variant: str) -> None:
-    if items:
-        st.markdown(
-            render_chip_row(items, {c: variant for c in items}),
-            unsafe_allow_html=True,
-        )
-
-
-with st.form("strategy_form"):
-    st.markdown("### Identity")
+# ── The playbook form ─────────────────────────────────────────────
+# Identity is open because it is the one section that cannot be skipped;
+# every rule group is an accordion, so the page opens as six lines rather
+# than a wall of twelve fields.
+#
+# The keyed container is what scopes the accordion reveal. Streamlit gives
+# every st.expander the same testid, so an unscoped rule would animate the
+# Journal's filters, the wizard's screenshot panel, Settings and the auth
+# screen too — a page-load flicker on five pages that asked for none.
+# st.container(key=…) renders .st-key-tl_playbook_form around this form.
+with st.container(key="tl_playbook_form"), st.form("strategy_form"):
+    st.markdown(f"##### {PLAYBOOK_SECTIONS[0]}")
     col1, col2 = st.columns(2)
     with col1:
         name = st.text_input(
@@ -149,6 +272,9 @@ with st.form("strategy_form"):
             value=p.get("name") or "",
             placeholder="e.g. ICT OB Strategy",
         )
+        # Filled in the same run as the failed submit, so the message lands
+        # under the field it is about instead of floating over the page.
+        name_error_slot = st.empty()
     with col2:
         trading_style = st.text_input(
             "Trading Style",
@@ -163,121 +289,115 @@ with st.form("strategy_form"):
             value=p.get("markets") or "",
             placeholder="e.g. NQ, ES, BTCUSD, EURUSD",
         )
-        _chips(_markets, "primary")
     with col4:
         timeframes = st.text_input(
             "Timeframes",
             value=p.get("timeframes") or "",
             placeholder="e.g. 15m, 1H, 4H",
         )
-        _chips(_tf_chips, "neutral")
 
-    st.markdown("### Rules")
-    with st.expander("Entry Rules", expanded=True):
+    with st.expander(PLAYBOOK_SECTIONS[1]):
         entry_rules = st.text_area(
-            "Entry Rules",
+            "What has to be true before you enter",
             value=p.get("entry_rules") or "",
             height=100,
-            label_visibility="collapsed",
             placeholder="e.g. BOS + OB retest on 15m, CHoCH confirmation required",
         )
-    with st.expander("Stop Loss Rules"):
+
+    with st.expander(PLAYBOOK_SECTIONS[2]):
         stop_rules = st.text_area(
-            "Stop Loss Rules",
+            "Where the stop goes",
             value=p.get("stop_rules") or "",
             height=80,
-            label_visibility="collapsed",
             placeholder="e.g. Behind the OB wick, no more than 10 points away",
         )
-    with st.expander("Take Profit Rules"):
         take_profit_rules = st.text_area(
-            "Take Profit Rules",
+            "Where you take profit",
             value=p.get("take_profit_rules") or "",
             height=80,
-            label_visibility="collapsed",
             placeholder="e.g. Next opposing OB, 50% at 1:1 R, runner to 1:3",
         )
-    with st.expander("Risk Rules"):
+
+    with st.expander(PLAYBOOK_SECTIONS[3]):
         risk_rules = st.text_area(
-            "Risk Rules",
+            "How much you risk, and how often",
             value=p.get("risk_rules") or "",
             height=80,
-            label_visibility="collapsed",
             placeholder=(
-                "e.g. Max 1% per trade, max 2 trades per session, " "1:2 R:R minimum"
+                "e.g. Max 1% per trade, max 2 trades per session, 1:2 R:R minimum"
             ),
         )
 
-    st.markdown("### Setups & Filters")
-    with st.expander("Setups I Trade"):
+    with st.expander(PLAYBOOK_SECTIONS[4]):
         setups_traded = st.text_area(
-            "Setups I Trade",
+            "What you trade",
             value=p.get("setups_traded") or "",
             height=80,
-            label_visibility="collapsed",
             placeholder="e.g. OB retest, FVG fill, liquidity sweep + reversal",
         )
-        _chips(_setups, "primary")
-    with st.expander("Setups I Avoid"):
         setups_avoided = st.text_area(
-            "Setups I Avoid",
+            "What you skip",
             value=p.get("setups_avoided") or "",
             height=80,
-            label_visibility="collapsed",
             placeholder="e.g. Counter-trend, news events, choppy consolidation",
         )
-        _chips(_avoided, "danger")
-    with st.expander("News / Session Rules"):
         news_session_rules = st.text_input(
-            "News / Session Rules",
+            "When you stay out",
             value=p.get("news_session_rules") or "",
-            label_visibility="collapsed",
             placeholder=(
                 "e.g. No trades 30 min before/after high-impact news; NY AM only"
             ),
         )
 
-    st.markdown("### Self-Awareness")
-    with st.expander("Common Mistakes to Watch For"):
+    with st.expander(PLAYBOOK_SECTIONS[5]):
         common_mistakes = st.text_area(
-            "Common Mistakes to Watch For",
+            "What you want reviews to watch for",
             value=p.get("common_mistakes") or "",
             height=100,
-            label_visibility="collapsed",
             placeholder="e.g. Entering too early before confirmation, revenge trading",
         )
-        _chips(_mistakes, "warning")
 
-    submitted = st.form_submit_button(
-        "Save Strategy Profile", type="primary", width="stretch"
-    )
+    # Anchored at the end of the form it submits, at its own width. A
+    # stretched primary button reads as a banner, not an action.
+    submitted = st.form_submit_button("Save playbook", type="primary")
+    save_error_slot = st.empty()
 
 if submitted:
     if uid is None:
-        st.toast(
-            "A database-backed account is required to save a strategy profile.",
-            icon="❌",
+        st.session_state[_SAVE_ERROR_KEY] = (
+            "A database-backed account is required to save a playbook."
         )
     elif not name.strip():
-        st.toast("Strategy Name is required.", icon="❌")
+        st.session_state[_NAME_ERROR_KEY] = True
+        st.session_state.pop(_SAVE_ERROR_KEY, None)
     else:
-        try:
-            upsert_strategy_profile(
-                uid,
-                name=name.strip(),
-                trading_style=trading_style.strip() or None,
-                markets=markets.strip() or None,
-                timeframes=timeframes.strip() or None,
-                entry_rules=entry_rules.strip() or None,
-                stop_rules=stop_rules.strip() or None,
-                take_profit_rules=take_profit_rules.strip() or None,
-                risk_rules=risk_rules.strip() or None,
-                setups_traded=setups_traded.strip() or None,
-                setups_avoided=setups_avoided.strip() or None,
-                news_session_rules=news_session_rules.strip() or None,
-                common_mistakes=common_mistakes.strip() or None,
-            )
+        st.session_state.pop(_NAME_ERROR_KEY, None)
+        if _write(
+            _SAVE_ERROR_KEY,
+            name=name.strip(),
+            trading_style=trading_style.strip() or None,
+            markets=markets.strip() or None,
+            timeframes=timeframes.strip() or None,
+            entry_rules=entry_rules.strip() or None,
+            stop_rules=stop_rules.strip() or None,
+            take_profit_rules=take_profit_rules.strip() or None,
+            risk_rules=risk_rules.strip() or None,
+            setups_traded=setups_traded.strip() or None,
+            setups_avoided=setups_avoided.strip() or None,
+            news_session_rules=news_session_rules.strip() or None,
+            common_mistakes=common_mistakes.strip() or None,
+        ):
             st.session_state["_strategy_saved"] = True
             st.rerun()
-        except Exception as exc:  # noqa: BLE001 — surface, never crash the form
-            st.toast(f"Failed to save strategy profile: {exc}", icon="❌")
+
+# Both messages are state, so they survive the rerun a toast would not.
+if st.session_state.get(_NAME_ERROR_KEY):
+    name_error_slot.markdown(
+        '<p class="tl-field-error" role="alert">Strategy name is required — '
+        "it is how reviews refer to this playbook.</p>",
+        unsafe_allow_html=True,
+    )
+if st.session_state.get(_SAVE_ERROR_KEY):
+    save_error_slot.markdown(
+        error_box(str(st.session_state[_SAVE_ERROR_KEY])), unsafe_allow_html=True
+    )

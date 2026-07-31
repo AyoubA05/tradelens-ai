@@ -1,3 +1,5 @@
+from __future__ import annotations  # PEP 604 unions on the pinned Python 3.9
+
 import sys
 from pathlib import Path
 
@@ -16,6 +18,7 @@ Path(__file__).resolve().parents[3].joinpath("data", "screenshots").mkdir(
 )
 
 import datetime  # noqa: E402
+import math  # noqa: E402
 from html import escape  # noqa: E402
 
 import pandas as pd  # noqa: E402
@@ -45,10 +48,14 @@ from src.tradelens.ui.components.auth import (  # noqa: E402
 )
 from src.tradelens.ui.components.charts import equity_curve_chart  # noqa: E402
 from src.tradelens.ui.components.data_state import (  # noqa: E402
+    leading_category,
     render_data_state,
     sample_state,
 )
-from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
+from src.tradelens.ui.components.sidebar import (  # noqa: E402
+    render_sidebar,
+    route_href,
+)
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.trade_calendar import (  # noqa: E402
     render_trade_calendar,
@@ -62,11 +69,17 @@ from src.tradelens.ui.design_system import (  # noqa: E402
     get_asset_as_base64,
     inject_design_system,
     render_badge,
-    render_banner,
     render_empty_state,
-    render_kpi_card,
     render_next_step,
     render_section_header,
+)
+from src.tradelens.ui.components.workspace import (  # noqa: E402
+    EvidenceItem,
+    MetricItem,
+    render_editorial_readout,
+    render_filter_summary,
+    render_kpi_strip,
+    render_workspace_header,
 )
 
 # Streamlit's page_link needs the file path; the slug is the fallback for
@@ -125,6 +138,147 @@ def _load_df() -> pd.DataFrame:
 _RESULT_VARIANT = {"Win": "success", "Loss": "danger"}  # else neutral (BE)
 
 
+def _money(value) -> str:
+    """Signed currency, or N/A. Never '--', never a bare 0 for missing."""
+    if value is None or pd.isna(value):
+        return "N/A"
+    value = float(value)
+    return f"{'-' if value < 0 else ''}${abs(value):,.2f}"
+
+
+def _tone(value) -> str:
+    """Semantic tone for a signed figure. Zero is neutral, not positive."""
+    if value is None or pd.isna(value):
+        return "neutral"
+    value = float(value)
+    return "positive" if value > 0 else "negative" if value < 0 else "neutral"
+
+
+def _overview_metrics(df: pd.DataFrame) -> list:
+    """The five headline measures of the ruled strip.
+
+    One measurement across a period, so they share a strip rather than six
+    boxes. Values arrive pre-formatted — the strip renders, it never rounds.
+    """
+    metrics = compute_basic_metrics(df)
+    expectancy = compute_expectancy(metrics)
+    profit_factor = compute_profit_factor_raw(df)
+    if metrics["total_trades"] == 0 or (
+        profit_factor == 0.0 and metrics["total_pnl"] == 0.0
+    ):
+        # 0/0 (no trades, or breakeven-only) is undefined — "N/A", not "0.0x".
+        profit_factor = None
+
+    if profit_factor is None:
+        pf_text = "N/A"
+    elif math.isinf(profit_factor):
+        pf_text = "∞"
+    else:
+        pf_text = f"{profit_factor:.1f}x"
+
+    wins = int(round(metrics["win_rate"] * metrics["total_trades"]))
+    return [
+        MetricItem(
+            "Net P&L",
+            _money(metrics["total_pnl"]),
+            detail=f"{metrics['total_trades']} trades",
+            tone=_tone(metrics["total_pnl"]),
+        ),
+        MetricItem(
+            "Win rate",
+            f"{metrics['win_rate'] * 100:.1f}%",
+            detail=f"{wins} of {metrics['total_trades']}",
+        ),
+        MetricItem("Expectancy", _money(expectancy), tone=_tone(expectancy)),
+        MetricItem("Profit factor", pf_text),
+        MetricItem("Trades", f"{metrics['total_trades']:,}"),
+    ]
+
+
+def _overview_observation(df: pd.DataFrame) -> tuple | None:
+    """One editorial reading of the period, or None when nothing is earned.
+
+    The decision of what is true lives in ``data_state.leading_category``;
+    this is only the wording. Grounded in figures already on the page —
+    which session carried the period's P&L, over how many trades. It
+    describes what the journal recorded and never suggests what to take next.
+    """
+    leader = leading_category(df, "killzone")
+    if leader is None:
+        return None
+
+    label = KILLZONE_LABELS.get(leader.key, leader.key.replace("_", " ").title())
+    plural = "trade" if leader.count == 1 else "trades"
+
+    if leader.overall_total > 0 and leader.share >= 0.5:
+        body = (
+            f"{label} carried most of this period's result: "
+            f"{_money(leader.total)} of {_money(leader.overall_total)} net, "
+            f"across {leader.count} {plural}."
+        )
+    else:
+        body = (
+            f"{label} recorded the strongest net result this period at "
+            f"{_money(leader.total)}, across {leader.count} {plural}."
+        )
+
+    return (
+        "What this period recorded",
+        body,
+        EvidenceItem(
+            evidence=f"{label} · {_money(leader.total)} net",
+            sample=f"n={leader.count} of {len(df)}",
+            confidence=(
+                "high"
+                if leader.count >= 12
+                else "medium" if leader.count >= 6 else "low"
+            ),
+            limitation=(
+                "Only one session is represented, so there is nothing to "
+                "compare it against."
+                if leader.is_only_category
+                else None
+            ),
+        ),
+    )
+
+
+def _render_today_brief(df: pd.DataFrame) -> None:
+    """Where the trader stands right now.
+
+    Today's and this week's P&L left the headline strip — they answer a
+    different question from "how is my process doing", and mixing the two
+    is what made the old six-card row read as noise.
+    """
+    today = today_pnl(df)
+    week = current_week_pnl(df)
+    st.markdown(
+        render_kpi_strip(
+            [
+                MetricItem("Today", _money(today), tone=_tone(today)),
+                MetricItem("This week", _money(week), tone=_tone(week)),
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def _render_recent_trades(recent: pd.DataFrame) -> None:
+    """The last ten trades as a quiet ledger."""
+    if recent.empty:
+        st.markdown(
+            render_empty_state(
+                "📓",
+                "No trades to show",
+                "Your latest trades will appear here.",
+                image_path="empty_trades.png",
+            ),
+            unsafe_allow_html=True,
+        )
+        return
+    st.markdown(_recent_table(recent), unsafe_allow_html=True)
+
+
 def _recent_table(recent: pd.DataFrame) -> str:
     """Pure HTML for the Recent Trades table (rendering only, all text escaped)."""
     head = (
@@ -174,35 +328,40 @@ if df.empty and is_demo():
 
 render_sidebar()
 
-# ── Header: title + active-strategy badge + subtitle ──────────────
+# ── Page masthead: what this is, whose rules, and over what period ─
 _strategy = get_active_strategy(uid) if uid is not None else None
-_strategy_badge = (
-    render_badge(_strategy["name"], "primary")
-    if _strategy and _strategy.get("name")
-    else ""
-)
+_strategy_name = (_strategy or {}).get("name")
+_sample_active = count_sample_trades(uid) > 0
+
+# Demo state is labelled ONCE, in the masthead eyebrow, instead of repeating
+# as a full-width banner above the numbers it describes (spec 11.1).
+_eyebrow_bits = []
+if _sample_active:
+    _eyebrow_bits.append("Sample data")
+if _strategy_name:
+    _eyebrow_bits.append(_strategy_name)
+_eyebrow = " · ".join(_eyebrow_bits) or None
+
+_dates = df["trade_date"].dropna().astype(str) if not df.empty else pd.Series(dtype=str)
+_range = f"{_dates.min()} → {_dates.max()}" if not _dates.empty else None
+
 st.markdown(
-    '<div class="tl-section-header">'
-    '<div class="tl-chip-row">'
-    '<span class="tl-section-title">Dashboard</span>'
-    f"{_strategy_badge}"
-    "</div>"
-    '<div class="tl-section-subtitle">'
-    "Your trading performance at a glance</div>"
-    "</div>",
+    render_workspace_header(
+        "Overview",
+        "Where the week stands, and what deserves review next.",
+        eyebrow=_eyebrow,
+        meta=_range,
+    ),
     unsafe_allow_html=True,
 )
-
-if count_sample_trades(uid) > 0:
-    st.markdown(
-        render_banner("Demo data active — these are sample trades.", "info"),
-        unsafe_allow_html=True,
-    )
 
 # ── Empty state (0 trades): full-page welcome ─────────────────────
 if df.empty:
     _welcome_b64 = get_asset_as_base64("welcome.png")
     _cta_b64 = get_asset_as_base64("cta_log_trade.png")
+    _auth_token = st.query_params.get("auth")
+    _new_trade_href = escape(route_href("/NewTrade", _auth_token), quote=True)
+    _settings_href = escape(route_href("/Settings", _auth_token), quote=True)
     _parts = ['<div class="tl-empty-state tl-welcome">']
     if _welcome_b64:
         _parts.append(
@@ -217,59 +376,36 @@ if df.empty:
             f'src="data:image/png;base64,{_cta_b64}" />'
         )
     _parts.append(
-        '<a class="tl-empty-action" href="/NewTrade" target="_self">'
+        f'<a class="tl-empty-action" href="{_new_trade_href}" target="_self">'
         "Log Your First Trade →</a><br/>"
-        '<a class="tl-empty-action" href="/Settings" target="_self">'
+        f'<a class="tl-empty-action" href="{_settings_href}" target="_self">'
         "Load sample trades</a>"
     )
     _parts.append("</div>")
     st.markdown("".join(_parts), unsafe_allow_html=True)
     st.stop()
 
-# ── Asset filter (Item 12) — scopes every stat and chart below ────
-# Options come from the trader's actual history, never a static list.
+# ── Asset filter — compact, and scoping every figure below ────────
+# Options come from the trader's actual history, never a static list. The
+# control stays available but collapses into a summary line once used, so
+# it does not read as a second panel above the numbers.
 _traded_assets = sorted({str(a) for a in df["asset"].dropna() if str(a).strip()})
-_fcol, _ = st.columns([1, 3])
-asset_choice = _fcol.selectbox(
-    "Asset filter", ["All assets", *_traded_assets], key="dash_asset"
-)
+with st.expander("Filter", expanded=False):
+    asset_choice = st.selectbox(
+        "Asset", ["All assets", *_traded_assets], key="dash_asset"
+    )
 if asset_choice != "All assets":
     df = df[df["asset"].astype(str) == asset_choice].reset_index(drop=True)
 
-m = compute_basic_metrics(df)
-t_pnl = today_pnl(df)
-w_pnl = current_week_pnl(df)
-exp = compute_expectancy(m)
-pf_raw = compute_profit_factor_raw(df)  # inf → "∞" via ratio format
-if m["total_trades"] == 0 or (pf_raw == 0.0 and m["total_pnl"] == 0.0):
-    # 0/0 (no trades or breakeven-only) is undefined — "N/A", not "0.0x".
-    pf_raw = None
-
-# ── Row 1: KPI hero row (hero_bg + 0.65 overlay, 6 cards) ─────────
-# One HTML flex row instead of st.columns(6): the hero background must
-# wrap all six cards, and st.columns children can't share a styled div.
-_hero_b64 = get_asset_as_base64("hero_bg.png")
-_hero_style = (
-    "background-image: linear-gradient(rgba(13,15,17,0.65), "
-    f"rgba(13,15,17,0.65)), url(data:image/png;base64,{_hero_b64});"
-    if _hero_b64
-    else ""
-)
-_kpi_cards = "".join(
-    [
-        render_kpi_card("Today's P&L", t_pnl),
-        render_kpi_card("This Week's P&L", w_pnl),
-        render_kpi_card("Win Rate", m["win_rate"] * 100, format="percent"),
-        render_kpi_card("Total Trades", m["total_trades"], format="number"),
-        render_kpi_card("Profit Factor", pf_raw, format="ratio"),
-        render_kpi_card("Expectancy", exp),
-    ]
-)
 st.markdown(
-    f'<div class="tl-hero-wrap" style="{_hero_style}">'
-    f'<div class="tl-kpi-row">{_kpi_cards}</div></div>',
+    render_filter_summary(
+        [("Asset", asset_choice)] if asset_choice != "All assets" else []
+    ),
     unsafe_allow_html=True,
 )
+
+# ── One ruled KPI strip — not six separate cards ──────────────────
+st.markdown(render_kpi_strip(_overview_metrics(df)), unsafe_allow_html=True)
 
 # ── Next step, while the trader is still getting to first value ───
 # One action, not a checklist, and only until they've had a real review.
@@ -302,89 +438,90 @@ if uid is not None:
                 unsafe_allow_html=True,
             )
 
-# ── Trading calendar (Item 12) — month view below the KPIs ────────
-st.markdown(render_section_header("Trading Calendar"), unsafe_allow_html=True)
-render_trade_calendar(df)
-
-
-# ── Row 2: Equity curve (full width) ──────────────────────────────
-st.markdown(render_section_header("Equity Curve"), unsafe_allow_html=True)
-eq = daily_equity_curve(df)
+# ── The composed panel: standing on the left, trajectory on the right
+# Two columns, deliberately unequal. The chart is the dominant instrument;
+# the brief and calendar are the context you read it against.
 _state = sample_state(df)
-if not _state.show_series:
-    # A "curve" through one dated point is a dot on an axis — the chart
-    # canvas would imply a trend the sample cannot support.
-    render_data_state(
-        "Add one more dated trade",
-        "Two trading dates are needed to draw a meaningful curve.",
-        "📈",
-    )
-elif not eq.empty:
-    fig = equity_curve_chart(eq)
-    # Colors/grid/fonts come from the shared template (plotly default);
-    # only size and margins are page-specific.
-    fig.update_layout(
-        template=PLOTLY_TEMPLATE,
-        height=320,
-        margin=dict(l=8, r=8, t=8, b=8),
-    )
-    # Hover: date, cumulative P&L, and how many trades that day.
-    _day_counts = df.groupby("trade_date").size()
-    fig.update_traces(
-        customdata=eq["trade_date"].map(_day_counts).fillna(0).astype(int),
-        hovertemplate=(
-            "%{x}<br>Cumulative P&L: $%{y:,.2f}"
-            "<br>Trades: %{customdata}<extra></extra>"
-        ),
-    )
-    with st.container(border=True):
-        # plotly_chart has no width= on streamlit 1.50 — use_container_width
-        # stays here until the pin bumps (unlike buttons/images/dataframes).
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-else:
-    st.markdown(
-        render_empty_state(
-            "📈", "No equity data yet", "Log trades to build your equity curve."
-        ),
-        unsafe_allow_html=True,
-    )
+_brief_col, _chart_col = st.columns([1, 1.6], gap="large")
+
+with _brief_col:
+    # "Where you stand", not "Today": the cells below are already labelled
+    # TODAY and THIS WEEK, and a heading that repeats its own first cell is
+    # chrome, not structure.
+    st.markdown(render_section_header("Where you stand"), unsafe_allow_html=True)
+    _render_today_brief(df)
+    st.markdown(render_section_header("Trading days"), unsafe_allow_html=True)
+    render_trade_calendar(df, compact=True)
+    st.page_link("pages/2_Trades.py", label="Open the full journal →")
+
+with _chart_col:
+    st.markdown(render_section_header("Equity curve"), unsafe_allow_html=True)
+    eq = daily_equity_curve(df)
+    if not _state.show_dominant_series:
+        # Below four dated points there is no shape to read, and a dominant
+        # chart drawn through two dots claims a trend the sample has not
+        # earned. State the standing instead, and say what unlocks the curve.
+        _needed = max(0, 4 - _state.dated_points)
+        render_data_state(
+            "Not enough dated trades for a curve",
+            f"{_needed} more trading "
+            f"{'day' if _needed == 1 else 'days'} will unlock the equity curve. "
+            "The figures above already reflect every trade logged.",
+            "📈",
+        )
+    elif not eq.empty:
+        fig = equity_curve_chart(eq)
+        # Colors/grid/fonts come from the shared template (plotly default);
+        # only size and margins are page-specific.
+        fig.update_layout(
+            template=PLOTLY_TEMPLATE,
+            height=360,
+            margin=dict(l=8, r=8, t=8, b=8),
+        )
+        # Hover: date, cumulative P&L, and how many trades that day.
+        _day_counts = df.groupby("trade_date").size()
+        fig.update_traces(
+            customdata=eq["trade_date"].map(_day_counts).fillna(0).astype(int),
+            hovertemplate=(
+                "%{x}<br>Cumulative P&L: $%{y:,.2f}"
+                "<br>Trades: %{customdata}<extra></extra>"
+            ),
+        )
+        with st.container(border=True):
+            # plotly_chart has no width= on streamlit 1.50 — use_container_width
+            # stays here until the pin bumps (unlike buttons/images/dataframes).
+            # theme=None keeps the TradeLens template's dark chart stage; the
+            # default theme="streamlit" repaints the figure in the app's own
+            # (now light) theme, which put bright teal marks on near-white.
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+                theme=None,
+                config={"displayModeBar": False},
+            )
+    else:
+        st.markdown(
+            render_empty_state(
+                "📈", "No equity data yet", "Log trades to build your equity curve."
+            ),
+            unsafe_allow_html=True,
+        )
+
+    # One editorial reading of the period, with its own evidence.
+    _observation = _overview_observation(df)
+    if _observation:
+        _title, _body, _evidence = _observation
+        st.markdown(
+            render_editorial_readout(_title, _body, _evidence),
+            unsafe_allow_html=True,
+        )
 
 
-# ── Row 3: Recent trades (last 10) ────────────────────────────────
-_rt_head, _rt_link = st.columns([5, 1])
-_rt_head.markdown(render_section_header("Recent Trades"), unsafe_allow_html=True)
-_rt_link.page_link("pages/2_Trades.py", label="View All →")
-recent = get_last_n_trades(df, 10)
-if recent.empty:
-    st.markdown(
-        render_empty_state(
-            "📓",
-            "No trades to show",
-            "Your latest trades will appear here.",
-            image_path="empty_trades.png",
-        ),
-        unsafe_allow_html=True,
-    )
-else:
-    st.markdown(_recent_table(recent), unsafe_allow_html=True)
-
-
-# ── Row 4: Quick actions ──────────────────────────────────────────
-st.markdown(render_section_header("Quick Actions"), unsafe_allow_html=True)
-_ACTIONS = [
-    ("📝", "Log Trade", "Capture today's execution while it's fresh", "/NewTrade"),
-    ("📖", "Open Journal", "Revisit and reflect on past trades", "/Trades"),
-    ("📊", "View Analytics", "Study your performance by setup", "/Analytics"),
-]
-# Inner elements are spans (styled display:block) — block tags inside an
-# inline <a> get re-parsed by the markdown renderer and break the card.
-for _col, (_icon, _title, _sub, _href) in zip(st.columns(3), _ACTIONS):
-    _col.markdown(
-        f'<a class="tl-action-link" href="{_href}" target="_self">'
-        '<span class="tl-action-card">'
-        f'<span class="tl-action-title">{_icon} {escape(_title)}</span>'
-        f'<span class="tl-action-sub">{escape(_sub)}</span>'
-        '<span class="tl-action-go">Go →</span>'
-        "</span></a>",
-        unsafe_allow_html=True,
-    )
+# ── Recent trades — a quiet ledger beneath the primary panel ──────
+# bottom alignment: the section header carries a top margin the bare link
+# does not, so a default top-aligned row leaves the link floating above the
+# heading it belongs to.
+_rt_head, _rt_link = st.columns([5, 1], vertical_alignment="bottom")
+_rt_head.markdown(render_section_header("Recent trades"), unsafe_allow_html=True)
+_rt_link.page_link("pages/2_Trades.py", label="View all →")
+_render_recent_trades(get_last_n_trades(df, 10))

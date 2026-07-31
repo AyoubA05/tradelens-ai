@@ -25,6 +25,13 @@ _MIN_COMPARISON_TRADES = 2
 _MIN_CATEGORIES = 2
 _MIN_PATTERN_TRADES = 5
 
+# A *dominant* instrument makes a stronger claim than a chart tucked into an
+# analytics grid: it is the largest thing on the page, so it reads as the
+# headline finding. Two points can honestly draw a line, but giving that line
+# half the Overview states a trend the sample has not earned. Four points is
+# where a shape starts to exist (spec 11.1).
+_MIN_DOMINANT_POINTS = 4
+
 
 @dataclass(frozen=True)
 class SampleState:
@@ -34,6 +41,7 @@ class SampleState:
     dated_points: int
     show_summary: bool
     show_series: bool
+    show_dominant_series: bool
     show_comparisons: bool
     show_patterns: bool
 
@@ -54,8 +62,96 @@ def sample_state(df: pd.DataFrame | None) -> SampleState:
         dated_points=dated,
         show_summary=trades >= 1,
         show_series=trades >= _MIN_SERIES_POINTS and dated >= _MIN_SERIES_POINTS,
+        show_dominant_series=(
+            trades >= _MIN_DOMINANT_POINTS and dated >= _MIN_DOMINANT_POINTS
+        ),
         show_comparisons=trades >= _MIN_COMPARISON_TRADES,
         show_patterns=trades >= _MIN_PATTERN_TRADES,
+    )
+
+
+@dataclass(frozen=True)
+class LeadingCategory:
+    """The category carrying the most of some value, with its own context.
+
+    Deliberately copy-free: this decides *what is true* about a sample, and
+    the calling surface decides how to say it. Returning the share and the
+    category count is what lets a caller state a limitation honestly rather
+    than presenting one session as if it had been compared against others.
+    """
+
+    key: str
+    total: float
+    count: int
+    overall_total: float
+    categories: int
+
+    @property
+    def share(self) -> float:
+        """Fraction of the overall total this category carried (0.0 when the
+        overall total is zero — a share of nothing is not a majority)."""
+        if not self.overall_total:
+            return 0.0
+        return self.total / self.overall_total
+
+    @property
+    def is_only_category(self) -> bool:
+        return self.categories <= 1
+
+
+def leading_category(
+    df: pd.DataFrame | None,
+    column: str,
+    value_column: str = "pnl",
+) -> LeadingCategory | None:
+    """The category with the highest summed value, or None when unearned.
+
+    Returns None below the pattern threshold: naming a "leading" session out
+    of three trades describes noise, and doing it in an editorial voice is
+    how an interface starts overstating what the journal knows.
+    """
+    state = sample_state(df)
+    if not state.show_patterns:
+        return None
+    if df is None or column not in df.columns or value_column not in df.columns:
+        return None
+
+    scoped = df[df[column].notna() & (df[column].astype(str).str.strip() != "")]
+    scoped = scoped[scoped[value_column].notna()]
+    if scoped.empty:
+        return None
+
+    grouped = scoped.groupby(scoped[column].astype(str))[value_column].agg(
+        ["sum", "count"]
+    )
+    if grouped.empty:
+        return None
+
+    key = str(grouped["sum"].idxmax())
+    return LeadingCategory(
+        key=key,
+        total=float(grouped.loc[key, "sum"]),
+        count=int(grouped.loc[key, "count"]),
+        overall_total=float(grouped["sum"].sum()),
+        categories=int(len(grouped)),
+    )
+
+
+def has_variation(values, minimum_distinct: int = 2) -> bool:
+    """True when a column actually varies enough to plot over time.
+
+    A "risk per trade" line through one repeated value is a flat rule drawn
+    at full height, which reads as a finding about behaviour rather than as
+    the constant it is. Same idea as ``enough_categories``, for a numeric
+    series rather than a breakdown.
+    """
+    if values is None:
+        return False
+    series = pd.Series(values)
+    if series.empty:
+        return False
+    return int(pd.to_numeric(series, errors="coerce").dropna().nunique()) >= (
+        minimum_distinct
     )
 
 

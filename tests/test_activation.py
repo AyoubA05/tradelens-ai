@@ -139,5 +139,13 @@ def test_dashboard_card_is_hidden_once_activated():
 
 
 def test_insights_does_not_auto_generate_below_the_threshold():
+    """Below the threshold the page must show what would unlock a recap and
+    return, rather than spending an API call on a sample that cannot say
+    anything true. (The counter moved inside the Weekly lens; the gate and
+    its early return are what matter.)"""
     src = (_UI / "pages" / "6_Insights.py").read_text(encoding="utf-8")
-    assert "_complete_trades < TRADES_FOR_REVIEW" in src
+    assert "complete < TRADES_FOR_REVIEW" in src
+    gate = src[src.index("complete < TRADES_FOR_REVIEW") :]
+    gate = gate[: gate.index("_auto_run_weekly(monday, uid)")]
+    assert "render_empty_state(" in gate
+    assert "return" in gate, "the gate must stop before the AI call"

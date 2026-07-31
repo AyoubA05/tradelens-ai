@@ -43,9 +43,69 @@ from typing import Optional
 import plotly.graph_objects as go
 import plotly.io as pio
 
+from src.tradelens.ui.components.workspace import (
+    render_section_header as _render_section_header,
+)
+
 # =========================================================================
-# COLOR TOKENS (authoritative — PRODUCT.md palette)
+# COLOR TOKENS — the fixed hybrid theme
 # =========================================================================
+# The signed-in product runs ONE theme with two surface families. There is
+# no toggle; a view is light or dark because of what it does, not because
+# of a preference:
+#
+#   LIGHT WORKSPACE  reading, forms, tables, decisions  (canvas / paper)
+#   DARK INSTRUMENTS navigation rail, charts, focused AI reading surfaces
+#
+# Each family needs its own semantic ramp. Deep teal #087F74 is legible on
+# white and invisible on the rail; bright teal #00E5CC is the reverse. So
+# the two families are named separately rather than one being redefined —
+# charts.py reads TL_SUCCESS/TL_DANGER/TL_WARNING for marks drawn on the
+# dark stage, and repointing those at the light forms would put dark green
+# on near-black. Every pair below is contrast-tested in
+# tests/test_design_system.py, not asserted from the specification.
+# -------------------------------------------------------------------------
+# LIGHT WORKSPACE
+# -------------------------------------------------------------------------
+TL_CANVAS = "#F3F6F6"  # mineral workspace background
+TL_PAPER = "#FFFFFF"  # forms, tables, readable content
+TL_MIST = "#E9EFEF"  # selected rows, filter wells, grouping
+TL_INK = "#132125"  # primary text on light surfaces      15.19:1 on canvas
+TL_MUTED = "#5B6A70"  # secondary text on light surfaces    5.17:1 on canvas
+TL_HAIRLINE = "#D9E2E2"  # structural rules and panel borders
+# The specification proposed #087F74. Measured as text on the mineral canvas
+# it is 4.496:1 — under the 4.5:1 AA floor by four thousandths. Darkened one
+# step so the action reads as a link on canvas as well as a button fill.
+TL_ACTION = "#087C71"  # THE primary action on light surfaces
+TL_ACTION_HOVER = "#066A61"  # darker, so white label keeps its ratio
+# Semantic ramp for light surfaces. Darker than the instrument ramp because
+# these sit on white and mineral, not on near-black.
+TL_SUCCESS_INK = "#167A47"  # 4.94:1 on canvas
+TL_DANGER_INK = "#B53A43"  # 5.29:1 on canvas
+# The specification proposed #A76500; measured 4.29:1 on the mineral canvas,
+# below the 4.5:1 AA floor for normal text. Darkened one step to clear it.
+TL_WARNING_INK = "#9C5F00"  # 4.77:1 on canvas
+# Quiet grounds, not text colors. A 10% tint of a hue darkens the surface
+# toward that hue's own ink, so semantic-text-on-its-own-tint measures
+# 4.1-4.9:1 and cannot be rescued by adjusting the tint — the pattern is
+# what fails. The rule instead: semantic hue MARKS and NUMBERS, and never
+# tints the text sitting on it. Ink on any wash measures 13-14:1, and the
+# hue survives as a dot that clears the 3:1 non-text threshold.
+TL_SUCCESS_WASH = "rgba(22,122,71,0.10)"
+TL_DANGER_WASH = "rgba(181,58,67,0.10)"
+TL_WARNING_WASH = "rgba(156,95,0,0.10)"
+TL_ACTION_WASH = "rgba(8,124,113,0.10)"
+
+# -------------------------------------------------------------------------
+# DARK INSTRUMENTS
+# -------------------------------------------------------------------------
+TL_RAIL = "#0F171B"  # navigation rail
+TL_CHART_STAGE = "#101A1E"  # chart frames and focused AI reading surfaces
+TL_FOCUS = "#00E5CC"  # active marks on dark surfaces (== TL_PRIMARY)
+
+# -------------------------------------------------------------------------
+# DARK INSTRUMENT RAMP (pre-redesign palette, values unchanged)
+# -------------------------------------------------------------------------
 TL_BG = "#0d1117"
 TL_SURFACE = "#161b22"
 TL_SURFACE_2 = "#1c232b"
@@ -73,14 +133,15 @@ TL_WARNING_DIM = "rgba(245,158,11,0.12)"
 TL_NEUTRAL = "#374151"
 TL_NEUTRAL_DIM = "rgba(55,65,81,0.3)"
 
-# Grade scale (A → F): success green through amber to danger red. The two
-# intermediate steps are the same Tailwind-500 family as the semantic
-# tokens above (lime-500, orange-500), so the ramp reads as one system.
-TL_GRADE_A = TL_SUCCESS
-TL_GRADE_B = "#84cc16"
-TL_GRADE_C = TL_WARNING
-TL_GRADE_D = "#f97316"
-TL_GRADE_F = TL_DANGER
+# Grade scale (A → F): success green through amber to danger red. Grade
+# chips are read on PAPER — in the ledger and in trade detail — so the ramp
+# follows the light-workspace semantics. The two intermediate steps are the
+# matching darker lime and orange, so the ramp still reads as one system.
+TL_GRADE_A = TL_SUCCESS_INK
+TL_GRADE_B = "#4D7C0F"
+TL_GRADE_C = TL_WARNING_INK
+TL_GRADE_D = "#B45309"
+TL_GRADE_F = TL_DANGER_INK
 
 # =========================================================================
 # TYPOGRAPHY TOKENS
@@ -89,9 +150,36 @@ TL_GRADE_F = TL_DANGER
 # brand — Satoshi body, Schibsted Grotesk headings, JetBrains Mono numerals.
 # Satoshi is Fontshare-hosted (400/500/700 only — no 600); the rest are
 # Google. URLs mirror theme.py exactly so the browser fetches each once.
-TL_FONT_MONO = "'JetBrains Mono', 'Fira Code', monospace"
-TL_FONT_BODY = "'Satoshi', -apple-system, sans-serif"
-TL_FONT_HEADING = "'Schibsted Grotesk', 'Satoshi', sans-serif"
+# Three roles, three faces. Schibsted sets titles only, so it stays an event
+# rather than a texture; Satoshi carries everything read as language; mono
+# carries everything read as a quantity, where tabular figures stop columns
+# from shifting. Fallbacks are system faces — Inter is retired (spec 16
+# rejects generic Inter typography) and no new font dependency is added.
+TL_FONT_MONO = "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace"
+TL_FONT_BODY = "'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+TL_FONT_HEADING = "'Schibsted Grotesk', 'Avenir Next', 'Satoshi', sans-serif"
+# Role aliases used by the redesigned surfaces.
+TL_FONT_DISPLAY = TL_FONT_HEADING
+TL_FONT_UI = TL_FONT_BODY
+
+# =========================================================================
+# STRUCTURE TOKENS
+# =========================================================================
+# Two rule weights, deliberately. The hairline divides things that belong
+# together (table rows, KPI cells); the rule marks an aside that comments on
+# something else. The Evidence Rail uses the second — at hairline weight the
+# signature disappears, at ink weight it competes with the data.
+TL_RULE = "#AFBEC0"
+
+# =========================================================================
+# MOTION TOKENS (defined here; applied only after the static pass)
+# =========================================================================
+# Built-in CSS easings are too weak to read as intentional. These are the
+# strong variants; durations stay under the 300ms ceiling so no interaction
+# ever waits on an animation.
+TL_EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)"
+TL_EASE_IN_OUT = "cubic-bezier(0.77, 0, 0.175, 1)"
+TL_EASE_DRAWER = "cubic-bezier(0.32, 0.72, 0, 1)"
 
 _FONT_IMPORT = (
     "https://fonts.googleapis.com/css2?"
@@ -108,33 +196,50 @@ ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 # =========================================================================
 # PLOTLY TEMPLATE (single source of truth for chart theming)
 # =========================================================================
-# Transparent backgrounds so charts sit on whatever surface frames them
-# (page background or a bordered container). Registered as the plotly
-# default below, so every figure inherits this styling even when a call
-# site forgets to pass `template=`.
+# Charts are DARK INSTRUMENTS inside the light workspace (spec 7/11.4), so
+# the figure paints its own stage rather than inheriting whatever surface
+# frames it. This is what makes a chart legible on the light canvas without
+# darkening the page around it, and it keeps the bright semantic ramp —
+# which needs a dark ground — as the mark colours.
+#
+# The stage is set here, on the template, because design_system.py is the
+# single source of truth for chart theming. Task 6 may centralise a
+# `apply_chart_stage` wrapper and the framing radius/padding on top of it;
+# the colour contract lives here either way.
 PLOTLY_TEMPLATE = go.layout.Template(
     layout=go.Layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor=TL_CHART_STAGE,
+        plot_bgcolor=TL_CHART_STAGE,
         font=dict(family=TL_FONT_BODY, color=TL_TEXT, size=12),
         title=dict(font=dict(size=14, color=TL_TEXT), x=0.0, xanchor="left"),
+        # Six marks that stay separable on the stage. The sixth was
+        # TL_NEUTRAL, a near-black surface grey that measures 1.71:1 here —
+        # it was a background token doing duty as a data colour. TL_TEXT is
+        # the light end of the neutral ramp and reads clearly against the
+        # mid grey already at position four.
         colorway=[
             TL_PRIMARY,
             TL_WARNING,
             TL_SUCCESS,
             TL_TEXT_MUTED,
             TL_DANGER,
-            TL_NEUTRAL,
+            TL_TEXT,
         ],
+        # automargin: once the figure paints its own stage, the stage has a
+        # visible edge and pinned page margins clip the tick labels against
+        # it. Letting each axis reserve what its labels need fixes every
+        # chart at once instead of tuning margins per call site.
         xaxis=dict(
             gridcolor=TL_BORDER,
             zerolinecolor=TL_BORDER,
+            automargin=True,
             tickfont=dict(color=TL_TEXT_MUTED, size=11),
             title=dict(font=dict(color=TL_TEXT_MUTED, size=12)),
         ),
         yaxis=dict(
             gridcolor=TL_BORDER,
             zerolinecolor=TL_BORDER,
+            automargin=True,
             tickfont=dict(color=TL_TEXT_MUTED, size=11),
             title=dict(font=dict(color=TL_TEXT_MUTED, size=12)),
         ),
@@ -181,6 +286,18 @@ def build_css() -> str:
 
 /* === CSS VARIABLES === */
 :root {{
+  /* -- light workspace -- */
+  --tl-canvas: {TL_CANVAS}; --tl-paper: {TL_PAPER}; --tl-mist: {TL_MIST};
+  --tl-ink: {TL_INK}; --tl-muted: {TL_MUTED};
+  --tl-hairline: {TL_HAIRLINE}; --tl-rule: {TL_RULE};
+  --tl-action: {TL_ACTION}; --tl-action-hover: {TL_ACTION_HOVER};
+  --tl-success-ink: {TL_SUCCESS_INK}; --tl-danger-ink: {TL_DANGER_INK};
+  --tl-warning-ink: {TL_WARNING_INK};
+  --tl-success-wash: {TL_SUCCESS_WASH}; --tl-danger-wash: {TL_DANGER_WASH};
+  --tl-warning-wash: {TL_WARNING_WASH}; --tl-action-wash: {TL_ACTION_WASH};
+  /* -- dark instruments -- */
+  --tl-rail: {TL_RAIL}; --tl-chart-stage: {TL_CHART_STAGE};
+  --tl-focus: {TL_FOCUS};
   --tl-bg: {TL_BG}; --tl-surface: {TL_SURFACE};
   --tl-surface-2: {TL_SURFACE_2};
   --tl-border: {TL_BORDER}; --tl-border-subtle: {TL_BORDER_SUBTLE};
@@ -192,33 +309,45 @@ def build_css() -> str:
   --tl-danger: {TL_DANGER}; --tl-danger-dim: {TL_DANGER_DIM};
   --tl-warning: {TL_WARNING}; --tl-warning-dim: {TL_WARNING_DIM};
   --tl-neutral: {TL_NEUTRAL}; --tl-neutral-dim: {TL_NEUTRAL_DIM};
+  /* -- type roles -- */
+  --tl-font-display: {TL_FONT_DISPLAY};
+  --tl-font-ui: {TL_FONT_UI};
   --tl-font-mono: {TL_FONT_MONO};
   --tl-font-body: {TL_FONT_BODY};
   --tl-font-heading: {TL_FONT_HEADING};
+  /* -- rhythm: 4/8 base, page tiers 16/24/32/48 -- */
   --tl-space-1: 4px; --tl-space-2: 8px; --tl-space-3: 12px;
-  --tl-space-4: 16px; --tl-space-6: 24px; --tl-space-8: 32px;
-  --tl-space-12: 48px;
-  --tl-radius-sm: 6px; --tl-radius-md: 10px;
-  --tl-radius-lg: 16px; --tl-radius-full: 9999px;
-  --tl-shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
-  --tl-shadow-md: 0 4px 16px rgba(0,0,0,0.4);
-  --tl-shadow-lg: 0 12px 40px rgba(0,0,0,0.5);
+  --tl-space-4: 16px; --tl-space-5: 20px; --tl-space-6: 24px;
+  --tl-space-8: 32px; --tl-space-12: 48px;
+  /* -- 6px controls, 8px panels, 10px overlays -- */
+  --tl-radius-sm: 6px; --tl-radius-md: 8px;
+  --tl-radius-lg: 10px; --tl-radius-full: 9999px;
+  /* -- one elevation; borders and spacing carry hierarchy -- */
+  --tl-shadow: 0 1px 2px rgba(19,33,37,0.05), 0 8px 24px rgba(19,33,37,0.07);
+  /* -- motion: locked now, applied after the static pass -- */
+  --tl-ease-out: {TL_EASE_OUT};
+  --tl-ease-in-out: {TL_EASE_IN_OUT};
+  --tl-ease-drawer: {TL_EASE_DRAWER};
+  --tl-dur-press: 120ms; --tl-dur-state: 160ms;
+  --tl-dur-panel: 180ms; --tl-dur-drawer: 240ms;
 }}
 
 /* === BASE (proven selectors only) ===
-   Page background comes from .streamlit/config.toml [theme]. */
+   Background also comes from .streamlit/config.toml [theme]; declared here
+   so the workspace does not flash a stale surface before CSS lands. */
 [data-testid="stAppViewContainer"] {{
-  font-family: var(--tl-font-body);
-  color: var(--tl-text);
+  background: var(--tl-canvas);
+  font-family: var(--tl-font-ui);
+  color: var(--tl-ink);
 }}
-/* Headings use Schibsted Grotesk — the marketing site's heading face
-   (same selector as theme.py, injected later, so this wins ties). */
+/* Schibsted sets titles only — used everywhere it becomes texture. */
 [data-testid="stAppViewContainer"] h1,
 [data-testid="stAppViewContainer"] h2,
 [data-testid="stAppViewContainer"] h3 {{
-  font-family: var(--tl-font-heading);
+  font-family: var(--tl-font-display);
   font-weight: 700;
   letter-spacing: -0.01em;
+  color: var(--tl-ink);
 }}
 [data-testid="stHeader"] {{
   background: transparent;
@@ -229,19 +358,30 @@ def build_css() -> str:
 [data-testid="stAppViewContainer"] .block-container {{
   padding-top: 1.5rem;
   padding-bottom: 2rem;
-  max-width: 1200px;
+  max-width: 1320px;
 }}
 
-/* === SIDEBAR === */
+/* === SIDEBAR — the dark architectural rail ===
+   Ink-dark against the light canvas so the workspace reads as a plane the
+   navigation sits beside, not a panel floating on top of it. */
 [data-testid="stSidebar"] {{
-  background: var(--tl-surface);
+  background: var(--tl-rail);
   border-right: 1px solid var(--tl-border);
+  color: var(--tl-text);
+}}
+[data-testid="stSidebar"] a,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {{
+  color: var(--tl-text);
 }}
 /* Nav links (st.page_link renders an anchor): quiet rest state, surface
    hover, visible keyboard focus. */
 [data-testid="stSidebar"] a {{
   border-radius: var(--tl-radius-sm);
-  transition: background 0.15s ease-out;
+  transition: background var(--tl-dur-state) var(--tl-ease-out);
 }}
 @media (hover: hover) and (pointer: fine) {{
   [data-testid="stSidebar"] a:hover {{
@@ -252,6 +392,298 @@ def build_css() -> str:
   outline: 2px solid var(--tl-primary);
   outline-offset: 2px;
 }}
+/* === APP SHELL — navigation architecture (components/sidebar.py) ===
+   Selectors are the data-testid values verified in the browser against the
+   pinned streamlit==1.50.0 DOM. Streamlit marks the current page only with
+   a generated class whose hash changes between releases, so the active
+   state rides on our own keyed containers instead. */
+
+/* --- destination rows --- */
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {{
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-2);
+  padding: 0 var(--tl-space-3);
+  border-radius: var(--tl-radius-sm);
+  color: var(--tl-text);
+  position: relative;
+  transition: background var(--tl-dur-state) var(--tl-ease-out);
+}}
+@media (hover: hover) and (pointer: fine) {{
+  [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover {{
+    background: var(--tl-surface-2);
+  }}
+}}
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:focus-visible {{
+  outline: 2px solid var(--tl-focus);
+  outline-offset: -2px;
+}}
+/* Press feedback only — these rows are visited dozens of times a session,
+   so nothing here is allowed to take time to finish. */
+[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:active {{
+  background: var(--tl-surface-2);
+}}
+
+/* --- the current destination ---
+   Three cues, none of them colour on its own: a teal indicator bar, a
+   heavier label, and a raised surface. */
+[class*="st-key-tl_nav_"][class*="_active"] [data-testid="stPageLink-NavLink"] {{
+  background: var(--tl-surface-2);
+  font-weight: 700;
+}}
+[class*="st-key-tl_nav_"][class*="_active"]
+  [data-testid="stPageLink-NavLink"]::before {{
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--tl-focus);
+}}
+
+/* --- the persistent action ---
+   One filled control in the rail. Bright teal is the action colour on a
+   dark surface; the rail ink reads 11.3:1 on it. */
+.st-key-tl_nav_action {{
+  margin: var(--tl-space-2) 0 var(--tl-space-4) 0;
+}}
+.st-key-tl_nav_action [data-testid="stPageLink-NavLink"] {{
+  background: var(--tl-focus);
+  color: var(--tl-rail);
+  font-weight: 600;
+  justify-content: center;
+  transition: opacity var(--tl-dur-state) var(--tl-ease-out),
+              transform var(--tl-dur-press) var(--tl-ease-out);
+}}
+/* The link sets dark-on-teal, but Streamlit renders the label as a <p>
+   inside a markdown container, and the rail's own text rule repaints that
+   <p> near-white — 1.33:1 on the brightest surface in the product, on its
+   single most prominent action. Every descendant inherits the link.
+
+   UNCONDITIONAL, and deliberately outside the hover query below: legibility
+   is not a hover state. Nested inside it, the label stayed near-white on
+   every touch device, and a desktop browser merely resized to 375px would
+   never show it — `hover: hover` still matches when you only change the
+   viewport. */
+.st-key-tl_nav_action [data-testid="stPageLink-NavLink"] *,
+.st-key-tl_nav_action [data-testid="stPageLink-NavLink"] p {{
+  color: inherit;
+}}
+
+@media (hover: hover) and (pointer: fine) {{
+.st-key-tl_nav_action [data-testid="stPageLink-NavLink"]:hover {{
+    background: var(--tl-focus);
+    opacity: 0.92;
+  }}
+}}
+.st-key-tl_nav_action [data-testid="stPageLink-NavLink"]:active {{
+  background: var(--tl-focus);
+  transform: scale(0.98);
+}}
+.st-key-tl_nav_action [data-testid="stPageLink-NavLink"]::before {{
+  content: none;
+}}
+
+/* --- utility group --- */
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {{
+  color: var(--tl-text-muted);
+}}
+
+/* --- tablet: a narrower rail, same hierarchy --- */
+@media (min-width: 768px) and (max-width: 1023px) {{
+  [data-testid="stSidebar"] {{ width: 208px; min-width: 208px; }}
+  [data-testid="stAppViewContainer"] .block-container {{
+    padding-left: var(--tl-space-4);
+    padding-right: var(--tl-space-4);
+  }}
+}}
+
+/* --- keyboard bypass ---
+   Off-canvas until focused; it appears immediately rather than animating
+   focus, then moves focus to the content anchor before each page masthead. */
+.tl-skip-shell {{
+  height: 0;
+  overflow: visible;
+}}
+[data-testid="stAppViewContainer"] a.tl-skip-link {{
+  position: fixed;
+  top: var(--tl-space-2);
+  left: var(--tl-space-2);
+  z-index: 1000;
+  transform: translateY(calc(-100% - var(--tl-space-4)));
+  min-height: 44px;
+  padding: 0 var(--tl-space-3);
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-rail);
+  color: var(--tl-rail-ink);
+  text-decoration: none;
+  font-weight: 700;
+}}
+[data-testid="stAppViewContainer"] a.tl-skip-link:focus-visible {{
+  transform: none;
+  outline: 2px solid var(--tl-focus);
+  outline-offset: 2px;
+}}
+.tl-main-anchor {{
+  position: relative;
+  display: block;
+  scroll-margin-top: var(--tl-space-4);
+}}
+
+/* --- mobile bottom navigation ---
+   Its own five-item hierarchy, not the rail shrunk down. Hidden entirely
+   above the phone breakpoint so it is never a second nav competing with
+   the rail. */
+.tl-mobile-nav {{
+  display: none;
+}}
+/* Anchored to the app container: Streamlit's own markdown-anchor rule
+   outranks a bare class, so an unanchored selector leaves the bar rendering
+   in the browser's default link blue with underlines. */
+[data-testid="stAppViewContainer"] a.tl-mobile-nav-item,
+.tl-mobile-nav-item {{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex: 1 1 0;
+  min-height: 44px;
+  padding: 6px 4px;
+  text-decoration: none;
+  color: var(--tl-text-muted);
+  transition: color var(--tl-dur-state) var(--tl-ease-out),
+              transform var(--tl-dur-press) var(--tl-ease-out);
+}}
+.tl-mobile-nav-item:active {{
+  transform: scale(0.96);
+}}
+.tl-mobile-nav-item:focus-visible {{
+  outline: 2px solid var(--tl-focus);
+  outline-offset: -2px;
+  border-radius: var(--tl-radius-sm);
+}}
+.tl-mobile-nav-icon {{
+  font-family: 'Material Symbols Rounded';
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 300;
+}}
+.tl-mobile-nav-label {{
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+}}
+/* Current item: teal, heavier, and topped by an indicator bar. */
+[data-testid="stAppViewContainer"] a.tl-mobile-nav-item.is-active,
+.tl-mobile-nav-item.is-active {{
+  color: var(--tl-focus);
+}}
+.tl-mobile-nav-item.is-active .tl-mobile-nav-label {{
+  font-weight: 700;
+}}
+.tl-mobile-nav-item.is-active::before {{
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 24px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--tl-focus);
+}}
+
+/* --- More: the fifth slot ---
+   A native <details>. The summary IS the fifth tab, so it inherits every
+   tab rule above — including the 44px floor and the active indicator — and
+   the marker is removed because the tab is already labelled. */
+.tl-mobile-more {{
+  flex: 1 1 0;
+  position: relative;
+}}
+.tl-mobile-more > summary {{
+  list-style: none;
+  cursor: pointer;
+}}
+.tl-mobile-more > summary::-webkit-details-marker {{ display: none; }}
+.tl-mobile-more > summary::marker {{ content: ''; }}
+
+/* A closed <details> normally collapses its content out of the layout, but
+   an absolutely positioned child escapes that: the sheet stayed invisible
+   and still TABBABLE, so a keyboard user hit three links inside a shut
+   menu. Closed means gone, for the pointer and the keyboard alike. */
+.tl-mobile-more:not([open]) > .tl-mobile-more-sheet {{
+  display: none;
+}}
+
+/* The sheet rises from the bar rather than pushing it, so the four tabs
+   never move under a thumb that is already reaching for them. */
+.tl-mobile-more-sheet {{
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  min-width: 208px;
+  background: var(--tl-rail);
+  border: 1px solid var(--tl-border);
+  border-radius: var(--tl-radius-md) var(--tl-radius-md) 0 0;
+  padding: var(--tl-space-2);
+  box-shadow: var(--tl-shadow);
+}}
+[data-testid="stAppViewContainer"] a.tl-mobile-more-item,
+.tl-mobile-more-item {{
+  display: flex;
+  align-items: center;
+  gap: var(--tl-space-3);
+  min-height: 44px;
+  padding: 0 var(--tl-space-3);
+  border-radius: var(--tl-radius-sm);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--tl-text);
+}}
+.tl-mobile-more-icon {{
+  font-family: 'Material Symbols Rounded';
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 300;
+}}
+[data-testid="stAppViewContainer"] a.tl-mobile-more-item.is-active,
+.tl-mobile-more-item.is-active {{
+  color: var(--tl-focus);
+}}
+/* Settings stays the quiet utility here too: muted, and set below a rule
+   rather than reading as a third piece of work. */
+[data-testid="stAppViewContainer"] a.tl-mobile-more-item.is-quiet,
+.tl-mobile-more-item.is-quiet {{
+  color: var(--tl-text-muted);
+  font-weight: 400;
+  margin-top: var(--tl-space-2);
+  padding-top: var(--tl-space-2);
+  border-top: 1px solid var(--tl-border);
+  border-radius: 0;
+}}
+
+/* Opening More is a state change worth conveying: a panel that appears
+   from nothing over a fixed bar reads as a glitch. 160ms — the short end of
+   the range, because this is a menu a thumb is already moving through —
+   opacity and a 4px rise only, on the shared curve. Nothing else here
+   moves, and the tabs themselves never animate: they are hit dozens of
+   times a session. */
+@media (prefers-reduced-motion: no-preference) {{
+  .tl-mobile-more[open] > .tl-mobile-more-sheet {{
+    animation: tl-more-in 160ms var(--tl-ease-out) both;
+  }}
+  @keyframes tl-more-in {{
+    from {{ opacity: 0; transform: translateY(4px); }}
+    to {{ opacity: 1; transform: none; }}
+  }}
+}}
+
 /* Sidebar brand block + status note (replaces inline styles in sidebar.py) */
 .tl-side-brand {{
   display: flex;
@@ -286,8 +718,11 @@ def build_css() -> str:
   color: var(--tl-text);
   font-weight: 700;
 }}
+/* Active state, so the teal edge is functional rather than decoration.
+   The colour was a literal rgba(0,194,178,.3) — the pre-SP4 teal, left
+   behind when the brand collapsed onto one accent. */
 .tl-side-note.active {{
-  border-color: rgba(0,194,178,0.3);
+  border-color: var(--tl-focus);
   background: var(--tl-primary-dim);
   color: var(--tl-primary);
 }}
@@ -298,8 +733,8 @@ def build_css() -> str:
 /* === NATIVE METRICS (proven stMetric* set; replaces the legacy
        'metric-container' selector from the spec) === */
 .stMetric {{
-  background: var(--tl-surface);
-  border: 1px solid var(--tl-border);
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
   border-radius: var(--tl-radius-md);
   padding: 12px 16px;
 }}
@@ -307,13 +742,13 @@ def build_css() -> str:
   font-family: var(--tl-font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: var(--tl-text);
+  color: var(--tl-ink);
 }}
 .stMetric [data-testid="stMetricDelta"] {{
   font-family: var(--tl-font-mono);
 }}
 .stMetric [data-testid="stMetricLabel"] {{
-  color: var(--tl-text-muted);
+  color: var(--tl-muted);
 }}
 
 /* === BUTTONS (all states: rest, hover, focus, active) ===
@@ -321,29 +756,48 @@ def build_css() -> str:
    they get the identical treatment as .stButton. */
 .stButton > button,
 .stFormSubmitButton > button {{
-  background: var(--tl-primary);
-  color: #ffffff;
-  border: 1px solid var(--tl-primary);
+  background: var(--tl-action);
+  color: var(--tl-paper);
+  border: 1px solid var(--tl-action);
   border-radius: var(--tl-radius-sm);
+  font-family: var(--tl-font-ui);
   font-weight: 500;
-  transition: background 0.15s ease-out, box-shadow 0.15s ease-out;
+  transition: background var(--tl-dur-state) var(--tl-ease-out),
+              border-color var(--tl-dur-state) var(--tl-ease-out);
 }}
 @media (hover: hover) and (pointer: fine) {{
   .stButton > button:hover,
   .stFormSubmitButton > button:hover {{
-    background: var(--tl-primary-hover);
-    border-color: var(--tl-primary-hover);
-    box-shadow: 0 0 16px var(--tl-primary-dim);
+    background: var(--tl-action-hover);
+    border-color: var(--tl-action-hover);
   }}
 }}
 .stButton > button:focus-visible,
 .stFormSubmitButton > button:focus-visible {{
-  outline: 2px solid var(--tl-primary);
+  outline: 2px solid var(--tl-action);
   outline-offset: 2px;
 }}
 .stButton > button:active,
 .stFormSubmitButton > button:active {{
-  background: var(--tl-primary-hover);
+  background: var(--tl-action-hover);
+}}
+/* The rail holds exactly ONE filled action — "Log completed trade". Sign
+   out is a utility control, so it is outlined: two filled teal buttons in
+   one column read as two primaries and the eye cannot tell which matters. */
+[data-testid="stSidebar"] .stButton > button {{
+  background: transparent;
+  border-color: var(--tl-border);
+  color: var(--tl-text);
+  min-height: 44px;
+}}
+@media (hover: hover) and (pointer: fine) {{
+  [data-testid="stSidebar"] .stButton > button:hover {{
+    background: var(--tl-surface-2);
+    border-color: var(--tl-text-muted);
+  }}
+}}
+[data-testid="stSidebar"] .stButton > button:focus-visible {{
+  outline: 2px solid var(--tl-focus);
 }}
 
 /* === SECONDARY ACTIONS ===
@@ -354,71 +808,396 @@ def build_css() -> str:
    would repaint every button on the page. */
 [class*="st-key-secondary_"] button {{
   background: transparent;
-  color: var(--tl-text);
-  border-color: var(--tl-border);
-  box-shadow: none;
+  color: var(--tl-ink);
+  border-color: var(--tl-hairline);
 }}
 @media (hover: hover) and (pointer: fine) {{
   [class*="st-key-secondary_"] button:hover {{
-    background: var(--tl-surface-2);
-    border-color: var(--tl-text-muted);
-    box-shadow: none;
+    background: var(--tl-mist);
+    border-color: var(--tl-muted);
   }}
 }}
 [class*="st-key-secondary_"] button:active {{
-  background: var(--tl-surface-2);
+  background: var(--tl-mist);
 }}
 
-/* === KPI CARD === */
-.tl-kpi-card {{
-  background: var(--tl-surface);
-  border: 1px solid var(--tl-border);
-  border-radius: var(--tl-radius-md);
-  padding: var(--tl-space-4);
-  box-shadow: var(--tl-shadow-sm);
+/* =====================================================================
+   PREMIUM WORKSPACE PRIMITIVES (components/workspace.py)
+   ===================================================================== */
+
+/* --- text carried to screen readers only ---
+   Used where meaning is otherwise expressed by colour alone. Clipped
+   rather than display:none, which would remove it from the a11y tree. */
+.tl-visually-hidden {{
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }}
-.tl-kpi-label {{
-  font-size: 11px;
+
+/* --- page masthead --- */
+.tl-masthead {{
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--tl-space-4);
+  flex-wrap: wrap;
+  padding-bottom: var(--tl-space-4);
+  border-bottom: 1px solid var(--tl-hairline);
+  margin-bottom: var(--tl-space-6);
+}}
+.tl-masthead-lede {{ min-width: 0; }}
+.tl-masthead-eyebrow {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--tl-text-muted);
+  color: var(--tl-muted);
+  margin: 0 0 var(--tl-space-1) 0;
+}}
+/* === PAGE CHROME TYPE, ANCHORED ===
+   These four carried a single class, so Streamlit's markdown stylesheet
+   (a 0,1,1 container selector) decided their size instead: the masthead
+   title declared 30px and rendered 44, the section title declared 22 and
+   rendered 36, the subtitle declared 14 and rendered 16. The phone override
+   declared 24px and never applied at all. Anchoring them to
+   the app container puts the design system back in control.
+
+   The VALUES here are the ones that shipped and were approved across six
+   pages, transcribed so declaration and rendering finally agree — not a new
+   scale. Changing the scale is a visual decision, and a separate one. */
+[data-testid="stAppViewContainer"] .tl-masthead-title {{
+  font-family: var(--tl-font-display);
+  font-size: 44px;
+  line-height: 50px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--tl-ink);
+  margin: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-masthead-subtitle {{
+  font-size: 16px;
+  line-height: 20px;
+  color: var(--tl-muted);
+  margin: var(--tl-space-1) 0 0 0;
+  max-width: 68ch;
+}}
+.tl-masthead-meta {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-muted);
+  margin: 0;
+  white-space: nowrap;
+}}
+
+/* --- ruled KPI strip ---
+   One measurement across a period, divided by hairlines. Six boxed tiles
+   would say these numbers are six separate things; they are not. */
+.tl-kpi-strip {{
+  display: flex;
+  flex-wrap: wrap;
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
+  border-radius: var(--tl-radius-md);
+  margin-bottom: var(--tl-space-6);
+}}
+.tl-kpi-cell {{
+  flex: 1 1 150px;
+  min-width: 0;
+  padding: var(--tl-space-3) var(--tl-space-4);
+}}
+.tl-kpi-cell + .tl-kpi-cell {{
+  border-left: 1px solid var(--tl-hairline);
+}}
+.tl-kpi-key {{
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-muted);
+  margin: 0;
+}}
+.tl-kpi-figure {{
+  font-family: var(--tl-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--tl-ink);
+  margin: var(--tl-space-1) 0 0 0;
+}}
+.tl-kpi-cell.tone-positive .tl-kpi-figure {{ color: var(--tl-success-ink); }}
+.tl-kpi-cell.tone-negative .tl-kpi-figure {{ color: var(--tl-danger-ink); }}
+.tl-kpi-cell.tone-warning .tl-kpi-figure {{ color: var(--tl-warning-ink); }}
+.tl-kpi-detail {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-muted);
+  margin: var(--tl-space-1) 0 0 0;
+}}
+
+/* --- EVIDENCE RAIL: the signature ---
+   A margin annotation, not a card: neutral rule, indented content, mono
+   metadata. No fill and no radius, so it reads as commentary beside the
+   data rather than another object competing with it.
+
+   Every type rule from here through the research note is anchored to
+   [data-testid="stAppViewContainer"]. Streamlit's markdown stylesheet
+   forces its own font-size onto every p/ol/ul/dl and h1-h4 it renders,
+   from a container-class selector at specificity 0,1,1 — which beats a
+   lone class of ours. Unanchored, every <p> we
+   render came out at the inherited 16px and every <h3> at 28px: the rail's
+   12px label, 14px claim and 16px body all collapsed to one size, and a
+   finding title outgrew the note's own title. The anchor makes these 0,2,0.
+   Measured at 375px on streamlit 1.50.0; test_component_type_scale_outranks
+   _streamlits_markdown_stylesheet holds it. */
+.tl-evidence-rail {{
+  border-left: 2px solid var(--tl-rule);
+  padding-left: var(--tl-space-3);
+  margin: var(--tl-space-4) 0 0 0;
+  max-width: 68ch;
+}}
+[data-testid="stAppViewContainer"] .tl-evidence-label {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tl-muted);
+  margin: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-evidence-claim {{
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-ink);
+  margin: var(--tl-space-1) 0 0 0;
+}}
+.tl-evidence-facts {{
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--tl-space-1) var(--tl-space-4);
+  margin: var(--tl-space-2) 0 0 0;
+}}
+.tl-evidence-fact {{
+  display: flex;
+  align-items: baseline;
+  gap: var(--tl-space-2);
+  min-width: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-evidence-facts dt {{
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--tl-muted);
+  margin: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-evidence-facts dd {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-ink);
+  margin: 0;
+}}
+/* Confidence is spelled out and marked — never color alone. */
+.tl-evidence-confidence::before {{
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-muted);
+}}
+.tl-evidence-confidence.conf-high::before {{ background: var(--tl-success-ink); }}
+.tl-evidence-confidence.conf-medium::before {{ background: var(--tl-warning-ink); }}
+
+/* --- numbered research finding --- */
+.tl-finding {{
+  display: flex;
+  gap: var(--tl-space-4);
+  padding: var(--tl-space-6) 0;
+  border-top: 1px solid var(--tl-hairline);
+}}
+[data-testid="stAppViewContainer"] .tl-finding-number {{
+  font-family: var(--tl-font-mono);
+  font-size: 14px;
+  line-height: 24px;
+  font-weight: 500;
+  color: var(--tl-muted);
+  margin: 0;
+  flex: 0 0 2.5rem;
+}}
+.tl-finding-body {{ min-width: 0; }}
+[data-testid="stAppViewContainer"] .tl-finding-title {{
+  font-family: var(--tl-font-ui);
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 700;
+  color: var(--tl-ink);
+  margin: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-finding-text {{
+  font-size: 16px;
+  line-height: 25px;
+  color: var(--tl-ink);
+  margin: var(--tl-space-2) 0 0 0;
+  max-width: 68ch;
+}}
+
+/* --- editorial readout (interpretation beneath a chart) --- */
+.tl-readout {{
+  padding-top: var(--tl-space-4);
+  border-top: 1px solid var(--tl-hairline);
+  margin-top: var(--tl-space-4);
+}}
+.tl-readout-title {{
+  font-family: var(--tl-font-ui);
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 700;
+  color: var(--tl-ink);
+  margin: 0;
+}}
+.tl-readout-body {{
+  font-size: 16px;
+  line-height: 25px;
+  color: var(--tl-ink);
+  margin: var(--tl-space-2) 0 0 0;
+  max-width: 68ch;
+}}
+
+/* --- active filter summary --- */
+.tl-filter-summary {{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tl-space-2);
+  margin-bottom: var(--tl-space-3);
+}}
+.tl-filter-chip {{
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 1px solid var(--tl-hairline);
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-mist);
+  font-size: 12px;
+  line-height: 18px;
+}}
+.tl-filter-key {{
+  color: var(--tl-muted);
+  font-weight: 500;
+}}
+.tl-filter-value {{
+  font-family: var(--tl-font-mono);
+  color: var(--tl-ink);
+}}
+.tl-filter-empty {{
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-muted);
+}}
+
+/* --- surfaces: white sheet, dark instrument stage, dark reading sheet --- */
+.tl-sheet {{
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-6);
+}}
+.tl-chart-stage {{
+  background: var(--tl-chart-stage);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-4);
+  color: var(--tl-text);
+}}
+.tl-ink-sheet {{
+  background: var(--tl-chart-stage);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-6);
+  color: var(--tl-text);
+}}
+.tl-ink-sheet .tl-finding-title,
+.tl-ink-sheet .tl-finding-text,
+.tl-ink-sheet .tl-evidence-claim,
+.tl-ink-sheet .tl-readout-title,
+.tl-ink-sheet .tl-readout-body {{ color: var(--tl-text); }}
+.tl-ink-sheet .tl-evidence-label,
+.tl-ink-sheet .tl-finding-number,
+.tl-ink-sheet .tl-evidence-facts dt {{ color: var(--tl-text-muted); }}
+.tl-ink-sheet .tl-evidence-facts dd {{ color: var(--tl-text); }}
+.tl-ink-sheet .tl-evidence-rail {{ border-left-color: var(--tl-border); }}
+.tl-ink-sheet .tl-finding,
+.tl-ink-sheet .tl-readout {{ border-top-color: var(--tl-border); }}
+.tl-ink-sheet .tl-evidence-confidence.conf-high::before {{
+  background: var(--tl-success);
+}}
+.tl-ink-sheet .tl-evidence-confidence.conf-medium::before {{
+  background: var(--tl-warning);
+}}
+
+/* === KPI CARD (legacy single-card form; superseded by .tl-kpi-strip) === */
+.tl-kpi-card {{
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-4);
+}}
+.tl-kpi-label {{
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-muted);
 }}
 .tl-kpi-value {{
   font-size: 26px;
-  font-weight: 700;
+  font-weight: 500;
   font-family: var(--tl-font-mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
   white-space: nowrap;
-  color: var(--tl-text);
+  color: var(--tl-ink);
   line-height: 1.1;
   margin-top: 4px;
 }}
-.tl-kpi-value.positive {{ color: var(--tl-success); }}
-.tl-kpi-value.negative {{ color: var(--tl-danger); }}
-.tl-kpi-value.missing {{ color: var(--tl-text-muted); }}
+.tl-kpi-value.positive {{ color: var(--tl-success-ink); }}
+.tl-kpi-value.negative {{ color: var(--tl-danger-ink); }}
+.tl-kpi-value.missing {{ color: var(--tl-muted); }}
 .tl-kpi-delta {{
   font-size: 12px;
   font-family: var(--tl-font-mono);
   margin-top: 2px;
-  color: var(--tl-text-muted);
+  color: var(--tl-muted);
 }}
-.tl-kpi-delta.positive {{ color: var(--tl-success); }}
-.tl-kpi-delta.negative {{ color: var(--tl-danger); }}
+.tl-kpi-delta.positive {{ color: var(--tl-success-ink); }}
+.tl-kpi-delta.negative {{ color: var(--tl-danger-ink); }}
 
 /* === INSIGHT CARD ===
    Variants use tinted backgrounds + accent icon (NO colored side
    borders — PRODUCT.md anti-pattern; owner decision 2026-07-06). */
 .tl-insight-card {{
-  background: var(--tl-surface);
-  border: 1px solid var(--tl-border);
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-4);
 }}
-.tl-insight-card.strength {{ background: var(--tl-success-dim); }}
-.tl-insight-card.leak {{ background: var(--tl-danger-dim); }}
-.tl-insight-card.neutral {{ background: var(--tl-neutral-dim); }}
+.tl-insight-card.strength {{ background: var(--tl-success-wash); }}
+.tl-insight-card.leak {{ background: var(--tl-danger-wash); }}
+.tl-insight-card.neutral {{ background: var(--tl-mist); }}
 .tl-insight-head {{
   display: flex;
   align-items: center;
@@ -426,30 +1205,33 @@ def build_css() -> str:
   margin-bottom: var(--tl-space-2);
 }}
 .tl-insight-icon {{ font-size: 16px; }}
-.tl-insight-card.strength .tl-insight-icon {{ color: var(--tl-success); }}
-.tl-insight-card.leak .tl-insight-icon {{ color: var(--tl-danger); }}
-.tl-insight-card.neutral .tl-insight-icon {{ color: var(--tl-text-muted); }}
+.tl-insight-card.strength .tl-insight-icon {{ color: var(--tl-success-ink); }}
+.tl-insight-card.leak .tl-insight-icon {{ color: var(--tl-danger-ink); }}
+.tl-insight-card.neutral .tl-insight-icon {{ color: var(--tl-muted); }}
 .tl-insight-title {{
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-text);
+  color: var(--tl-ink);
   flex: 1;
 }}
 .tl-insight-body {{
-  font-size: 13px;
-  color: var(--tl-text);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-ink);
   margin: 0 0 var(--tl-space-2) 0;
 }}
 .tl-insight-evidence {{
   font-size: 12px;
-  color: var(--tl-text-muted);
+  color: var(--tl-muted);
   margin: 0;
 }}
 
-/* === AI CARD === */
+/* === AI CARD ===
+   Neutral border, not a teal outline: a passive container that happens to
+   hold generated text is not an action (spec 8). */
 .tl-ai-card {{
-  background: var(--tl-surface);
-  border: 1px solid var(--tl-primary);
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-4);
   position: relative;
@@ -459,17 +1241,17 @@ def build_css() -> str:
   position: absolute;
   top: var(--tl-space-2);
   right: var(--tl-space-3);
-  font-size: 9px;
-  font-weight: 700;
+  font-family: var(--tl-font-mono);
+  font-size: 10px;
+  font-weight: 500;
   letter-spacing: 0.12em;
-  color: var(--tl-primary);
-  opacity: 0.7;
+  color: var(--tl-muted);
 }}
 
 /* === FORM SECTION CARD === */
 .tl-form-card {{
-  background: var(--tl-surface);
-  border: 1px solid var(--tl-border);
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-6);
   margin-bottom: var(--tl-space-4);
@@ -477,16 +1259,16 @@ def build_css() -> str:
 .tl-form-card h3 {{
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-text);
+  color: var(--tl-ink);
   margin-bottom: var(--tl-space-4);
 }}
 
 /* === EMPTY STATE CARD === */
 .tl-empty-card {{
-  background: var(--tl-surface);
-  border: 1px dashed var(--tl-border);
-  border-radius: var(--tl-radius-lg);
-  padding: var(--tl-space-12) var(--tl-space-8);
+  background: var(--tl-paper);
+  border: 1px dashed var(--tl-hairline);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-8);
   text-align: center;
 }}
 .tl-empty-card .icon {{
@@ -497,13 +1279,14 @@ def build_css() -> str:
 .tl-empty-card h4 {{
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-text-muted);
+  color: var(--tl-ink);
   margin-bottom: var(--tl-space-2);
 }}
 .tl-empty-card p {{
-  font-size: 12px;
-  color: var(--tl-text-faint);
-  max-width: 280px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-muted);
+  max-width: 46ch;
   margin: 0 auto;
 }}
 /* Onboarding next step. Quiet by design: it sits above the dashboard a
@@ -511,27 +1294,30 @@ def build_css() -> str:
    neutral hairline. The mono step count carries the only accent — a
    colored side border is a documented anti-pattern here. */
 .tl-next-step {{
-  border: 1px solid var(--tl-border);
+  border: 1px solid var(--tl-hairline);
   border-radius: var(--tl-radius-md);
-  background: var(--tl-surface);
+  background: var(--tl-paper);
   padding: var(--tl-space-4) var(--tl-space-5);
   margin-bottom: var(--tl-space-4);
 }}
 .tl-next-step-count {{
   font-family: var(--tl-font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--tl-primary);
+  color: var(--tl-action);
 }}
 .tl-next-step-label {{
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 700;
+  color: var(--tl-ink);
   margin-top: var(--tl-space-1);
 }}
 .tl-next-step-detail {{
-  font-size: 12px;
-  color: var(--tl-text-faint);
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-muted);
   margin-top: var(--tl-space-1);
 }}
 
@@ -558,40 +1344,61 @@ def build_css() -> str:
 }}
 .tl-empty-action {{
   margin-top: var(--tl-space-3);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
-  color: var(--tl-primary);
+  color: var(--tl-action);
 }}
 
-/* === BADGES / CHIPS === */
+/* === BADGES / CHIPS ===
+   Ink label on a quiet ground, with the hue carried by a dot. Colored text
+   on a tint of its own hue is both the generic-SaaS badge look and a
+   contrast trap (see the wash tokens); a dot also means the state survives
+   for a reader who cannot separate the hues at all. */
 .tl-badge {{
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
+  gap: 6px;
+  padding: 2px 10px;
   border-radius: var(--tl-radius-full);
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 18px;
   font-weight: 500;
+  color: var(--tl-ink);
 }}
-.tl-badge-success {{ background: var(--tl-success-dim); color: var(--tl-success); }}
-.tl-badge-danger {{ background: var(--tl-danger-dim); color: var(--tl-danger); }}
-.tl-badge-warning {{ background: var(--tl-warning-dim); color: var(--tl-warning); }}
-.tl-badge-primary {{ background: var(--tl-primary-dim); color: var(--tl-primary); }}
+.tl-badge-success::before,
+.tl-badge-danger::before,
+.tl-badge-warning::before,
+.tl-badge-primary::before,
+.tl-confidence-high::before,
+.tl-confidence-medium::before {{
+  content: '';
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-muted);
+}}
+.tl-badge-success {{ background: var(--tl-success-wash); }}
+.tl-badge-success::before {{ background: var(--tl-success-ink); }}
+.tl-badge-danger {{ background: var(--tl-danger-wash); }}
+.tl-badge-danger::before {{ background: var(--tl-danger-ink); }}
+.tl-badge-warning {{ background: var(--tl-warning-wash); }}
+.tl-badge-warning::before {{ background: var(--tl-warning-ink); }}
+.tl-badge-primary {{ background: var(--tl-action-wash); }}
+.tl-badge-primary::before {{ background: var(--tl-action); }}
+/* Neutral chips carry setup and tag names — a grey dot on every tag is
+   noise, so the neutral variant stays unmarked. */
 .tl-badge-neutral {{
-  background: var(--tl-neutral-dim);
-  color: var(--tl-text-muted);
+  background: var(--tl-mist);
+  color: var(--tl-muted);
 }}
-.tl-confidence-high {{
-  background: var(--tl-success-dim);
-  color: var(--tl-success);
-}}
-.tl-confidence-medium {{
-  background: var(--tl-warning-dim);
-  color: var(--tl-warning);
-}}
+.tl-confidence-high {{ background: var(--tl-success-wash); }}
+.tl-confidence-high::before {{ background: var(--tl-success-ink); }}
+.tl-confidence-medium {{ background: var(--tl-warning-wash); }}
+.tl-confidence-medium::before {{ background: var(--tl-warning-ink); }}
 .tl-confidence-low {{
-  background: var(--tl-neutral-dim);
-  color: var(--tl-text-muted);
+  background: var(--tl-mist);
+  color: var(--tl-muted);
 }}
 .tl-chip-row {{
   display: flex;
@@ -604,59 +1411,93 @@ def build_css() -> str:
    Signature mark: the short teal top-rule (same motif as the landing
    feature cards) replaces generic dividers as the section break. */
 .tl-section-header {{
-  margin: var(--tl-space-6) 0 var(--tl-space-4) 0;
+  margin: var(--tl-space-8) 0 var(--tl-space-4) 0;
 }}
 .tl-section-header::before {{
   content: '';
   display: block;
   width: 20px;
   height: 2px;
-  border-radius: 1px;
-  background: var(--tl-primary);
+  background: var(--tl-action);
   margin-bottom: var(--tl-space-2);
 }}
-.tl-section-title {{
-  font-size: 18px;
+[data-testid="stAppViewContainer"] .tl-section-title {{
+  margin: 0;
+  font-family: var(--tl-font-display);
+  font-size: 36px;
+  line-height: 42px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  color: var(--tl-text);
+  color: var(--tl-ink);
 }}
-.tl-section-subtitle {{
-  font-size: 13px;
-  color: var(--tl-text-muted);
+[data-testid="stAppViewContainer"] .tl-section-subtitle {{
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-muted);
   margin-top: 2px;
 }}
 /* Chart card title (analytics) — one quiet weight below section titles. */
 .tl-chart-title {{
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.01em;
-  color: var(--tl-text);
+  color: var(--tl-ink);
   margin: 0 0 var(--tl-space-2) 0;
 }}
+.tl-chart-stage .tl-chart-title {{ color: var(--tl-text); }}
 
-/* === BANNERS === */
+/* === ERROR BOX (components/ui.error_box) ===
+   Red is reserved for errors, so this is one of the few places the danger
+   hue is load-bearing. Same rule as the banners: ink copy on the danger
+   wash with the hue as a border and mark, never as the text colour. */
+.tl-error-box {{
+  border: 1px solid var(--tl-danger-ink);
+  border-radius: var(--tl-radius-sm);
+  background: var(--tl-danger-wash);
+  padding: var(--tl-space-3) var(--tl-space-4);
+  color: var(--tl-ink);
+  font-size: 14px;
+  line-height: 20px;
+  white-space: pre-wrap;
+}}
+.tl-error-box::before {{
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--tl-space-2);
+  vertical-align: 1px;
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-danger-ink);
+}}
+
+/* === BANNERS ===
+   Same rule as badges: ink copy on a quiet ground, hue carried by a mark. */
 .tl-banner {{
   border-radius: var(--tl-radius-sm);
+  border: 1px solid var(--tl-hairline);
   padding: var(--tl-space-3) var(--tl-space-4);
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-ink);
   margin-bottom: var(--tl-space-4);
 }}
-.tl-banner-warning {{
-  background: var(--tl-warning-dim);
-  color: var(--tl-warning);
-  border: 1px solid rgba(245,158,11,0.25);
+.tl-banner::before {{
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--tl-space-2);
+  vertical-align: 1px;
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-muted);
 }}
-.tl-banner-info {{
-  background: var(--tl-primary-dim);
-  color: var(--tl-primary);
-  border: 1px solid rgba(0,194,178,0.25);
-}}
-.tl-banner-danger {{
-  background: var(--tl-danger-dim);
-  color: var(--tl-danger);
-  border: 1px solid rgba(239,68,68,0.25);
-}}
+.tl-banner-warning {{ background: var(--tl-warning-wash); }}
+.tl-banner-warning::before {{ background: var(--tl-warning-ink); }}
+.tl-banner-info {{ background: var(--tl-action-wash); }}
+.tl-banner-info::before {{ background: var(--tl-action); }}
+.tl-banner-danger {{ background: var(--tl-danger-wash); }}
+.tl-banner-danger::before {{ background: var(--tl-danger-ink); }}
 
 /* === STEP INDICATOR === */
 .tl-stepper {{
@@ -680,19 +1521,20 @@ def build_css() -> str:
   font-size: 13px;
   font-weight: 700;
 }}
-.tl-step-circle.done {{ background: var(--tl-primary); color: #fff; }}
+.tl-step-circle.done {{ background: var(--tl-action); color: var(--tl-paper); }}
 .tl-step-circle.active {{
-  background: var(--tl-primary);
-  color: #fff;
-  box-shadow: 0 0 0 3px var(--tl-primary-dim);
+  background: var(--tl-action);
+  color: var(--tl-paper);
+  box-shadow: 0 0 0 3px var(--tl-action-wash);
 }}
 .tl-step-circle.future {{
-  background: var(--tl-border);
-  color: var(--tl-text-muted);
+  background: var(--tl-mist);
+  color: var(--tl-muted);
 }}
 .tl-step-label {{
-  font-size: 11px;
-  color: var(--tl-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-muted);
   margin-top: 4px;
 }}
 .tl-step-connector {{
@@ -700,41 +1542,588 @@ def build_css() -> str:
   height: 2px;
   margin-bottom: 16px;
 }}
-.tl-step-connector.done {{ background: var(--tl-primary); }}
-.tl-step-connector.future {{ background: var(--tl-border); }}
+.tl-step-connector.done {{ background: var(--tl-action); }}
+.tl-step-connector.future {{ background: var(--tl-hairline); }}
+
+/* === AI REVIEWS — the research note ===
+   The note body is a focused DARK reading surface inside the light
+   workspace (spec 7): filters and controls stay on the workspace, the
+   thing being read gets its own plane. */
+.tl-note {{
+  background: var(--tl-chart-stage);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-6);
+  color: var(--tl-text);
+  max-width: 72ch;
+}}
+.tl-note-head {{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tl-space-4);
+  flex-wrap: wrap;
+  padding-bottom: var(--tl-space-3);
+  border-bottom: 1px solid var(--tl-border);
+}}
+/* Two classes, not one: the global heading rule is
+   `[data-testid="stAppViewContainer"] h2` (specificity 0,1,1), which beats
+   a lone class and painted these near-black on the dark sheet. */
+[data-testid="stAppViewContainer"] .tl-note .tl-note-title,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-note-title {{
+  font-family: var(--tl-font-display);
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 700;
+  color: var(--tl-text);
+  margin: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-note-sample {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-text-muted);
+  margin: 0;
+}}
+/* The thesis is the one sentence a reader must not miss, so it is the
+   largest text on the surface — one step above the findings that support
+   it, not a heading competing with the title. */
+[data-testid="stAppViewContainer"] .tl-note-thesis {{
+  font-size: 19px;
+  line-height: 28px;
+  color: var(--tl-text);
+  margin: var(--tl-space-4) 0 0 0;
+}}
+/* --- dark-surface repaint for the shared components ---
+   The Evidence Rail and the numbered finding are built once and used on
+   BOTH surfaces, so they carry the light workspace's ink by default. Every
+   rule below must therefore name BOTH reading surfaces: `.tl-note` (the
+   note we compose ourselves) and `.st-key-tl_note_sheet` (the container
+   the generated note is written into). Listing only `.tl-note` left the
+   rail's claim and values at 1.07:1 on the generated note — invisible, and
+   caught only in the browser. test_dark_surface_overrides_name_both_reading_surfaces
+   holds the pair together. */
+[data-testid="stAppViewContainer"] .tl-note .tl-finding,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-finding {{ border-top-color: var(--tl-border); }}
+[data-testid="stAppViewContainer"] .tl-note .tl-finding-title,
+[data-testid="stAppViewContainer"] .tl-note .tl-finding-text,
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-claim,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-finding-title,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-finding-text,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-claim {{ color: var(--tl-text); }}
+[data-testid="stAppViewContainer"] .tl-note .tl-finding-number,
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-label,
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-facts dt,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-finding-number,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-label,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-facts dt {{ color: var(--tl-text-muted); }}
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-facts dd,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-facts dd {{ color: var(--tl-text); }}
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-rail,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-rail {{ border-left-color: var(--tl-border); }}
+/* The confidence dot is a mark, so it needs the 3:1 non-text floor against
+   the stage — the workspace's muted grey does not clear it. */
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-confidence::before,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-confidence::before {{
+  background: var(--tl-text-muted);
+}}
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-confidence.conf-high::before,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-confidence.conf-high::before {{
+  background: var(--tl-success);
+}}
+[data-testid="stAppViewContainer"] .tl-note .tl-evidence-confidence.conf-medium::before,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-confidence.conf-medium::before {{
+  background: var(--tl-warning);
+}}
+.tl-note-actions {{
+  margin-top: var(--tl-space-6);
+  padding-top: var(--tl-space-4);
+  border-top: 1px solid var(--tl-border);
+}}
+[data-testid="stAppViewContainer"] .tl-note .tl-note-actions-title,
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-note-actions-title {{
+  font-family: var(--tl-font-ui);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-text-muted);
+  margin: 0 0 var(--tl-space-2) 0;
+}}
+.tl-note-actions ul {{
+  margin: 0;
+  padding-left: var(--tl-space-4);
+}}
+[data-testid="stAppViewContainer"] .tl-note-actions li {{
+  font-size: 16px;
+  line-height: 25px;
+  color: var(--tl-text);
+  margin-bottom: var(--tl-space-1);
+}}
+[data-testid="stAppViewContainer"] .tl-note-limitation {{
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--tl-text-muted);
+  margin: var(--tl-space-4) 0 0 0;
+}}
+/* Supporting detail, collapsed. A native <details> needs no script and is
+   keyboard-reachable by default. */
+.tl-note-evidence {{
+  margin-top: var(--tl-space-4);
+  border-top: 1px solid var(--tl-border);
+  padding-top: var(--tl-space-3);
+}}
+[data-testid="stAppViewContainer"] .tl-note-evidence summary {{
+  font-size: 14px;
+  color: var(--tl-text-muted);
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}}
+.tl-note-evidence summary:focus-visible {{
+  outline: 2px solid var(--tl-focus);
+  outline-offset: 2px;
+}}
+[data-testid="stAppViewContainer"] .tl-note-evidence ul {{
+  margin: 0;
+  padding-left: var(--tl-space-4);
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--tl-text-muted);
+}}
+[data-testid="stAppViewContainer"] .tl-note-generated {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  color: var(--tl-text-muted);
+  margin: var(--tl-space-4) 0 0 0;
+}}
+
+/* Skeleton: the note's own geometry while generation runs, so the page
+   does not jump when the note lands. */
+.tl-note-skeleton .tl-skeleton-line {{
+  height: 16px;
+  border-radius: 4px;
+  background: var(--tl-surface-2);
+  margin-bottom: var(--tl-space-3);
+}}
+.tl-skeleton-line.w90 {{ width: 90%; }}
+.tl-skeleton-line.w80 {{ width: 80%; }}
+.tl-skeleton-line.w70 {{ width: 70%; }}
+.tl-skeleton-line.w60 {{ width: 60%; }}
+@media (prefers-reduced-motion: no-preference) {{
+  .tl-note-skeleton .tl-skeleton-line {{
+    animation: tl-skeleton-pulse 1.4s ease-in-out infinite;
+  }}
+  @keyframes tl-skeleton-pulse {{
+    0%, 100% {{ opacity: 1; }}
+    50% {{ opacity: 0.55; }}
+  }}
+}}
+
+/* Generated prose keeps the dark surface too. The model's markdown is
+   rendered by Streamlit, so it arrives as ordinary elements that need
+   colouring rather than our own classed markup. */
+/* The plane hugs the reading measure. Stretched to the full column it is
+   a dark slab with prose down one edge — the surface should be the shape
+   of the thing being read. */
+.st-key-tl_note_sheet {{
+  background: var(--tl-chart-stage);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-6);
+  max-width: 78ch;
+}}
+.st-key-tl_note_sheet [data-testid="stMarkdownContainer"] {{
+  color: var(--tl-text);
+  max-width: 72ch;
+}}
+.st-key-tl_note_sheet [data-testid="stMarkdownContainer"] h1,
+.st-key-tl_note_sheet [data-testid="stMarkdownContainer"] h2,
+.st-key-tl_note_sheet [data-testid="stMarkdownContainer"] h3,
+.st-key-tl_note_sheet [data-testid="stMarkdownContainer"] h4,
+.st-key-tl_note_sheet [data-testid="stMarkdownContainer"] strong {{
+  color: var(--tl-text);
+}}
+
+/* === STRATEGY PROFILE — the playbook summary ===
+   A compact functional header, not a hero. The page it introduces is a
+   long form, so this states three things and stops: whose playbook, how
+   complete, and what reads it. The photographic banner it replaces put a
+   75%-dimmed image behind that information.
+
+   Type rules here carry the app-container anchor for the reason given at
+   the Evidence Rail: Streamlit sizes every p and h1-h4 it renders from a
+   0,1,1 selector, which beats a lone class of ours. */
+.tl-playbook {{
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-5) var(--tl-space-6);
+  margin-bottom: var(--tl-space-4);
+}}
+.tl-playbook-head {{
+  display: flex;
+  align-items: baseline;
+  gap: var(--tl-space-3);
+  flex-wrap: wrap;
+}}
+[data-testid="stAppViewContainer"] .tl-playbook-name {{
+  font-family: var(--tl-font-display);
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 700;
+  color: var(--tl-ink);
+  margin: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-playbook-meta {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-muted);
+  margin: 0 0 0 auto;
+}}
+/* Completion. The figure is the message; the rule underneath is a second
+   reading of the same number, so it is aria-hidden rather than announced
+   twice. */
+.tl-playbook-progress {{
+  display: block;
+  height: 3px;
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-hairline);
+  margin: var(--tl-space-3) 0 var(--tl-space-2) 0;
+  overflow: hidden;
+}}
+.tl-playbook-progress span {{
+  display: block;
+  height: 100%;
+  background: var(--tl-action);
+}}
+[data-testid="stAppViewContainer"] .tl-playbook-count {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  letter-spacing: 0.04em;
+  color: var(--tl-muted);
+  margin: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-playbook-why {{
+  font-size: 14px;
+  line-height: 21px;
+  color: var(--tl-muted);
+  margin: var(--tl-space-2) 0 0 0;
+  max-width: 68ch;
+}}
+/* Saved values, read-only. Grouped under their own label so a chip row is
+   never mistaken for the field that edits it. */
+.tl-playbook-facets {{
+  display: flex;
+  flex-direction: column;
+  gap: var(--tl-space-2);
+  margin-top: var(--tl-space-4);
+  padding-top: var(--tl-space-3);
+  border-top: 1px solid var(--tl-hairline);
+}}
+.tl-playbook-facet {{
+  display: flex;
+  align-items: baseline;
+  gap: var(--tl-space-3);
+  flex-wrap: wrap;
+}}
+[data-testid="stAppViewContainer"] .tl-playbook-facet-label {{
+  font-family: var(--tl-font-mono);
+  font-size: 11px;
+  line-height: 18px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tl-muted);
+  margin: 0;
+  flex: 0 0 5.5rem;
+}}
+.tl-playbook-facet .tl-chip-row {{ margin: 0; }}
+
+/* Opening a rule section is the one state change on this page worth
+   conveying: without it the panel's contents appear out of nothing, which
+   reads as a glitch rather than a disclosure. Opacity and a 4px lift only,
+   at 180ms on the project's ease-out — the same reveal as the Journal's
+   trade detail and the wizard's step, so the product has one rhythm rather
+   than a third.
+
+   Scoped to the playbook form, not to [data-testid="stExpander"]: every
+   st.expander in the app carries that testid, so an unscoped rule would
+   animate the Journal's filters, the wizard's screenshot panel, Settings
+   and the auth screen — motion on five pages that asked for none.
+
+   Nothing else on this page moves. Save is a form submit a trader repeats
+   all session, and validation text has to be readable the instant it
+   exists — animating either would make the interface feel slower at the
+   two moments the user is watching most closely. */
+.st-key-tl_playbook_form [data-testid="stExpander"] details[open] > summary + div {{
+  animation: tl-section-in 180ms var(--tl-ease-out) both;
+}}
+@keyframes tl-section-in {{
+  from {{ opacity: 0; transform: translateY(4px); }}
+  to {{ opacity: 1; transform: none; }}
+}}
+
+/* Field-level validation. Sits under the input it is about, stays until
+   the value is fixed, and announces itself — a toast did none of the
+   three. Red is reserved for errors, which this is. */
+[data-testid="stAppViewContainer"] .tl-field-error {{
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--tl-danger-ink);
+  margin: var(--tl-space-1) 0 0 0;
+}}
+
+/* === SETTINGS — deliberately the quietest page ===
+   Nothing here is the product. No card, no chart, no promotion: labelled
+   rows on the workspace, one rule between sections instead of six
+   dividers, and the only bordered object on the page reserved for the two
+   actions that destroy data. */
+.tl-settings-row {{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tl-space-4);
+  flex-wrap: wrap;
+  padding: var(--tl-space-3) 0;
+  border-bottom: 1px solid var(--tl-hairline);
+}}
+[data-testid="stAppViewContainer"] .tl-settings-label {{
+  font-size: 14px;
+  line-height: 21px;
+  font-weight: 500;
+  color: var(--tl-ink);
+  margin: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-settings-value {{
+  font-family: var(--tl-font-mono);
+  font-size: 13px;
+  line-height: 21px;
+  color: var(--tl-muted);
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}}
+[data-testid="stAppViewContainer"] .tl-settings-note {{
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--tl-muted);
+  margin: var(--tl-space-2) 0 0 0;
+  max-width: 68ch;
+}}
+
+/* Save feedback, beside the control that changed. Settings are saved one
+   at a time, so a toast in the corner is both too far away and gone before
+   the eye gets there. The status is a live region: it appears after an
+   action the user took, and a screen reader has to hear it. */
+[data-testid="stAppViewContainer"] .tl-setting-status {{
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  margin: var(--tl-space-2) 0 0 0;
+}}
+.tl-setting-status::before {{
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  border-radius: var(--tl-radius-full);
+  vertical-align: middle;
+}}
+/* Ink on the quiet ground, hue only in the dot — the wash-as-text-
+   background pattern fails AA at every tint strength (measured, Task 1). */
+[data-testid="stAppViewContainer"] .tl-setting-status.ok {{
+  color: var(--tl-ink);
+}}
+.tl-setting-status.ok::before {{ background: var(--tl-success-ink); }}
+[data-testid="stAppViewContainer"] .tl-setting-status.fail {{
+  color: var(--tl-danger-ink);
+}}
+.tl-setting-status.fail::before {{ background: var(--tl-danger-ink); }}
+
+/* Integration state. Not an error when it is unset — an optional key that
+   has not been supplied is a state with an action attached, so it gets the
+   neutral dot and a sentence, not a red panel. */
+[data-testid="stAppViewContainer"] .tl-settings-state {{
+  font-size: 14px;
+  line-height: 21px;
+  color: var(--tl-ink);
+  margin: 0;
+}}
+.tl-settings-state::before {{
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 10px;
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-muted);
+  vertical-align: middle;
+}}
+.tl-settings-state.on::before {{ background: var(--tl-success-ink); }}
+
+/* The one bordered object on the page. A full border, not a red side
+   stripe: the section is dangerous, so it is enclosed rather than
+   decorated, and the hue stays on the heading and the buttons. */
+/* The border goes on the KEYED CONTAINER, not on the heading markup: the
+   expanders, their confirmation fields and their buttons are Streamlit
+   elements rendered as siblings of that markup, so a border drawn around
+   the heading alone would enclose a title and leave both destructive
+   actions outside the box it is supposed to be warning about. */
+.st-key-tl_danger_zone {{
+  border: 1px solid var(--tl-danger-ink);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-5) var(--tl-space-6);
+  margin-top: var(--tl-space-12);
+}}
+.tl-danger-zone {{
+  margin-bottom: var(--tl-space-4);
+}}
+[data-testid="stAppViewContainer"] .tl-danger-zone-title {{
+  font-family: var(--tl-font-ui);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tl-danger-ink);
+  margin: 0;
+}}
+[data-testid="stAppViewContainer"] .tl-danger-zone-lede {{
+  font-size: 14px;
+  line-height: 21px;
+  color: var(--tl-muted);
+  margin: var(--tl-space-2) 0 0 0;
+  max-width: 68ch;
+}}
+/* Every control inside the zone is destructive, so the confirm buttons
+   carry the danger hue rather than the brand teal — which everywhere else
+   in the product means "the useful thing to do next". */
+.st-key-tl_danger_zone .stButton button {{
+  border-color: var(--tl-danger-ink);
+  color: var(--tl-danger-ink);
+}}
+.st-key-tl_danger_zone .stButton button:disabled {{
+  border-color: var(--tl-hairline);
+  color: var(--tl-muted);
+}}
+
+/* === JOURNAL === */
+/* The result count, beside the view selector. Mono so the figure lines up
+   with the ledger's own numerals, and right-aligned so it reads as a
+   caption on the selector rather than a heading of its own. */
+.tl-journal-count {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-muted);
+  text-align: right;
+  margin: 0;
+}}
+/* Opening a trade is a real change of context, so the detail gets one brief
+   reveal — the ONLY animation on this page. Rows, sorting, filtering and
+   hover stay instant: those happen dozens of times a session, and motion
+   there reads as lag rather than feedback. */
+.st-key-tl_trade_detail {{
+  animation: tl-detail-in 180ms var(--tl-ease-out) both;
+}}
+@keyframes tl-detail-in {{
+  from {{ opacity: 0; transform: translateY(4px); }}
+  to {{ opacity: 1; transform: none; }}
+}}
+
+/* A calendar day is a button a thumb has to hit, so it carries the same
+   44px floor as every other control — at every width, not just on a phone.
+   Descendant combinator, not `>`: these buttons pass `help=`, which wraps
+   them in a tooltip div, so `.stButton > button` never matches them. */
+.st-key-tl_journal_calendar [data-testid="stColumn"] .stButton button {{
+  min-height: 44px;
+}}
+
+/* === TRADE WIZARD (components/trade_wizard.py + pages/1_NewTrade.py) === */
+
+/* Step transition. The step container's key changes with the step, so
+   Streamlit mounts a new element and this replays — transform and opacity
+   only, inside the 180-240ms window, and never on focus or validation
+   text, which must appear the instant they exist. */
+[class*="st-key-tl_step_"] {{
+  animation: tl-step-in 200ms var(--tl-ease-out) both;
+}}
+@keyframes tl-step-in {{
+  from {{ opacity: 0; transform: translateY(4px); }}
+  to {{ opacity: 1; transform: none; }}
+}}
+
+/* Progress. One system: the numbered rail on desktop, and the masthead
+   eyebrow's "Step N of 5" everywhere. Below the phone breakpoint the rail
+   would wrap into two lines of circles, so it is withdrawn rather than
+   shrunk. */
+.tl-wizard-progress {{
+  margin-bottom: var(--tl-space-6);
+}}
+.tl-wizard-progress .tl-stepper {{
+  margin-bottom: 0;
+}}
+
+/* Sticky action bar. Sticky, not fixed: it stays in the document flow, so
+   it can never sit on top of the last field of a step. */
+.st-key-tl_wizard_bar {{
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  background: var(--tl-canvas);
+  border-top: 1px solid var(--tl-hairline);
+  padding: var(--tl-space-3) 0 var(--tl-space-2) 0;
+  margin-top: var(--tl-space-6);
+}}
+.tl-wizard-draft {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-muted);
+  text-align: center;
+  margin: 0;
+  padding-top: var(--tl-space-3);
+}}
+/* The bar's controls are the ones a trader hits five times per trade, so
+   they carry the 44px minimum at every width — not only on touch. */
+.st-key-tl_wizard_bar .stButton > button {{
+  min-height: 44px;
+}}
 
 /* === QUICK ACTION CARD (rest, hover, focus-within states) === */
 .tl-action-card {{
   display: block;
-  background: var(--tl-surface);
-  border: 1px solid var(--tl-border);
+  background: var(--tl-paper);
+  border: 1px solid var(--tl-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-4);
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--tl-dur-state) var(--tl-ease-out);
 }}
 @media (hover: hover) and (pointer: fine) {{
   .tl-action-card:hover {{
-    border-color: var(--tl-primary);
-    box-shadow: var(--tl-shadow-md);
+    border-color: var(--tl-action);
   }}
 }}
 .tl-action-card:focus-within {{
-  border-color: var(--tl-primary);
-  box-shadow: var(--tl-shadow-md);
+  border-color: var(--tl-action);
+  box-shadow: var(--tl-shadow);
 }}
 
 /* === HERO KPI ROW (dashboard) ===
-   Background image is set inline (data URI + rgba(13,15,17,0.65) overlay)
-   because the asset is embedded per-page via get_asset_as_base64(). */
+   Superseded by .tl-kpi-strip; kept legible until Overview is recomposed.
+   The background image the dark hero carried is not reinstated on the
+   light workspace — decoration behind figures is what made the old
+   dashboard hard to read. */
 .tl-hero-wrap {{
-  border: 1px solid var(--tl-border);
-  border-radius: var(--tl-radius-lg);
+  border: 1px solid var(--tl-hairline);
+  border-radius: var(--tl-radius-md);
   padding: var(--tl-space-6);
   margin-bottom: var(--tl-space-4);
-  background-color: var(--tl-surface);
-  background-size: cover;
-  background-position: center;
+  background-color: var(--tl-paper);
 }}
 .tl-kpi-row {{
   display: flex;
@@ -744,40 +2133,49 @@ def build_css() -> str:
 .tl-kpi-row .tl-kpi-card {{
   flex: 1 1 150px;
   min-width: 150px;
-  background: rgba(19, 22, 26, 0.78);
+  background: var(--tl-paper);
 }}
 
-/* === DATA TABLE (recent trades etc.) === */
+/* === DATA LEDGER (recent trades etc.) ===
+   Ledger density: 14px text, generous row padding, hairline row rules, and
+   tabular figures so money columns line up on the decimal. Rows change
+   background on hover only — a ledger is scanned dozens of times a session,
+   and rows that lift or scale make that feel slow. */
 .tl-table-wrap {{ overflow-x: auto; }}
 .tl-table {{
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 20px;
 }}
 .tl-table th {{
   text-align: left;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--tl-text-muted);
-  padding: 10px var(--tl-space-3);
-  border-bottom: 1px solid var(--tl-border);
+  color: var(--tl-muted);
+  padding: var(--tl-space-2) var(--tl-space-3);
+  border-bottom: 1px solid var(--tl-hairline);
 }}
 .tl-table td {{
-  padding: 10px var(--tl-space-3);
-  border-bottom: 1px solid var(--tl-border-subtle);
-  color: var(--tl-text);
-  transition: background 0.15s ease-out;
+  padding: var(--tl-space-3);
+  border-bottom: 1px solid var(--tl-hairline);
+  color: var(--tl-ink);
+  transition: background var(--tl-dur-state) var(--tl-ease-out);
 }}
 .tl-table td.mono {{
   font-family: var(--tl-font-mono);
   font-variant-numeric: tabular-nums;
 }}
 .tl-table th.num, .tl-table td.num {{ text-align: right; }}
-.tl-table td.pnl-pos {{ color: var(--tl-success); }}
-.tl-table td.pnl-neg {{ color: var(--tl-danger); }}
-.tl-table tr:hover td {{ background: var(--tl-surface-2); }}
+.tl-table td.pnl-pos {{ color: var(--tl-success-ink); }}
+.tl-table td.pnl-neg {{ color: var(--tl-danger-ink); }}
+/* Gated: on a touch device :hover latches after a tap, leaving a row
+   tinted as though it were selected. */
+@media (hover: hover) and (pointer: fine) {{
+  .tl-table tr:hover td {{ background: var(--tl-mist); }}
+}}
 
 /* === WELCOME (dashboard first-run empty state) === */
 .tl-welcome {{
@@ -786,18 +2184,21 @@ def build_css() -> str:
 }}
 .tl-welcome-img {{
   width: 100%;
-  border-radius: var(--tl-radius-lg);
+  border-radius: var(--tl-radius-md);
   margin-bottom: var(--tl-space-6);
 }}
 .tl-welcome-title {{
-  font-size: 24px;
+  font-family: var(--tl-font-display);
+  font-size: 30px;
+  line-height: 36px;
   font-weight: 700;
-  color: var(--tl-text);
+  color: var(--tl-ink);
   margin: 0 0 var(--tl-space-2) 0;
 }}
 .tl-welcome-sub {{
-  font-size: 14px;
-  color: var(--tl-text-muted);
+  font-size: 16px;
+  line-height: 25px;
+  color: var(--tl-muted);
   margin: 0 0 var(--tl-space-4) 0;
 }}
 .tl-welcome-cta-img {{
@@ -822,20 +2223,20 @@ def build_css() -> str:
   display: block;
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-text);
+  color: var(--tl-ink);
   margin-bottom: 2px;
 }}
 .tl-action-sub {{
   display: block;
   font-size: 12px;
-  color: var(--tl-text-muted);
+  color: var(--tl-muted);
   margin-bottom: var(--tl-space-2);
 }}
 .tl-action-go {{
   display: block;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
-  color: var(--tl-primary);
+  color: var(--tl-action);
 }}
 
 /* === STREAMLIT CHROME ===
@@ -846,17 +2247,31 @@ def build_css() -> str:
    proven in this repo. */
 
 /* === INLINE CODE (markdown) ===
-   Streamlit's default renders code spans red — red is reserved for
-   errors. Recolor onto the brand teal over an elevated surface. */
+   Streamlit's default renders code spans red — red is reserved for errors.
+   Ink on mist: the mono face already separates code from prose, so the
+   span does not need a hue as well. */
 [data-testid="stAppViewContainer"] code {{
-  color: var(--tl-primary);
-  background: var(--tl-surface-2);
+  color: var(--tl-ink);
+  background: var(--tl-mist);
   border-radius: 4px;
+}}
+
+/* === FOCUS ===
+   One visible ring everywhere, on both surface families. Focus is never
+   removed; keyboard users navigate the whole product. */
+[data-testid="stAppViewContainer"] :focus-visible {{
+  outline: 2px solid var(--tl-action);
+  outline-offset: 2px;
+  border-radius: 2px;
+}}
+[data-testid="stSidebar"] :focus-visible {{
+  outline: 2px solid var(--tl-focus);
+  outline-offset: 2px;
 }}
 
 /* === AI REVIEW BODY (Insights & Review) ===
    The model's markdown ## / ### headings must sit BELOW the page's
-   18px section titles — inside the keyed tl_review_* containers they
+   section titles — inside the keyed tl_review_* containers they
    render at body-plus scale instead of full H2/H3 size. */
 [class*="st-key-tl_review_"] h1,
 [class*="st-key-tl_review_"] h2,
@@ -900,13 +2315,13 @@ def build_css() -> str:
   border-radius: var(--tl-radius-full);
   margin-right: 6px;
   vertical-align: 1px;
-  background: var(--tl-text-muted);
+  background: var(--tl-muted);
 }}
 [class*="st-key-calday_"][class*="_positive"] button::before {{
-  background: var(--tl-success);
+  background: var(--tl-success-ink);
 }}
 [class*="st-key-calday_"][class*="_negative"] button::before {{
-  background: var(--tl-danger);
+  background: var(--tl-danger-ink);
 }}
 .tl-cal-legend {{
   display: flex;
@@ -914,7 +2329,7 @@ def build_css() -> str:
   flex-wrap: wrap;
   gap: var(--tl-space-4);
   font-size: 12px;
-  color: var(--tl-text-muted);
+  color: var(--tl-muted);
   margin: var(--tl-space-2) 0 var(--tl-space-3) 0;
 }}
 .tl-cal-key {{
@@ -926,35 +2341,240 @@ def build_css() -> str:
   width: 7px;
   height: 7px;
   border-radius: var(--tl-radius-full);
-  background: var(--tl-text-muted);
+  background: var(--tl-muted);
   display: inline-block;
 }}
-.tl-cal-dot.positive {{ background: var(--tl-success); }}
-.tl-cal-dot.negative {{ background: var(--tl-danger); }}
+.tl-cal-dot.positive {{ background: var(--tl-success-ink); }}
+.tl-cal-dot.negative {{ background: var(--tl-danger-ink); }}
 
-/* === MOTION (accessibility — PRODUCT.md) === */
+/* === MOTION (accessibility — PRODUCT.md) ===
+   Reduced motion means fewer and gentler, not zero: color feedback that
+   aids comprehension stays, movement goes. Nothing here translates or
+   scales, so removing transitions entirely is the correct reduction. */
 @media (prefers-reduced-motion: reduce) {{
   .tl-action-card,
   .stButton > button,
+  .stFormSubmitButton > button,
   .tl-table td,
-  [data-testid="stSidebar"] a {{
+  .tl-mobile-nav-item,
+  [data-testid="stSidebar"] a,
+  [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {{
     transition: none;
+  }}
+  /* Colour feedback stays; the movement goes. */
+  .tl-mobile-nav-item:active,
+  .st-key-tl_nav_action [data-testid="stPageLink-NavLink"]:active {{
+    transform: none;
+  }}
+  [class*="st-key-tl_step_"],
+  .st-key-tl_trade_detail,
+  .st-key-tl_playbook_form
+    [data-testid="stExpander"] details[open] > summary + div {{
+    animation: none;
   }}
 }}
 
-/* === MOBILE (SP4 Phase B, <=640px) ===
-   Streamlit stacks its own widgets, but our custom HTML does not: the KPI
-   hero row is a flex row and the HTML tables have no scroll container.
-   These rules let KPI cards stack and keep tables scrollable inside their
-   card instead of overflowing the page. Touch targets to >=44px. */
-@media (max-width: 640px) {{
+/* === TOUCH TARGETS ON STREAMLIT'S OWN CONTROLS ===
+   Our components carry the 44px floor themselves. Streamlit's defaults do
+   not. Measured on 1.50.0: lens options 26px, date field 38px, sidebar
+   handle 28px, in-content page link 32px, and buttons 40px above the phone
+   breakpoint. Every rule here is set at EVERY width — a pointer is not the
+   only reason for a comfortable target, and a floor that exists only below
+   767px is one that regresses the moment anyone measures at 1440px, which
+   is exactly how the button case was found. */
+
+/* Radio options only. `[data-baseweb="radio"]` is on the option labels;
+   the widget's own <label> carries the stWidgetLabel testid instead and
+   collapses to 0px when label_visibility="collapsed" — matching it would
+   inject 44px of empty space above every lens selector. */
+[data-testid="stRadio"] label[data-baseweb="radio"] {{
+  min-height: 44px;
+  align-items: center;
+}}
+[data-testid="stDateInput"] input {{
+  min-height: 44px;
+}}
+/* Selectboxes. The <input> BaseWeb nests inside is a 22px a11y shim, not
+   the target — the control a thumb actually hits is the wrapper div, which
+   measured 40px. Settings' timezone picker is the whole of Preferences. */
+[data-testid="stSelectbox"] [data-baseweb="select"] > div {{
+  min-height: 44px;
+}}
+/* Text fields. This too lived inside the phone breakpoint, so every input
+   on the playbook form was 38px on a desktop and 44px on a phone. */
+[data-testid="stTextInput"] input {{
+  min-height: 44px;
+}}
+/* An accordion header is the control that opens a section — on the
+   playbook it is the only way to reach five of the six. Streamlit gives it
+   4px 12px of padding and nothing else. */
+[data-testid="stExpander"] summary {{
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}}
+/* The collapse handle carries its testid on the wrapper, the expand handle
+   on the button itself — hence the two shapes. */
+/* The collapse chevron inherits workspace ink, so on the dark rail it was
+   1.05:1 — a control you cannot see is a control you do not have. */
+[data-testid="stSidebarCollapseButton"] button,
+[data-testid="stSidebarCollapseButton"] button * {{
+  color: var(--tl-text);
+}}
+[data-testid="stSidebarCollapseButton"] button,
+[data-testid="stExpandSidebarButton"] {{
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}}
+/* Buttons. Descendant, not `>`: a button that passes `help=` is wrapped in
+   a tooltip div, so `.stButton > button` never reaches it. This lived
+   inside the phone breakpoint and made the same control 44px on a phone
+   and 40px on a desktop — "Regenerate this week", measured at 1440px. */
+.stButton button,
+.stFormSubmitButton button {{
+  min-height: 44px;
+}}
+/* Download and upload render their own buttons outside .stButton, so the
+   rule above never reached them: Settings' export and its CSV browse
+   button both measured 40px. */
+[data-testid="stDownloadButton"] button,
+[data-testid="stFileUploader"] button {{
+  min-height: 44px;
+}}
+/* Page links in the page body. The sidebar's nav links are already 44px
+   from the shell pass; an in-content one ("Open these trades in the
+   Journal") was 32px. inline-flex gives the hit area without changing how
+   the link reads. */
+[data-testid="stPageLink-NavLink"] {{
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}}
+
+/* Nav icons. stIconMaterial sets its OWN colour, so the rail's text rule
+   never reached it: every icon in the sidebar rendered workspace ink on
+   the dark rail at 1.1:1, and on the active item's surface at 1.04:1 —
+   six invisible icons. Inheriting the link means the nav icons go light
+   and the teal action's icon stays dark, from one rule. */
+[data-testid="stSidebar"] [data-testid="stIconMaterial"] {{
+  color: inherit;
+}}
+
+/* === STREAMLIT'S OWN SECONDARY TEXT ===
+   Measured on white: the multiselect placeholder and the file-uploader's
+   "Limit 200MB per file" line both land at 4.4:1, and an empty menu's
+   "No options to select" at 2.46:1. Close is not passing — these carry the
+   workspace's muted token, which IS measured. */
+/* The multiselect placeholder is a plain div BaseWeb gives no attribute
+   to, painted rgba(ink, 0.6) — 4.4:1 over white. Once values are chosen
+   they render as [data-baseweb="tag"] chips instead, so recolouring the
+   plain text inside a MULTIselect only ever hits the placeholder. */
+/* Streamlit paints its secondary text as rgba(ink, 0.4-0.6), which lands
+   at 4.4:1 for a placeholder and 2.46:1 for an empty menu — the alpha is
+   not ours to change, so the colour is replaced with the measured muted
+   token. Chosen values (tags, the selected option) are restored to ink
+   below: a value the trader picked is content, not a hint. */
+[data-testid="stMultiSelect"] [data-baseweb="select"] div,
+[data-baseweb="popover"] [data-baseweb="menu"] li,
+[data-testid="stFileUploader"] small,
+[data-testid="stFileUploaderDropzoneInstructions"] span,
+[data-baseweb="menu"] li {{
+  color: var(--tl-muted);
+}}
+
+/* A multiselect shows chosen values as tags, so the plain text inside one
+   is only ever the placeholder — but the tags sit inside the same subtree
+   and must stay content-coloured. A SELECTBOX always has a value and never
+   shows a placeholder at all, which is why it is absent above: muting it
+   greyed out the chosen value, measured at 5.61:1 where ink belongs. */
+[data-testid="stMultiSelect"] [data-baseweb="tag"],
+[data-testid="stMultiSelect"] [data-baseweb="tag"] div,
+[data-baseweb="popover"] [data-baseweb="menu"] li[aria-selected="true"] {{
+  color: var(--tl-ink);
+}}
+
+/* A data table must scroll inside its own frame rather than push the page
+   sideways; Streamlit leaves overflow-x visible and its grid ran 9px wide. */
+[data-testid="stDataFrame"] {{
+  overflow-x: auto;
+}}
+
+/* === MOBILE (SP4 Phase B, <=767px) ===
+   Streamlit stacks its own widgets, but our custom HTML does not: flex
+   rows and HTML tables need explicit reflow. The KPI strip becomes a
+   two-column compact list rather than six full-width rows, tables scroll
+   inside their own frame, and touch targets reach >=44px. */
+@media (max-width: 767px) {{
+  /* The bottom bar appears only here, and reserves its own height plus the
+     gesture-bar inset so it never covers the last row of a table. */
+  .tl-mobile-nav {{
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 100;
+    background: var(--tl-rail);
+    border-top: 1px solid var(--tl-border);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }}
+  .tl-mobile-nav-item {{ position: relative; }}
+  [data-testid="stAppViewContainer"] .block-container {{
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  }}
+  /* The numbered rail wraps into two rows of circles at this width; the
+     masthead's "Step N of 5" carries the position instead. */
+  .tl-wizard-progress {{ display: none; }}
+  /* Journal calendar: st.columns wrap at this width, which turns a month
+     into a 31-row list. Measured at 375px. The columns are told not to
+     wrap and to share the row instead, so it stays a calendar. Scoped to
+     the Journal — Overview uses its own compact grid and Analytics keeps
+     the behaviour it already had. */
+  .st-key-tl_journal_calendar [data-testid="stHorizontalBlock"] {{
+    flex-wrap: nowrap;
+    gap: 2px;
+  }}
+  .st-key-tl_journal_calendar [data-testid="stColumn"] {{
+    flex: 1 1 0;
+    min-width: 0;
+  }}
+  /* Only the horizontal padding is surrendered to fit seven columns across
+     — at 375px each column is ~47px wide. The height is set outside this
+     media query, because a day cell is a touch target at every width. */
+  .st-key-tl_journal_calendar [data-testid="stColumn"] .stButton button {{
+    padding-left: 0;
+    padding-right: 0;
+    font-size: 12px;
+  }}
+  /* Clear the bottom navigation so the wizard's primary action is never
+     underneath it. */
+  .st-key-tl_wizard_bar {{
+    bottom: calc(51px + env(safe-area-inset-bottom, 0px));
+  }}
   .tl-kpi-row {{ flex-direction: column; gap: var(--tl-space-2); }}
   .tl-kpi-card {{ width: 100%; }}
+  .tl-kpi-cell {{ flex: 1 1 50%; }}
+  .tl-kpi-cell:nth-child(odd) {{ border-left-width: 0; }}
+  .tl-kpi-cell:nth-child(n+3) {{ border-top: 1px solid var(--tl-hairline); }}
+  .tl-kpi-figure {{ font-size: 22px; line-height: 28px; }}
+  .tl-masthead {{ align-items: flex-start; flex-direction: column; gap: var(--tl-space-2); }}
+  /* Anchored for the same reason as the desktop rule — unanchored, this
+     lost to Streamlit's h1 sizing and the masthead never shrank on a
+     phone at all. */
+  [data-testid="stAppViewContainer"] .tl-masthead-title {{
+    font-size: 28px;
+    line-height: 34px;
+  }}
+  [data-testid="stAppViewContainer"] .tl-section-title {{
+    font-size: 26px;
+    line-height: 32px;
+  }}
+  .tl-finding {{ flex-direction: column; gap: var(--tl-space-2); }}
   .tl-table-wrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
   .tl-table {{ min-width: 560px; }}
-  .stButton > button,
-  .stFormSubmitButton > button {{ min-height: 44px; }}
-  [data-testid="stTextInput"] input {{ min-height: 44px; }}
 }}
 </style>"""
 
@@ -1151,23 +2771,27 @@ def render_empty_state(
     )
 
 
-def render_banner(text: str, variant: str = "warning") -> str:
+def render_banner(
+    text: str, variant: str = "warning", *, announce: bool = False
+) -> str:
     """Inline banner: warning | info | danger. Unknown variants fall back
-    to warning (visible but non-alarming)."""
+    to warning (visible but non-alarming).
+
+    Static guidance stays quiet to assistive technology. Callers set
+    ``announce`` only for a message created by the latest interaction, such
+    as blocked wizard navigation.
+    """
     if variant not in _BANNER_VARIANTS:
         variant = "warning"
-    return f'<div class="tl-banner tl-banner-{variant}">{escape(text)}</div>'
+    role = ' role="alert"' if announce else ""
+    return f'<div class="tl-banner tl-banner-{variant}"{role}>{escape(text)}</div>'
 
 
 def render_section_header(title: str, subtitle: Optional[str] = None) -> str:
-    sub = (
-        f'<div class="tl-section-subtitle">{escape(subtitle)}</div>' if subtitle else ""
-    )
-    return (
-        '<div class="tl-section-header">'
-        f'<div class="tl-section-title">{escape(title)}</div>'
-        f"{sub}</div>"
-    )
+    """Section break. Delegates to ``components/workspace.py``, which owns
+    the markup for every shared workspace primitive — this and
+    ``components/ui.section_header`` were byte-identical copies."""
+    return _render_section_header(title, subtitle)
 
 
 def render_ai_card(content_html: str) -> str:

@@ -75,3 +75,53 @@ def test_sample_data_is_scoped_per_user(in_memory_db):
     assert removed == N
     assert sample_data.count_sample_trades(user_id=1) == 0
     assert sample_data.count_sample_trades(user_id=2) == N
+
+
+# ---------------------------------------------------------------------------
+# Sample trades carry the active strategy (Task 11 correction)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def db_with_strategy(monkeypatch):
+    """One in-memory database shared by sample_data and the strategy service,
+    so a profile written by one is visible to the other."""
+    import src.tradelens.services.strategy as strategy
+
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(sample_data, "SessionLocal", Session)
+    monkeypatch.setattr(strategy, "SessionLocal", Session)
+    yield Session
+    Base.metadata.drop_all(engine)
+
+
+def test_sample_trades_carry_the_active_strategy(db_with_strategy):
+    """New Trade stamps strategy_used from the active playbook on every real
+    trade. Sample data that omits it produces rows no logging flow could
+    create, and leaves Analytics' Strategy filter permanently empty for
+    anyone exploring the product with sample data."""
+    from src.tradelens.services.strategy import upsert_strategy_profile
+
+    upsert_strategy_profile(1, name="ICT/SMC Day Trading")
+    sample_data.load_sample_trades(1)
+
+    session = db_with_strategy()
+    try:
+        names = {t.strategy_used for t in session.query(Trade).all()}
+    finally:
+        session.close()
+    assert names == {"ICT/SMC Day Trading"}, names
+
+
+def test_sample_trades_load_without_a_strategy(db_with_strategy):
+    """A user with no playbook still gets sample data; the column stays
+    empty rather than the load failing."""
+    assert sample_data.load_sample_trades(2) > 0
+
+    session = db_with_strategy()
+    try:
+        assert all(t.strategy_used is None for t in session.query(Trade).all())
+    finally:
+        session.close()

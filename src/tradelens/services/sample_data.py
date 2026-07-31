@@ -125,9 +125,29 @@ def load_sample_trades(user_id=None) -> int:
 
     Clears this user's existing sample rows first so repeated loads don't pile up
     duplicates. Returns the number of rows inserted.
+
+    Each row is stamped with the user's active strategy, exactly as
+    New Trade stamps a real one. Without it the sample set produces trades
+    no logging flow could actually create, and Analytics' Strategy filter
+    sits permanently empty for anyone exploring the product with sample
+    data — a control that offers nothing is worse than no control.
     """
     clear_sample_trades(user_id)
     rows = _build_sample_trades(user_id)
+
+    strategy_name = None
+    if user_id is not None:
+        try:
+            from src.tradelens.services.strategy import get_active_strategy
+
+            active = get_active_strategy(user_id)
+            strategy_name = (active or {}).get("name") or None
+        except Exception:  # noqa: BLE001 — sample data must load regardless
+            strategy_name = None
+    if strategy_name:
+        for row in rows:
+            row.strategy_used = strategy_name
+
     db = SessionLocal()
     try:
         db.add_all(rows)

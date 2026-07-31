@@ -157,6 +157,7 @@ def test_no_hardcoded_palette_in_auth_css():
         ds.TL_PRIMARY.lower(),
         ds.TL_BG.lower(),
         ds.TL_SURFACE.lower(),
+        ds.TL_SURFACE_2.lower(),
         ds.TL_BORDER.lower(),
         ds.TL_TEXT.lower(),
         ds.TL_TEXT_MUTED.lower(),
@@ -164,6 +165,148 @@ def test_no_hardcoded_palette_in_auth_css():
     }
     for hexval in re.findall(r"#[0-9a-fA-F]{6}", css):
         assert hexval.lower() in known, f"untokenised color {hexval} in auth CSS"
+
+
+def test_native_widgets_are_restyled_for_the_dark_card():
+    """The card is the one dark surface in a light product.
+
+    With the workspace base light, Streamlit paints labels, expander
+    summaries and captions in ink and text inputs on white — on this card
+    the labels came out invisible against their own background. Every fix
+    must stay scoped to the card so widgets elsewhere keep framework chrome.
+    """
+    from src.tradelens.ui.components import auth_screen
+
+    css = auth_screen.auth_css()
+    for testid in (
+        "stWidgetLabel",
+        "stTextInputRootElement",
+        "stFormSubmitButton",
+        "stBaseButton-segmented_control",
+        "stExpander",
+        "stCaptionContainer",
+    ):
+        assert f'[data-testid="{testid}"]' in css, f"{testid} left unstyled"
+
+    # BaseWeb nests its own white container inside the input root; styling
+    # only the root leaves a white field on the dark card.
+    assert '[data-baseweb="base-input"]' in css
+
+    # Nothing may restyle a widget globally: every widget rule is a
+    # descendant of the auth card container.
+    for line in css.splitlines():
+        stripped = line.strip()
+        if 'data-testid="st' in stripped and "stMainBlockContainer" not in stripped:
+            assert stripped.startswith(
+                (".st-key-tl_auth_card", ".tl-auth")
+            ), f"unscoped widget rule leaks into the app: {stripped}"
+
+
+def _css_declarations(css: str, selector: str) -> str:
+    """Collect declarations from every flat CSS rule whose selector list
+    contains `selector` exactly.
+
+    Comments are stripped first: the selector-capturing pattern is greedy
+    between braces, so a `/* ... */` block sitting above a rule is otherwise
+    swallowed into that rule's selector text and the exact match silently
+    fails — which reports a styled control as unstyled.
+    """
+    import re
+
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.DOTALL)
+    declarations = []
+    for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        if selector in {candidate.strip() for candidate in selectors.split(",")}:
+            declarations.append(body)
+    return "\n".join(declarations)
+
+
+def test_password_visibility_control_meets_the_touch_target_minimum():
+    """Measured at 375px before the fix: 36x42. The reveal button sits in a
+    flex row beside the input, so a minimum alone is not enough — flex would
+    shrink it straight back below 44px as the field narrows."""
+    from src.tradelens.ui.components import auth_screen
+
+    css = auth_screen.auth_css()
+    declarations = _css_declarations(
+        css,
+        '.st-key-tl_auth_card [data-testid="stTextInputRootElement"] button',
+    )
+    assert "min-width: 44px" in declarations
+    assert "min-height: 44px" in declarations
+    assert "flex: 0 0 44px" in declarations, "flex would shrink it back"
+
+
+def test_password_field_wrapper_is_the_44px_hit_target():
+    """The inner <input> is 42px because the wrapper carries a 1px border;
+    the wrapper is what the user sees and clicks, so that is what must hold
+    the minimum."""
+    from src.tradelens.ui.components import auth_screen
+
+    css = auth_screen.auth_css()
+    declarations = _css_declarations(
+        css,
+        '.st-key-tl_auth_card [data-testid="stTextInputRootElement"]',
+    )
+    assert "min-height: 44px" in declarations
+
+
+def test_back_to_website_link_meets_the_touch_target_minimum():
+    """Measured at 375px and 1440px before the fix: 118x19.
+
+    A text link still has to be tappable. inline-flex + a minimum height
+    grows the hit area around the same text rather than restyling it, so
+    the link's appearance is unchanged.
+    """
+    from src.tradelens.ui.components import auth_screen
+
+    css = auth_screen.auth_css()
+    declarations = _css_declarations(css, ".st-key-tl_auth_card a.tl-auth-back")
+    assert "min-height: 44px" in declarations
+    assert "display: inline-flex" in declarations
+    assert "align-items: center" in declarations, "text must stay centred"
+    # appearance is preserved: the rule must not resize or re-weight the text
+    for restyle in ("font-size", "font-weight", "text-transform"):
+        assert restyle not in declarations, f"{restyle} changes how the link looks"
+
+
+def test_auth_recovery_summary_meets_the_touch_target_minimum():
+    from src.tradelens.ui.components import auth_screen
+
+    css = auth_screen.auth_css()
+    declarations = _css_declarations(
+        css,
+        '.st-key-tl_auth_card [data-testid="stExpander"] summary',
+    )
+    assert "min-height: 44px" in declarations
+    assert "align-items: center" in declarations
+
+
+def test_auth_card_focus_is_visible_on_every_interactive_control():
+    from src.tradelens.ui.components import auth_screen
+
+    css = auth_screen.auth_css()
+    assert ":focus-within" in css, "the field wrapper must show focus"
+    assert css.count(":focus-visible") >= 3
+
+
+def test_auth_card_text_meets_wcag_aa_on_its_own_surface():
+    """Measured against the card, not the page behind it."""
+    from src.tradelens.ui import design_system as ds
+
+    from tests.test_design_system import contrast_ratio
+
+    pairs = [
+        ("label", ds.TL_TEXT, ds.TL_SURFACE),
+        ("caption", ds.TL_TEXT_MUTED, ds.TL_SURFACE),
+        ("field text", ds.TL_TEXT, ds.TL_SURFACE_2),
+        ("placeholder", ds.TL_TEXT_MUTED, ds.TL_SURFACE_2),
+        ("submit label", ds.TL_BG, ds.TL_PRIMARY),
+        ("focus ring", ds.TL_PRIMARY, ds.TL_SURFACE),
+    ]
+    for name, fg, bg in pairs:
+        ratio = contrast_ratio(fg, bg)
+        assert ratio >= 4.5, f"auth {name} is {ratio:.2f}:1"
 
 
 def test_auth_card_is_the_intentional_centered_exception():

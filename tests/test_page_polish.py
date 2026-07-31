@@ -143,8 +143,16 @@ def test_no_emoji_in_headings(page):
 
 @pytest.mark.parametrize("page", AI_PAGES)
 def test_ai_spinner_has_no_model_brand(page):
-    spinners = re.findall(r"st\.spinner\(\s*[\"'](.+?)[\"']", _src(page))
-    assert spinners, f"{page}: expected at least one st.spinner"
+    """Whatever the waiting state says, it names the product, not the model.
+
+    AI Reviews now waits with a geometry-preserving skeleton rather than a
+    spinner, so a page may legitimately have no st.spinner at all.
+    """
+    src = _src(page)
+    spinners = re.findall(r"st\.spinner\(\s*[\"'](.+?)[\"']", src)
+    assert (
+        spinners or "render_note_skeleton" in src
+    ), f"{page}: expected visible loading feedback"
     for text in spinners:
         low = text.lower()
         assert "fable" not in low, f"{page}: spinner leaks a model brand: {text!r}"
@@ -177,8 +185,12 @@ def test_psychology_step_has_process_notes_field():
     assert "What happened during this trade?" in src
     assert "nt_process_notes" in src
     assert '"trade_process_notes": process_notes' in src  # saved as its own field
-    # Emotional field remains separate and untouched.
-    assert "How were you feeling during this trade?" in src
+    # The emotional field remains a SEPARATE field with its own key. Its label
+    # was shortened ("How were you feeling during this trade?" → "How were you
+    # feeling?") — the surrounding step already says it is about this trade.
+    assert "nt_mindset" in src
+    assert "How were you feeling?" in src
+    assert '"emotions_during": final_during' in src
 
 
 # ---------------------------------------------------------------------------
@@ -200,9 +212,15 @@ _AI_CALL_OWNERS = [
 @pytest.mark.parametrize("path", _AI_CALL_OWNERS, ids=lambda p: p.name)
 def test_ai_call_owners_show_loading_feedback(path):
     """SP4 Phase B: AI calls take seconds — every module that makes one must
-    show a spinner rather than freezing the pane with no feedback."""
+    show progress rather than freezing the pane with no feedback.
+
+    A skeleton counts, and on AI Reviews it is the better answer: it holds
+    the note's geometry, so the page does not jump when the review lands.
+    """
     src = path.read_text(encoding="utf-8")
-    assert "st.spinner" in src, f"{path.name}: AI call path needs st.spinner feedback"
+    assert (
+        "st.spinner" in src or "render_note_skeleton" in src
+    ), f"{path.name}: AI call path needs visible loading feedback"
 
 
 # ---------------------------------------------------------------------------
@@ -211,25 +229,93 @@ def test_ai_call_owners_show_loading_feedback(path):
 
 
 def test_new_trade_has_one_progress_component():
-    """The wizard used numbered tabs AND a numbered rail on every step.
+    """One position indicator, not two.
 
-    Two indicators for one position is noise, and they had to be kept in
-    sync by hand. st.tabs is the surviving system: it is also the page's
-    navigation, and unlike a rail it renders every step's body each run —
-    which is what keeps the save payload's values defined.
+    Tabs were the surviving system while every step's body had to render on
+    every run to keep the save payload defined. The wizard reads its values
+    from session state instead, so a real step rail can replace them — and
+    tabs must not come back alongside it.
     """
     src = _src("1_NewTrade.py")
-    assert src.count("render_step_indicator(") == 0
-    assert src.count("st.tabs(") == 1
+    assert src.count("st.tabs(") == 0, "tabs render every step at once"
+    assert src.count("render_step_indicator(") == 1
 
 
-def test_new_trade_steps_are_numbered_once():
-    """Step numbers live on the tabs and nowhere else."""
+def test_new_trade_renders_only_the_active_step():
+    """A wizard that renders all five bodies is a long form with a rail on
+    top of it."""
     src = _src("1_NewTrade.py")
-    for n, label in enumerate(
-        ["Screenshot & AI", "Market Context", "Trade Details", "Psychology"], start=1
-    ):
-        assert f'"{n} · {label}"' in src
+    assert "_STEP_BODIES[STEP]()" in src
+    assert "current_step(st.session_state)" in src
+
+
+def test_new_trade_steps_use_the_approved_names():
+    from src.tradelens.ui.components.trade_wizard import WIZARD_STEPS
+
+    assert WIZARD_STEPS == (
+        "Screenshot",
+        "Context",
+        "Execution",
+        "Reflection",
+        "Review",
+    )
+
+
+def test_new_trade_keeps_the_draft_alive_across_steps():
+    """Streamlit drops the state of any widget it did not render this run.
+    Without keep_alive, moving to step 3 would silently empty steps 1-2."""
+    src = _src("1_NewTrade.py")
+    assert "keep_alive(st.session_state)" in src
+    # …and it must run before the first widget is created.
+    assert src.index("keep_alive(st.session_state)") < src.index("st.selectbox(")
+
+
+def test_new_trade_reads_its_payload_from_session_state():
+    """Only one step renders, so widget return values cannot be the source
+    of truth — four of the five steps never ran."""
+    src = _src("1_NewTrade.py")
+    for key in ("nt_asset_select", "nt_pnl", "nt_mindset", "nt_setup"):
+        assert f'st.session_state.get("{key}")' in src or f'_raw("{key}")' in src
+
+
+def test_new_trade_has_a_sticky_action_bar():
+    src = _src("1_NewTrade.py")
+    assert 'st.container(key="tl_wizard_bar")' in src
+    assert "← Back" in src and "Continue →" in src
+    assert "Save completed trade" in src
+    # "kept", not "saved" — beside a Save button, the other wording reads as
+    # though the trade were already in the journal. Scoped to code: a comment
+    # naming the retired string is documentation, not a use.
+    code = "\n".join(
+        line for line in src.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "Draft kept" in code
+    assert "Draft saved" not in code
+
+
+def test_new_trade_validates_on_navigation_not_on_keystroke():
+    src = _src("1_NewTrade.py")
+    assert "def _go_next()" in src
+    assert "missing_required_fields(STEP, _FIELD_VALUES)" in src
+
+
+def test_new_trade_reset_is_scoped_to_wizard_keys():
+    """Clearing the whole session after a save would sign the trader out."""
+    src = _src("1_NewTrade.py")
+    assert "reset_wizard_state(st.session_state)" in src
+    assert 'startswith("nt_")' not in src, "hand-rolled key sweep replaced"
+
+
+def test_reflection_fields_never_block_the_save():
+    from src.tradelens.ui.components.trade_wizard import (
+        FIRST_STEP,
+        LAST_STEP,
+        required_fields_for_step,
+    )
+
+    for step in range(FIRST_STEP, LAST_STEP + 1):
+        for optional in ("mindset", "did_well", "do_better", "process_notes"):
+            assert optional not in required_fields_for_step(step)
 
 
 def test_review_hides_blank_rows_instead_of_listing_them():
@@ -288,3 +374,153 @@ def test_sidebar_does_not_cover_the_dashboard_on_a_phone():
     app = (PAGES_DIR.parent / "app.py").read_text(encoding="utf-8")
     assert 'initial_sidebar_state="auto"' in app
     assert 'initial_sidebar_state="expanded"' not in app
+
+
+# ---------------------------------------------------------------------------
+# Marketing screenshots (Task 11)
+#
+# The four in-app stills are the only view of the product a prospective user
+# gets before signing up. These guard the contract between the capture
+# script, the files on disk, and the markup that declares their box.
+# ---------------------------------------------------------------------------
+
+_SITE = Path(__file__).resolve().parents[1] / "site"
+_CAPTURE = (
+    Path(__file__).resolve().parents[1] / "scripts" / "capture_app_screenshots.py"
+)
+
+
+def _index_html() -> str:
+    return (_SITE / "index.html").read_text(encoding="utf-8")
+
+
+def test_capture_script_targets_the_paths_the_site_actually_references():
+    """A capture written to a path nothing references refreshes nothing."""
+    from scripts.capture_app_screenshots import CAPTURES
+
+    html = _index_html()
+    for _name, _route, out_path, _w, _h, _s in CAPTURES:
+        asset = out_path.split("site/")[-1]
+        assert asset in html, f"{asset} is not referenced by the marketing site"
+
+
+def test_marketing_screenshots_match_their_declared_dimensions():
+    """width/height reserve the image's box before it loads. A file whose
+    real size disagrees changes the page's aspect ratio as it arrives —
+    exactly the layout shift those attributes exist to prevent."""
+    from PIL import Image
+
+    from scripts.capture_app_screenshots import CAPTURES
+
+    html = _index_html()
+    for name, _route, out_path, width, height, _scale in CAPTURES:
+        path = Path(__file__).resolve().parents[1] / out_path
+        assert path.exists(), f"{name}: {out_path} is missing"
+        with Image.open(path) as image:
+            assert image.format == "WEBP", f"{name}: {image.format}, expected WEBP"
+            assert image.size == (width, height), (
+                f"{name}: file is {image.size}, capture script declares "
+                f"{(width, height)}"
+            )
+        asset = out_path.split("site/")[-1]
+        for tag in re.findall(r"<img[^>]*>", html, re.S):
+            if asset not in tag:
+                continue
+            declared_w = re.search(r'width="(\d+)"', tag)
+            declared_h = re.search(r'height="(\d+)"', tag)
+            assert declared_w and declared_h, f"{asset}: no width/height attributes"
+            assert (int(declared_w.group(1)), int(declared_h.group(1))) == (
+                width,
+                height,
+            ), f"{asset}: markup declares a different box than the file"
+
+
+def test_every_product_screenshot_is_lazy_and_described():
+    """Below-the-fold stills must not block the first paint, and an image
+    with no alt text is invisible to a screen reader."""
+    html = _index_html()
+    for tag in re.findall(r"<img[^>]*>", html, re.S):
+        if "shot-" not in tag:
+            continue
+        assert 'loading="lazy"' in tag, f"not lazy: {tag[:90]}"
+        alt = re.search(r'alt="([^"]*)"', tag)
+        assert alt, f"no alt attribute: {tag[:90]}"
+        text = alt.group(1).strip()
+        # Descriptive, not a filename and not a bare label: it must name
+        # what is ON the screen, so a reader who cannot see the image
+        # learns what a sighted reader does.
+        assert len(text) > 30, f"alt text too thin to describe a screen: {text!r}"
+        assert "shot-" not in text and ".webp" not in text, f"filename as alt: {text!r}"
+
+
+def test_the_capture_script_verifies_what_it_wrote():
+    """A capture run that reports success without re-reading the files is
+    how a 0-byte or wrongly-sized asset ships."""
+    src = _CAPTURE.read_text(encoding="utf-8")
+    assert "def verify(" in src
+    assert "prefers-reduced-motion" in src, "stills must not catch an animation"
+    assert "stException" in src, "a page that errored must not be published"
+
+
+def test_the_capture_never_writes_to_the_development_database():
+    """A marketing shot needs a configured strategy and sample trades, and
+    creating those is a write. It goes into a throwaway SQLite file, never
+    whatever database the developer happens to be working in."""
+    from scripts import capture_app_screenshots as capture
+
+    src = _CAPTURE.read_text(encoding="utf-8")
+    assert "def seed_capture_db(" in src
+    assert 'os.environ["DATABASE_URL"]' in src
+    assert "tempfile.mkdtemp" in src
+    assert capture.CAPTURE_DIR_PREFIX.startswith("tradelens-capture")
+    # …and there is a documented, ownership-scoped way to remove one again.
+    # Deletion behaviour itself is covered in tests/test_capture_cleanup.py.
+    assert "def clean_capture_dir(" in src
+    assert "def clean_capture_dirs(" not in src, "the temp-directory sweep is back"
+    assert "--clean" in src
+
+
+def test_the_capture_fails_when_the_expected_strategy_is_absent():
+    """Better to stop than to publish four screenshots of an empty product.
+    Checked twice: after seeding, and against the RUNNING app, because a
+    correctly seeded database the app was never pointed at still yields
+    empty shots."""
+    src = _CAPTURE.read_text(encoding="utf-8")
+    assert "capture db has no active strategy after seeding" in src
+    assert "capture db has no sample trades after seeding" in src
+    assert "_assert_app_shows_the_seeded_strategy" in src
+    assert "No active strategy" in src
+
+
+def test_the_capture_never_prints_the_session_token():
+    """The token grants a session. Echoing it into a terminal, a CI log or a
+    shell scrollback is handing out access to the account."""
+    import ast
+
+    tree = ast.parse(_CAPTURE.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "print"):
+            continue
+        printed = ast.dump(node)
+        assert "token" not in printed.lower(), ast.unparse(node)
+
+
+def test_the_starter_playbook_has_exactly_one_definition():
+    """The capture reads it out of the page that owns it rather than
+    keeping a second copy that would drift."""
+    from scripts.capture_app_screenshots import starter_playbook
+
+    page = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "tradelens"
+        / "ui"
+        / "pages"
+        / "5_Strategy.py"
+    ).read_text(encoding="utf-8")
+    assert page.count("STARTER_TEMPLATE = {") == 1
+    playbook = starter_playbook()
+    assert playbook["name"] == "ICT/SMC Day Trading"
+    # every playbook section is filled, which is what "6 of 6" depends on
+    for field in ("entry_rules", "stop_rules", "risk_rules", "common_mistakes"):
+        assert playbook[field].strip()

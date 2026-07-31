@@ -224,8 +224,308 @@ def test_app_boots_empty_db_shows_empty_state(tmp_path):
 
 
 def test_app_boots_with_seed_data(tmp_path):
-    # redesigned KPI glass cards must render
-    _run_boot(tmp_path / "seed.db", "tl-kpi-card", "1")
+    # the ruled KPI strip replaces the six-card hero
+    _run_boot(tmp_path / "seed.db", "tl-kpi-strip", "1")
+
+
+def test_app_boots_sparse_data_withholds_the_dominant_chart(tmp_path):
+    """One trade cannot carry a dominant equity instrument. The panel must
+    degrade to the shared low-data explanation, not draw a dot on an axis."""
+    _run_boot(tmp_path / "sparse.db", "tl-data-state", "one")
+
+
+def test_app_boots_sparse_data_still_shows_the_strip(tmp_path):
+    """Withholding the chart must not withhold the numbers — one trade still
+    has a P&L worth reading."""
+    _run_boot(tmp_path / "sparse2.db", "tl-kpi-strip", "one")
+
+
+def test_app_boots_rich_data_shows_the_editorial_readout(tmp_path):
+    _run_boot(tmp_path / "seed2.db", "tl-readout", "1")
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — Overview composed as a command center.
+# ---------------------------------------------------------------------------
+
+
+def test_overview_uses_one_ruled_strip_not_six_cards():
+    """Six separately boxed tiles say these numbers are six separate things.
+    They are one measurement across a period."""
+    src = APP_PATH.read_text(encoding="utf-8")
+    assert "render_kpi_strip" in src
+    assert "render_kpi_card" not in src, "the per-card hero is gone"
+    assert "tl-hero-wrap" not in src, "the hero background wrapper is gone"
+    assert "hero_bg.png" not in src, "no decoration behind the figures"
+
+
+def test_overview_strip_carries_the_five_headline_measures():
+    src = APP_PATH.read_text(encoding="utf-8")
+    for label in ("Net P&L", "Win rate", "Expectancy", "Profit factor", "Trades"):
+        assert label in src, label
+
+
+def test_todays_and_weekly_pnl_survive_in_the_brief():
+    """They left the strip but not the page — the Today Brief is where a
+    trader looks for 'where am I right now'."""
+    src = APP_PATH.read_text(encoding="utf-8")
+    assert "today_pnl" in src and "current_week_pnl" in src
+    assert "_render_today_brief" in src
+
+
+def test_overview_is_a_two_column_composition():
+    src = APP_PATH.read_text(encoding="utf-8")
+    assert "_brief_col" in src and "_chart_col" in src
+    assert "render_trade_calendar" in src
+
+
+def test_overview_carries_one_editorial_observation():
+    """One reading of the period, not a column of them."""
+    src = APP_PATH.read_text(encoding="utf-8")
+    assert src.count("render_editorial_readout(") == 1
+    assert "EvidenceItem" in src
+    assert "_overview_observation" in src
+
+
+def _sessions(rows):
+    return _df(
+        [
+            {"trade_date": f"2026-07-{d:02d}", "pnl": p, "killzone": k}
+            for d, p, k in rows
+        ]
+    )
+
+
+def test_leading_category_identifies_the_carrying_session():
+    """The observation's factual basis is a pure function, so it can be
+    tested without booting the page it appears on."""
+    from src.tradelens.ui.components.data_state import leading_category
+
+    leader = leading_category(
+        _sessions(
+            [
+                (1, 300.0, "london_open"),
+                (2, 250.0, "london_open"),
+                (3, -80.0, "ny_am"),
+                (6, 120.0, "london_open"),
+                (7, -40.0, "ny_am"),
+                (8, 90.0, "london_open"),
+            ]
+        ),
+        "killzone",
+    )
+    assert leader.key == "london_open"
+    assert leader.count == 4
+    assert leader.total == pytest.approx(760.0)
+    assert leader.categories == 2
+    assert not leader.is_only_category
+    assert leader.share > 0.5
+
+
+def test_leading_category_is_withheld_on_a_small_sample():
+    """Naming a leading session out of three trades describes noise."""
+    from src.tradelens.ui.components.data_state import leading_category
+
+    assert leading_category(None, "killzone") is None
+    assert leading_category(pd.DataFrame(), "killzone") is None
+    assert (
+        leading_category(
+            _sessions([(1, 10.0, "ny_am"), (2, 20.0, "ny_am")]), "killzone"
+        )
+        is None
+    )
+
+
+def test_leading_category_reports_a_single_category_honestly():
+    from src.tradelens.ui.components.data_state import leading_category
+
+    leader = leading_category(
+        _sessions([(d, 50.0, "ny_am") for d in range(1, 7)]), "killzone"
+    )
+    assert leader.is_only_category
+    assert leader.categories == 1
+
+
+def test_leading_category_handles_a_zero_net_period():
+    """A share of nothing is not a majority — this must not divide by zero."""
+    from src.tradelens.ui.components.data_state import leading_category
+
+    leader = leading_category(
+        _sessions(
+            [
+                (1, 100.0, "london_open"),
+                (2, -100.0, "ny_am"),
+                (3, 50.0, "london_open"),
+                (6, -50.0, "ny_am"),
+                (7, 0.0, "ny_pm"),
+            ]
+        ),
+        "killzone",
+    )
+    assert leader.overall_total == pytest.approx(0.0)
+    assert leader.share == 0.0
+
+
+def test_leading_category_ignores_rows_with_no_category_or_value():
+    from src.tradelens.ui.components.data_state import leading_category
+
+    df = _df(
+        [
+            {"trade_date": "2026-07-01", "pnl": 100.0, "killzone": "ny_am"},
+            {"trade_date": "2026-07-02", "pnl": 50.0, "killzone": ""},
+            {"trade_date": "2026-07-03", "pnl": None, "killzone": "london_open"},
+            {"trade_date": "2026-07-06", "pnl": 40.0, "killzone": None},
+            {"trade_date": "2026-07-07", "pnl": 30.0, "killzone": "ny_am"},
+            {"trade_date": "2026-07-08", "pnl": 20.0, "killzone": "ny_am"},
+        ]
+    )
+    leader = leading_category(df, "killzone")
+    assert leader.key == "ny_am"
+    assert leader.count == 3
+    assert leader.categories == 1
+
+
+def test_observation_copy_stays_reflective():
+    """Source-level guard on the wording: the Overview describes what was
+    recorded and never suggests what to take next."""
+    src = APP_PATH.read_text(encoding="utf-8")
+    body = src[
+        src.index("def _overview_observation") : src.index("def _render_today_brief")
+    ]
+    lowered = body.lower()
+    for banned in (
+        "signal",
+        "buy now",
+        "go long",
+        "go short",
+        "you should",
+        "next trade",
+    ):
+        assert banned not in lowered
+    assert "recorded" in lowered
+
+
+def test_active_filter_reads_as_a_summary_not_a_second_control_group():
+    src = APP_PATH.read_text(encoding="utf-8")
+    assert "render_filter_summary" in src
+    # the control itself stays — filtering is preserved
+    assert '"All assets"' in src
+    assert 'df["asset"].astype(str) == asset_choice' in src
+
+
+def test_recent_trades_ledger_has_no_full_row_tint():
+    """Spec 11.3: win/loss use text and a small semantic mark, never a
+    full-row fill."""
+    src = APP_PATH.read_text(encoding="utf-8")
+    assert "<tr>" in src
+    for tinted in ('<tr class="win"', '<tr class="loss"', 'tr class="pnl'):
+        assert tinted not in src
+    # money stays right-aligned and monospaced
+    assert "num" in src and "mono" in src
+
+
+def test_activation_demo_and_empty_states_are_preserved():
+    src = APP_PATH.read_text(encoding="utf-8")
+    assert "activation_status" in src and "NEXT_STEP_COPY" in src
+    assert "render_demo_banner" in src
+    assert "count_sample_trades" in src
+    assert "Load sample trades" in src
+    assert "daily_equity_curve" in src and "compute_basic_metrics" in src
+
+
+def test_overview_keeps_one_primary_action_and_no_quick_action_wall():
+    """The rail already carries 'Log completed trade'. A row of three
+    equally weighted action cards repeated it and diluted it."""
+    src = APP_PATH.read_text(encoding="utf-8")
+    assert "Quick Actions" not in src
+    assert "tl-action-card" not in src
+
+
+# ---------------------------------------------------------------------------
+# Compact calendar mode (Overview) — the Analytics calendar is untouched.
+# ---------------------------------------------------------------------------
+
+
+def test_calendar_supports_a_compact_overview_mode():
+    import inspect
+
+    from src.tradelens.ui.components.trade_calendar import render_trade_calendar
+
+    params = inspect.signature(render_trade_calendar).parameters
+    assert "compact" in params
+    assert params["compact"].default is False, "full mode stays the default"
+    assert "selected_date" in params
+
+
+def test_compact_calendar_hides_the_legend_and_day_panel():
+    """In the Overview column the calendar is a preview: the legend and the
+    inline day table belong to the full view, which Journal owns."""
+    from src.tradelens.ui.components import trade_calendar
+
+    src = Path(trade_calendar.__file__).read_text(encoding="utf-8")
+    assert "if not compact" in src or "not compact" in src
+
+
+def test_compact_calendar_is_one_grid_not_stacked_columns():
+    """Measured at 375px: st.columns(7) stacks below Streamlit's mobile
+    breakpoint, turning the calendar into a 31-row list that buried the
+    chart under 2,000px of dates."""
+    from src.tradelens.ui.components.trade_calendar import compact_month_html
+
+    daily = {
+        "2026-07-01": {"pnl": 120.0, "trades": 1, "outcome": "positive"},
+        "2026-07-02": {"pnl": -40.0, "trades": 2, "outcome": "negative"},
+        "2026-07-03": {"pnl": 0.0, "trades": 1, "outcome": "breakeven"},
+    }
+    html = compact_month_html(2026, 7, daily)
+    assert "grid-template-columns:repeat(7,1fr)" in html
+    # every day of July is present exactly once
+    assert html.count('class="tl-cal-dot') == 3
+    assert "tl-cal-dot positive" in html and "tl-cal-dot negative" in html
+    # no raw hex: colour comes from design-system classes and tokens
+    assert "#" not in html
+
+
+def test_compact_calendar_renders_every_day_of_the_month():
+    from src.tradelens.ui.components.trade_calendar import compact_month_html
+
+    html = compact_month_html(2026, 2, {})  # 28 days, starts Sunday
+    for day in range(1, 29):
+        assert f">{day}</div>" in html or f">{day}<br/>" in html, day
+
+
+# ---------------------------------------------------------------------------
+# Dominant-instrument threshold.
+# ---------------------------------------------------------------------------
+
+
+def test_dominant_series_needs_four_points_but_series_still_needs_two():
+    """Spec 11.1: fewer than four usable time points gets a compact trend
+    summary instead of an oversized chart. The two-point rule that governs
+    the Analytics page is unchanged."""
+    import pandas as pd
+
+    from src.tradelens.ui.components.data_state import sample_state
+
+    two = pd.DataFrame({"trade_date": ["2026-07-01", "2026-07-02"], "pnl": [1.0, 2.0]})
+    state = sample_state(two)
+    assert state.show_series, "Analytics threshold must not move"
+    assert not state.show_dominant_series
+
+    four = pd.DataFrame(
+        {
+            "trade_date": ["2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06"],
+            "pnl": [1.0, 2.0, 3.0, 4.0],
+        }
+    )
+    assert sample_state(four).show_dominant_series
+
+
+def test_dominant_series_is_false_for_empty_and_none():
+    from src.tradelens.ui.components.data_state import sample_state
+
+    assert not sample_state(None).show_dominant_series
+    assert not sample_state(pd.DataFrame()).show_dominant_series
 
 
 # ---------------------------------------------------------------------------
@@ -251,22 +551,29 @@ def test_calendar_month_helpers():
 
 
 def test_dashboard_has_asset_filter_and_calendar():
-    """Item 12 contract: dynamic asset filter above the KPIs, calendar section,
-    KPI cards intact, equity curve chart type unchanged."""
+    """Item 12 contract, carried into the command-center composition.
+
+    The filter is still dynamic and still scopes every figure; the calendar
+    and the equity curve are still present. What changed is presentation:
+    the calendar renders in compact mode inside the brief column, and the
+    six KPI card labels became the five-measure ruled strip — both covered
+    by the Task 3 tests below.
+    """
     src = APP_PATH.read_text(encoding="utf-8")
     assert '"All assets"' in src  # default option
     assert "_traded_assets" in src and 'df["asset"].dropna()' in src  # dynamic
-    assert "render_trade_calendar(df)" in src
+    assert "render_trade_calendar(df, compact=True)" in src
     # Filter is applied to the frame every stat below derives from.
     assert 'df["asset"].astype(str) == asset_choice' in src
-    # Existing KPI cards and the equity curve stay untouched.
-    for kpi in (
-        "Today's P&L",
-        "This Week's P&L",
-        "Win Rate",
-        "Total Trades",
-        "Profit Factor",
-        "Expectancy",
+    # The underlying calculations are untouched.
+    for fn in (
+        "compute_basic_metrics",
+        "compute_expectancy",
+        "compute_profit_factor_raw",
+        "today_pnl",
+        "current_week_pnl",
+        "daily_equity_curve",
+        "get_last_n_trades",
     ):
-        assert kpi in src, kpi
+        assert fn in src, fn
     assert "equity_curve_chart(eq)" in src

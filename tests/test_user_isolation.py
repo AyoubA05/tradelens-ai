@@ -293,6 +293,12 @@ def test_ownerless_settings_page_disables_bulk_delete(monkeypatch):
     at.text_input(key="danger_confirm").set_value("DELETE").run()
 
     assert not at.exception
-    buttons = [button for button in at.button if button.label == "Delete ALL trades"]
+    # Renamed in the Settings pass: "Delete all trades permanently" — the
+    # label states the consequence rather than shouting one word of it.
+    buttons = [
+        button
+        for button in at.button
+        if button.label == "Delete all trades permanently"
+    ]
     assert len(buttons) == 1
     assert buttons[0].disabled
