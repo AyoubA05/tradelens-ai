@@ -39,6 +39,21 @@ def test_runtime_has_core_deps():
         assert dep in names, f"runtime requirements.txt missing {dep}"
 
 
+def test_pyarrow_is_pinned_to_ci_verified_version():
+    """Keep Streamlit AppTest away from PyArrow 25's native crash.
+
+    PyArrow 25 segfaults while Streamlit 1.50 converts the Journal's pandas
+    frames on Python 3.11.  Version 21 is exercised by the three subprocess
+    Journal interaction flows and by the full CI suite.
+    """
+
+    assert "pyarrow==21.0.0" in {
+        line.strip()
+        for line in RUNTIME.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+
 def test_runtime_has_no_dev_tools():
     names = _dep_names(RUNTIME)
     for tool in _DEV_TOOLS:

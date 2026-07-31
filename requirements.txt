@@ -2,6 +2,10 @@
 # Versions are CI-verified on 3.11. Dev/test/lint tools live in requirements-dev.txt.
 streamlit==1.50.0
 pandas==2.3.3
+# Streamlit 1.50's AppTest dataframe conversion segfaults natively with
+# PyArrow 25 on Python 3.11. Version 21 is verified by the Journal interaction
+# flows and prevents the CI process from exiting with signal 11.
+pyarrow==21.0.0
 numpy==2.0.2
 plotly==6.7.0
 sqlalchemy==2.0.49
