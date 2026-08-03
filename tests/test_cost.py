@@ -190,16 +190,28 @@ def test_log_ai_usage_ignores_none_usage(in_memory_db):
     db.close()
 
 
-def test_monthly_cost_isolates_usage_log_costs_and_calls_by_user(in_memory_db):
-    from src.tradelens.services.cost import log_ai_usage, monthly_cost_by_feature
+def test_monthly_cost_isolates_usage_log_costs_and_calls_by_user(
+    in_memory_db, monkeypatch
+):
+    from datetime import datetime, timezone
 
-    log_ai_usage("AI Partner", _usage(cost=0.03), user_id=7)
-    log_ai_usage("AI Partner", _usage(cost=0.01), user_id=7)
-    log_ai_usage("Pattern Detection", _usage(cost=0.05), user_id=7)
-    log_ai_usage("AI Partner", _usage(cost=8.00), user_id=8)
-    log_ai_usage("AI Partner", _usage(cost=7.00), user_id=8)
+    from src.tradelens.services import cost
 
-    df = monthly_cost_by_feature(2026, 7, user_id=7)
+    class ControlledClock:
+        @classmethod
+        def now(cls, tz):
+            assert tz is timezone.utc
+            return datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(cost, "datetime", ControlledClock)
+
+    cost.log_ai_usage("AI Partner", _usage(cost=0.03), user_id=7)
+    cost.log_ai_usage("AI Partner", _usage(cost=0.01), user_id=7)
+    cost.log_ai_usage("Pattern Detection", _usage(cost=0.05), user_id=7)
+    cost.log_ai_usage("AI Partner", _usage(cost=8.00), user_id=8)
+    cost.log_ai_usage("AI Partner", _usage(cost=7.00), user_id=8)
+
+    df = cost.monthly_cost_by_feature(2026, 7, user_id=7)
     by_feature = dict(zip(df["feature"], df["cost_usd"]))
     assert by_feature["AI Partner"] == pytest.approx(0.04)
     assert by_feature["Pattern Detection"] == pytest.approx(0.05)
