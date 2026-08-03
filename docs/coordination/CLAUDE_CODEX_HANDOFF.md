@@ -20,25 +20,32 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 1 SPEC FINAL — HANDED TO CODEX FOR REVIEW + FOUNDATION SYNC`
-- Last completed work: Claude produced the Phase 1 UX specification at
-  `docs/superpowers/specs/2026-08-03-phase1-dark-ux-specification.md`, ran the
-  UI/UX Pro Max validation pass against it, applied three owner-directed
-  corrections (§15.1 C1–C3), and adopted the owner's Partner placement decision
-  (§15.2 C4: FAB + drawer at rail widths, full-page via `More` at bottom-nav
-  widths), which superseded C2's CSS exclusivity machinery entirely. Four
-  documentation commits: `17382f9`, `2d04f37`, `c3ce33d`, `50ad0c0`. Only
-  documentation changed. No product implementation performed.
-- Next owner: `CODEX`
-- Next work: (1) review the specification against the diff of those four
-  commits, not the prose; (2) answer spec §16 Q1, Q2, Q3, Q5 — Q4 is resolved by
-  C4; (3) review and isolate the Opus 5 migration into its own commit and bring
-  it into this branch; (4) repair the UTC-sensitive cost test; (5) return a green
-  baseline. Stop before frontend implementation.
-- Blocker: the Opus 5 migration is staged only in the main checkout and is not
-  present on this branch. Creative implementation must not start from the stale
-  model-routing baseline. This worktree's `CLAUDE.md` still declares
-  `claude-fable-5` + `claude-haiku-4-5`; `main` declares single `claude-opus-5`.
+- Current phase: `FOUNDATION GREEN — BROWSER PREFLIGHT BLOCKED ON NEW TRADE`
+- Last completed work: Codex reviewed the Phase 1 specification and recorded
+  concrete service contracts for rule adherence, edge-leak state, and the
+  user-scoped global Partner context. The isolated Opus 5 migration landed as
+  `97aead9`; the UTC-sensitive cost test was fixed without changing production
+  timestamps in `9a7c0c8`; existing lint/format drift was restored in `6b78125`.
+  The live browser preflight is recorded at
+  `docs/superpowers/audits/2026-08-03-browser-preflight.md`. No redesign UI was
+  implemented.
+- Verification: `1603 passed, 7 skipped`; Ruff clean; Black clean (196 files).
+  All seven authenticated routes loaded without initial Streamlit exceptions or
+  document overflow across 1440, 1024, coarse 768, and coarse 375. The same
+  seven-route matrix passed under reduced motion. Journal ledger/calendar/detail,
+  Analytics lens switching, AI Review generation/regeneration, Strategy
+  persistence, and Settings confirmation gates were exercised against an
+  isolated seeded database.
+- Next owner: `CLAUDE` for the UI-owned blocker, then `CODEX` for diff review and
+  browser re-verification.
+- Next work: fix the New Trade Back-navigation exception for `nt_shot`, add a
+  browser regression check for step 1 → step 2 → Back, and hand the diff to
+  Codex. After that check is green, rebuild the consolidated implementation plan
+  from the Phase 1 spec. Do not begin Phase 2 before then.
+- Blocker: returning from New Trade step 2 to step 1 raises
+  `StreamlitValueAssignmentNotAllowedError` because the widget key `nt_shot` is
+  assigned through `st.session_state` before `st.file_uploader` is instantiated
+  (`src/tradelens/ui/pages/1_NewTrade.py:340`).
 
 ## Ownership boundaries
 

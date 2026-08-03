@@ -8,7 +8,8 @@ static Quick Reference guidance only; its search database was run afterwards as 
 validation pass, and §15 records the amendments that pass produced.
 **Branch:** `codex/full-dark-streamlit-redesign`
 **Worktree:** `/Users/ayoub/tradelens-ai/.claude/worktrees/codex+full-dark-streamlit-redesign`
-**Status:** Specification. No product code changed. Implementation requires Codex review first.
+**Status:** Codex-reviewed specification. Implementation is held on the New Trade browser
+blocker recorded in §0.3 and the preflight audit.
 
 ---
 
@@ -19,8 +20,9 @@ This is the design source of truth for the full-dark Streamlit redesign. It abso
 scope amendments in `docs/coordination/CLAUDE_CODEX_HANDOFF.md`. Where the older plan and
 the handoff conflict, **the handoff wins** and this document records the resolved position.
 
-The implementation plan will be rebuilt from this spec after Codex approves it. Until then
-the older plan remains valid for its task sequencing, test-first discipline, and review
+Codex approved the engineering boundaries in §16. The implementation plan will be rebuilt
+from this spec after the existing New Trade browser blocker is fixed and re-verified. Until
+then the older plan remains valid for its task sequencing, test-first discipline, and review
 gates — none of which this spec replaces.
 
 ### 0.1 Resolved conflicts
@@ -57,11 +59,13 @@ for this spec:
 
 Stated rather than hidden:
 
-1. **No baseline browser evidence.** The handoff's required sequence puts this
-   specification at step 6, after the Opus 5 migration lands, the UTC cost test is fixed,
-   the suite is green, and the browser preflight is captured. This spec was written at the
-   owner's direction before steps 1–5. Every current-state observation below comes from
-   reading source, not from a live render. Implementation must verify against a real app.
+1. **The browser baseline is captured but not green.** Codex completed the missing live
+   preflight after the Opus 5 migration and green test baseline. The route matrix is clean,
+   but returning from New Trade step 2 to step 1 raises
+   `StreamlitValueAssignmentNotAllowedError` for `nt_shot`. The evidence and remaining
+   checks are recorded in `docs/superpowers/audits/2026-08-03-browser-preflight.md`.
+   Frontend implementation must not begin until that existing-flow regression is fixed and
+   the affected browser check passes.
 2. **TradeZella reference images were not available.** They did not reach the specification
    session. Direction below derives from the plan's explicit written direction and the
    constraint that TradeZella is a layout/interaction reference only — never its brand,
@@ -199,12 +203,15 @@ Auth (gate)  ── login / create account toggle, reset-request + reset-complet
 └── Settings            9_Settings.py          Profile | Preferences | Data | Danger Zone
 ```
 
-Navigation: sidebar rail ≥1024 px; bottom nav with 4 slots + native `<details>` `More`
-sheet below 768 px. Breakpoints in `design_system.py`: `max-width: 767px`,
+Navigation: the sidebar-navigation family is active at ≥768 px (persistent rail at wider
+desktop widths and Streamlit's collapsed-sidebar control at tablet widths); bottom nav with
+4 slots + native `<details>` `More` sheet is active at ≤767 px. Breakpoints in
+`design_system.py`: `max-width: 767px`,
 `max-width: 1023px`, `min-width: 768px`, `min-width: 560px`, container `max-width: 1320px`.
 
 **The IA is correct and this spec does not change it.** Every destination survives. The AI
-Partner is added as a persistent overlay, not a new destination.
+Partner is a persistent overlay at sidebar-navigation widths and a mobile-only destination at
+bottom-navigation widths.
 
 ---
 
@@ -261,7 +268,7 @@ per §8.2a: a fixed overlay at rail widths, and a full-page destination reached 
 
 ```
 ┌─ Shell (all authenticated pages) ────────────────────────────┐
-│  Rail ≥1024  |  Bottom nav + More sheet ≤767                 │
+│  Sidebar navigation ≥768  |  Bottom nav + More sheet ≤767  │
 │  Masthead: eyebrow · title · subtitle · meta                 │
 │  ─────────────────────────────────────────────────────────   │
 │  Page body                                                   │
@@ -924,7 +931,7 @@ primary action or the Danger Zone's confirmation controls.
 **Reviewed fallback, if fixed positioning proves unstable.** Degrade to a **docked Partner**,
 as a reviewed decision recorded in the handoff — never a silent substitution:
 
-- ≥1024 px: a persistent right-hand column, toggled from a rail entry.
+- ≥768 px: a persistent right-hand column, toggled from a sidebar control.
 - ≤767 px: a dedicated `More` sheet entry routing to a full-page Partner view.
 
 This preserves every capability and every safety boundary while removing the dependency on
@@ -938,8 +945,8 @@ CSS exclusivity mechanism that approach required (§15.2 C4).
 
 | Active navigation | Partner presentation | Launcher |
 |---|---|---|
-| Rail (≥1024 px) | Fixed bottom-right non-modal drawer, per §8.2 | Fixed bottom-right FAB |
-| Bottom nav + `More` (≤1023 px) | **Full-page view, reached through the `More` sheet** | **None** — no fixed launcher at these widths |
+| Sidebar navigation (≥768 px) | Fixed bottom-right non-modal drawer, per §8.2 | Fixed bottom-right FAB |
+| Bottom nav + `More` (≤767 px) | **Full-page view, reached through the `More` sheet** | **None** — no fixed launcher at these widths |
 
 The split keys to the navigation pattern, not to a raw pixel value, so the Partner can never
 appear as a floating overlay on a width that also has a bottom bar to collide with.
@@ -980,11 +987,12 @@ ancestor breaks `position: fixed`, the desktop drawer degrades to a persistent r
 toggled from a rail entry. The mobile half of the old fallback is no longer a fallback — it is
 the adopted design. Escalation is still a recorded decision, never silent.
 
-**Verification.** At 1440 and 1024: the FAB is viewport-anchored, survives a rerun, and never
-covers the wizard's primary action or the Danger Zone confirmations. At coarse 768 and coarse
-375: no fixed launcher renders at all, the `More` sheet lists the Partner and marks it active
-while on it, navigating there closes the sheet, every nav target stays ≥44 px and clear of the
-safe-area inset, and returning from the Partner restores the previous destination's state.
+**Verification.** At 1440, 1024, and coarse 768: the FAB is viewport-anchored, survives a
+rerun, and never covers the wizard's primary action, the collapsed-sidebar control, or the
+Danger Zone confirmations. At coarse 375: no fixed launcher renders, the `More` sheet lists
+the Partner and marks it active while on it, navigating there closes the sheet, every nav
+target stays ≥44 px and clear of the safe-area inset, and returning from the Partner restores
+the previous destination's state.
 
 ### 8.3 Decision 2 — conversation history stays session-only in Phase 1
 
@@ -1095,14 +1103,15 @@ Every interactive surface defines all eight. A state left undefined is a defect.
 
 ## 11. Responsive behaviour
 
-Existing breakpoints are correct and are kept: phone ≤767, tablet ≤1023, desktop ≥1024,
-container max 1320.
+Existing breakpoints are kept: phone ≤767, tablet 768–1023, desktop ≥1024, container max
+1320. The navigation change is independent of the tablet/desktop content breakpoint: bottom
+navigation ends at 767, and sidebar navigation owns every width from 768 upward.
 
 | Width | Navigation | Overview bands | AI Reviews | Partner |
 |---|---|---|---|---|
 | ≥1440 | Rail | 1 strip · 2 panel · 3 chart + flanking · 4 lists + heatmap · 5 readout | Index column beside content | Fixed bottom-right FAB + drawer |
 | 1024–1439 | Rail | Same; band 3 flanking figures may wrap | Index column beside content | Fixed bottom-right FAB + drawer |
-| 768–1023 (coarse) | Bottom nav + `More` | Bands stack; band 4 lists stack | Stacked section selector | Full page via `More`; no launcher |
+| 768–1023 (coarse) | Collapsed sidebar control | Bands stack; band 4 lists stack | Stacked section selector | Fixed bottom-right FAB + drawer; verify containment at 768 |
 | ≤767 (coarse) | Bottom nav + `More` | Full stack; heatmap 7-col, 44 px cells | Stacked selector, then content | Full page via `More`; no launcher |
 
 Hard rules: rail and bottom bar never appear together · zero horizontal page overflow at every
@@ -1220,6 +1229,7 @@ so the change is visible rather than silent.
 | # | Decision | Section |
 |---|---|---|
 | C4 | **Partner placement adopted: FAB + drawer at rail widths, full-page view via the `More` sheet at bottom-nav widths.** Supersedes the mobile bottom sheet and, with it, all of C2's CSS exclusivity machinery — exclusivity is now structural. Removes the `:has()` selector and its support floor, the hidden-is-not-closed ambiguity, the `display: none` tab-order verification, and the four-combination test matrix. Adds one `MOBILE_MORE` entry, a deep-linkable Partner route, and the requirement that `session_state` turns survive navigation. The desktop-only fallback (right-hand column if `position: fixed` fails) is retained | §3, §8.2a, §8.4, §8.5, §11, §4.5 |
+| C5 | **Live preflight corrected C4's pixel mapping without changing its owner decision.** The current app renders bottom navigation only at ≤767; coarse 768 uses the collapsed-sidebar navigation family. Therefore the Partner drawer applies at every sidebar-navigation width (≥768), while the full-page `More` destination applies only where bottom navigation actually exists (≤767). This preserves current navigation instead of silently expanding the bottom bar to tablet widths | §1.3, §3, §8.2, §8.2a, §11 |
 
 **This decision resolves Codex question 4** (§16): the fixed-positioning check now gates only the
 desktop drawer, and its failure mode is a contained desktop fallback rather than a
@@ -1235,23 +1245,88 @@ rather than overlay-collision testing.
 
 ---
 
-## 16. Open questions for Codex
+## 16. Codex engineering rulings (2026-08-03)
 
-1. **`rule_adherence_rate(df)` signature and empty-sample behaviour.** Handoff §2 specifies a
-   `0.0`–`1.0` fraction reusing `_is_followed`. Overview band 2 needs to distinguish "0% of a
-   known sample" from "no sample recorded" (D10). Does the function return `None` for an
-   unknown sample, or a separate count the UI reads? The UI cannot honestly render a
-   percentage without n.
-2. **Edge leak zero disambiguation.** `total_edge_leak` returns `0.0` for no-leak, exact-zero
-   leak, and absent signal columns. Should the UI call a second function for the qualifying
-   trade count, or does Codex prefer to widen the return? Claude will not compute this in page
-   code.
-3. **Partner context adapter.** Assembling journal entries + completed trades + Strategy
-   Profile into `partner_reply`'s general reflective mode is a context adapter, which handoff
-   §1 assigns to Codex. Confirm the signature before Claude builds against it.
-4. **Fixed-positioning verification owner.** §8.2 needs a live-browser check that no Streamlit
-   ancestor breaks `position: fixed`. This is a UI concern (Claude) but gates a scope decision
-   (fallback vs FAB). Confirm Claude runs it and reports, rather than Codex.
-5. **Sequencing.** This spec was written before the Opus 5 migration landed on this branch and
-   before the browser preflight. Confirm whether Codex wants the implementation plan rebuilt
-   now, or held until the baseline is green.
+These rulings approve the specification's product direction while fixing the service contracts
+Claude must build against. They define interfaces only; their implementations belong in the
+rebuilt, test-first implementation plan.
+
+### 16.1 Rule adherence returns value and evidence together
+
+`rule_adherence_rate(trades)` returns a frozen `RuleAdherenceSummary`, not a bare float:
+
+```python
+@dataclass(frozen=True)
+class RuleAdherenceSummary:
+    followed: int
+    recorded: int
+    rate: Optional[float]
+```
+
+`recorded` counts only rows with an explicit, parseable `followed_rules` value. `followed` uses
+the existing `_is_followed` semantics within that recorded sample. `rate` is `followed /
+recorded`, or `None` when `recorded == 0`. Therefore a known 0% sample is distinct from an
+unknown sample, and the UI always renders `followed of recorded` beside a percentage. Missing
+columns, empty frames, and wholly unrecorded columns return `(0, 0, None)`, never a false 0%.
+
+### 16.2 Edge leak gains a companion summary; the existing scalar remains compatible
+
+Keep `total_edge_leak(trades) -> float` unchanged for existing callers. Add
+`edge_leak_summary(trades) -> EdgeLeakSummary` for the Overview:
+
+```python
+@dataclass(frozen=True)
+class EdgeLeakSummary:
+    net_pnl: Optional[float]
+    qualifying_trades: int
+    recorded_trades: int
+```
+
+`recorded_trades` counts rows with usable rule-adherence or mistake-tag evidence.
+`qualifying_trades` counts each rule-breaking row once, matching `total_edge_leak`. `net_pnl`
+is `None` when no row has usable evidence; otherwise it preserves the scalar's signed result.
+This distinguishes all three states the UI needs: unknown (`None, 0, 0`), a known clean sample
+(`0.0, 0, n`), and qualifying trades that net exactly zero (`0.0, q, n`, where `q > 0`). The UI
+does not inspect columns or reconstruct the mask.
+
+### 16.3 One user-scoped global Partner context adapter
+
+Add one Codex-owned adapter beside the Partner service:
+
+```python
+def build_global_partner_context(*, user_id: int) -> PartnerContext: ...
+```
+
+`PartnerContext` contains `context_text`, `strategy_profile`, an immutable collection of
+evidence-source descriptors, `completed_trade_count`, and `journal_entry_count`. The adapter:
+
+- rejects a missing, boolean, zero, or negative owner ID before opening a database session;
+- performs every lookup with that concrete `user_id`;
+- applies service-owned row and character limits so the page cannot request an unbounded
+  prompt;
+- orders context as the trader's journal notes first, completed-trade facts second, and the
+  active Strategy Profile third;
+- returns record identifiers and safe labels separately from prompt text so the UI can render
+  honest evidence links without parsing model output;
+- never calls the model and never logs usage.
+
+Both the desktop drawer and the bottom-navigation Partner page consume the same object and call
+`partner_reply(messages, trade_context=context.context_text,
+strategy_profile=context.strategy_profile, per_trade_qa=False)`. The UI logs the returned usage
+exactly once. No page assembles context or opens an additional data-access path.
+
+### 16.4 Fixed-positioning verification remains Claude-owned
+
+Confirmed: Claude runs and records the desktop live-browser check in §8.2. Codex reviews the
+evidence and the fallback decision. The adopted mobile full-page destination is unaffected.
+
+### 16.5 Rebuild the implementation plan only after the browser blocker is cleared
+
+The isolated Opus 5 migration is landed, the time-dependent cost test is fixed without changing
+production UTC timestamps, tests/Ruff/Black are green, and the browser preflight now exists.
+That preflight found one blocker in the preserved New Trade workflow: returning from step 2 to
+step 1 raises `StreamlitValueAssignmentNotAllowedError` for `nt_shot`. Do not rebuild the plan
+or start creative frontend implementation until the UI owner fixes that defect and Codex
+re-runs the affected browser check. The rebuilt plan must incorporate the live evidence in
+`docs/superpowers/audits/2026-08-03-browser-preflight.md`, not assumptions from the original
+source-only audit.
