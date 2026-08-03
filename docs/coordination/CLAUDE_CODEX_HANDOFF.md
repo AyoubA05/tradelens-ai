@@ -20,7 +20,7 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 1 SPECIFICATION + VALIDATION + CORRECTIONS COMPLETE — AWAITING CODEX REVIEW`
+- Current phase: `PHASE 1 SPEC FINAL — HANDED TO CODEX FOR REVIEW + FOUNDATION SYNC`
 - Last completed work: Claude produced the Phase 1 UX specification at
   `docs/superpowers/specs/2026-08-03-phase1-dark-ux-specification.md`, ran the
   UI/UX Pro Max validation pass against it, then applied three owner-directed
@@ -182,6 +182,68 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-03 — Partner placement adopted; handed to Codex (Claude)
+
+**Owner decision adopted (spec §8.2a, logged as C4 in §15.2).** The Partner takes two
+presentations of one conversation, split by active navigation pattern rather than a raw pixel
+value:
+
+| Active navigation | Partner | Launcher |
+|---|---|---|
+| Rail (≥1024) | Fixed bottom-right non-modal drawer | Bottom-right FAB |
+| Bottom nav + `More` (≤1023) | Full-page destination via the `More` sheet | None |
+
+**This deleted more spec than it added.** Mutual exclusivity is now structural — at bottom-nav
+widths there is no Partner overlay to conflict with the `More` sheet. Removed outright: the
+`:has(details[open])` selector and its browser-support floor, the hidden-is-not-closed
+ambiguity, the `display: none` tab-order verification, and the four-combination open/closed test
+matrix. Amendment C2 is marked superseded rather than edited away.
+
+**New obligations recorded:** one `MOBILE_MORE` entry in `sidebar.py` that marks itself active on
+the Partner page; a deep-linkable Partner route consistent with `route_href`; `session_state`
+turns surviving navigation away and back; and the Partner omitted from the desktop rail so one
+conversation never has two entry points at one width. The last needs verification that
+Streamlit's automatic navigation is suppressed for the new page file rather than assumed.
+
+**Codex questions partially answered by this decision:** Q4 is resolved — the fixed-positioning
+check now gates only the desktop drawer and its failure mode is a contained desktop fallback
+(right-hand column), not a cross-breakpoint scope change; Claude runs it and reports. Q3 is
+narrowed — one context-adapter signature serves both presentations.
+
+**Sections touched:** §3, §4.5, §8.2, §8.2a, §8.4, §8.5, §11, §15.2. Spec is 1256 lines.
+
+**Files changed:** the spec and this handoff. Documentation only. No product code. `git add -A`
+not used; untracked `src/tradelens/ui/.impeccable/` deliberately not staged.
+
+**Handing to Codex now.** Claude has released the lock and is NOT proceeding into the five items
+below, because the handoff contract assigns all of them to Codex: `ai_client.py` is Codex-only
+and never edited concurrently, model routing and cost logging are Codex-owned, and the remaining
+work is debugging, CI, and service-layer signatures. Claude will not answer Q1–Q3 or Q5 on
+Codex's behalf, and will not touch the Opus 5 migration or the cost test.
+
+**Codex scope for this handoff:**
+
+1. Review the Phase 1 specification for scope, AI safety, tenancy, and exception-containment
+   implications. Inspect the diff across `17382f9`, `2d04f37`, `c3ce33d`, and this commit — do
+   not trust the prose summaries.
+2. Answer spec §16 Q1 (`rule_adherence_rate` signature and empty-sample behaviour — the UI
+   cannot honestly render a percentage without n), Q2 (edge-leak zero disambiguation across
+   no-leak / exact-zero / absent-columns), Q3 (Partner context-adapter signature), and Q5
+   (rebuild the implementation plan now, or hold until the baseline is green).
+3. Review and isolate the Opus 5 migration into its own reviewed commit, then bring it into this
+   branch without importing unrelated dirty-tree changes from the main checkout.
+4. Fix the UTC-sensitive cost test using the current UTC month or an injected/frozen timestamp
+   in the test. Do not change production UTC timestamping to satisfy a hard-coded month.
+5. Return a green baseline: `pytest tests/`, `ruff check src/ scripts/`,
+   `black --check src/ scripts/`, `git diff --check`.
+
+**Stop before frontend implementation.** Do not begin Task 1 of the redesign. Return the lock to
+`NONE` with findings so Claude can rebuild the implementation plan from the approved spec.
+
+**Still-open caveat, unchanged:** no baseline browser evidence exists. Two live-browser checks
+remain gated on the green baseline — `position: fixed` containing-block behaviour and
+stacking-context isolation, both desktop-only after C4.
 
 ### 2026-08-03 — Owner-directed documentation corrections (Claude)
 

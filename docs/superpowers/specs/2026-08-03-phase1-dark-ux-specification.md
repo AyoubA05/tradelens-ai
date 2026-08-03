@@ -254,8 +254,10 @@ on every service call.
 
 ## 3. Information architecture and page hierarchy
 
-No destination is added, removed, renamed, or reordered. The AI Partner is a persistent
-overlay available on all seven authenticated destinations and absent from the auth surface.
+No existing destination is added, removed, renamed, or reordered. The AI Partner is available
+on all seven authenticated destinations and absent from the auth surface, in two presentations
+per §8.2a: a fixed overlay at rail widths, and a full-page destination reached through the
+`More` sheet at bottom-nav widths. It is the one addition to the mobile navigation set.
 
 ```
 ┌─ Shell (all authenticated pages) ────────────────────────────┐
@@ -264,7 +266,7 @@ overlay available on all seven authenticated destinations and absent from the au
 │  ─────────────────────────────────────────────────────────   │
 │  Page body                                                   │
 │  ─────────────────────────────────────────────────────────   │
-│  AI Partner launcher — fixed bottom-right (§8)               │
+│  AI Partner — bottom-right FAB on rail widths only (§8.2a)   │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -383,7 +385,9 @@ Define an explicit ordered scale, and forbid literals outside it:
 
 **Navigation always outranks the Partner.** The Partner is the lowest overlay in the scale, so
 it can never layer over the rail, the bottom nav, or the `More` sheet. A trader must never have
-to dismiss a chat surface to reach navigation. The Partner is below blocking confirmations for
+to dismiss a chat surface to reach navigation. Since §8.2a removes the Partner overlay entirely
+at bottom-nav widths, this ordering is now a belt-and-braces guarantee rather than the sole
+defence. The Partner is below blocking confirmations for
 the same reason — a destructive confirmation must never be obscured by a chat surface.
 
 On desktop the drawer is on the right and the rail is on the left, so the ordering never bites
@@ -877,8 +881,12 @@ Handoff §1 approves this, with boundaries that are not negotiable:
 
 ### 8.2 Decision 1 — true bottom-right FAB and drawer
 
-**Approved position:** a genuine fixed bottom-right launcher on desktop, and a full-page /
-bottom sheet on mobile. No JavaScript injection, no new dependency.
+**Approved position:** a genuine fixed bottom-right launcher and non-modal drawer at rail
+widths. At bottom-nav widths the Partner is a full-page destination instead, per the adopted
+placement in §8.2a — there is no mobile launcher and no bottom sheet. No JavaScript injection,
+no new dependency.
+
+Everything in this subsection therefore describes the **rail-width drawer only**.
 
 **Mechanism.** A real Streamlit button inside a keyed container, positioned by scoped CSS:
 
@@ -922,60 +930,61 @@ as a reviewed decision recorded in the handoff — never a silent substitution:
 This preserves every capability and every safety boundary while removing the dependency on
 fixed positioning. It changes placement, not scope.
 
-### 8.2a Mobile coexistence — the Partner and the `More` sheet are mutually exclusive
+### 8.2a Adopted placement — drawer on rail widths, full page on bottom-nav widths
 
-At coarse-pointer widths the `More` sheet and the Partner sheet occupy the same bottom region.
-Only one may be open, and the Partner may never layer over or obstruct navigation.
+**Owner decision, 2026-08-03.** The Partner takes two presentations of one conversation, split
+by which navigation pattern is active. This supersedes the mobile bottom-sheet approach and the
+CSS exclusivity mechanism that approach required (§15.2 C4).
 
-**Rules.**
+| Active navigation | Partner presentation | Launcher |
+|---|---|---|
+| Rail (≥1024 px) | Fixed bottom-right non-modal drawer, per §8.2 | Fixed bottom-right FAB |
+| Bottom nav + `More` (≤1023 px) | **Full-page view, reached through the `More` sheet** | **None** — no fixed launcher at these widths |
 
-1. Opening either sheet closes the other.
-2. The Partner launcher is hidden while **either** sheet is open.
-3. The Partner never overlaps the bottom nav. The launcher is offset above it by the nav height
-   plus the safe-area inset, per §4.5's ordering (`partner 20` < `nav 30` < `sheet 40`).
+The split keys to the navigation pattern, not to a raw pixel value, so the Partner can never
+appear as a floating overlay on a width that also has a bottom bar to collide with.
 
-**Mechanism, and it is asymmetric — this is a real constraint, not an oversight.**
+**Mutual exclusivity is now by construction, not by CSS.** On bottom-nav widths there is no
+Partner overlay to conflict with the `More` sheet — the Partner is a destination. Selecting it
+navigates, and the rerun re-emits `More` closed, which the plan already requires ("closed on
+arrival and after navigation"). This removes, in one decision:
 
-*Partner opens → `More` closes.* Guaranteed with no script. Opening the Partner writes
-`session_state` and triggers a rerun; the rerun re-emits the `More` `<details>` without an
-`open` attribute, so it returns closed. This is the behaviour the plan already requires — the
-sheet is closed on arrival and after navigation.
+- the `:has(details[open])` selector and its browser-support floor;
+- the hidden-is-not-closed ambiguity;
+- the need to verify that `display: none` strips hidden widgets from the tab order;
+- the four-combination open/closed verification matrix;
+- any possibility of the Partner obstructing mobile navigation.
 
-*`More` opens → Partner hides.* The `<details>` toggles entirely client-side with no rerun, so
-the server cannot observe it and `session_state` cannot react. Without JavaScript the Partner
-cannot be *closed* by that event. It can, however, be **hidden by CSS**, because `[open]` is a
-matchable state:
+**Consequences that must be honoured.**
 
-```css
-.tl-shell:has(.tl-mobile-nav details[open]) .st-key-tl_partner_launcher,
-.tl-shell:has(.tl-mobile-nav details[open]) .st-key-tl_partner_drawer {
-  display: none;
-}
-```
+1. **`MOBILE_MORE` in `sidebar.py` gains one entry.** The `More` sheet currently carries real
+   destinations; the Partner becomes another. It must mark itself active when the Partner page
+   is current, exactly as the existing entries do via `MOBILE_MORE_SLUGS`.
+2. **The Partner is a real page at bottom-nav widths**, so §3's description of it as "an overlay,
+   not a destination" holds only for rail widths. §3 is corrected accordingly.
+3. **It must not appear in the desktop rail.** Desktop surfaces the drawer; a rail entry would
+   give the same conversation two entry points at one width. `sidebar.py` already builds a
+   curated nav rather than relying on Streamlit's automatic page list, so this is a matter of
+   omitting it from the rail set — but **verify** that Streamlit's built-in navigation is
+   suppressed for the new page file rather than assuming the existing CSS covers it.
+4. **The conversation survives navigation within the session.** Turns live in `session_state`
+   (§8.3), so leaving the Partner page and returning must restore them. Navigating away is not
+   "closing" the conversation and must not clear it.
+5. **Deep-linkable.** As a real destination the Partner needs a URL, consistent with the
+   `route_href` pattern the other destinations use.
+6. **One primary action still applies.** The full-page Partner is a reflective surface, not a
+   place to add a second bright CTA competing with `Log completed trade`.
 
-Two consequences that must be stated rather than glossed:
+**Remaining fallback, desktop only.** If the live-browser check in §8.2 shows a Streamlit
+ancestor breaks `position: fixed`, the desktop drawer degrades to a persistent right-hand column
+toggled from a rail entry. The mobile half of the old fallback is no longer a fallback — it is
+the adopted design. Escalation is still a recorded decision, never silent.
 
-- **Hidden is not closed.** If the Partner drawer was open when the trader opened `More`, the
-  drawer is hidden but its `session_state` remains open, so closing `More` reveals it again.
-  That is acceptable and arguably correct — the trader did not ask to end the conversation —
-  but it must be a deliberate, documented outcome, not a surprise.
-- **`display: none` removes the hidden widgets from the tab order**, which is what we want. Verify
-  it, rather than assuming: Streamlit widgets inside a `display: none` ancestor are still
-  instantiated server-side, and only the CSS removes them from focus traversal.
-
-**`:has()` support floor and fallback.** `:has()` requires Safari 15.4+, Chrome 105+, Firefox
-121+. Confirm against the project's supported-browser range during implementation. If `:has()`
-cannot be relied on, the substitute is DOM ordering rather than script: render the launcher as a
-later sibling of the nav and use `.tl-mobile-nav details[open] ~ .st-key-tl_partner_launcher`.
-If neither selector is workable, escalate to the docked-Partner fallback in §8.2 — where the
-Partner is a `More` entry routing to a full-page view, which makes the two mutually exclusive by
-construction and needs no selector at all.
-
-**Verification, at coarse 375 and coarse 768.** Open `More` with the Partner closed, then with
-the Partner open. Open the Partner with `More` open. In every combination confirm: only one
-sheet is visible; the launcher is hidden while either is open; no nav item is covered or
-un-tappable; nothing hidden is reachable by Tab; and no bottom-nav target falls below 44 px or
-under the safe-area inset.
+**Verification.** At 1440 and 1024: the FAB is viewport-anchored, survives a rerun, and never
+covers the wizard's primary action or the Danger Zone confirmations. At coarse 768 and coarse
+375: no fixed launcher renders at all, the `More` sheet lists the Partner and marks it active
+while on it, navigating there closes the sheet, every nav target stays ≥44 px and clear of the
+safe-area inset, and returning from the Partner restores the previous destination's state.
 
 ### 8.3 Decision 2 — conversation history stays session-only in Phase 1
 
@@ -1002,9 +1011,9 @@ and none of it may be stubbed in Phase 1.
 
 | Component | Form | Notes |
 |---|---|---|
-| Launcher | Fixed bottom-right Streamlit button, ≥44×44 | Accessible name states it opens the AI Partner. Not icon-only without a label |
+| Launcher | Fixed bottom-right Streamlit button, ≥44×44. **Rail widths only** | Accessible name states it opens the AI Partner. Not icon-only without a label |
 | Drawer (desktop) | `<aside>`, `TL_SURFACE_ELEVATED`, `TL_LINE_STRONG` edge | Non-modal. Close first in DOM order |
-| Sheet (mobile) | Full-page or bottom sheet | Above the bottom nav, respecting safe-area inset. Mutually exclusive with the `More` sheet (§8.2a) |
+| Full-page view (bottom-nav widths) | A real destination, reached through the `More` sheet | No launcher, no overlay, no sheet. Exclusive with `More` by construction (§8.2a) |
 | Conversation | Alternating turns, clearly attributed | Model turns via `st.markdown`, HTML off |
 | Suggested questions | 3–4 review-shaped prompts | Derived from the existing `_PROMPT_CHIPS` pattern — "What did I do well?", "What rule did I break?", "Summarize this trade in journal format." Never "what should I trade?" |
 | Composer | Text input + send | Send disabled while a reply is in flight |
@@ -1016,7 +1025,7 @@ and none of it may be stubbed in Phase 1.
 | State | Behaviour |
 |---|---|
 | Closed | Launcher only. Drawer widgets absent from the DOM |
-| `More` sheet open (coarse widths) | Launcher and drawer hidden; nothing hidden is tabbable. Partner state is preserved, so closing `More` restores it (§8.2a) |
+| Bottom-nav widths | No launcher and no overlay exist. The Partner is reached from `More` as a full page; returning restores the prior destination's state (§8.2a) |
 | Open, empty | What the Partner can do, its three context sources, the session-only notice, and suggested questions |
 | Open, no strategy profile | Says the Strategy Profile is not set and links to it — the Partner is materially better with it |
 | Open, no trades | Says it has nothing to review yet and links to New Trade |
@@ -1091,10 +1100,10 @@ container max 1320.
 
 | Width | Navigation | Overview bands | AI Reviews | Partner |
 |---|---|---|---|---|
-| ≥1440 | Rail | 1 strip · 2 panel · 3 chart + flanking · 4 lists + heatmap · 5 readout | Index column beside content | Fixed bottom-right drawer |
-| 1024–1439 | Rail | Same; band 3 flanking figures may wrap | Index column beside content | Fixed bottom-right drawer |
-| 768–1023 (coarse) | Bottom nav + `More` | Bands stack; band 4 lists stack | Stacked section selector | Sheet, above bottom nav; exclusive with `More` |
-| ≤767 (coarse) | Bottom nav + `More` | Full stack; heatmap 7-col, 44 px cells | Stacked selector, then content | Full-page or bottom sheet; exclusive with `More` |
+| ≥1440 | Rail | 1 strip · 2 panel · 3 chart + flanking · 4 lists + heatmap · 5 readout | Index column beside content | Fixed bottom-right FAB + drawer |
+| 1024–1439 | Rail | Same; band 3 flanking figures may wrap | Index column beside content | Fixed bottom-right FAB + drawer |
+| 768–1023 (coarse) | Bottom nav + `More` | Bands stack; band 4 lists stack | Stacked section selector | Full page via `More`; no launcher |
+| ≤767 (coarse) | Bottom nav + `More` | Full stack; heatmap 7-col, 44 px cells | Stacked selector, then content | Full page via `More`; no launcher |
 
 Hard rules: rail and bottom bar never appear together · zero horizontal page overflow at every
 width · wide tables and charts scroll inside their own container · fixed elements reserve
@@ -1199,12 +1208,30 @@ design database, no other redesign.
 | # | Correction | Section |
 |---|---|---|
 | C1 | **Heatmap sparse-data rule reconciled with §5.7.** The unsupported "~20 populated cells" figure is removed and replaced by one explicit, testable policy in new §5.4a: a dated instrument requires **≥ 4 populated trading days**, where a populated trading day is one distinct non-empty `trade_date` with at least one trade. Source: the existing, already-tested `sample_state.show_dominant_series` gate, independently corroborated by the `--domain chart` line-chart floor. Extending that constant adds no new threshold. §5.4a also records why the generic 20-cell heatmap heuristic does not transfer, and separates populated-trading-day gates from trade-count gates (`_MIN_TRADES_FOR_CONSISTENCY`, `TRADES_FOR_REVIEW`). §5.7 is rewritten on the same two axes and now carries a worked example. Supersedes A3 | §5.4a, §5.5, §5.7 |
-| C2 | **Mobile `More` and Partner sheets made mutually exclusive.** Opening either closes the other; the launcher is hidden while either is open; the Partner never layers over or obstructs navigation. The z-scale in §4.5 is reordered so navigation always outranks the Partner (`partner 20` < `nav 30` < `sheet 40`), reversing the earlier partner-above-sheet rationale. New §8.2a documents the asymmetric mechanism honestly — Partner-opens-closes-`More` is guaranteed by the rerun, while `More`-opens must *hide* the Partner via CSS because a native `<details>` toggle never reaches the server — plus the hidden-is-not-closed consequence, the `:has()` support floor, two fallbacks, and the verification matrix | §4.5, §8.2a, §8.4, §8.5, §11 |
+| C2 | *(Superseded 2026-08-03 by C4 in §15.2 — the mobile sheet it governs no longer exists.)* **Mobile `More` and Partner sheets made mutually exclusive.** Opening either closes the other; the launcher is hidden while either is open; the Partner never layers over or obstructs navigation. The z-scale in §4.5 is reordered so navigation always outranks the Partner (`partner 20` < `nav 30` < `sheet 40`), reversing the earlier partner-above-sheet rationale. New §8.2a documents the asymmetric mechanism honestly — Partner-opens-closes-`More` is guaranteed by the rerun, while `More`-opens must *hide* the Partner via CSS because a native `<details>` toggle never reaches the server — plus the hidden-is-not-closed consequence, the `:has()` support floor, two fallbacks, and the verification matrix | §4.5, §8.2a, §8.4, §8.5, §11 |
 | C3 | Two stale `§16` cross-references corrected to `§15` | header, §0.4 |
 
 C1 and C2 change stated behaviour and both are owner-directed. C2's z-order reversal is the one
 place a previously recorded rationale was overturned; the superseded reasoning is noted in §4.5
 so the change is visible rather than silent.
+
+### 15.2 Adopted Partner placement (2026-08-03, documentation only)
+
+| # | Decision | Section |
+|---|---|---|
+| C4 | **Partner placement adopted: FAB + drawer at rail widths, full-page view via the `More` sheet at bottom-nav widths.** Supersedes the mobile bottom sheet and, with it, all of C2's CSS exclusivity machinery — exclusivity is now structural. Removes the `:has()` selector and its support floor, the hidden-is-not-closed ambiguity, the `display: none` tab-order verification, and the four-combination test matrix. Adds one `MOBILE_MORE` entry, a deep-linkable Partner route, and the requirement that `session_state` turns survive navigation. The desktop-only fallback (right-hand column if `position: fixed` fails) is retained | §3, §8.2a, §8.4, §8.5, §11, §4.5 |
+
+**This decision resolves Codex question 4** (§16): the fixed-positioning check now gates only the
+desktop drawer, and its failure mode is a contained desktop fallback rather than a
+cross-breakpoint scope change. Claude runs it and reports.
+
+**It also narrows question 3.** The Partner context adapter is still Codex-owned, but it is now
+consumed by two presentations of one conversation rather than two different surfaces, so one
+signature serves both.
+
+**Net effect on risk.** Three of the eight live-browser verifications the spec previously
+required are eliminated, and the remaining mobile verification is ordinary navigation testing
+rather than overlay-collision testing.
 
 ---
 
