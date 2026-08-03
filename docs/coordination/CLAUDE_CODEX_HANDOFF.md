@@ -20,7 +20,7 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 1 SPECIFICATION COMPLETE — AWAITING CODEX REVIEW`
+- Current phase: `PHASE 1 SPECIFICATION + UI/UX PRO MAX VALIDATION COMPLETE — AWAITING CODEX REVIEW`
 - Last completed work: Claude produced the Phase 1 UX specification at
   `docs/superpowers/specs/2026-08-03-phase1-dark-ux-specification.md`. Only
   documentation changed. No product implementation performed.
@@ -177,6 +177,82 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-03 — UI/UX Pro Max bounded validation pass (Claude)
+
+**Why this pass happened.** The owner asked Claude to confirm, without inferring it from the
+prompt, whether `/ui-ux-pro-max` had actually been invoked and its required searches run.
+
+**Honest answer: they had not.** The skill's `SKILL.md` text was in context and its Quick
+Reference rules were applied directly — traceably producing finding D9 (`no-emoji-icons`), the
+ranked-list form in Overview band 4 (`no-pie-overuse`), the contrast floors, the 44 px target
+rule, `color-not-only`, and the reduced-motion constraints. But the skill was never invoked
+through the Skill tool, and `scripts/search.py` was never executed — no `--design-system`, no
+`--domain ux`, no `--domain chart`. The original spec header credited `ui-ux-pro-max` as
+reviewer, which overstated that; the header is corrected and provenance is now recorded in
+spec §0.4.
+
+**Exact commands run in this pass:**
+
+```bash
+python3 ~/.claude/skills/ui-ux-pro-max/scripts/search.py \
+  "post-trade trading journal analytics dashboard dark data-dense" \
+  --design-system --variance 4 --motion 2 --density 8 -p "TradeLens AI" -f markdown
+
+python3 ~/.claude/skills/ui-ux-pro-max/scripts/search.py \
+  "animation accessibility z-index loading" --domain ux -n 14
+
+python3 ~/.claude/skills/ui-ux-pro-max/scripts/search.py \
+  "dashboard trend comparison heatmap calendar equity drawdown" --domain chart -n 8
+```
+
+**New finding — D13 (High).** No z-index scale exists. `design_system.py` carries three
+arbitrary literals (`z-index: 1000` line 515, `20` line 2075, `100` line 2519) and zero
+`--tl-z-*` tokens. This is the `z-index-management` anti-pattern and it blocks safe layering of
+the AI Partner overlay. It also exposed a **dangling reference the first spec created**: §8.2
+cited "the documented z-scale", which did not exist. Resolved in spec §4.5 with an ordered
+scale (`base 0 / raised 10 / nav 20 / sheet 30 / partner 40 / overlay 50`), migration of the
+three literals, and a stacking-context verification requirement distinct from the
+`position: fixed` check.
+
+**Six amendments (spec §15), all additive:**
+
+| # | Amendment | Section |
+|---|---|---|
+| A1 | Z-index scale, literal migration, stacking-context verification | §4.5, D13 |
+| A2 | Heatmap divergent scale with neutral zero, numeric legend with ticks, pattern cue beyond colour, values reachable without hover, grid-table alternative | §5.5 |
+| A3 | Heatmap sparse-month gate below ~20 populated cells → ranked day list. The spec gated the equity curve but had left the heatmap ungated | §5.5 |
+| A4 | Band 2 threshold legibility — values always visible as text, thresholds labelled in text not colour position | §5.3 |
+| A5 | Radar rejected for session/setup; bullet-chart form deferred for band 2 (no defined target exists); reasons recorded | §5.3, §5.5 |
+| A6 | Spec header corrected for provenance | header, §0.4 |
+
+**Independently validated, no change needed.** `--domain chart` sets the line-chart floor at
+"fewer than 4 data points → stat card", matching the existing
+`sample_state.show_dominant_series` gate exactly. `--design-system` resolved to *Modern Dark*,
+whose best-fit list includes "fintech/trading dashboards", and its effects note "avoid pure
+`#000000` (OLED smear)" — both confirm the tonal-dark direction and the `#091216` canvas. The
+`--tl-space-*` ramp already matches a density-8 dashboard rhythm.
+
+**Rejected, with reasons recorded in spec §0.4.** The generator is tuned for React Native
+marketing surfaces: a blue `#1E40AF` palette on a light `#F8FAFC` background (conflicts with
+locked teal-on-charcoal and the dark direction), Fira Code/Fira Sans (existing families scored
+9/10 and are brand-established), glassmorphism/BlurView/ambient-glow (forbidden decorative
+blur; prior audit flagged glow drift for removal), GSAP transitions and spring modals (no JS
+injection, no new dependency), haptics (unavailable), and the "Real-Time / Operations Landing"
+pattern with trial CTAs (a marketing pattern; the marketing site is out of scope).
+
+**Nothing structural changed.** No amendment altered the IA, the five-band Overview reading
+order, the AI Reviews note anatomy, either owner decision in §8, or any safety boundary. No
+redesign, no product code.
+
+**Files changed:** the spec and this handoff. `git add -A` not used. Untracked
+`src/tradelens/ui/.impeccable/` again deliberately not staged.
+
+**Tests and browser checks:** none — documentation only. The §0.3 sequencing caveat still
+stands: no baseline browser evidence exists, and A1's stacking-context check plus §8.2's
+fixed-positioning check both require a live browser before implementation.
+
+Ownership returned to `NONE`.
 
 ### 2026-08-03 — Phase 1 specification written (Claude)
 

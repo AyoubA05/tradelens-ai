@@ -1,7 +1,11 @@
 # TradeLens AI — Phase 1 Dark Workspace UX Specification
 
 **Date:** 2026-08-03
-**Author:** Claude Code (`ui-ux-pro-max`, specification-only phase)
+**Author:** Claude Code — specification-only phase
+**Design review:** `ui-ux-pro-max`. §0.4 records exactly which of its commands were run,
+when, and which recommendations were adopted or rejected. The first draft applied the skill's
+static Quick Reference guidance only; its search database was run afterwards as a bounded
+validation pass, and §16 records the amendments that pass produced.
 **Branch:** `codex/full-dark-streamlit-redesign`
 **Worktree:** `/Users/ayoub/tradelens-ai/.claude/worktrees/codex+full-dark-streamlit-redesign`
 **Status:** Specification. No product code changed. Implementation requires Codex review first.
@@ -68,6 +72,59 @@ Stated rather than hidden:
 
 ---
 
+### 0.4 Design-review provenance
+
+Recorded so this is auditable rather than asserted.
+
+**First draft.** The `ui-ux-pro-max` `SKILL.md` text was in context and its Quick Reference
+rules were applied directly — traceably producing finding D9 (`no-emoji-icons`), the ranked-list
+form in band 4 (`no-pie-overuse`), the contrast floors, the 44 px target rule,
+`color-not-only`, and the reduced-motion constraints. **The skill's search database was not
+queried, and the skill was not invoked through the Skill tool.** The original header credited
+it as reviewer, which overstated that.
+
+**Bounded validation pass, 2026-08-03.** Skill invoked through the Skill tool, then:
+
+```bash
+python3 ~/.claude/skills/ui-ux-pro-max/scripts/search.py \
+  "post-trade trading journal analytics dashboard dark data-dense" \
+  --design-system --variance 4 --motion 2 --density 8 -p "TradeLens AI" -f markdown
+
+python3 ~/.claude/skills/ui-ux-pro-max/scripts/search.py \
+  "animation accessibility z-index loading" --domain ux -n 14
+
+python3 ~/.claude/skills/ui-ux-pro-max/scripts/search.py \
+  "dashboard trend comparison heatmap calendar equity drawdown" --domain chart -n 8
+```
+
+**Adopted** (amendments in §16): the z-index scale and stacking-context verification (§4.5,
+D13); heatmap divergent scale, numeric legend, pattern fallback, sparse-month gate, and grid
+table (§5.5); the AAA threshold-legibility rule for band 2 (§5.3).
+
+**Independently validated, no change needed:** `--domain chart` puts the line-chart floor at
+"fewer than 4 data points → use a stat card", matching the existing
+`sample_state.show_dominant_series` gate exactly. The `--design-system` style resolved to
+*Modern Dark*, whose stated best-fit includes "fintech/trading dashboards", and its effects
+note "avoid pure `#000000` (OLED smear)" — both confirm the tonal-dark-not-black direction and
+the `#091216` canvas. The `--tl-space-*` ramp (4/8/12/16/20/24/32/48) already matches a
+density-8 dashboard rhythm.
+
+**Rejected, with reasons.** The generator is tuned for React Native marketing surfaces and much
+of its output conflicts with locked decisions:
+
+| Recommendation | Rejected because |
+|---|---|
+| Palette `#1E40AF` blue primary, `#F8FAFC` light background | Conflicts with the locked teal-on-charcoal identity and the fully-dark direction. The prior audit scored the existing colour system 8.5/10 and said keep it |
+| Fira Code / Fira Sans | Schibsted Grotesk + Satoshi + JetBrains Mono scored 9/10 and are brand-established. The recommended *mood* ("dashboard, data, analytics, technical, precise") already describes them |
+| Glassmorphism, BlurView, ambient light blobs, glow | The plan forbids decorative blur and the prior audit flagged ambient glow drift for removal. `blur-purpose` restricts blur to background dismissal |
+| GSAP page transitions, spring modals, `scale 0.97` press | No JavaScript injection, no new dependency. Motion is capped at 120–200 ms opacity/transform |
+| Haptics | Not available to Streamlit in a browser |
+| "Real-Time / Operations Landing" pattern, nav CTA, trial CTA | A marketing-landing pattern. This is an authenticated product surface, and the marketing site is explicitly out of scope |
+| Radar/spider for multi-attribute comparison | Its own guidance routes precise comparison to grouped bar; ranked lists retained (§5.5) |
+| Bullet chart form for band 2 | Requires a defined target range, which TradeLens does not have. The accessibility rule it embodies was adopted; the form was not (§5.3) |
+
+---
+
 ## 1. Current-state audit
 
 Read from source in this worktree. File sizes: `design_system.py` 2858, `1_NewTrade.py`
@@ -122,6 +179,7 @@ Also already correct and not to be disturbed:
 | D10 | Medium | **False zeros are indistinguishable from real ones.** `compute_basic_metrics` returns `avg_win`/`avg_loss` as `0.0` when there are no wins/losses. `total_edge_leak` returns `0.0` both for "no leak" and "signal columns absent". `consistency_score` needs ≥5 trades (`_MIN_TRADES_FOR_CONSISTENCY`) | `metrics.py:68–83, 1036–1073, 1085` |
 | D11 | Low | **`rule_adherence_rate` does not exist.** Only a private `_is_followed` helper. Overview band 2 depends on the Codex-owned public function from handoff §2 | `metrics.py:1089` |
 | D12 | Low | **AI Partner is trade-scoped only.** `ai_trade_chat.render_ask_ai` is imported by `2_Trades.py` alone; history lives in `session_state` and is never persisted | `ai_trade_chat.py`, `2_Trades.py:33` |
+| D13 | High | **No z-index scale.** Three arbitrary literals (`1000`, `20`, `100`) and zero `--tl-z-*` tokens. The Partner overlay cannot be layered safely, and `1000` is an arbitrary ceiling that invites `1001` next. Found by the §0.4 validation pass | `design_system.py:515, 2075, 2519`; resolved §4.5 |
 
 ### 1.3 Current information architecture
 
@@ -305,7 +363,39 @@ produces the dark-cards-on-dark-cards effect the plan forbids. The consequence i
 line is the sole indicator of a control boundary. `TL_LINE_STRONG` exists for that case and
 must clear 3:1 against both adjacent surfaces.
 
-### 4.5 Focus
+### 4.5 Z-index scale (resolves D13)
+
+**There is no z-index scale today.** `design_system.py` contains three arbitrary literals —
+`z-index: 1000` (line 515), `20` (line 2075), `100` (line 2519) — and zero `--tl-z-*` tokens.
+This is the `z-index-management` anti-pattern at High severity, and the AI Partner overlay
+cannot be layered safely against it.
+
+Define an explicit ordered scale, and forbid literals outside it:
+
+```
+--tl-z-base       0    page content
+--tl-z-raised    10    sticky section headers, table headers
+--tl-z-nav       20    navigation rail, bottom nav
+--tl-z-sheet     30    mobile More sheet
+--tl-z-partner   40    AI Partner launcher and drawer
+--tl-z-overlay   50    blocking confirmations
+```
+
+The Partner sits above the `More` sheet because it must remain reachable while the sheet is
+open, and below blocking confirmations because a destructive confirmation must never be
+obscured by a chat surface.
+
+**Stacking-context verification is required, separately from the `position: fixed` check in
+§8.2.** A new stacking context resets z-index, so a correct scale value still loses if an
+ancestor isolates it. Any ancestor carrying `z-index` with `position` other than `static`,
+`transform`, `filter`, `opacity` below 1, `will-change`, `contain`, or `isolation` creates one.
+Verify the Partner renders above the rail, the bottom nav, and the `More` sheet in a live
+browser — not by reasoning about the scale alone.
+
+Existing literals migrate to the scale in the same commit. `1000` in particular must be
+replaced, not preserved: an arbitrary ceiling is how the next overlay ends up at `1001`.
+
+### 4.6 Focus
 
 Focus rings use `TL_ACCENT_ACTION` at ≥3:1 against the surface behind them (teal clears 10:1
 on every surface). Focus is never removed, never animated, and never hover-gated. Because a
@@ -374,6 +464,19 @@ Rule adherence and consistency are process measures. They may not be coloured re
 red and green are reserved for money outcomes. Use neutral figures with a band label
 (e.g. a text qualifier), so colour is not doing semantic work it is not licensed for.
 
+**Threshold legibility rule (adopted from the bullet-chart pattern, the only AAA-graded form
+in the chart database).** For every measure in this band:
+
+- The numeric value is **always visible as text**, never hover-only and never encoded solely
+  in the length or fill of an indicator.
+- Where a measure has bands or thresholds, each band is **labelled with its threshold in
+  text** — not conveyed by colour position.
+
+A true bullet chart was considered for rule adherence and consistency and **deferred**: the
+pattern requires a defined target range, and TradeLens has no user-defined targets for either
+measure. Introducing one would be a product decision, not a presentation decision, and is out
+of scope. The accessibility rule above is adopted; the form is not.
+
 ### 5.4 Band 3 — Performance trajectory
 
 **Form:** the dominant instrument. The equity curve keeps the highest visual weight on the
@@ -402,15 +505,39 @@ comparability rules make ranking the correct form.
 |---|---|---|
 | Session performance | `by_session` / `killzone_performance` | Ranked by net P&L with n per row |
 | Setup performance | `by_setup_type` | Ranked by net P&L with n per row |
-| Calendar heatmap | `calendar_daily_pnl(df, year, month)` | Low-saturation fills; value signs and labels retained; textual legend; 7-column at phone; 44 px day cells |
+| Calendar heatmap | `calendar_daily_pnl(df, year, month)` | See the heatmap rules immediately below |
+
+**Calendar heatmap rules.** Daily P&L is signed, which determines the form:
+
+- **Divergent scale, not a single gradient.** A one-directional gradient cannot represent ±
+  data honestly — it makes a large loss and a large gain read as the same intensity. Use a
+  divergent scale with a neutral midpoint at zero, in the existing semantic red/green, at low
+  saturation.
+- **Numeric legend with scale ticks**, not a bare colour ramp. A reader must be able to map a
+  cell back to a magnitude.
+- **Pattern or texture in addition to colour.** The heatmap form is graded only **B** for
+  accessibility precisely because colour usually carries everything. Positive, negative,
+  breakeven, and no-trade days each need a non-colour cue — sign, glyph, or texture — so the
+  grid survives colour-blindness and greyscale printing.
+- **Exact values on interaction**, and reachable without hover.
+- **Grid-table alternative** with row and column labels, for screen readers and for anyone who
+  needs to read exact values rather than compare intensities.
+- **Sparse-month gate (new).** Below roughly 20 populated cells a heatmap is the wrong form —
+  a month with three trading days is a grid of mostly-empty boxes claiming a pattern that is
+  not there. Below that threshold, fall back to a compact ranked day list showing the same
+  `calendar_daily_pnl` rows, and state what would populate the grid. This mirrors the existing
+  `sample_state.show_dominant_series` gate on the equity curve and must be implemented in the
+  same spirit — the decision belongs in the shared data-state policy, not in page code.
+- 7 columns at phone, 44 px day cells, no TradeZella purple.
 
 **Comparability is a hard constraint, inherited from the plan and the prior audit.** With one
 category present, nothing may be called strongest or weakest. `leading_category` already owns
 this decision and reports `is_only_category`; the UI must honour it. A single-bar chart
 proving nothing is exactly the trust failure the 2026-07-21 audit scored 4.5/10.
 
-The heatmap must not use TradeZella purple. Positive, negative, breakeven, and empty-day
-states each need a readable dark treatment plus a non-colour cue.
+A radar/spider chart was considered for comparing sessions and setups across attributes and
+**rejected**: the pattern's own guidance sends precise comparison to a grouped bar, and a
+trader comparing session P&L needs to read magnitudes, not silhouette. The ranked lists stand.
 
 ### 5.6 Band 5 — Next review action
 
@@ -705,7 +832,7 @@ bottom sheet on mobile. No JavaScript injection, no new dependency.
 ```
 st.container(key="tl_partner_launcher")  →  .st-key-tl_partner_launcher
     position: fixed; right: var(--tl-space-6); bottom: var(--tl-space-6);
-    z-index: <partner layer in the documented z-scale>
+    z-index: var(--tl-z-partner);   /* the scale defined in §4.5 */
 ```
 
 The launcher must be a real Streamlit widget, not authored HTML, so it stays keyboard-reachable
@@ -821,6 +948,8 @@ retrospective. Any forward-looking phrasing is a spec violation, not a copy pref
 | Partner launcher / drawer / sheet | §8 | Claude (surface only) |
 | `rule_adherence_rate(df)` | Overview band 2 measure | **Codex** |
 | `TL_LINE_STRONG` | Load-bearing boundaries (D4) | Claude (token) |
+| `--tl-z-*` scale | Ordered layering; replaces three arbitrary literals (D13) | Claude (token) |
+| Heatmap sparse-month gate | Shared data-state policy, mirroring `show_dominant_series` (§5.5) | Claude (presentation policy) |
 
 ### Deleted
 
@@ -936,7 +1065,26 @@ PR, or deploy without explicit owner approval.
 
 ---
 
-## 15. Open questions for Codex
+## 15. Validation-pass amendments (2026-08-03)
+
+What the `ui-ux-pro-max` database pass in §0.4 changed. Only material gaps were amended; the
+specification was not redesigned.
+
+| # | Amendment | Section | Severity |
+|---|---|---|---|
+| A1 | Z-index scale defined (`--tl-z-base` … `--tl-z-overlay`), three existing arbitrary literals scheduled for migration, stacking-context verification required separately from the `position: fixed` check. Resolves a dangling reference — §8.2 previously cited a "documented z-scale" that did not exist | §4.5, D13 | High |
+| A2 | Calendar heatmap: divergent scale with neutral zero midpoint (signed data cannot use a one-directional gradient), numeric legend with scale ticks, pattern/texture cue beyond colour, exact values reachable without hover, grid-table alternative | §5.5 | Medium |
+| A3 | Calendar heatmap sparse-month gate below ~20 populated cells, falling back to a ranked day list. The spec previously gated the equity curve but left the heatmap ungated | §5.5 | Medium |
+| A4 | Band 2 threshold legibility: values always visible as text, thresholds labelled in text rather than by colour position | §5.3 | Medium |
+| A5 | Radar rejected for session/setup comparison, bullet-chart form deferred for band 2, both with reasons recorded | §5.3, §5.5 | Low |
+| A6 | Header corrected — it credited `ui-ux-pro-max` as reviewer before its searches had been run | header, §0.4 | — |
+
+No amendment altered the IA, the five-band Overview reading order, the AI Reviews note anatomy,
+either of the two owner decisions in §8, or any safety boundary.
+
+---
+
+## 16. Open questions for Codex
 
 1. **`rule_adherence_rate(df)` signature and empty-sample behaviour.** Handoff §2 specifies a
    `0.0`–`1.0` fraction reusing `_is_followed`. Overview band 2 needs to distinguish "0% of a
