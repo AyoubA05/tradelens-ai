@@ -23,17 +23,18 @@ the same time.
 - Current phase: `PHASE 1 SPEC FINAL — HANDED TO CODEX FOR REVIEW + FOUNDATION SYNC`
 - Last completed work: Claude produced the Phase 1 UX specification at
   `docs/superpowers/specs/2026-08-03-phase1-dark-ux-specification.md`, ran the
-  UI/UX Pro Max validation pass against it, then applied three owner-directed
-  documentation corrections (spec §15.1 C1–C3): one testable date-series policy
-  replacing an unsupported heatmap threshold, mutual exclusivity between the
-  mobile `More` and AI Partner sheets with navigation outranking the Partner in
-  the z-scale, and two stale cross-references. Only documentation changed. No
-  product implementation performed.
+  UI/UX Pro Max validation pass against it, applied three owner-directed
+  corrections (§15.1 C1–C3), and adopted the owner's Partner placement decision
+  (§15.2 C4: FAB + drawer at rail widths, full-page via `More` at bottom-nav
+  widths), which superseded C2's CSS exclusivity machinery entirely. Four
+  documentation commits: `17382f9`, `2d04f37`, `c3ce33d`, `50ad0c0`. Only
+  documentation changed. No product implementation performed.
 - Next owner: `CODEX`
-- Next work: (1) review the specification for scope, AI safety, and tenancy
-  implications; (2) answer the five open questions in spec §15; (3) integrate
-  the separately committed Opus 5 migration; (4) repair the UTC-sensitive cost
-  test and return a fully green baseline.
+- Next work: (1) review the specification against the diff of those four
+  commits, not the prose; (2) answer spec §16 Q1, Q2, Q3, Q5 — Q4 is resolved by
+  C4; (3) review and isolate the Opus 5 migration into its own commit and bring
+  it into this branch; (4) repair the UTC-sensitive cost test; (5) return a green
+  baseline. Stop before frontend implementation.
 - Blocker: the Opus 5 migration is staged only in the main checkout and is not
   present on this branch. Creative implementation must not start from the stale
   model-routing baseline. This worktree's `CLAUDE.md` still declares
