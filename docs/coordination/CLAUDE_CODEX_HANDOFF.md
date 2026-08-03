@@ -20,32 +20,25 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `FOUNDATION GREEN — BROWSER PREFLIGHT BLOCKED ON NEW TRADE`
-- Last completed work: Codex reviewed the Phase 1 specification and recorded
-  concrete service contracts for rule adherence, edge-leak state, and the
-  user-scoped global Partner context. The isolated Opus 5 migration landed as
-  `97aead9`; the UTC-sensitive cost test was fixed without changing production
-  timestamps in `9a7c0c8`; existing lint/format drift was restored in `6b78125`.
-  The live browser preflight is recorded at
-  `docs/superpowers/audits/2026-08-03-browser-preflight.md`. No redesign UI was
-  implemented.
-- Verification: `1603 passed, 7 skipped`; Ruff clean; Black clean (196 files).
-  All seven authenticated routes loaded without initial Streamlit exceptions or
-  document overflow across 1440, 1024, coarse 768, and coarse 375. The same
-  seven-route matrix passed under reduced motion. Journal ledger/calendar/detail,
-  Analytics lens switching, AI Review generation/regeneration, Strategy
-  persistence, and Settings confirmation gates were exercised against an
-  isolated seeded database.
-- Next owner: `CLAUDE` for the UI-owned blocker, then `CODEX` for diff review and
-  browser re-verification.
-- Next work: fix the New Trade Back-navigation exception for `nt_shot`, add a
-  browser regression check for step 1 → step 2 → Back, and hand the diff to
-  Codex. After that check is green, rebuild the consolidated implementation plan
-  from the Phase 1 spec. Do not begin Phase 2 before then.
-- Blocker: returning from New Trade step 2 to step 1 raises
-  `StreamlitValueAssignmentNotAllowedError` because the widget key `nt_shot` is
-  assigned through `st.session_state` before `st.file_uploader` is instantiated
-  (`src/tradelens/ui/pages/1_NewTrade.py:340`).
+- Current phase: `NEW TRADE REGRESSION FIXED — AWAITING CODEX DIFF REVIEW`
+- Last completed work: Claude fixed the New Trade Back-navigation regression
+  that blocked the browser preflight. Root cause was `keep_alive()` re-asserting
+  the `nt_shot` file_uploader key, which Streamlit forbids; the fix exempts
+  unsettable widget keys and mirrors the screenshot draft onto a wizard-owned
+  plain key so nothing is lost on steps 2-5. Five tests added, two of them
+  mutation-checked. Proved fixed in a real browser both with and without the
+  fix. No redesign UI was implemented.
+- Verification: `1608 passed, 7 skipped` (was 1603/7); Ruff clean; Black clean
+  (174 files); `git diff --check` clean. Live CDP round trip at 1440 against a
+  throwaway database: zero exceptions on step 1, step 2, and Back, with the
+  uploader restored on return. The same run reproduced the documented
+  exception verbatim when the fix was disabled.
+- Next owner: `CODEX` for diff review and browser re-verification.
+- Next work: review commit `ce80324`, re-run the New Trade round trip, then
+  rebuild the consolidated implementation plan from the Phase 1 spec. Do not
+  begin Phase 2 before that review lands.
+- Blocker: cleared. The `nt_shot` Back-navigation exception is fixed and proved
+  fixed in a real browser both ways (see the handoff-log entry below).
 
 ## Ownership boundaries
 
@@ -190,6 +183,88 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-03 — New Trade Back-navigation regression fixed (Claude)
+
+Scope was the single documented blocker in
+`docs/superpowers/audits/2026-08-03-browser-preflight.md`. No redesign work, no
+service changes, no plan rebuild, `.impeccable/` untouched.
+
+**Root cause — not where the traceback pointed.** The audit cited the
+`st.file_uploader` at `1_NewTrade.py:340`, which is where the exception
+*surfaces*. The cause is `keep_alive()` in `components/trade_wizard.py`, which
+re-asserted every wizard-owned key with `state[key] = state[key]` so Streamlit
+would not discard off-step draft values. `nt_shot` is a `file_uploader` key, and
+Streamlit forbids assigning those through session state at all — even
+re-assigning the identical value marks the key user-set, and the next
+instantiation of that widget raises. Hence: step 1 renders the uploader, the
+step-2 run re-asserts the key, and the Back run raises when step 1 rebuilds it.
+No upload is needed to reproduce it.
+
+**Fix, in two parts.**
+
+1. `trade_wizard.py` — added `UNSETTABLE_WIDGET_KEYS = frozenset({"nt_shot"})`
+   and made `keep_alive` skip it. Popping such keys is still legal, so
+   `reset_wizard_state` and `wizard_owned_keys` are unchanged and a reset still
+   clears the uploader.
+2. `1_NewTrade.py` — skipping the key alone would have traded a crash for a lost
+   screenshot, since Streamlit then discards `nt_shot` on steps 2–5. Added
+   `SCREENSHOT_DRAFT_KEY` (`_nt_shot_file`), a plain non-widget mirror written
+   while the uploader is on screen and read as a fallback when it is not. The
+   `_nt_` prefix is deliberate: it makes the mirror wizard-owned, so `keep_alive`
+   preserves it and a reset clears it — a mirror outside that prefix would
+   survive a reset and leak one trader's chart into the next draft. The mirror
+   holds the `UploadedFile` object (a `BytesIO` subclass), so every consumer
+   contract — `.getvalue()`, `.name`, `.size`, `.file_id`, `save_screenshot`,
+   `st.image` — is unchanged.
+
+**AppTest cannot reproduce this defect, and that is worth knowing.** It discards
+`nt_shot` at the end of the step-2 run, so the user-set marking never survives
+to the Back run. Verified directly: the step 1 → step 2 → Back AppTest passes
+against the *unfixed* code. Those two round trips are therefore committed as
+workflow smoke tests and labelled as such in the file, not presented as the
+regression guard.
+
+**What actually guards the regression** — five tests added to
+`tests/test_trade_wizard.py`, two of them mutation-checked by removing the
+exemption and confirming both fail:
+
+- `test_keep_alive_skips_keys_streamlit_forbids_assigning` — the root cause.
+- `test_every_uploader_key_on_the_page_is_exempt_from_keep_alive` — scans the
+  page for `st.file_uploader(key=...)` and fails if any key is missing from the
+  exemption set, so a second uploader cannot silently reintroduce the crash.
+- `test_screenshot_draft_key_is_wizard_owned` — pins the mirror inside the
+  owned prefix so a rename cannot leak a chart across a reset.
+- two workflow smoke tests, labelled.
+
+**Live browser round trip, run both ways** — headless Chrome over CDP at 1440,
+against a throwaway SQLite database in scratchpad, `DEMO_MODE=true`:
+
+| Phase | Fix disabled | Fix enabled |
+|---|---|---|
+| step 1 | 0 exceptions, 1 uploader | 0 exceptions, 1 uploader |
+| step 2 | 0 exceptions, 0 uploaders | 0 exceptions, 0 uploaders |
+| Back to step 1 | **1 exception**, 0 uploaders, buttons collapse to `Copy` | **0 exceptions**, 1 uploader, `Browse files` back |
+
+With the exemption disabled the browser reproduced the audit's error verbatim:
+`StreamlitValueAssignmentNotAllowedError: Values for the widget with key
+'nt_shot' cannot be set using st.session_state`. The dev database was not
+touched (`data/tradelens.db` unchanged); no capture artifact entered the
+worktree; both processes were stopped.
+
+**Verification:** `1608 passed, 7 skipped` (was 1603/7 — the five additions);
+Ruff clean; Black clean (174 files); `git diff --check` clean.
+
+**Files changed:** `src/tradelens/ui/components/trade_wizard.py`,
+`src/tradelens/ui/pages/1_NewTrade.py`, `tests/test_trade_wizard.py`, and this
+handoff. `git add -A` not used; `src/tradelens/ui/.impeccable/` left untracked.
+
+**For Codex:** the mirror holds a reference to an `UploadedFile` across reruns.
+Consumers only touch in-memory `BytesIO` data, so it is sound for this flow, but
+it is the one part of this change worth a second opinion on lifetime.
+
+Ownership returned to `NONE`.
+
 
 ### 2026-08-03 — Partner placement adopted; handed to Codex (Claude)
 

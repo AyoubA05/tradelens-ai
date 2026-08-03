@@ -65,6 +65,7 @@ from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.trade_wizard import (  # noqa: E402
     LAST_STEP,
+    SCREENSHOT_DRAFT_KEY,
     WIZARD_STEPS,
     current_step,
     draft_completion,
@@ -297,7 +298,17 @@ emo_before = st.session_state.get("nt_emo_before")
 emo_during = st.session_state.get("nt_emo_during")
 emo_after = st.session_state.get("nt_emo_after")
 
-screenshot_file = st.session_state.get("nt_shot")
+# The uploader only exists on step 1, and its key cannot be re-asserted the
+# way keep_alive preserves every other field (see UNSETTABLE_WIDGET_KEYS), so
+# Streamlit drops it the moment the trader moves on. The mirror written in
+# _step_screenshot carries the chart through the remaining steps, and the live
+# widget wins whenever it is on screen.
+_shot_widget = st.session_state.get("nt_shot")
+screenshot_file = (
+    _shot_widget
+    if _shot_widget is not None
+    else st.session_state.get(SCREENSHOT_DRAFT_KEY)
+)
 screenshot_url = _raw("nt_shot_url")
 
 # Field view the wizard's pure rules read (its own vocabulary, not widget keys).
@@ -340,6 +351,13 @@ def _step_screenshot() -> None:
     screenshot_file = st.file_uploader(
         "Upload screenshot", type=["png", "jpg", "jpeg", "webp"], key="nt_shot"
     )
+    # Mirror the upload onto a plain key so it survives steps 2-5. This branch
+    # only runs while the uploader is on screen, so an empty widget here means
+    # the trader removed the file — not that we are on another step.
+    if screenshot_file is not None:
+        st.session_state[SCREENSHOT_DRAFT_KEY] = screenshot_file
+    else:
+        st.session_state.pop(SCREENSHOT_DRAFT_KEY, None)
     # The two-panel AI review shows the chart itself; only preview here when
     # no detection is staged (avoids rendering the same screenshot twice).
     if screenshot_file is not None and not has_staged_detection():

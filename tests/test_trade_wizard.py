@@ -12,6 +12,7 @@ decide what a trader can do next are testable without a browser:
 """
 
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -574,3 +575,111 @@ def test_every_step_boots_without_raising():
     for step in range(1, 6):
         at = _wizard(new_trade_step=step)
         assert not at.exception, f"step {step} raised: {at.exception}"
+
+
+# ---------------------------------------------------------------------------
+# Back navigation and the file-uploader key
+# ---------------------------------------------------------------------------
+# Streamlit refuses `st.session_state[key] = ...` for widgets whose value only
+# the user can supply — file_uploader among them. keep_alive re-asserts every
+# wizard key so a one-step-at-a-time wizard does not lose off-step values, and
+# that generic sweep collided with `nt_shot`: the assignment marked the key
+# user-set, and re-instantiating the uploader on the way back raised
+# StreamlitValueAssignmentNotAllowedError. No upload is needed to reproduce it
+# — instantiating the uploader once puts `nt_shot` in session state.
+
+
+def test_keep_alive_skips_keys_streamlit_forbids_assigning():
+    """`nt_shot` must survive keep_alive without being re-assigned."""
+    seen = []
+
+    class _Recorder(dict):
+        def __setitem__(self, key, value):
+            seen.append(key)
+            super().__setitem__(key, value)
+
+    state = _Recorder({"nt_asset": "NQ", "nt_shot": None, WIZARD_STATE_KEY: 2})
+    tw.keep_alive(state)
+
+    assert "nt_shot" not in seen, "assigning a file_uploader key raises in Streamlit"
+    assert "nt_asset" in seen, "ordinary wizard keys must still be re-asserted"
+    assert "nt_shot" in state, "the key must be left in place, only not re-assigned"
+
+
+def test_screenshot_draft_key_is_wizard_owned():
+    """The mirror that carries the upload across steps must reset with the
+    wizard. A mirror outside the owned prefix would survive a reset and leak
+    one trader's chart into the next draft."""
+    state = {tw.SCREENSHOT_DRAFT_KEY: object(), WIZARD_STATE_KEY: 3}
+    assert tw.SCREENSHOT_DRAFT_KEY in wizard_owned_keys(state)
+
+    reset_wizard_state(state)
+    assert tw.SCREENSHOT_DRAFT_KEY not in state
+
+
+def test_every_uploader_key_on_the_page_is_exempt_from_keep_alive():
+    """The real guard against this regression returning.
+
+    A second file_uploader added to the wizard would reintroduce the exact
+    same crash, and neither AppTest nor the unit tests above would notice,
+    because they only know about `nt_shot`. So bind the exemption set to the
+    page: every uploader key the page declares must be exempt.
+    """
+    source = _PAGE.read_text(encoding="utf-8")
+    uploader_calls = re.findall(r"st\.file_uploader\((.*?)\)", source, flags=re.DOTALL)
+    assert uploader_calls, "expected at least one file_uploader on the page"
+
+    keys = set()
+    for call in uploader_calls:
+        found = re.search(r"""key\s*=\s*["']([^"']+)["']""", call)
+        assert found, f"file_uploader without an explicit key: {call[:80]}"
+        keys.add(found.group(1))
+
+    missing = keys - tw.UNSETTABLE_WIDGET_KEYS
+    assert not missing, (
+        f"file_uploader key(s) {sorted(missing)} are not in "
+        "UNSETTABLE_WIDGET_KEYS; keep_alive will assign them and Back "
+        "navigation will raise StreamlitValueAssignmentNotAllowedError"
+    )
+
+
+# The two round trips below are workflow smoke tests, NOT regressions guards
+# for this defect. AppTest discards `nt_shot` at the end of the step-2 run, so
+# the user-set marking that makes the real runtime raise never survives to the
+# Back run — verified: these pass against the unfixed code. The browser
+# round trip in the preflight audit is what proves the fix; the unit tests
+# above are what keep it fixed.
+
+
+def test_step_one_to_two_and_back_does_not_raise():
+    """Workflow smoke test for step 1 → Continue → Back.
+
+    Companion to docs/superpowers/audits/2026-08-03-browser-preflight.md.
+    """
+    at = _wizard(new_trade_step=1)
+    assert not at.exception, f"step 1 raised on entry: {at.exception}"
+    assert len(at.get("file_uploader")) == 1, "the uploader must render on step 1"
+
+    next(b for b in at.button if b.label == "Continue →").click().run()
+    assert not at.exception, f"Continue raised: {at.exception}"
+    assert at.session_state[WIZARD_STATE_KEY] == 2
+
+    next(b for b in at.button if b.label == "← Back").click().run()
+    assert not at.exception, f"Back raised: {at.exception}"
+    assert at.session_state[WIZARD_STATE_KEY] == 1
+    assert len(at.get("file_uploader")) == 1, "step 1 must render its uploader again"
+
+
+def test_back_and_forward_across_every_step_does_not_raise():
+    """Walking the whole wizard forward and back exercises the uploader key on
+    every transition, not only the first."""
+    at = _wizard(new_trade_step=1)
+    for expected in range(2, LAST_STEP + 1):
+        next(b for b in at.button if b.label == "Continue →").click().run()
+        assert not at.exception, f"Continue into step {expected} raised: {at.exception}"
+        assert at.session_state[WIZARD_STATE_KEY] == expected
+
+    for expected in range(LAST_STEP - 1, 0, -1):
+        next(b for b in at.button if b.label == "← Back").click().run()
+        assert not at.exception, f"Back into step {expected} raised: {at.exception}"
+        assert at.session_state[WIZARD_STATE_KEY] == expected

@@ -42,6 +42,24 @@ FIELD_PREFIX = "nt_"
 PRIVATE_PREFIX = "_nt_"
 _AUXILIARY_KEYS = frozenset({"trade_submit_in_progress", "just_saved_trade_id"})
 
+# Widget keys Streamlit refuses to let anything assign through session state.
+# A file_uploader's value can only come from the user, so writing the key —
+# even re-assigning the value it already holds — marks it user-set and makes
+# the next instantiation of that widget raise
+# StreamlitValueAssignmentNotAllowedError. keep_alive must step around these;
+# popping them is still allowed, so a reset is unaffected.
+#
+# Any new file_uploader in the wizard must be added here. tests/test_trade_wizard.py
+# scans the page for uploader keys and fails if one is missing.
+UNSETTABLE_WIDGET_KEYS = frozenset({"nt_shot"})
+
+# Where the uploaded chart is mirrored so it survives the steps that do not
+# render the uploader. It cannot live under its own widget key for the reason
+# above, so a plain key carries it. The `_nt_` prefix is deliberate: it makes
+# the mirror wizard-owned, so keep_alive preserves it and a reset clears it
+# along with everything else the draft owns.
+SCREENSHOT_DRAFT_KEY = PRIVATE_PREFIX + "shot_file"
+
 # (field, label) pairs that block moving on, by step. Kept deliberately
 # short: each entry is a field a trade is not a trade without.
 _REQUIRED: dict[int, tuple[tuple[str, str], ...]] = {
@@ -202,9 +220,15 @@ def keep_alive(state: MutableMapping[str, object]) -> None:
     entry time would silently vanish — and the save payload would rebuild
     from defaults. Re-assigning a key marks it user-set and keeps it.
 
+    Keys in ``UNSETTABLE_WIDGET_KEYS`` are skipped: Streamlit raises if they
+    are assigned at all. Their drafts are carried by a mirror key instead —
+    see ``SCREENSHOT_DRAFT_KEY``.
+
     Must run at the top of the page, before any widget is instantiated.
     """
     for key in wizard_owned_keys(state):
+        if key in UNSETTABLE_WIDGET_KEYS:
+            continue
         state[key] = state[key]
 
 
