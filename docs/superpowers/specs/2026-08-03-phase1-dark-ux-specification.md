@@ -5,7 +5,7 @@
 **Design review:** `ui-ux-pro-max`. §0.4 records exactly which of its commands were run,
 when, and which recommendations were adopted or rejected. The first draft applied the skill's
 static Quick Reference guidance only; its search database was run afterwards as a bounded
-validation pass, and §16 records the amendments that pass produced.
+validation pass, and §15 records the amendments that pass produced.
 **Branch:** `codex/full-dark-streamlit-redesign`
 **Worktree:** `/Users/ayoub/tradelens-ai/.claude/worktrees/codex+full-dark-streamlit-redesign`
 **Status:** Specification. No product code changed. Implementation requires Codex review first.
@@ -97,7 +97,7 @@ python3 ~/.claude/skills/ui-ux-pro-max/scripts/search.py \
   "dashboard trend comparison heatmap calendar equity drawdown" --domain chart -n 8
 ```
 
-**Adopted** (amendments in §16): the z-index scale and stacking-context verification (§4.5,
+**Adopted** (amendments in §15): the z-index scale and stacking-context verification (§4.5,
 D13); heatmap divergent scale, numeric legend, pattern fallback, sparse-month gate, and grid
 table (§5.5); the AAA threshold-legibility rule for band 2 (§5.3).
 
@@ -375,15 +375,19 @@ Define an explicit ordered scale, and forbid literals outside it:
 ```
 --tl-z-base       0    page content
 --tl-z-raised    10    sticky section headers, table headers
---tl-z-nav       20    navigation rail, bottom nav
---tl-z-sheet     30    mobile More sheet
---tl-z-partner   40    AI Partner launcher and drawer
+--tl-z-partner   20    AI Partner launcher and drawer
+--tl-z-nav       30    navigation rail, bottom nav
+--tl-z-sheet     40    mobile More sheet
 --tl-z-overlay   50    blocking confirmations
 ```
 
-The Partner sits above the `More` sheet because it must remain reachable while the sheet is
-open, and below blocking confirmations because a destructive confirmation must never be
-obscured by a chat surface.
+**Navigation always outranks the Partner.** The Partner is the lowest overlay in the scale, so
+it can never layer over the rail, the bottom nav, or the `More` sheet. A trader must never have
+to dismiss a chat surface to reach navigation. The Partner is below blocking confirmations for
+the same reason — a destructive confirmation must never be obscured by a chat surface.
+
+On desktop the drawer is on the right and the rail is on the left, so the ordering never bites
+geometrically; one scale therefore serves both widths with no per-breakpoint override.
 
 **Stacking-context verification is required, separately from the `position: fixed` check in
 §8.2.** A new stacking context resets z-index, so a correct scale value still loses if an
@@ -495,6 +499,43 @@ shape to read, and a curve through two dots claims a trend the sample has not ea
 the standing and say what unlocks the curve. Hover keeps date, cumulative P&L, and trades
 that day. `theme=None` stays, so the TradeLens template owns the stage.
 
+### 5.4a The date-series policy — one rule for every dated instrument
+
+Two different units gate the Overview, and conflating them is what produced the contradiction
+this section replaces. Both are defined here and used verbatim everywhere else.
+
+**Populated trading day.** One distinct non-empty `trade_date` carrying at least one logged
+trade. Two trades on the same date are **one** populated trading day. This is exactly what
+`sample_state.dated_points` already counts.
+
+**The policy — a dated instrument requires ≥ 4 populated trading days.**
+
+| Instrument | ≥ 4 populated trading days | < 4 populated trading days |
+|---|---|---|
+| Equity curve | Draw the curve | State the standing; name how many more days unlock it |
+| Calendar heatmap | Draw the grid | Ranked day list from the same `calendar_daily_pnl` rows |
+
+**Source.** This is not a new number. `sample_state.show_dominant_series` already gates the
+equity curve at four dated points, that gate is already implemented and covered by tests, and
+the `--domain chart` pass independently set the line-chart floor at "fewer than 4 data points →
+use a stat card". Extending the same constant to the heatmap adds no threshold and creates one
+testable rule instead of two.
+
+The generic heatmap heuristic of "fewer than 20 cells → use a bar chart" was considered and
+**does not transfer**. It assumes every cell samples a continuous variable, so an unfilled cell
+is missing data. In a trading calendar an empty day is *information* — it means no trade was
+taken — so a sparse month is a truthful picture of a sparse month, not a misleading one. What
+the four-day floor protects against is different and narrower: a grid with too few populated
+days to show any weekday or clustering pattern at all.
+
+**Trade-count gates are separate and are not affected by this policy.** They key to their own
+code constants: consistency score needs ≥ 5 trades (`_MIN_TRADES_FOR_CONSISTENCY`), and the
+Weekly Recap needs ≥ 5 complete trades (`TRADES_FOR_REVIEW`). A specification statement in
+populated trading days may never be silently read as a trade count, or the reverse.
+
+Both units live in the shared data-state policy alongside `sample_state`. Neither may be
+recomputed in page code.
+
 ### 5.5 Band 4 — Recurring edge
 
 **Form:** two ranked lists plus a calendar heatmap. Ranked lists, not pie charts — handoff
@@ -522,12 +563,10 @@ comparability rules make ranking the correct form.
 - **Exact values on interaction**, and reachable without hover.
 - **Grid-table alternative** with row and column labels, for screen readers and for anyone who
   needs to read exact values rather than compare intensities.
-- **Sparse-month gate (new).** Below roughly 20 populated cells a heatmap is the wrong form —
-  a month with three trading days is a grid of mostly-empty boxes claiming a pattern that is
-  not there. Below that threshold, fall back to a compact ranked day list showing the same
-  `calendar_daily_pnl` rows, and state what would populate the grid. This mirrors the existing
-  `sample_state.show_dominant_series` gate on the equity curve and must be implemented in the
-  same spirit — the decision belongs in the shared data-state policy, not in page code.
+- **Sparse-data gate — the shared date-series policy in §5.4a.** The heatmap is gated on
+  populated trading days by the same rule as the equity curve, not by a separate threshold.
+  Below it, fall back to a compact ranked day list showing the same `calendar_daily_pnl` rows
+  and state what would populate the grid.
 - 7 columns at phone, 44 px day cells, no TradeZella purple.
 
 **Comparability is a hard constraint, inherited from the plan and the prior audit.** With one
@@ -557,14 +596,28 @@ The action is always a *review* action — what to go and re-read. Never a trade
 
 ### 5.7 Overview states
 
+Two independent axes govern these states, per §5.4a: **populated trading days** (`d`) gate the
+dated instruments, and **trade count** (`t`) gates the sample-dependent figures. They move
+independently — six trades on two days is `t=6, d=2` — so each row below states both.
+
 | State | Behaviour |
 |---|---|
-| 0 trades | Full-page welcome. Bands 1–5 all suppressed. Two paths: log first trade, load sample data |
-| 1–3 trades | Bands 1, 2 (adherence and edge leak only), 5. Curve, consistency, ranked lists, and heatmap all state what unlocks them |
-| 4–9 trades | Adds band 3 curve and band 4 heatmap. Ranked lists appear but may not rank if one category |
-| ≥10 trades | All five bands |
+| `t=0` | Full-page welcome. Bands 1–5 all suppressed. Two paths: log first trade, load sample data |
+| `d < 4` | **Equity curve and calendar heatmap both withheld** (§5.4a). The curve states the standing and names how many more days unlock it; the heatmap falls back to a ranked day list |
+| `d ≥ 4` | Both the curve and the heatmap draw |
+| `t < 5` | Consistency score withheld (`_MIN_TRADES_FOR_CONSISTENCY`), stating what unlocks it. Rule adherence and edge leak still show, with n beside them |
+| `t ≥ 5` | Consistency score shows |
+| One category only | Ranked lists render but may not rank — `leading_category.is_only_category` forbids strongest/weakest language |
 | Filtered to empty | Bands suppressed; filter summary states the active scope and offers a clear path back |
 | Sample data active | Labelled once, in the masthead eyebrow. Never a repeated banner |
+
+Bands 1 and 5 are present whenever `t ≥ 1`. Band 5 is omitted only when neither an activation
+next step nor a period observation is earned (§5.6).
+
+Worked example, because this is where the previous version contradicted itself: three trades all
+logged on one date is `t=3, d=1`. Bands 1, 2 (adherence and edge leak, no consistency), and 5
+render. The curve and the heatmap are both withheld — under the old text the heatmap would have
+appeared at "4–9 trades" while simultaneously requiring 20 cells.
 
 ---
 
@@ -869,6 +922,61 @@ as a reviewed decision recorded in the handoff — never a silent substitution:
 This preserves every capability and every safety boundary while removing the dependency on
 fixed positioning. It changes placement, not scope.
 
+### 8.2a Mobile coexistence — the Partner and the `More` sheet are mutually exclusive
+
+At coarse-pointer widths the `More` sheet and the Partner sheet occupy the same bottom region.
+Only one may be open, and the Partner may never layer over or obstruct navigation.
+
+**Rules.**
+
+1. Opening either sheet closes the other.
+2. The Partner launcher is hidden while **either** sheet is open.
+3. The Partner never overlaps the bottom nav. The launcher is offset above it by the nav height
+   plus the safe-area inset, per §4.5's ordering (`partner 20` < `nav 30` < `sheet 40`).
+
+**Mechanism, and it is asymmetric — this is a real constraint, not an oversight.**
+
+*Partner opens → `More` closes.* Guaranteed with no script. Opening the Partner writes
+`session_state` and triggers a rerun; the rerun re-emits the `More` `<details>` without an
+`open` attribute, so it returns closed. This is the behaviour the plan already requires — the
+sheet is closed on arrival and after navigation.
+
+*`More` opens → Partner hides.* The `<details>` toggles entirely client-side with no rerun, so
+the server cannot observe it and `session_state` cannot react. Without JavaScript the Partner
+cannot be *closed* by that event. It can, however, be **hidden by CSS**, because `[open]` is a
+matchable state:
+
+```css
+.tl-shell:has(.tl-mobile-nav details[open]) .st-key-tl_partner_launcher,
+.tl-shell:has(.tl-mobile-nav details[open]) .st-key-tl_partner_drawer {
+  display: none;
+}
+```
+
+Two consequences that must be stated rather than glossed:
+
+- **Hidden is not closed.** If the Partner drawer was open when the trader opened `More`, the
+  drawer is hidden but its `session_state` remains open, so closing `More` reveals it again.
+  That is acceptable and arguably correct — the trader did not ask to end the conversation —
+  but it must be a deliberate, documented outcome, not a surprise.
+- **`display: none` removes the hidden widgets from the tab order**, which is what we want. Verify
+  it, rather than assuming: Streamlit widgets inside a `display: none` ancestor are still
+  instantiated server-side, and only the CSS removes them from focus traversal.
+
+**`:has()` support floor and fallback.** `:has()` requires Safari 15.4+, Chrome 105+, Firefox
+121+. Confirm against the project's supported-browser range during implementation. If `:has()`
+cannot be relied on, the substitute is DOM ordering rather than script: render the launcher as a
+later sibling of the nav and use `.tl-mobile-nav details[open] ~ .st-key-tl_partner_launcher`.
+If neither selector is workable, escalate to the docked-Partner fallback in §8.2 — where the
+Partner is a `More` entry routing to a full-page view, which makes the two mutually exclusive by
+construction and needs no selector at all.
+
+**Verification, at coarse 375 and coarse 768.** Open `More` with the Partner closed, then with
+the Partner open. Open the Partner with `More` open. In every combination confirm: only one
+sheet is visible; the launcher is hidden while either is open; no nav item is covered or
+un-tappable; nothing hidden is reachable by Tab; and no bottom-nav target falls below 44 px or
+under the safe-area inset.
+
 ### 8.3 Decision 2 — conversation history stays session-only in Phase 1
 
 **Phase 1:** history lives in `st.session_state`, scoped per user, and is never persisted.
@@ -896,7 +1004,7 @@ and none of it may be stubbed in Phase 1.
 |---|---|---|
 | Launcher | Fixed bottom-right Streamlit button, ≥44×44 | Accessible name states it opens the AI Partner. Not icon-only without a label |
 | Drawer (desktop) | `<aside>`, `TL_SURFACE_ELEVATED`, `TL_LINE_STRONG` edge | Non-modal. Close first in DOM order |
-| Sheet (mobile) | Full-page or bottom sheet | Above the bottom nav, respecting safe-area inset |
+| Sheet (mobile) | Full-page or bottom sheet | Above the bottom nav, respecting safe-area inset. Mutually exclusive with the `More` sheet (§8.2a) |
 | Conversation | Alternating turns, clearly attributed | Model turns via `st.markdown`, HTML off |
 | Suggested questions | 3–4 review-shaped prompts | Derived from the existing `_PROMPT_CHIPS` pattern — "What did I do well?", "What rule did I break?", "Summarize this trade in journal format." Never "what should I trade?" |
 | Composer | Text input + send | Send disabled while a reply is in flight |
@@ -908,6 +1016,7 @@ and none of it may be stubbed in Phase 1.
 | State | Behaviour |
 |---|---|
 | Closed | Launcher only. Drawer widgets absent from the DOM |
+| `More` sheet open (coarse widths) | Launcher and drawer hidden; nothing hidden is tabbable. Partner state is preserved, so closing `More` restores it (§8.2a) |
 | Open, empty | What the Partner can do, its three context sources, the session-only notice, and suggested questions |
 | Open, no strategy profile | Says the Strategy Profile is not set and links to it — the Partner is materially better with it |
 | Open, no trades | Says it has nothing to review yet and links to New Trade |
@@ -984,8 +1093,8 @@ container max 1320.
 |---|---|---|---|---|
 | ≥1440 | Rail | 1 strip · 2 panel · 3 chart + flanking · 4 lists + heatmap · 5 readout | Index column beside content | Fixed bottom-right drawer |
 | 1024–1439 | Rail | Same; band 3 flanking figures may wrap | Index column beside content | Fixed bottom-right drawer |
-| 768–1023 (coarse) | Bottom nav + `More` | Bands stack; band 4 lists stack | Stacked section selector | Sheet, above bottom nav |
-| ≤767 (coarse) | Bottom nav + `More` | Full stack; heatmap 7-col, 44 px cells | Stacked selector, then content | Full-page or bottom sheet |
+| 768–1023 (coarse) | Bottom nav + `More` | Bands stack; band 4 lists stack | Stacked section selector | Sheet, above bottom nav; exclusive with `More` |
+| ≤767 (coarse) | Bottom nav + `More` | Full stack; heatmap 7-col, 44 px cells | Stacked selector, then content | Full-page or bottom sheet; exclusive with `More` |
 
 Hard rules: rail and bottom bar never appear together · zero horizontal page overflow at every
 width · wide tables and charts scroll inside their own container · fixed elements reserve
@@ -1074,13 +1183,28 @@ specification was not redesigned.
 |---|---|---|---|
 | A1 | Z-index scale defined (`--tl-z-base` … `--tl-z-overlay`), three existing arbitrary literals scheduled for migration, stacking-context verification required separately from the `position: fixed` check. Resolves a dangling reference — §8.2 previously cited a "documented z-scale" that did not exist | §4.5, D13 | High |
 | A2 | Calendar heatmap: divergent scale with neutral zero midpoint (signed data cannot use a one-directional gradient), numeric legend with scale ticks, pattern/texture cue beyond colour, exact values reachable without hover, grid-table alternative | §5.5 | Medium |
-| A3 | Calendar heatmap sparse-month gate below ~20 populated cells, falling back to a ranked day list. The spec previously gated the equity curve but left the heatmap ungated | §5.5 | Medium |
+| A3 | Calendar heatmap gated on sparse data, falling back to a ranked day list. The spec previously gated the equity curve but left the heatmap ungated. **Superseded 2026-08-03 by C1 below** — the original "~20 populated cells" figure was unsupported and contradicted §5.7 | §5.5 | Medium |
 | A4 | Band 2 threshold legibility: values always visible as text, thresholds labelled in text rather than by colour position | §5.3 | Medium |
 | A5 | Radar rejected for session/setup comparison, bullet-chart form deferred for band 2, both with reasons recorded | §5.3, §5.5 | Low |
 | A6 | Header corrected — it credited `ui-ux-pro-max` as reviewer before its searches had been run | header, §0.4 | — |
 
 No amendment altered the IA, the five-band Overview reading order, the AI Reviews note anatomy,
 either of the two owner decisions in §8, or any safety boundary.
+
+### 15.1 Owner-directed corrections (2026-08-03, documentation only)
+
+Three bounded corrections requested before Codex approval. No product code, no rerun of the
+design database, no other redesign.
+
+| # | Correction | Section |
+|---|---|---|
+| C1 | **Heatmap sparse-data rule reconciled with §5.7.** The unsupported "~20 populated cells" figure is removed and replaced by one explicit, testable policy in new §5.4a: a dated instrument requires **≥ 4 populated trading days**, where a populated trading day is one distinct non-empty `trade_date` with at least one trade. Source: the existing, already-tested `sample_state.show_dominant_series` gate, independently corroborated by the `--domain chart` line-chart floor. Extending that constant adds no new threshold. §5.4a also records why the generic 20-cell heatmap heuristic does not transfer, and separates populated-trading-day gates from trade-count gates (`_MIN_TRADES_FOR_CONSISTENCY`, `TRADES_FOR_REVIEW`). §5.7 is rewritten on the same two axes and now carries a worked example. Supersedes A3 | §5.4a, §5.5, §5.7 |
+| C2 | **Mobile `More` and Partner sheets made mutually exclusive.** Opening either closes the other; the launcher is hidden while either is open; the Partner never layers over or obstructs navigation. The z-scale in §4.5 is reordered so navigation always outranks the Partner (`partner 20` < `nav 30` < `sheet 40`), reversing the earlier partner-above-sheet rationale. New §8.2a documents the asymmetric mechanism honestly — Partner-opens-closes-`More` is guaranteed by the rerun, while `More`-opens must *hide* the Partner via CSS because a native `<details>` toggle never reaches the server — plus the hidden-is-not-closed consequence, the `:has()` support floor, two fallbacks, and the verification matrix | §4.5, §8.2a, §8.4, §8.5, §11 |
+| C3 | Two stale `§16` cross-references corrected to `§15` | header, §0.4 |
+
+C1 and C2 change stated behaviour and both are owner-directed. C2's z-order reversal is the one
+place a previously recorded rationale was overturned; the superseded reasoning is noted in §4.5
+so the change is visible rather than silent.
 
 ---
 

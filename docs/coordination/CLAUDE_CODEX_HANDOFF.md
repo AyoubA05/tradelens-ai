@@ -20,10 +20,15 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 1 SPECIFICATION + UI/UX PRO MAX VALIDATION COMPLETE — AWAITING CODEX REVIEW`
+- Current phase: `PHASE 1 SPECIFICATION + VALIDATION + CORRECTIONS COMPLETE — AWAITING CODEX REVIEW`
 - Last completed work: Claude produced the Phase 1 UX specification at
-  `docs/superpowers/specs/2026-08-03-phase1-dark-ux-specification.md`. Only
-  documentation changed. No product implementation performed.
+  `docs/superpowers/specs/2026-08-03-phase1-dark-ux-specification.md`, ran the
+  UI/UX Pro Max validation pass against it, then applied three owner-directed
+  documentation corrections (spec §15.1 C1–C3): one testable date-series policy
+  replacing an unsupported heatmap threshold, mutual exclusivity between the
+  mobile `More` and AI Partner sheets with navigation outranking the Partner in
+  the z-scale, and two stale cross-references. Only documentation changed. No
+  product implementation performed.
 - Next owner: `CODEX`
 - Next work: (1) review the specification for scope, AI safety, and tenancy
   implications; (2) answer the five open questions in spec §15; (3) integrate
@@ -177,6 +182,87 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-03 — Owner-directed documentation corrections (Claude)
+
+Three bounded corrections requested before Codex approval. **Documentation only** — no product
+code, no rerun of UI/UX Pro Max, no other redesign. Recorded in spec §15.1 as C1–C3.
+
+**C1 — Heatmap sparse-data rule reconciled with §5.7.** The previous pass introduced a
+"~20 populated cells" heatmap gate that was both unsupported and in direct contradiction with
+§5.7, which had the heatmap appearing at "4–9 trades". Both are replaced by one explicit,
+testable policy in new spec §5.4a:
+
+- **Populated trading day** = one distinct non-empty `trade_date` carrying ≥1 trade. Two trades
+  on one date count as **one** day. This is what `sample_state.dated_points` already counts.
+- **Policy: a dated instrument requires ≥ 4 populated trading days.** Applies identically to the
+  equity curve and the calendar heatmap. Below it, the curve states the standing and the heatmap
+  falls back to a ranked day list from the same `calendar_daily_pnl` rows.
+- **Source: no new number was invented.** `sample_state.show_dominant_series` already gates the
+  curve at four dated points, is already implemented, and is already covered by tests; the
+  `--domain chart` pass independently set the line-chart floor at "fewer than 4 data points".
+  Extending that one constant to the heatmap replaces two thresholds with one.
+- §5.4a records why the generic "fewer than 20 cells" heatmap heuristic **does not transfer**: it
+  assumes every cell samples a continuous variable, so an empty cell is missing data. In a
+  trading calendar an empty day means no trade was taken, which is information — a sparse month
+  is a truthful picture of a sparse month.
+- §5.4a also separates the two units that were being conflated. Populated-trading-day gates
+  govern dated instruments; **trade-count** gates remain keyed to their own code constants
+  (`_MIN_TRADES_FOR_CONSISTENCY` = 5, `TRADES_FOR_REVIEW` = 5). A statement in one unit may never
+  be read as the other.
+- §5.7 is rewritten on both axes (`d` = populated trading days, `t` = trade count), which move
+  independently, and carries a worked example: `t=3, d=1` renders bands 1, 2, and 5 with both the
+  curve and the heatmap withheld. Under the old text that case would have drawn the heatmap while
+  simultaneously requiring 20 cells.
+- Amendment A3 from the previous pass is explicitly marked superseded rather than edited away.
+
+**C2 — Mobile `More` and Partner sheets made mutually exclusive.** New spec §8.2a. Opening
+either closes the other; the launcher is hidden while either is open; the Partner never layers
+over or obstructs navigation.
+
+- The §4.5 z-scale is **reordered so navigation always outranks the Partner**:
+  `base 0 / raised 10 / partner 20 / nav 30 / sheet 40 / overlay 50`. This reverses the previous
+  pass's partner-above-sheet rationale, which had argued the Partner should stay reachable while
+  the sheet was open. That reasoning no longer applies now that the Partner is hidden while the
+  sheet is open. **This is the one place a previously recorded rationale was overturned**, and the
+  reversal is noted in §4.5 rather than silently rewritten.
+- The mechanism is **asymmetric, and the spec says so plainly.** Partner-opens → `More` closes is
+  guaranteed with no script: opening the Partner triggers a rerun, and the rerun re-emits the
+  `<details>` without `open`. `More`-opens → Partner cannot be *closed* without JavaScript,
+  because a native `<details>` toggle never reaches the server; it is instead **hidden by CSS**
+  via `:has(.tl-mobile-nav details[open])`.
+- Two consequences stated rather than glossed: **hidden is not closed** (Partner state survives,
+  so dismissing `More` restores the drawer — deliberate, since the trader did not ask to end the
+  conversation), and `display: none` removing hidden widgets from the tab order **must be
+  verified**, since Streamlit still instantiates them server-side.
+- `:has()` support floor recorded (Safari 15.4+, Chrome 105+, Firefox 121+) with two fallbacks: a
+  DOM-sibling selector, then escalation to the §8.2 docked-Partner fallback, which makes the two
+  exclusive by construction.
+- Verification matrix added at coarse 375 and coarse 768 for all four open/closed combinations.
+- §8.4, §8.5, and §11 updated so the component inventory, state table, and responsive table all
+  state the exclusivity.
+
+**C3 — Two stale `§16` cross-references corrected to `§15`** (spec header and §0.4), left behind
+when the amendments section was inserted ahead of the open-questions section.
+
+**Self-review after correction:** no unfinished markers; no duplicate headings; the surviving
+mentions of "20 cells" and "4–9 trades" appear only inside the §15/§15.1 changelog explaining what
+was superseded; §5.5's gate now defers to §5.4a rather than restating a threshold; the
+`var(--tl-z-partner)` reference in §8.2 resolves against the reordered scale. Spec is 1230 lines.
+
+**Nothing else changed.** IA, the five-band Overview reading order, the AI Reviews note anatomy,
+both owner decisions in §8, and every safety boundary are untouched. No new product or design
+decision was required to make these corrections, so no question was escalated.
+
+**Files changed:** the spec and this handoff. `git add -A` not used. Untracked
+`src/tradelens/ui/.impeccable/` again deliberately not staged.
+
+**Tests and browser checks:** none — documentation only. The §0.3 sequencing caveat stands, and
+C2 adds a third item to the list of checks that require a live browser before implementation:
+`position: fixed` containing-block behaviour (§8.2), stacking-context isolation (§4.5), and the
+sheet-exclusivity matrix (§8.2a).
+
+Ownership returned to `NONE`.
 
 ### 2026-08-03 — UI/UX Pro Max bounded validation pass (Claude)
 
