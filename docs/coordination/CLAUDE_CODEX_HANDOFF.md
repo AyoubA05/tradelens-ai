@@ -20,16 +20,19 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PREFLIGHT — DOCUMENTATION CHECKPOINT`
-- Last completed work: isolated worktree created; the approved 988-line dark
-  redesign plan and this handoff contract were added to the redesign branch;
-  no product implementation performed.
+- Current phase: `PHASE 1 SPECIFICATION COMPLETE — AWAITING CODEX REVIEW`
+- Last completed work: Claude produced the Phase 1 UX specification at
+  `docs/superpowers/specs/2026-08-03-phase1-dark-ux-specification.md`. Only
+  documentation changed. No product implementation performed.
 - Next owner: `CODEX`
-- Next work: integrate the separately committed Opus 5 migration, repair the
-  UTC-sensitive cost test, and return a fully green baseline.
+- Next work: (1) review the specification for scope, AI safety, and tenancy
+  implications; (2) answer the five open questions in spec §15; (3) integrate
+  the separately committed Opus 5 migration; (4) repair the UTC-sensitive cost
+  test and return a fully green baseline.
 - Blocker: the Opus 5 migration is staged only in the main checkout and is not
   present on this branch. Creative implementation must not start from the stale
-  model-routing baseline.
+  model-routing baseline. This worktree's `CLAUDE.md` still declares
+  `claude-fable-5` + `claude-haiku-4-5`; `main` declares single `claude-opus-5`.
 
 ## Ownership boundaries
 
@@ -174,6 +177,96 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-03 — Phase 1 specification written (Claude)
+
+**Specification path:**
+`docs/superpowers/specs/2026-08-03-phase1-dark-ux-specification.md` (954 lines).
+
+**Files changed:** that spec (added) and this handoff (state + log). No product
+code, no service, no test, no token file touched. `git add -A` was not used.
+
+**Git state:** branch `codex/full-dark-streamlit-redesign`, base `origin/main` at
+`cfdb775`, parent commit `4651eb8`. Working tree was clean at phase start.
+`git diff --check` clean. One untracked directory `src/tradelens/ui/.impeccable/`
+was present and deliberately **not staged** — it is not Claude's artifact.
+
+**Decisions recorded (owner-directed):**
+
+1. **AI Partner placement.** A true fixed bottom-right FAB plus non-modal drawer
+   on desktop, and a full-page/bottom sheet on mobile. CSS-only positioning on a
+   keyed container holding a real Streamlit button. No JavaScript injection and
+   no new dependency. Open/close is `session_state`-gated so the drawer's widgets
+   are absent from the DOM when closed and therefore not tabbable. Because there
+   is no focus trap without script, the drawer is explicitly **non-modal**: no
+   `aria-modal`, no blocking scrim, and a visible ≥44 px Close control placed
+   first in DOM order. Live-browser verification that no Streamlit ancestor
+   breaks `position: fixed` is required before acceptance, with a **reviewed**
+   docked-Partner fallback (desktop right column, mobile `More` entry to a
+   full-page view) if it proves unstable. The fallback is a recorded decision,
+   never a silent substitution. Spec §8.2.
+2. **Conversation history.** Session-only in Phase 1, matching the existing
+   `ai_trade_chat.py` behaviour. **No migration and no schema change.** The
+   drawer must state that the conversation is not saved. Persisted history is
+   specified as a future Codex-owned, schema-backed phase (user-scoped table,
+   Alembic migration with `downgrade()`, retention policy, deletion path honoured
+   by account deletion) and may not be stubbed now. Spec §8.3.
+
+**Scope amendments honoured:** the handoff overrides the older plan on the global
+Partner, the expanded curated Overview, and the Codex-owned
+`rule_adherence_rate`. Conflicts are tabulated in spec §0.1.
+
+**Audit findings (12, in spec §1.2).** The load-bearing ones:
+
+- **D1/D2 (High):** `design_system.py` carries two live colour systems — a light
+  workspace set and a duplicate legacy dark set — and the older plan's Task 1
+  reassigns new dark values to six names that already exist with different
+  values (`TL_CANVAS`, `TL_TEXT`, `TL_TEXT_MUTED`, `TL_HAIRLINE`, `TL_RAIL`,
+  `TL_CHART_STAGE`). Spec §4.1 resolves this with a new unambiguous namespace and
+  deletion — not aliasing — of superseded names.
+- **D3 (High):** `TL_MUTED #5B6A70` fails AA on every proposed dark surface
+  (2.87–3.42:1). Contract tests must name it.
+- **D4 (Medium):** rail vs canvas separates at only 1.02:1, so surface tone
+  cannot make them "visually distinct" as the plan's Task 2 requires. Spec §4.4
+  adds `TL_LINE_STRONG` and forbids tone as a sole separator.
+- **D5 (High):** Daily Debrief regeneration pops its cache before regenerating,
+  so a failed regeneration destroys the note the trader already had. Weekly
+  Recap does this correctly.
+- **D6 (High):** Weekly and Daily notes render as one undifferentiated
+  `st.markdown` wall; only Patterns gets structured treatment.
+- **D10 (Medium):** false zeros — `avg_win`/`avg_loss` return `0.0` with no
+  wins/losses, and `total_edge_leak` returns `0.0` for no-leak, exact-zero, and
+  absent-columns alike.
+
+**Contrast verification:** the plan's proposed palette **passes** its own AA
+contract test. `#ECF5F4` is 14.52–17.32:1 and `#91A3A7` is 6.13–7.32:1 across all
+six surfaces; teal, success, danger, and warning all clear 4.5:1 everywhere. Full
+matrix in spec §4.3.
+
+**Tests and browser checks:** none run. This was a specification-only phase and
+no code changed. **No baseline browser evidence exists** — see the concern below.
+
+**Unresolved concerns:**
+
+1. **Sequencing deviation.** The required sequence puts this specification at
+   step 6, after the Opus migration lands, the cost test is fixed, the suite is
+   green, and the browser preflight is captured. It was executed at the owner's
+   direction before steps 1–5. Every current-state observation in the spec comes
+   from reading source, not from a live render, and must be verified against a
+   real app before implementation. Spec §0.3.
+2. **TradeZella reference images were never received** by the specification
+   session. Direction derives from the plan's written direction plus the
+   layout-reference-only constraint. Reconcile spec §5 and §7 if the images are
+   supplied.
+3. **Overview band 2 is blocked** on the Codex-owned `rule_adherence_rate(df)`,
+   which does not yet exist.
+4. **Five open questions for Codex** in spec §15: the `rule_adherence_rate`
+   signature and empty-sample behaviour; edge-leak zero disambiguation; the
+   Partner context-adapter signature; who runs the fixed-positioning
+   verification; and whether to rebuild the implementation plan now or hold it
+   until the baseline is green.
+
+Ownership returned to `NONE`. Stopped before implementation.
 
 ### 2026-08-03 — Coordination files preserved
 
