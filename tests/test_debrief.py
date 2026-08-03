@@ -4,6 +4,7 @@ All AI calls are mocked (no network/cost); DEMO_MODE test uses the real
 ai_client short-circuit.
 """
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -229,8 +230,6 @@ def test_generate_demo_mode_returns_canned_debrief(monkeypatch):
 # ---------------------------------------------------------------------------
 # Live UI wiring contracts (source-level, matching test_insights_page.py style)
 # ---------------------------------------------------------------------------
-
-from pathlib import Path
 
 _PAGES = Path(__file__).resolve().parents[1] / "src" / "tradelens" / "ui" / "pages"
 

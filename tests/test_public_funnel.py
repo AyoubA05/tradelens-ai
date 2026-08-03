@@ -21,17 +21,17 @@ from contextlib import contextmanager
 
 import pytest
 
-_skip_local_server = pytest.mark.skipif(
-    platform.system() == "Darwin",
-    reason="macOS restricts local socket binding outside CI; logic covered by unit tests above",
-)
-
 from scripts.verify_public_funnel import (
     EXPECTED_TITLE,
     check_app,
     check_marketing,
     classify_app,
     classify_marketing,
+)
+
+_skip_local_server = pytest.mark.skipif(
+    platform.system() == "Darwin",
+    reason="macOS restricts local socket binding outside CI; logic covered by unit tests above",
 )
 
 APP = "https://tradelens-app.streamlit.app"

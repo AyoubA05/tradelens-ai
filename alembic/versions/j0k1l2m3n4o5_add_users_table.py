@@ -29,9 +29,7 @@ def upgrade() -> None:
             sa.Column("username", sa.String(), nullable=False),
             sa.Column("password_hash", sa.String(), nullable=False),
             sa.Column("created_at", sa.String(), nullable=True),
-            sa.Column(
-                "is_active", sa.Integer(), nullable=False, server_default="1"
-            ),
+            sa.Column("is_active", sa.Integer(), nullable=False, server_default="1"),
             sa.UniqueConstraint("username", name="uq_users_username"),
         )
         op.create_index("ix_users_username", "users", ["username"])

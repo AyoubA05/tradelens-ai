@@ -37,9 +37,7 @@ def upgrade() -> None:
             "weekly_reviews", sa.Column("user_id", sa.Integer(), nullable=True)
         )
     if "ix_weekly_reviews_user_id" not in _existing_indexes("weekly_reviews"):
-        op.create_index(
-            "ix_weekly_reviews_user_id", "weekly_reviews", ["user_id"]
-        )
+        op.create_index("ix_weekly_reviews_user_id", "weekly_reviews", ["user_id"])
 
 
 def downgrade() -> None:

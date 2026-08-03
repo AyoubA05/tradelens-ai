@@ -428,9 +428,7 @@ def test_direction_never_written_even_when_everything_is_applied():
     assert overlay.direction == "short"  # parsed for the cross-check caption…
 
     writes = {}
-    writes.update(
-        comp.build_form_writes(result.prefill, list(result.prefill), ["MNQ"])
-    )
+    writes.update(comp.build_form_writes(result.prefill, list(result.prefill), ["MNQ"]))
     # Deliberately "select" direction too — the writer must ignore it.
     writes.update(
         comp.build_overlay_writes(

@@ -371,9 +371,7 @@ def test_parse_entry_time_invalid_values_fail_safe():
 def test_parse_entry_time_source_defaults_to_not_visible():
     from src.tradelens.services.ai_overlay import parse_trade_overlay
 
-    assert (
-        parse_trade_overlay({"trade_overlay": {}}).entry_time_source == "not_visible"
-    )
+    assert parse_trade_overlay({"trade_overlay": {}}).entry_time_source == "not_visible"
     ov = parse_trade_overlay({"trade_overlay": {"entry_time_source": "made_up"}})
     assert ov.entry_time_source == "not_visible"
     assert parse_trade_overlay({}).entry_time_source == "not_visible"

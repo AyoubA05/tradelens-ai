@@ -360,9 +360,9 @@ def test_quality_missing_or_empty_file_is_unusable(tmp_path):
 def test_screenshot_v3_prompt_declares_entry_time_contract():
     """Item 4: the vision contract asks for entry_time_approx (HH:MM) with a
     confidence score and an explicit not_visible source."""
-    text = (Path(__file__).resolve().parents[1] / "prompts" / "screenshot_v3.txt").read_text(
-        encoding="utf-8"
-    )
+    text = (
+        Path(__file__).resolve().parents[1] / "prompts" / "screenshot_v3.txt"
+    ).read_text(encoding="utf-8")
     assert "entry_time_approx" in text
     assert "entry_time_source" in text
     assert "not_visible" in text
