@@ -1,14 +1,14 @@
 """
 Post-trade grading service.
 
-Scores a trade on PROCESS (not outcome) across 5 dimensions using claude-haiku-4-5.
+Scores a trade on PROCESS (not outcome) across 5 dimensions using Claude Opus 5
+(the single model every TradeLens AI feature runs on).
 This is educational review only — not live trading advice.
 """
 
 import json
 from typing import Optional
 
-from src.tradelens.config import settings
 from src.tradelens.services.ai_client import (
     AIUnavailable,
     Usage,
@@ -141,7 +141,7 @@ def grade_trade(
     vision_analysis: dict,
 ) -> tuple[dict, Usage]:
     """
-    Grade a closed trade on PROCESS using claude-haiku-4-5.
+    Grade a closed trade on PROCESS using Claude Opus 5.
 
     Args:
         trade: Trade fields (asset, direction, result, prices, emotions, notes, etc.).
@@ -178,7 +178,6 @@ def grade_trade(
     content, usage = chat(
         user_message=user_message,
         system_message=system_message,
-        model=settings.model_grading,
         response_format={"type": "json_object"},
         demo_response=demo_resp,
     )

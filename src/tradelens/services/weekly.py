@@ -3,7 +3,7 @@ Weekly AI review service.
 
 Gathers a Monday→Sunday window of trades, computes week stats + a deterministic
 pattern pre-pass, folds in recent corrections as a few-shot block, and asks
-claude-fable-5 (effort="high", thinking summarized) for a structured 5-section
+Claude Opus 5 (effort="high", thinking summarized) for a structured 5-section
 review via prompts/weekly_v2.txt. Reviews persist to the weekly_reviews table;
 re-running the same week overwrites only with explicit confirmation.
 

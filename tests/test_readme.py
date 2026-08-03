@@ -67,5 +67,5 @@ def test_resume_bullets_has_five_bullets():
 
 def test_resume_bullets_mentions_required_terms():
     text = RESUME.read_text(encoding="utf-8")
-    for term in ("claude-fable-5", "474", "92%", "Alembic", "SMC/ICT", "few-shot"):
+    for term in ("claude-opus-5", "474", "92%", "Alembic", "SMC/ICT", "few-shot"):
         assert term in text, f"RESUME_BULLETS missing required term: {term!r}"

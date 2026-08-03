@@ -5,15 +5,15 @@ Prevents cross-contamination in parallel Claude sessions.
 
 | Service File | Owner Agent | Model Used |
 |---|---|---|
-| services/vision.py | vision-agent | claude-opus-4-8 |
-| services/journal.py | journal-agent | claude-opus-4-8 |
-| services/grading.py | journal-agent | haiku-4-5 pre-pass → opus-4-8 |
-| services/weekly.py | (weekly session) | claude-opus-4-8 effort=high |
-| services/patterns.py | (patterns session) | claude-opus-4-8 |
+| services/vision.py | vision-agent | claude-opus-5 |
+| services/journal.py | journal-agent | claude-opus-5 |
+| services/grading.py | journal-agent | claude-opus-5 |
+| services/weekly.py | (weekly session) | claude-opus-5 effort=high |
+| services/patterns.py | (patterns session) | claude-opus-5 |
 | services/corrections.py | (corrections session) | no AI — pure Python |
 | services/sessions.py | (schema session) | no AI — pure Python |
 | services/metrics.py | metrics-agent | no AI — pure pandas |
-| services/partner.py | (partner session) | claude-opus-4-8 |
+| services/partner.py | (partner session) | claude-opus-5 |
 | services/ai_client.py | ALL agents route through here | Anthropic SDK wrapper |
 
 ## Parallel session rules

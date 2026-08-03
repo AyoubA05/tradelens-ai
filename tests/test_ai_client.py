@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from src.tradelens.config import ANTHROPIC_MODEL_ID
 from src.tradelens.services import ai_client
 from src.tradelens.services.ai_client import (
     AIUnavailable,
@@ -33,8 +34,9 @@ def _fake_message(
     in_tok: int = 10,
     out_tok: int = 5,
     cache_read: int = 0,
+    cache_creation: int = 0,
     thinking: str | None = None,
-    model: str = "claude-fable-5",
+    model: str = ANTHROPIC_MODEL_ID,
 ) -> MagicMock:
     """Build a fake Anthropic Message with text/thinking content blocks."""
     resp = MagicMock()
@@ -54,6 +56,7 @@ def _fake_message(
     resp.usage.input_tokens = in_tok
     resp.usage.output_tokens = out_tok
     resp.usage.cache_read_input_tokens = cache_read
+    resp.usage.cache_creation_input_tokens = cache_creation
     return resp
 
 
@@ -83,22 +86,100 @@ def _live_mode(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_estimate_cost_fable5():
-    # $10/M input + $50/M output
-    assert _estimate_cost("claude-fable-5", 1_000_000, 1_000_000) == pytest.approx(60.0)
-
-
-def test_estimate_cost_haiku():
-    assert _estimate_cost("claude-haiku-4-5", 1_000_000, 1_000_000) == pytest.approx(
-        6.0
+def test_estimate_cost_opus5():
+    # $5/M input + $25/M output
+    assert _estimate_cost(ANTHROPIC_MODEL_ID, 1_000_000, 1_000_000) == pytest.approx(
+        30.0
     )
 
 
+def test_cost_table_only_prices_opus5():
+    """Cost tracking covers exactly the one model TradeLens uses."""
+    assert set(ai_client._COST_PER_M) == {ANTHROPIC_MODEL_ID}
+
+
 def test_estimate_cost_cache_read_billed_at_tenth():
-    # cache reads ~0.1x input price → ~$1/M on fable-5
+    # cache reads ~0.1x input price → ~$0.50/M on opus-5
     assert _estimate_cost(
-        "claude-fable-5", 0, 0, cache_read_tokens=1_000_000
-    ) == pytest.approx(1.0)
+        ANTHROPIC_MODEL_ID, 0, 0, cache_read_tokens=1_000_000
+    ) == pytest.approx(0.5)
+
+
+def test_estimate_cost_cache_creation_billed_at_1_25x():
+    """Writing an ephemeral (5-min) cache entry costs 1.25x the input rate."""
+    assert _estimate_cost(
+        ANTHROPIC_MODEL_ID, 0, 0, cache_creation_tokens=1_000_000
+    ) == pytest.approx(6.25)
+
+
+def test_estimate_cost_includes_all_four_token_buckets():
+    """Regression: cache-creation tokens were previously dropped entirely.
+
+    input 5.00 + cache-write 6.25 + cache-read 0.50 + output 25.00 = $36.75/M.
+    """
+    total = _estimate_cost(
+        ANTHROPIC_MODEL_ID,
+        1_000_000,
+        1_000_000,
+        cache_read_tokens=1_000_000,
+        cache_creation_tokens=1_000_000,
+    )
+    assert total == pytest.approx(36.75)
+
+
+def test_estimate_cost_cache_write_costs_more_than_cache_read():
+    """Sanity: a write must never be priced at or below a read."""
+    write = _estimate_cost(ANTHROPIC_MODEL_ID, 0, 0, cache_creation_tokens=10_000)
+    read = _estimate_cost(ANTHROPIC_MODEL_ID, 0, 0, cache_read_tokens=10_000)
+    assert write > read > 0
+
+
+def test_build_usage_reads_cache_creation_tokens_from_response(monkeypatch):
+    """A cached first call must surface, and bill for, its cache-write tokens."""
+    client = _client_returning(
+        _fake_message("ok", in_tok=100, out_tok=50, cache_read=0, cache_creation=2_000)
+    )
+    monkeypatch.setattr(ai_client, "_get_client", lambda: client)
+
+    _, usage = chat("hello", system_message="STRATEGY PROFILE", cache_system=True)
+    assert usage.cache_creation_tokens == 2_000
+    assert usage.cache_read_tokens == 0
+    # 100 in + 2000 write + 50 out, none of them dropped
+    assert usage.total_tokens == 2_150
+    assert usage.estimated_cost_usd == pytest.approx(
+        _estimate_cost(ANTHROPIC_MODEL_ID, 100, 50, 0, 2_000)
+    )
+    assert usage.estimated_cost_usd > _estimate_cost(ANTHROPIC_MODEL_ID, 100, 50)
+
+
+def test_build_usage_preserves_cache_read_tokens(monkeypatch):
+    """The follow-up call reads the entry — reads are still tracked and billed."""
+    client = _client_returning(
+        _fake_message("ok", in_tok=100, out_tok=50, cache_read=2_000, cache_creation=0)
+    )
+    monkeypatch.setattr(ai_client, "_get_client", lambda: client)
+
+    _, usage = chat("hello", system_message="STRATEGY PROFILE", cache_system=True)
+    assert usage.cache_read_tokens == 2_000
+    assert usage.cache_creation_tokens == 0
+    assert usage.total_tokens == 2_150
+    assert usage.estimated_cost_usd == pytest.approx(
+        _estimate_cost(ANTHROPIC_MODEL_ID, 100, 50, 2_000, 0)
+    )
+
+
+def test_build_usage_defaults_cache_fields_when_absent(monkeypatch):
+    """An SDK response without cache fields must not crash or mis-bill."""
+    resp = _fake_message("ok", in_tok=10, out_tok=5)
+    del resp.usage.cache_creation_input_tokens
+    del resp.usage.cache_read_input_tokens
+    client = _client_returning(resp)
+    monkeypatch.setattr(ai_client, "_get_client", lambda: client)
+
+    _, usage = chat("hello")
+    assert usage.cache_creation_tokens == 0
+    assert usage.cache_read_tokens == 0
+    assert usage.total_tokens == 15
 
 
 def test_estimate_cost_unknown_model_returns_zero():
@@ -170,20 +251,12 @@ def test_chat_returns_content_and_usage(monkeypatch):
     assert usage.latency_s >= 0
 
 
-def test_chat_defaults_to_primary_model(monkeypatch):
+def test_chat_uses_opus5(monkeypatch):
     client = _client_returning(_fake_message("ok"))
     monkeypatch.setattr(ai_client, "_get_client", lambda: client)
 
     chat("ping")
-    assert client.messages.create.call_args[1]["model"] == "claude-fable-5"
-
-
-def test_chat_routes_grading_model_when_requested(monkeypatch):
-    client = _client_returning(_fake_message("ok", model="claude-haiku-4-5"))
-    monkeypatch.setattr(ai_client, "_get_client", lambda: client)
-
-    chat("grade this", model=ai_client.settings.model_grading)
-    assert client.messages.create.call_args[1]["model"] == "claude-haiku-4-5"
+    assert client.messages.create.call_args[1]["model"] == ANTHROPIC_MODEL_ID
 
 
 def test_chat_passes_system_message(monkeypatch):
@@ -310,35 +383,21 @@ def test_demo_mode_still_builds_corrections(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Refusal handling — retry once with fallback, then AIUnavailable
+# Refusal handling — surfaced as AIUnavailable, never retried on another model
 # ---------------------------------------------------------------------------
 
 
-def test_refusal_retries_with_fallback_model(monkeypatch):
+def test_refusal_returns_ai_unavailable_without_retry(monkeypatch):
     refused = _fake_message("", stop_reason="refusal")
-    rescued = _fake_message(
-        "recovered", stop_reason="end_turn", model="claude-opus-4-8"
-    )
-    client = _client_returning(refused, rescued)
-    monkeypatch.setattr(ai_client, "_get_client", lambda: client)
-
-    content, usage = chat("borderline request")
-    assert content == "recovered"
-    # second call used the fallback model
-    second_call_model = client.messages.create.call_args_list[1][1]["model"]
-    assert second_call_model == "claude-opus-4-8"
-
-
-def test_refusal_then_refusal_returns_ai_unavailable(monkeypatch):
-    refused = _fake_message("", stop_reason="refusal")
-    client = _client_returning(
-        refused, _fake_message("", stop_reason="refusal", model="claude-opus-4-8")
-    )
+    client = _client_returning(refused)
     monkeypatch.setattr(ai_client, "_get_client", lambda: client)
 
     result, usage = chat("disallowed")
     assert isinstance(result, AIUnavailable)
+    assert result.category == "refusal"
     assert usage.refused is True
+    # No automatic fallback: exactly one request was made.
+    assert client.messages.create.call_count == 1
 
 
 def test_missing_key_returns_ai_unavailable(monkeypatch):
@@ -394,7 +453,7 @@ def test_vision_builds_image_block(monkeypatch, tmp_path):
 
 def test_usage_str_format():
     u = Usage(
-        model="claude-fable-5",
+        model=ANTHROPIC_MODEL_ID,
         tokens_in=100,
         tokens_out=50,
         total_tokens=150,
@@ -402,4 +461,4 @@ def test_usage_str_format():
         latency_s=1.23,
     )
     s = str(u)
-    assert "claude-fable-5" in s
+    assert ANTHROPIC_MODEL_ID in s

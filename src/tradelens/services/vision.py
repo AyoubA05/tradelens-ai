@@ -1,7 +1,7 @@
 """
 Post-trade screenshot analysis service.
 
-Calls claude-fable-5 vision to review a chart image AFTER a trade has closed.
+Calls Claude Opus 5 vision to review a chart image AFTER a trade has closed.
 This is educational journaling only — not live trading advice.
 """
 
@@ -145,7 +145,7 @@ def analyze_screenshot(
     strategy_profile: Optional[dict] = None,
 ) -> tuple[dict, Usage]:
     """
-    Analyze a post-trade chart screenshot using claude-fable-5 vision.
+    Analyze a post-trade chart screenshot using Claude Opus 5 vision.
 
     Args:
         image_path: Path to the local chart image.

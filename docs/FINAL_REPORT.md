@@ -28,12 +28,19 @@ Every schema change ships as a reversible **Alembic** migration with a tested
 `downgrade()` — I treated the database like production from day one, which is why
 adding the SMC/ICT fields later was a migration, not a rewrite.
 
-**Anthropic `claude-fable-5`** as the primary model for vision, journaling,
-weekly review, pattern detection and the AI Partner, with `claude-haiku-4-5` for
-grading and `claude-opus-4-8` as a refusal fallback. Every AI call routes through
-a single `ai_client.py` — no page ever touches the API directly — which is what
-made cost control, caching, DEMO_MODE, and the correction loop possible to add in
-one place instead of six.
+**Anthropic `claude-opus-5`** for every AI feature — screenshot analysis,
+autofill, grading, journaling, weekly review, daily debrief, pattern detection
+and the AI Partner. Every AI call routes through a single `ai_client.py` — no
+page ever touches the API directly — which is what made cost control, caching,
+DEMO_MODE, and the correction loop possible to add in one place instead of six.
+
+> **Historical note.** An earlier revision of this project routed three models:
+> `claude-fable-5` as the primary, `claude-haiku-4-5` for a cheaper grading
+> pre-pass, and `claude-opus-4-8` as an automatic refusal fallback. That routing
+> has been retired. The single-client design is exactly what made collapsing it
+> to one model a config change plus one deleted branch, rather than a rewrite
+> across six services — the strongest evidence for the architecture decision
+> above.
 
 **The correction loop** is the decision I'm most happy with. Every time I edit an
 AI label, the change is stored and re-injected as token-budgeted few-shot context
@@ -48,11 +55,14 @@ partner), each a locked, versioned contract with a strict output the service
 validates. The recurring design move is **deterministic pre-processing in pandas,
 then one well-shaped model call**: pattern detection computes killzone win rates
 and rule-violation cost in code, so the model only interprets real statistics and
-can't hallucinate edges. Cost is managed deliberately — grading runs on the
-cheaper Haiku model, the AI Partner sends the strategy profile with
-`cache_control` so multi-turn chats bill it at cache rates, weekly review runs at
-high thinking effort but short-circuits to zero spend on an empty week, and
-DEMO_MODE serves cached fixtures so the public deployment costs nothing.
+can't hallucinate edges. Cost is managed deliberately — every prompt is shaped to
+stay small, the AI Partner sends the strategy profile with `cache_control` so
+multi-turn chats bill it at cache rates (writes at 1.25x input, reads at 0.1x,
+both tracked in `Usage`), weekly review runs at high thinking effort but
+short-circuits to zero spend on an empty week, and DEMO_MODE serves cached
+fixtures so the public deployment costs nothing. Cost control is a prompt- and
+caching-level concern here, not a model-selection one: routing a single feature
+to a cheaper model was traded away for one auditable model everywhere.
 
 ## Test suite
 

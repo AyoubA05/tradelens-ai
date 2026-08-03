@@ -123,7 +123,7 @@ def main():
         vision_result, v_usage = analyze_screenshot(
             screenshot_path, trade_ctx, strategy_profile=active_strategy
         )
-        usages.append(("Vision (claude-fable-5)", v_usage))
+        usages.append(("Vision (claude-opus-5)", v_usage))
         print(
             f"  Bias:          {vision_result.get('bias')} ({vision_result.get('bias_confidence')})"
         )
@@ -187,7 +187,7 @@ def main():
         markdown, j_usage = generate_journal(
             trade_dict, ai_dict, strategy_profile=active_strategy
         )
-        usages.append(("Journal (claude-fable-5)", j_usage))
+        usages.append(("Journal (claude-opus-5)", j_usage))
         # Print section headings found
         headings = [line for line in markdown.splitlines() if line.startswith("### ")]
         print(f"  Sections found ({len(headings)}):")
@@ -218,7 +218,7 @@ def main():
         grading_result, g_usage = grade_trade(
             grade_trade_dict, active_strategy, vision_dict
         )
-        usages.append(("Grading (claude-haiku-4-5)", g_usage))
+        usages.append(("Grading (claude-opus-5)", g_usage))
         print(
             f"  Grade:   {grading_result.get('grade')}  Score: {grading_result.get('score')}/10"
         )

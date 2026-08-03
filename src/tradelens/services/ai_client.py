@@ -1,21 +1,21 @@
 """
 Single wrapper around the Anthropic SDK — the ONLY place AI calls happen.
 
-Centralises model routing, adaptive thinking + effort, prompt caching, image
-encoding, refusal fallback, cost accounting, and DEMO_MODE so feature services
-(vision.py, journal.py, grading.py, weekly.py, patterns.py, partner.py) never
-import `anthropic` directly.
+Centralises adaptive thinking + effort, prompt caching, image encoding, cost
+accounting, and DEMO_MODE so feature services (vision.py, journal.py,
+grading.py, weekly.py, patterns.py, debrief.py, partner.py) never import
+`anthropic` directly.
 
 Streamlit-free. Every public call returns a `(content, Usage)` tuple where
 `content` is either a string or a typed `AIUnavailable` the UI renders gracefully.
 
-Model routing (configured in config.py):
-    claude-fable-5    primary — vision, journal, weekly, patterns, partner
-    claude-haiku-4-5  grading pre-pass only (pass model=settings.model_grading)
-    claude-opus-4-8   refusal fallback
+One model, no routing: every call uses `config.ANTHROPIC_MODEL_ID`
+(claude-opus-5). Callers cannot select a model, and a refusal is surfaced as a
+typed `AIUnavailable` rather than silently retried on a different model.
 
-Pricing (per 1M tokens): fable-5 $10/$50, opus-4-8 $5/$25, haiku-4-5 $1/$5;
-cache reads bill at ~0.1x the input rate.
+Pricing (per 1M tokens): opus-5 $5/$25. Prompt-cache tokens bill separately from
+`input_tokens` — writes at 1.25x the input rate (5-minute ephemeral TTL), reads
+at 0.1x — and all four buckets are folded into `Usage.estimated_cost_usd`.
 """
 
 from __future__ import annotations
@@ -28,20 +28,26 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
 
-from src.tradelens.config import resolve_anthropic_key, settings
+from src.tradelens.config import ANTHROPIC_MODEL_ID, resolve_anthropic_key, settings
 from src.tradelens.services.corrections import build_correction_few_shot
 
 _log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Cost table — per 1,000,000 tokens
+# Cost table — per 1,000,000 tokens. One entry, because there is one model.
 # ---------------------------------------------------------------------------
 _COST_PER_M: dict[str, dict[str, float]] = {
-    "claude-fable-5": {"input": 10.0, "output": 50.0},
-    "claude-opus-4-8": {"input": 5.0, "output": 25.0},
-    "claude-haiku-4-5": {"input": 1.0, "output": 5.0},
+    ANTHROPIC_MODEL_ID: {"input": 5.0, "output": 25.0},
 }
-_CACHE_READ_FACTOR = 0.1  # cached input tokens bill at ~10% of the input rate
+# Prompt-cache multipliers, relative to the model's base input rate.
+#   • Writing a cache entry costs a premium: 1.25x for the default 5-minute
+#     ephemeral TTL (2x would apply to a 1-hour TTL, which we do not use —
+#     _build_system() only ever sets {"type": "ephemeral"} with no ttl).
+#   • Reading a cache entry is ~10% of the input rate.
+# Missing either factor understates real spend on the cached Strategy Profile
+# path, which is exactly the call we repeat most.
+_CACHE_WRITE_FACTOR = 1.25
+_CACHE_READ_FACTOR = 0.1
 
 # Beta header + param enabling the model to think adaptively with a summary.
 _THINKING = {"type": "adaptive", "display": "summarized"}
@@ -58,14 +64,15 @@ class Usage:
     estimated_cost_usd: float
     latency_s: float
     cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
     thinking_summary: Optional[str] = None
     refused: bool = False
 
     def __str__(self) -> str:
         return (
             f"{self.model}  in={self.tokens_in} out={self.tokens_out} "
-            f"cache={self.cache_read_tokens} cost=${self.estimated_cost_usd:.5f}  "
-            f"{self.latency_s:.2f}s"
+            f"cache_r={self.cache_read_tokens} cache_w={self.cache_creation_tokens} "
+            f"cost=${self.estimated_cost_usd:.5f}  {self.latency_s:.2f}s"
         )
 
 
@@ -153,11 +160,23 @@ def _get_client():
 
 
 def _estimate_cost(
-    model: str, tokens_in: int, tokens_out: int, cache_read_tokens: int = 0
+    model: str,
+    tokens_in: int,
+    tokens_out: int,
+    cache_read_tokens: int = 0,
+    cache_creation_tokens: int = 0,
 ) -> float:
+    """Estimated USD for one call, covering all four billed token buckets.
+
+    ``tokens_in`` is the *uncached remainder* the API reports — cache creation
+    and cache read tokens are billed separately, at their own multipliers, and
+    are not included in ``input_tokens``. Summing only input + output silently
+    drops the cache-write premium on every first call of a cached prompt.
+    """
     rates = _COST_PER_M.get(model, {"input": 0.0, "output": 0.0})
     return (
         tokens_in * rates["input"]
+        + cache_creation_tokens * rates["input"] * _CACHE_WRITE_FACTOR
         + cache_read_tokens * rates["input"] * _CACHE_READ_FACTOR
         + tokens_out * rates["output"]
     ) / 1_000_000
@@ -177,14 +196,20 @@ def _build_usage(resp, model: str, t0: float) -> Usage:
     tokens_in = getattr(u, "input_tokens", 0) or 0
     tokens_out = getattr(u, "output_tokens", 0) or 0
     cache_read = getattr(u, "cache_read_input_tokens", 0) or 0
+    cache_creation = getattr(u, "cache_creation_input_tokens", 0) or 0
+    # Full prompt size = uncached input + cache writes + cache reads. Reporting
+    # only `input_tokens` under-counts a cached call by the whole cached prefix.
     return Usage(
         model=getattr(resp, "model", model) or model,
         tokens_in=tokens_in,
         tokens_out=tokens_out,
-        total_tokens=tokens_in + tokens_out,
-        estimated_cost_usd=_estimate_cost(model, tokens_in, tokens_out, cache_read),
+        total_tokens=tokens_in + cache_creation + cache_read + tokens_out,
+        estimated_cost_usd=_estimate_cost(
+            model, tokens_in, tokens_out, cache_read, cache_creation
+        ),
         latency_s=round(time.monotonic() - t0, 3),
         cache_read_tokens=cache_read,
+        cache_creation_tokens=cache_creation,
         thinking_summary=_extract_thinking(resp),
     )
 
@@ -218,15 +243,14 @@ def _complete(
     messages: list,
     *,
     system_message: str,
-    model: Optional[str],
     effort: Optional[str],
     cache_system: bool,
     few_shot: Optional[str],
     demo_response: Optional[str],
     max_tokens: int,
 ) -> tuple[Union[str, AIUnavailable], Usage]:
-    """Core call path shared by chat() and vision()."""
-    chosen = model or settings.model_primary
+    """Core call path shared by chat(), vision() and converse()."""
+    chosen = ANTHROPIC_MODEL_ID
 
     # Correction memory: inject the trader's past overrides into EVERY call.
     # Deterministic + DB-only (no API), so it runs even in DEMO_MODE.
@@ -262,19 +286,17 @@ def _complete(
     try:
         client = _get_client()
         resp = client.messages.create(model=chosen, **kwargs)
-        # Refusal → retry once with the fallback model (spec rule).
+        # A refusal is final: there is no fallback model to retry on, so surface
+        # it as a typed result the UI renders instead of a stack trace.
         if getattr(resp, "stop_reason", None) == "refusal":
-            resp = client.messages.create(model=settings.model_fallback, **kwargs)
-            if getattr(resp, "stop_reason", None) == "refusal":
-                usage = _build_usage(resp, settings.model_fallback, t0)
-                usage.refused = True
-                return (
-                    AIUnavailable(
-                        "The AI declined to analyze this request.", category="refusal"
-                    ),
-                    usage,
-                )
-            return _extract_text(resp), _build_usage(resp, settings.model_fallback, t0)
+            usage = _build_usage(resp, chosen, t0)
+            usage.refused = True
+            return (
+                AIUnavailable(
+                    "The AI declined to analyze this request.", category="refusal"
+                ),
+                usage,
+            )
 
         return _extract_text(resp), _build_usage(resp, chosen, t0)
     except Exception as exc:  # noqa: BLE001 — classify, then degrade or surface
@@ -284,10 +306,12 @@ def _complete(
         # immediately visible instead of masquerading as a transient outage.
         if not _is_transient_error(exc):
             raise
+        # The exception itself is logged above, never surfaced: a user-facing
+        # string must not carry SDK internals, request payloads or the API key.
         return (
             AIUnavailable(
-                "The AI service is temporarily unavailable "
-                f"({type(exc).__name__}). Please try again shortly.",
+                "The AI service is temporarily unavailable. "
+                "Please try again shortly.",
                 category="network",
             ),
             Usage(chosen, 0, 0, 0, 0.0, round(time.monotonic() - t0, 3)),
@@ -360,7 +384,6 @@ def chat(
     user_message: str,
     system_message: str = "",
     *,
-    model: Optional[str] = None,
     effort: Optional[str] = None,
     response_format: Optional[
         dict
@@ -370,12 +393,11 @@ def chat(
     demo_response: Optional[str] = None,
     max_tokens: int = 8192,
 ) -> tuple[Union[str, AIUnavailable], Usage]:
-    """Send a text prompt to Claude. Returns (content_or_AIUnavailable, Usage)."""
+    """Send a text prompt to Claude Opus 5. Returns (content_or_AIUnavailable, Usage)."""
     messages = [{"role": "user", "content": user_message}]
     return _complete(
         messages,
         system_message=system_message,
-        model=model,
         effort=effort,
         cache_system=cache_system,
         few_shot=few_shot,
@@ -389,7 +411,6 @@ def vision(
     user_message: str,
     system_message: str = "",
     *,
-    model: Optional[str] = None,
     effort: Optional[str] = None,
     response_format: Optional[dict] = None,  # accepted for caller compatibility
     cache_system: bool = False,
@@ -398,10 +419,12 @@ def vision(
     max_dimension: int = 1024,
     max_tokens: int = 8192,
 ) -> tuple[Union[str, AIUnavailable], Usage]:
-    """Send an image + text prompt to Claude vision. Returns (content_or_AIUnavailable, Usage)."""
+    """Send an image + text prompt to Claude Opus 5 vision.
+
+    Returns (content_or_AIUnavailable, Usage)."""
     # DEMO_MODE short-circuits before any image work.
     if settings.demo_mode:
-        chosen = model or settings.model_primary
+        chosen = ANTHROPIC_MODEL_ID
         content = (
             demo_response
             if demo_response is not None
@@ -425,7 +448,6 @@ def vision(
     return _complete(
         messages,
         system_message=system_message,
-        model=model,
         effort=effort,
         cache_system=cache_system,
         few_shot=few_shot,
@@ -438,7 +460,6 @@ def converse(
     messages: list,
     system_message: str = "",
     *,
-    model: Optional[str] = None,
     effort: Optional[str] = None,
     cache_system: bool = False,
     few_shot: Optional[str] = None,
@@ -453,7 +474,6 @@ def converse(
     return _complete(
         messages,
         system_message=system_message,
-        model=model,
         effort=effort,
         cache_system=cache_system,
         few_shot=few_shot,

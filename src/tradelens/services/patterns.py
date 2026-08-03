@@ -7,7 +7,7 @@ and the single AI call is trivial to mock:
   1. compute_candidates(trades) — pure-pandas pre-pass built on already-tested
      metrics (killzone / bias / setup / confirmation-model breakdowns, streaks,
      mistake clusters, rule-violation cost). No AI, no Streamlit.
-  2. generate_cards(candidates) — one claude-fable-5 call via ai_client using
+  2. generate_cards(candidates) — one Claude Opus 5 call via ai_client using
      prompts/patterns_v2.txt → at most 6 strict-JSON pattern cards.
 
 This is post-trade reflection only. Cards describe what already happened and
@@ -156,7 +156,7 @@ def _validate_and_label(cards: list) -> list:
 def generate_cards(candidates: dict) -> tuple[list, Usage]:
     """
     Turn deterministic candidate stats into at most 6 strict-JSON pattern cards
-    via a single claude-fable-5 call. DEMO_MODE returns canned cards (zero spend).
+    via a single Claude Opus 5 call. DEMO_MODE returns canned cards (zero spend).
 
     Raises:
         FileNotFoundError: prompts/patterns_v2.txt missing.

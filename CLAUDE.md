@@ -58,7 +58,7 @@ alembic revision --autogenerate -m "description"
 | ORM | SQLAlchemy 2.x |
 | Database | SQLite (dev) → PostgreSQL (prod) |
 | Migrations | Alembic (every schema change; downgrade always implemented) |
-| AI | Anthropic API — `claude-fable-5` primary, `claude-haiku-4-5` grading pre-pass only |
+| AI | Anthropic API — `claude-opus-5` for every feature (single model, no fallback) |
 | Visualization | Plotly |
 | Data | Pandas, NumPy |
 | Testing | pytest |
@@ -73,10 +73,10 @@ alembic revision --autogenerate -m "description"
 
 **Current week goal:** Week 5 — SMC/ICT schema, killzone engine, pattern detection, weekly AI review, correction memory, AI partner mode, hardening. Target: 85+ passing tests.
 
-**AI model routing:**
-- claude-fable-5 → vision analysis, journal generation, weekly review, patterns, AI partner
-- claude-haiku-4-5 → grading pre-pass only (cheap fast call)
-- All AI calls go through services/ai_client.py ONLY — never call the API directly from a page
+**AI model — one model, no routing:**
+- `claude-opus-5` for every feature: screenshot analysis, autofill, grading, journal summaries, pattern analysis, weekly recaps, daily debriefs, AI partner
+- The model ID lives in ONE place: `ANTHROPIC_MODEL_ID` in src/tradelens/config.py. It is not env-overridable and there is no per-feature selection and no automatic fallback model
+- All AI calls go through services/ai_client.py ONLY — never call the API directly from a page. `chat()` / `vision()` / `converse()` take no `model` argument
 
 **Hard rules:**
 - NO streamlit imports inside services/ or db/
