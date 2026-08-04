@@ -48,100 +48,89 @@ from src.tradelens.ui.components.workspace import (
 )
 
 # =========================================================================
-# COLOR TOKENS — the fixed hybrid theme
+# COLOR TOKENS — one tonal-dark theme
 # =========================================================================
-# The signed-in product runs ONE theme with two surface families. There is
-# no toggle; a view is light or dark because of what it does, not because
-# of a preference:
+# The signed-in product runs ONE theme on ONE surface family. There is no
+# toggle and no light workspace; a view is dark because the whole product is.
 #
-#   LIGHT WORKSPACE  reading, forms, tables, decisions  (canvas / paper)
-#   DARK INSTRUMENTS navigation rail, charts, focused AI reading surfaces
-#
-# Each family needs its own semantic ramp. Deep teal #087F74 is legible on
-# white and invisible on the rail; bright teal #00E5CC is the reverse. So
-# the two families are named separately rather than one being redefined —
-# charts.py reads TL_SUCCESS/TL_DANGER/TL_WARNING for marks drawn on the
-# dark stage, and repointing those at the light forms would put dark green
-# on near-black. Every pair below is contrast-tested in
-# tests/test_design_system.py, not asserted from the specification.
+# This replaces a hybrid that carried two live colour systems at once — a
+# light workspace and a duplicate legacy dark set — which is how the same
+# concept ended up with two names and two values (spec D1). The retarget does
+# not reuse a name whose meaning changes: superseded names are DELETED, never
+# aliased, so a missed call site raises ImportError instead of silently
+# flipping meaning (spec D2). Every pair below is contrast-tested in
+# tests/test_dark_workspace.py, not asserted from the specification.
 # -------------------------------------------------------------------------
-# LIGHT WORKSPACE
+# SEMANTIC RAMP (values unchanged — these were never superseded)
 # -------------------------------------------------------------------------
-TL_CANVAS = "#F3F6F6"  # mineral workspace background
-TL_PAPER = "#FFFFFF"  # forms, tables, readable content
-TL_MIST = "#E9EFEF"  # selected rows, filter wells, grouping
-TL_INK = "#132125"  # primary text on light surfaces      15.19:1 on canvas
-TL_MUTED = "#5B6A70"  # secondary text on light surfaces    5.17:1 on canvas
-TL_HAIRLINE = "#D9E2E2"  # structural rules and panel borders
-# The specification proposed #087F74. Measured as text on the mineral canvas
-# it is 4.496:1 — under the 4.5:1 AA floor by four thousandths. Darkened one
-# step so the action reads as a link on canvas as well as a button fill.
-TL_ACTION = "#087C71"  # THE primary action on light surfaces
-TL_ACTION_HOVER = "#066A61"  # darker, so white label keeps its ratio
-# Semantic ramp for light surfaces. Darker than the instrument ramp because
-# these sit on white and mineral, not on near-black.
-TL_SUCCESS_INK = "#167A47"  # 4.94:1 on canvas
-TL_DANGER_INK = "#B53A43"  # 5.29:1 on canvas
-# The specification proposed #A76500; measured 4.29:1 on the mineral canvas,
-# below the 4.5:1 AA floor for normal text. Darkened one step to clear it.
-TL_WARNING_INK = "#9C5F00"  # 4.77:1 on canvas
-# Quiet grounds, not text colors. A 10% tint of a hue darkens the surface
-# toward that hue's own ink, so semantic-text-on-its-own-tint measures
-# 4.1-4.9:1 and cannot be rescued by adjusting the tint — the pattern is
-# what fails. The rule instead: semantic hue MARKS and NUMBERS, and never
-# tints the text sitting on it. Ink on any wash measures 13-14:1, and the
-# hue survives as a dot that clears the 3:1 non-text threshold.
-TL_SUCCESS_WASH = "rgba(22,122,71,0.10)"
-TL_DANGER_WASH = "rgba(181,58,67,0.10)"
-TL_WARNING_WASH = "rgba(156,95,0,0.10)"
-TL_ACTION_WASH = "rgba(8,124,113,0.10)"
-
-# -------------------------------------------------------------------------
-# DARK INSTRUMENTS
-# -------------------------------------------------------------------------
-TL_RAIL = "#0F171B"  # navigation rail
-TL_CHART_STAGE = "#101A1E"  # chart frames and focused AI reading surfaces
-TL_FOCUS = "#00E5CC"  # active marks on dark surfaces (== TL_PRIMARY)
-
-# -------------------------------------------------------------------------
-# DARK INSTRUMENT RAMP (pre-redesign palette, values unchanged)
-# -------------------------------------------------------------------------
-TL_BG = "#0d1117"
-TL_SURFACE = "#161b22"
-TL_SURFACE_2 = "#1c232b"
-TL_BORDER = "#252a32"
-TL_BORDER_SUBTLE = "#1e2228"
-TL_TEXT = "#e8eaed"
-# Muted/faint tuned for WCAG AA (>=4.5:1 small text) against the SP4 site
-# surfaces, which are lighter than the pre-SP4 ones:
-#   muted  5.65 on BG / 5.17 on SURFACE / 4.73 on SURFACE_2
-#   faint  5.50 on BG / 5.03 on SURFACE / 4.61 on SURFACE_2
-# faint was #79828f, which fell to 4.08 on the lighter SURFACE_2 (below AA).
-TL_TEXT_MUTED = "#848d9c"
-TL_TEXT_FAINT = "#828b99"
 TL_PRIMARY = "#00e5cc"
 TL_PRIMARY_HOVER = "#33ecd8"
 TL_PRIMARY_DIM = "rgba(0,229,204,0.12)"
 TL_SUCCESS = "#22c55e"
 TL_SUCCESS_DIM = "rgba(34,197,94,0.12)"
-# Danger brightened from #ef4444: table .pnl-neg text sits on SURFACE_2 on row
-# hover, where the old red measured 4.21 (below AA). #f56565 measures 5.23.
 TL_DANGER = "#f56565"
 TL_DANGER_DIM = "rgba(245,101,101,0.12)"
 TL_WARNING = "#f59e0b"
 TL_WARNING_DIM = "rgba(245,158,11,0.12)"
 TL_NEUTRAL = "#374151"
 TL_NEUTRAL_DIM = "rgba(55,65,81,0.3)"
+TL_FOCUS = "#00E5CC"  # active marks on dark surfaces (== TL_PRIMARY)
 
-# Grade scale (A → F): success green through amber to danger red. Grade
-# chips are read on PAPER — in the ledger and in trade detail — so the ramp
-# follows the light-workspace semantics. The two intermediate steps are the
-# matching darker lime and orange, so the ramp still reads as one system.
-TL_GRADE_A = TL_SUCCESS_INK
-TL_GRADE_B = "#4D7C0F"
-TL_GRADE_C = TL_WARNING_INK
-TL_GRADE_D = "#B45309"
-TL_GRADE_F = TL_DANGER_INK
+# -------------------------------------------------------------------------
+# ROLE SYSTEM — one name, one meaning
+# -------------------------------------------------------------------------
+# Surfaces separate by only 1.02–1.09:1. That is correct for tonal design and
+# must NOT be "fixed" by pushing them apart, which produces the
+# dark-cards-on-dark-cards effect the direction forbids. The consequence is a
+# hard rule: surface tone may never be the only thing separating two regions.
+# Every boundary that carries meaning is drawn with TL_LINE_HAIRLINE, or
+# TL_LINE_STRONG where the boundary is load-bearing (spec D4).
+TL_SURFACE_CANVAS = "#091216"  # quiet page background
+TL_SURFACE_RAIL = "#071014"  # deepest structural surface
+TL_SURFACE_PANEL = "#101B20"  # tables, filters, forms, composed sections
+TL_SURFACE_ELEVATED = "#152329"  # selected controls, overlays, readouts
+TL_SURFACE_CHART = "#0C181D"  # Plotly stage
+TL_SURFACE_FIELD = "#122026"  # inputs and selectors
+
+TL_CONTENT_PRIMARY = "#ECF5F4"  # 14.52–17.32:1 across the six surfaces
+TL_CONTENT_SECONDARY = "#91A3A7"  # 6.13–7.32:1 across the six surfaces
+
+TL_LINE_HAIRLINE = "#26373D"  # structure without card-box noise
+# The specification first proposed #3A4E56. Measured, it is 1.84–2.20:1 across
+# the six surfaces — below the 3:1 floor a non-text boundary needs, and it
+# would have failed this module's own contract test. #5C6E77 is the smallest
+# value on the same cool blue-grey ramp clearing 3:1 on all six, with
+# ELEVATED the binding case at 3.03:1 because the Partner drawer's edge sits
+# there. Corrected in the specification as amendment C6.
+TL_LINE_STRONG = "#5C6E77"  # load-bearing boundaries; >=3:1 on every surface
+
+TL_ACCENT_ACTION = TL_PRIMARY  # unchanged bright TradeLens teal
+
+# Grade scale (A → F): success green through amber to danger red. Grade chips
+# are read on the dark panel now that the light PAPER surface is gone, so the
+# ramp uses the dark semantic family with brighter lime and orange
+# intermediates. Every step clears 4.5:1 on TL_SURFACE_PANEL.
+TL_GRADE_A = TL_SUCCESS
+TL_GRADE_B = "#A3E635"
+TL_GRADE_C = TL_WARNING
+TL_GRADE_D = "#FB923C"
+TL_GRADE_F = TL_DANGER
+
+# =========================================================================
+# Z-INDEX SCALE
+# =========================================================================
+# There was no scale before this: three arbitrary literals (1000, 20, 100) and
+# zero tokens (spec D13). Navigation always outranks the Partner, because a
+# trader must never dismiss a chat surface to reach navigation, and blocking
+# confirmations outrank everything. No module may declare a raw z-index
+# outside this scale — 1000 in particular is how the next overlay ends up
+# at 1001.
+TL_Z_BASE = 0
+TL_Z_RAISED = 10  # sticky section and table headers
+TL_Z_PARTNER = 20  # AI Partner launcher and drawer
+TL_Z_NAV = 30  # navigation rail, bottom nav
+TL_Z_SHEET = 40  # mobile More sheet
+TL_Z_OVERLAY = 50  # blocking confirmations
 
 # =========================================================================
 # TYPOGRAPHY TOKENS
@@ -208,49 +197,49 @@ ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 # the colour contract lives here either way.
 PLOTLY_TEMPLATE = go.layout.Template(
     layout=go.Layout(
-        paper_bgcolor=TL_CHART_STAGE,
-        plot_bgcolor=TL_CHART_STAGE,
-        font=dict(family=TL_FONT_BODY, color=TL_TEXT, size=12),
-        title=dict(font=dict(size=14, color=TL_TEXT), x=0.0, xanchor="left"),
+        paper_bgcolor=TL_SURFACE_CHART,
+        plot_bgcolor=TL_SURFACE_CHART,
+        font=dict(family=TL_FONT_BODY, color=TL_CONTENT_PRIMARY, size=12),
+        title=dict(font=dict(size=14, color=TL_CONTENT_PRIMARY), x=0.0, xanchor="left"),
         # Six marks that stay separable on the stage. The sixth was
         # TL_NEUTRAL, a near-black surface grey that measures 1.71:1 here —
-        # it was a background token doing duty as a data colour. TL_TEXT is
+        # it was a background token doing duty as a data colour. TL_CONTENT_PRIMARY is
         # the light end of the neutral ramp and reads clearly against the
         # mid grey already at position four.
         colorway=[
             TL_PRIMARY,
             TL_WARNING,
             TL_SUCCESS,
-            TL_TEXT_MUTED,
+            TL_CONTENT_SECONDARY,
             TL_DANGER,
-            TL_TEXT,
+            TL_CONTENT_PRIMARY,
         ],
         # automargin: once the figure paints its own stage, the stage has a
         # visible edge and pinned page margins clip the tick labels against
         # it. Letting each axis reserve what its labels need fixes every
         # chart at once instead of tuning margins per call site.
         xaxis=dict(
-            gridcolor=TL_BORDER,
-            zerolinecolor=TL_BORDER,
+            gridcolor=TL_LINE_HAIRLINE,
+            zerolinecolor=TL_LINE_HAIRLINE,
             automargin=True,
-            tickfont=dict(color=TL_TEXT_MUTED, size=11),
-            title=dict(font=dict(color=TL_TEXT_MUTED, size=12)),
+            tickfont=dict(color=TL_CONTENT_SECONDARY, size=11),
+            title=dict(font=dict(color=TL_CONTENT_SECONDARY, size=12)),
         ),
         yaxis=dict(
-            gridcolor=TL_BORDER,
-            zerolinecolor=TL_BORDER,
+            gridcolor=TL_LINE_HAIRLINE,
+            zerolinecolor=TL_LINE_HAIRLINE,
             automargin=True,
-            tickfont=dict(color=TL_TEXT_MUTED, size=11),
-            title=dict(font=dict(color=TL_TEXT_MUTED, size=12)),
+            tickfont=dict(color=TL_CONTENT_SECONDARY, size=11),
+            title=dict(font=dict(color=TL_CONTENT_SECONDARY, size=12)),
         ),
         legend=dict(
             bgcolor="rgba(0,0,0,0)",
-            font=dict(color=TL_TEXT_MUTED, size=11),
+            font=dict(color=TL_CONTENT_SECONDARY, size=11),
         ),
         hoverlabel=dict(
-            bgcolor=TL_SURFACE_2,
-            bordercolor=TL_BORDER,
-            font=dict(family=TL_FONT_MONO, color=TL_TEXT, size=12),
+            bgcolor=TL_SURFACE_ELEVATED,
+            bordercolor=TL_LINE_HAIRLINE,
+            font=dict(family=TL_FONT_MONO, color=TL_CONTENT_PRIMARY, size=12),
         ),
     )
 )
@@ -286,23 +275,49 @@ def build_css() -> str:
 
 /* === CSS VARIABLES === */
 :root {{
-  /* -- light workspace -- */
-  --tl-canvas: {TL_CANVAS}; --tl-paper: {TL_PAPER}; --tl-mist: {TL_MIST};
-  --tl-ink: {TL_INK}; --tl-muted: {TL_MUTED};
-  --tl-hairline: {TL_HAIRLINE}; --tl-rule: {TL_RULE};
-  --tl-action: {TL_ACTION}; --tl-action-hover: {TL_ACTION_HOVER};
-  --tl-success-ink: {TL_SUCCESS_INK}; --tl-danger-ink: {TL_DANGER_INK};
-  --tl-warning-ink: {TL_WARNING_INK};
-  --tl-success-wash: {TL_SUCCESS_WASH}; --tl-danger-wash: {TL_DANGER_WASH};
-  --tl-warning-wash: {TL_WARNING_WASH}; --tl-action-wash: {TL_ACTION_WASH};
-  /* -- dark instruments -- */
-  --tl-rail: {TL_RAIL}; --tl-chart-stage: {TL_CHART_STAGE};
+  /* -- surfaces: one family, separated by lines not by tone -- */
+  --tl-surface-canvas: {TL_SURFACE_CANVAS};
+  --tl-surface-rail: {TL_SURFACE_RAIL};
+  --tl-surface-panel: {TL_SURFACE_PANEL};
+  --tl-surface-elevated: {TL_SURFACE_ELEVATED};
+  --tl-surface-chart: {TL_SURFACE_CHART};
+  --tl-surface-field: {TL_SURFACE_FIELD};
+  /* -- content -- */
+  --tl-content-primary: {TL_CONTENT_PRIMARY};
+  --tl-content-secondary: {TL_CONTENT_SECONDARY};
+  /* -- structure -- */
+  --tl-line-hairline: {TL_LINE_HAIRLINE};
+  --tl-line-strong: {TL_LINE_STRONG};
+  --tl-accent-action: {TL_ACCENT_ACTION};
+  --tl-rule: {TL_RULE};
+  /* -- layering: nav always outranks the Partner -- */
+  --tl-z-base: {TL_Z_BASE}; --tl-z-raised: {TL_Z_RAISED};
+  --tl-z-partner: {TL_Z_PARTNER}; --tl-z-nav: {TL_Z_NAV};
+  --tl-z-sheet: {TL_Z_SHEET}; --tl-z-overlay: {TL_Z_OVERLAY};
+  /* -- COMPATIBILITY BRIDGE — removed by Task 2 --
+     Every rule in this stylesheet still names the old variables. Task 1 owns
+     the token layer; Task 2 retargets the rules. Repointing the old names at
+     the new roles here keeps the product rendering between the two, and makes
+     the theme go dark in one commit instead of leaving a half-styled app on
+     the branch. These are CSS aliases only — the Python names are deleted, so
+     nothing can quietly keep importing them. Delete this block in Task 2. */
+  --tl-canvas: {TL_SURFACE_CANVAS}; --tl-paper: {TL_SURFACE_PANEL};
+  --tl-mist: {TL_SURFACE_ELEVATED};
+  --tl-ink: {TL_CONTENT_PRIMARY}; --tl-muted: {TL_CONTENT_SECONDARY};
+  --tl-hairline: {TL_LINE_HAIRLINE};
+  --tl-action: {TL_ACCENT_ACTION}; --tl-action-hover: {TL_PRIMARY_HOVER};
+  --tl-success-ink: {TL_SUCCESS}; --tl-danger-ink: {TL_DANGER};
+  --tl-warning-ink: {TL_WARNING};
+  --tl-success-wash: {TL_SUCCESS_DIM}; --tl-danger-wash: {TL_DANGER_DIM};
+  --tl-warning-wash: {TL_WARNING_DIM}; --tl-action-wash: {TL_PRIMARY_DIM};
+  --tl-rail: {TL_SURFACE_RAIL}; --tl-chart-stage: {TL_SURFACE_CHART};
+  --tl-bg: {TL_SURFACE_CANVAS}; --tl-surface: {TL_SURFACE_PANEL};
+  --tl-surface-2: {TL_SURFACE_ELEVATED};
+  --tl-border: {TL_LINE_HAIRLINE}; --tl-border-subtle: {TL_LINE_HAIRLINE};
+  --tl-text: {TL_CONTENT_PRIMARY}; --tl-text-muted: {TL_CONTENT_SECONDARY};
+  --tl-text-faint: {TL_CONTENT_SECONDARY};
+  /* -- semantic ramp -- */
   --tl-focus: {TL_FOCUS};
-  --tl-bg: {TL_BG}; --tl-surface: {TL_SURFACE};
-  --tl-surface-2: {TL_SURFACE_2};
-  --tl-border: {TL_BORDER}; --tl-border-subtle: {TL_BORDER_SUBTLE};
-  --tl-text: {TL_TEXT}; --tl-text-muted: {TL_TEXT_MUTED};
-  --tl-text-faint: {TL_TEXT_FAINT};
   --tl-primary: {TL_PRIMARY}; --tl-primary-hover: {TL_PRIMARY_HOVER};
   --tl-primary-dim: {TL_PRIMARY_DIM};
   --tl-success: {TL_SUCCESS}; --tl-success-dim: {TL_SUCCESS_DIM};
@@ -512,15 +527,21 @@ def build_css() -> str:
   position: fixed;
   top: var(--tl-space-2);
   left: var(--tl-space-2);
-  z-index: 1000;
+  /* Overlay tier, not nav: a skip link that the rail can occlude is a skip
+     link that does not work. It was 1000 — above everything — and must keep
+     that standing inside the scale. */
+  z-index: var(--tl-z-overlay);
   transform: translateY(calc(-100% - var(--tl-space-4)));
   min-height: 44px;
   padding: 0 var(--tl-space-3);
   display: inline-flex;
   align-items: center;
   border-radius: var(--tl-radius-sm);
-  background: var(--tl-rail);
-  color: var(--tl-rail-ink);
+  background: var(--tl-surface-rail);
+  /* --tl-rail-ink was never defined, so this inherited: dark ink on a
+     near-black rail, i.e. an invisible skip link. Pre-existing; caught by the
+     dangling-variable guard this task adds. */
+  color: var(--tl-content-primary);
   text-decoration: none;
   font-weight: 700;
 }}
@@ -2072,7 +2093,7 @@ def build_css() -> str:
 .st-key-tl_wizard_bar {{
   position: sticky;
   bottom: 0;
-  z-index: 20;
+  z-index: var(--tl-z-raised);
   background: var(--tl-canvas);
   border-top: 1px solid var(--tl-hairline);
   padding: var(--tl-space-3) 0 var(--tl-space-2) 0;
@@ -2516,7 +2537,7 @@ def build_css() -> str:
     left: 0;
     right: 0;
     bottom: 0;
-    z-index: 100;
+    z-index: var(--tl-z-nav);
     background: var(--tl-rail);
     border-top: 1px solid var(--tl-border);
     padding-bottom: env(safe-area-inset-bottom, 0px);

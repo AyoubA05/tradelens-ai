@@ -1,16 +1,15 @@
 [theme]
-# Fixed hybrid theme: a light mineral workspace for reading, forms, tables
-# and decisions; the navigation rail, chart stages and focused AI reading
-# surfaces are painted dark by src/tradelens/ui/design_system.py.
-# There is no theme toggle — a surface is light or dark because of the job
-# it does. Palette source of truth: design_system.py (premium redesign).
-base = "light"
-# Must equal design_system.TL_ACTION — Streamlit paints its own focus rings
-# and widget accents from this value (parity is tested).
-primaryColor = "#087C71"
-backgroundColor = "#F3F6F6"
-secondaryBackgroundColor = "#FFFFFF"
-textColor = "#132125"
+# One fixed tonal-dark theme. There is no toggle. Streamlit paints its own
+# chrome — focus rings, widget accents, the app background — from these four
+# values, so they must equal the role tokens or the framework and the design
+# system put two different palettes on the same screen. Parity is tested in
+# tests/test_design_system.py.
+# Source of truth: src/tradelens/ui/design_system.py
+base = "dark"
+primaryColor = "#00e5cc"          # TL_ACCENT_ACTION
+backgroundColor = "#091216"       # TL_SURFACE_CANVAS
+secondaryBackgroundColor = "#101B20"  # TL_SURFACE_PANEL
+textColor = "#ECF5F4"             # TL_CONTENT_PRIMARY
 font = "sans serif"
 
 [server]

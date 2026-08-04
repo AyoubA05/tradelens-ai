@@ -51,8 +51,8 @@ from src.tradelens.ui.components.workspace import (  # noqa: E402
     render_workspace_header,
 )
 from src.tradelens.ui.design_system import (  # noqa: E402
-    TL_DANGER_INK,
-    TL_SUCCESS_INK,
+    TL_DANGER,
+    TL_SUCCESS,
     inject_design_system,
     render_badge,
     render_banner,
@@ -175,11 +175,11 @@ def _ledger_styles(row) -> list:
             continue
         value = str(row[column])
         if value.startswith("-"):
-            colour = TL_DANGER_INK
+            colour = TL_DANGER
         elif value in ("—", "$0.00", "0.00R"):
             colour = ""  # breakeven is neither a win nor a loss
         else:
-            colour = TL_SUCCESS_INK
+            colour = TL_SUCCESS
         if colour:
             styles[row.index.get_loc(column)] = f"color: {colour}"
     return styles

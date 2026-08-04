@@ -20,31 +20,33 @@ from __future__ import annotations
 
 from src.tradelens.ui.design_system import (
     PLOTLY_TEMPLATE as _DS_PLOTLY_TEMPLATE,
-    TL_ACTION as _DS_ACTION,
-    TL_ACTION_HOVER as _DS_ACTION_HOVER,
-    TL_ACTION_WASH as _DS_ACTION_WASH,
-    TL_CANVAS as _DS_CANVAS,
-    TL_CHART_STAGE as _DS_CHART_STAGE,
+    TL_ACCENT_ACTION as _DS_ACTION,
+    TL_PRIMARY_HOVER as _DS_ACTION_HOVER,
+    TL_PRIMARY_DIM as _DS_ACTION_WASH,
+    TL_SURFACE_CANVAS as _DS_CANVAS,
+    TL_SURFACE_CHART as _DS_CHART_STAGE,
     TL_FOCUS as _DS_FOCUS,
     TL_GRADE_A as _DS_GRADE_A,
     TL_GRADE_B as _DS_GRADE_B,
     TL_GRADE_C as _DS_GRADE_C,
     TL_GRADE_D as _DS_GRADE_D,
     TL_GRADE_F as _DS_GRADE_F,
-    TL_HAIRLINE as _DS_HAIRLINE,
-    TL_INK as _DS_INK,
-    TL_MIST as _DS_MIST,
-    TL_MUTED as _DS_MUTED,
-    TL_PAPER as _DS_PAPER,
+    TL_LINE_HAIRLINE as _DS_HAIRLINE,
+    TL_CONTENT_PRIMARY as _DS_INK,
+    TL_SURFACE_ELEVATED as _DS_MIST,
+    TL_CONTENT_SECONDARY as _DS_MUTED,
+    TL_SURFACE_PANEL as _DS_PAPER,
     TL_PRIMARY as _DS_PRIMARY,
     TL_PRIMARY_DIM as _DS_PRIMARY_DIM,
     TL_PRIMARY_HOVER as _DS_PRIMARY_HOVER,
-    TL_RAIL as _DS_RAIL,
+    TL_SURFACE_RAIL as _DS_RAIL,
 )
 
-# ── Hybrid theme roles (re-exported for call sites that import from here) ──
-# The fixed theme has two surface families; see design_system.py for why they
-# are named separately rather than one being redefined.
+# ── Compatibility re-exports for call sites that import from here ──────────
+# These names date from the hybrid theme and are kept so existing imports keep
+# working while the pages are migrated. They now resolve to the one dark role
+# system in design_system.py, so PAPER is a dark panel and INK is light text —
+# the names no longer describe their values. Task 2 retires them.
 CANVAS = _DS_CANVAS
 PAPER = _DS_PAPER
 MIST = _DS_MIST

@@ -100,32 +100,13 @@ def _top_level_selectors(css: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_dark_instrument_palette_is_unchanged():
-    """The pre-redesign dark palette keeps its values and becomes the
-    DARK INSTRUMENT family: chart marks, the navigation rail, and focused AI
-    reading surfaces. charts.py reads these directly, so repointing them at
-    the light-surface semantics would put dark green on a dark stage.
-    """
-    assert ds.TL_BG == "#0d1117"
-    assert ds.TL_SURFACE == "#161b22"
+def test_the_semantic_ramp_is_unchanged():
+    """These four were never superseded. charts.py draws marks with them on
+    the dark stage, so repointing them is how a chart loses its meaning."""
     assert ds.TL_PRIMARY == "#00e5cc"
     assert ds.TL_SUCCESS == "#22c55e"
     assert ds.TL_DANGER == "#f56565"
     assert ds.TL_WARNING == "#f59e0b"
-
-
-def test_hybrid_palette_uses_light_workspace_and_dark_rail() -> None:
-    from src.tradelens.ui import design_system as ds
-
-    assert ds.TL_CANVAS == "#F3F6F6"
-    assert ds.TL_PAPER == "#FFFFFF"
-    assert ds.TL_RAIL == "#0F171B"
-    assert ds.TL_CHART_STAGE == "#101A1E"
-    # The plan pinned #087F74. Measured as text on the mineral canvas it is
-    # 4.496:1, four thousandths under the AA floor, so the token is one step
-    # darker. Spec 8 requires these values to be contrast-tested, not copied.
-    assert ds.TL_ACTION == "#087C71"
-    assert ds.TL_FOCUS == "#00E5CC"
 
 
 def test_focus_teal_and_legacy_primary_are_the_same_brand_color():
@@ -135,22 +116,15 @@ def test_focus_teal_and_legacy_primary_are_the_same_brand_color():
     assert ds.TL_FOCUS.lower() == ds.TL_PRIMARY.lower()
 
 
-def test_light_workspace_semantics_are_separate_tokens():
-    """Light surfaces need darker semantic forms than dark instruments.
-    Keeping them under distinct names is what lets one palette serve both."""
-    assert ds.TL_SUCCESS_INK == "#167A47"
-    assert ds.TL_DANGER_INK == "#B53A43"
-    # spec proposed #A76500; measured 4.29:1 on the mineral canvas (below AA)
-    assert ds.TL_WARNING_INK == "#9C5F00"
-    assert ds.TL_SUCCESS_INK != ds.TL_SUCCESS
-    assert ds.TL_DANGER_INK != ds.TL_DANGER
-
-
 def test_all_color_tokens_nonempty_strings():
     for name in dir(ds):
-        if name.startswith("TL_") and not name.startswith("TL_FONT"):
-            val = getattr(ds, name)
-            assert isinstance(val, str) and val, f"{name} must be non-empty str"
+        if not name.startswith("TL_"):
+            continue
+        # TL_FONT_* are stacks; TL_Z_* are integers on an ordered scale.
+        if name.startswith("TL_FONT") or name.startswith("TL_Z_"):
+            continue
+        val = getattr(ds, name)
+        assert isinstance(val, str) and val, f"{name} must be non-empty str"
 
 
 def test_font_tokens_defined():
@@ -597,56 +571,23 @@ def _composite(overlay: str, alpha: float, backdrop: str) -> str:
     )
 
 
-def test_light_workspace_text_pairs_meet_wcag_aa():
-    """AA for normal text is 4.5:1. Every pair a trader actually reads on the
-    light workspace is measured here, so a token tweak cannot quietly drop a
-    label below threshold."""
-    pairs = [
-        ("ink on canvas", ds.TL_INK, ds.TL_CANVAS),
-        ("ink on paper", ds.TL_INK, ds.TL_PAPER),
-        ("ink on mist", ds.TL_INK, ds.TL_MIST),
-        ("muted on canvas", ds.TL_MUTED, ds.TL_CANVAS),
-        ("muted on paper", ds.TL_MUTED, ds.TL_PAPER),
-        ("muted on mist", ds.TL_MUTED, ds.TL_MIST),
-        ("action on canvas", ds.TL_ACTION, ds.TL_CANVAS),
-        ("action on paper", ds.TL_ACTION, ds.TL_PAPER),
-        ("white on action", ds.TL_PAPER, ds.TL_ACTION),
-        ("white on action hover", ds.TL_PAPER, ds.TL_ACTION_HOVER),
-        ("success ink on canvas", ds.TL_SUCCESS_INK, ds.TL_CANVAS),
-        ("success ink on paper", ds.TL_SUCCESS_INK, ds.TL_PAPER),
-        ("danger ink on canvas", ds.TL_DANGER_INK, ds.TL_CANVAS),
-        ("danger ink on paper", ds.TL_DANGER_INK, ds.TL_PAPER),
-        ("warning ink on canvas", ds.TL_WARNING_INK, ds.TL_CANVAS),
-        ("warning ink on paper", ds.TL_WARNING_INK, ds.TL_PAPER),
-    ]
-    for name, fg, bg in pairs:
-        ratio = contrast_ratio(fg, bg)
-        assert ratio >= 4.5, f"{name} is {ratio:.2f}:1 (AA needs 4.5:1)"
-
-
 def test_error_box_copy_is_legible_on_its_own_composited_surface():
     """The error treatment, measured against what actually renders.
 
-    ``error_box`` used a literal #e0855f — a light terracotta picked for a
-    dark surface. On the danger wash over paper it measures ~2.2:1. The
-    message shown when something has already failed is the last text that
-    should be unreadable, so the copy is ink and the hue is the border and
-    mark, which only need the 3:1 non-text floor.
+    The message shown when something has already failed is the last text that
+    should be unreadable, so the copy is primary content and the hue is the
+    border and mark, which only need the 3:1 non-text floor.
     """
     from src.tradelens.ui.components.ui import error_box
 
     assert "#e0855f" not in error_box("boom").lower()
 
-    for surface in (ds.TL_CANVAS, ds.TL_PAPER):
-        ground = _composite(ds.TL_DANGER_INK, 0.10, surface)
-        copy_ratio = contrast_ratio(ds.TL_INK, ground)
-        edge_ratio = contrast_ratio(ds.TL_DANGER_INK, ground)
+    for surface in (ds.TL_SURFACE_CANVAS, ds.TL_SURFACE_PANEL):
+        ground = _composite(ds.TL_DANGER, 0.12, surface)
+        copy_ratio = contrast_ratio(ds.TL_CONTENT_PRIMARY, ground)
+        edge_ratio = contrast_ratio(ds.TL_DANGER, ground)
         assert copy_ratio >= 4.5, f"error copy is {copy_ratio:.2f}:1"
-        assert edge_ratio >= 3.0, f"error border is {edge_ratio:.2f}:1"
-    # the retired literal, measured, so the regression is documented
-    assert (
-        contrast_ratio("#e0855f", _composite(ds.TL_DANGER_INK, 0.10, ds.TL_PAPER)) < 3.0
-    )
+        assert edge_ratio >= 3.0, f"error edge is {edge_ratio:.2f}:1"
 
 
 def test_error_box_is_styled_by_the_design_system():
@@ -657,26 +598,26 @@ def test_error_box_is_styled_by_the_design_system():
     assert "white-space: pre-wrap" in block
 
 
-def test_semantic_washes_carry_ink_copy_and_a_hue_mark():
+def test_semantic_tints_carry_primary_copy_and_a_hue_mark():
     """The badge/banner rule, enforced numerically.
 
-    A 10% tint darkens its surface toward its own ink, so semantic text on
-    its own wash measures 4.1-4.9:1 at every tint strength — the pattern
-    fails, not the value. Copy on a wash is therefore INK (13-14:1) and the
-    hue survives as a dot, which only has to clear the 3:1 non-text floor.
+    A tint pulls its surface toward its own hue, so semantic text on its own
+    tint never clears AA — the pattern fails, not the value. Copy on a tint is
+    therefore primary content, and the hue survives as a mark, which only has
+    to clear the 3:1 non-text floor.
     """
-    washes = [
-        ("success", ds.TL_SUCCESS_INK),
-        ("danger", ds.TL_DANGER_INK),
-        ("warning", ds.TL_WARNING_INK),
-        ("action", ds.TL_ACTION),
+    tints = [
+        ("success", ds.TL_SUCCESS),
+        ("danger", ds.TL_DANGER),
+        ("warning", ds.TL_WARNING),
+        ("action", ds.TL_ACCENT_ACTION),
     ]
-    for surface in (ds.TL_CANVAS, ds.TL_PAPER):
-        for name, hue in washes:
-            ground = _composite(hue, 0.10, surface)
-            copy_ratio = contrast_ratio(ds.TL_INK, ground)
+    for surface in (ds.TL_SURFACE_CANVAS, ds.TL_SURFACE_PANEL):
+        for name, hue in tints:
+            ground = _composite(hue, 0.12, surface)
+            copy_ratio = contrast_ratio(ds.TL_CONTENT_PRIMARY, ground)
             mark_ratio = contrast_ratio(hue, ground)
-            assert copy_ratio >= 4.5, f"ink on {name} wash is {copy_ratio:.2f}:1"
+            assert copy_ratio >= 4.5, f"copy on {name} tint is {copy_ratio:.2f}:1"
             assert mark_ratio >= 3.0, f"{name} mark is {mark_ratio:.2f}:1"
 
 
@@ -703,17 +644,17 @@ def test_no_semantic_hue_is_used_as_text_on_a_wash_or_mist():
         assert "color:" not in body, f"{variant} tints its own copy"
 
 
-def test_dark_instrument_text_pairs_meet_wcag_aa():
+def test_rail_and_stage_text_pairs_meet_wcag_aa():
     """The rail and the chart stage carry text too — they get the same bar."""
     pairs = [
-        ("rail text on rail", ds.TL_TEXT, ds.TL_RAIL),
-        ("rail muted on rail", ds.TL_TEXT_MUTED, ds.TL_RAIL),
-        ("focus teal on rail", ds.TL_FOCUS, ds.TL_RAIL),
-        ("stage text on stage", ds.TL_TEXT, ds.TL_CHART_STAGE),
-        ("stage muted on stage", ds.TL_TEXT_MUTED, ds.TL_CHART_STAGE),
-        ("chart success on stage", ds.TL_SUCCESS, ds.TL_CHART_STAGE),
-        ("chart danger on stage", ds.TL_DANGER, ds.TL_CHART_STAGE),
-        ("chart warning on stage", ds.TL_WARNING, ds.TL_CHART_STAGE),
+        ("content on rail", ds.TL_CONTENT_PRIMARY, ds.TL_SURFACE_RAIL),
+        ("secondary on rail", ds.TL_CONTENT_SECONDARY, ds.TL_SURFACE_RAIL),
+        ("focus teal on rail", ds.TL_FOCUS, ds.TL_SURFACE_RAIL),
+        ("content on stage", ds.TL_CONTENT_PRIMARY, ds.TL_SURFACE_CHART),
+        ("secondary on stage", ds.TL_CONTENT_SECONDARY, ds.TL_SURFACE_CHART),
+        ("chart success on stage", ds.TL_SUCCESS, ds.TL_SURFACE_CHART),
+        ("chart danger on stage", ds.TL_DANGER, ds.TL_SURFACE_CHART),
+        ("chart warning on stage", ds.TL_WARNING, ds.TL_SURFACE_CHART),
     ]
     for name, fg, bg in pairs:
         ratio = contrast_ratio(fg, bg)
@@ -726,7 +667,7 @@ def test_chart_marks_are_legible_on_the_stage_they_are_drawn_on():
     and tick text on the same stage needs the full 4.5:1."""
     from src.tradelens.ui.components import charts
 
-    stage = ds.TL_CHART_STAGE
+    stage = ds.TL_SURFACE_CHART
     assert ds.PLOTLY_TEMPLATE.layout.paper_bgcolor == stage
     marks = [
         ("trajectory teal", charts._TEAL),
@@ -752,7 +693,7 @@ def test_chart_marks_are_legible_on_the_stage_they_are_drawn_on():
 
 def test_every_colorway_entry_is_distinguishable_on_the_stage():
     for i, color in enumerate(ds.PLOTLY_TEMPLATE.layout.colorway):
-        ratio = contrast_ratio(color, ds.TL_CHART_STAGE)
+        ratio = contrast_ratio(color, ds.TL_SURFACE_CHART)
         assert ratio >= 3.0, f"colorway[{i}] {color} is {ratio:.2f}:1"
 
 
@@ -768,27 +709,27 @@ def test_streamlit_config_primary_matches_the_action_token():
     secondary = re.search(r'secondaryBackgroundColor\s*=\s*"(#[0-9a-fA-F]{6})"', config)
     text = re.search(r'textColor\s*=\s*"(#[0-9a-fA-F]{6})"', config)
     assert primary and background and secondary and text
-    assert primary.group(1).upper() == ds.TL_ACTION.upper()
-    assert background.group(1).upper() == ds.TL_CANVAS.upper()
-    assert secondary.group(1).upper() == ds.TL_PAPER.upper()
-    assert text.group(1).upper() == ds.TL_INK.upper()
-    assert re.search(r'base\s*=\s*"light"', config), "workspace base must be light"
+    assert primary.group(1).upper() == ds.TL_ACCENT_ACTION.upper()
+    assert background.group(1).upper() == ds.TL_SURFACE_CANVAS.upper()
+    assert secondary.group(1).upper() == ds.TL_SURFACE_PANEL.upper()
+    assert text.group(1).upper() == ds.TL_CONTENT_PRIMARY.upper()
+    assert re.search(r'base\s*=\s*"dark"', config), "the product base must be dark"
 
 
-def test_grade_ramp_is_legible_on_light_surfaces():
-    """Grade chips sit on paper in the ledger and trade detail. The whole
-    A -> F ramp has to clear AA there, not just its endpoints."""
+def test_grade_ramp_is_legible_on_the_panel_it_is_read_on():
+    """Grade chips moved from the deleted light PAPER surface onto the dark
+    panel, so the whole A -> F ramp is re-measured there."""
     for grade in ("A", "B", "C", "D", "F"):
         color = getattr(ds, f"TL_GRADE_{grade}")
-        ratio = contrast_ratio(color, ds.TL_PAPER)
-        assert ratio >= 4.5, f"grade {grade} is {ratio:.2f}:1 on paper"
+        ratio = contrast_ratio(color, ds.TL_SURFACE_PANEL)
+        assert ratio >= 4.5, f"grade {grade} is {ratio:.2f}:1 on the panel"
 
 
 def test_focus_ring_meets_non_text_contrast():
     """WCAG 2.1 SC 1.4.11: UI component boundaries need 3:1."""
-    assert contrast_ratio(ds.TL_ACTION, ds.TL_CANVAS) >= 3.0
-    assert contrast_ratio(ds.TL_ACTION, ds.TL_PAPER) >= 3.0
-    assert contrast_ratio(ds.TL_FOCUS, ds.TL_RAIL) >= 3.0
+    assert contrast_ratio(ds.TL_ACCENT_ACTION, ds.TL_SURFACE_CANVAS) >= 3.0
+    assert contrast_ratio(ds.TL_ACCENT_ACTION, ds.TL_SURFACE_PANEL) >= 3.0
+    assert contrast_ratio(ds.TL_FOCUS, ds.TL_SURFACE_RAIL) >= 3.0
 
 
 # ---------------------------------------------------------------------------

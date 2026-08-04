@@ -155,12 +155,12 @@ def test_no_hardcoded_palette_in_auth_css():
     # Any 6-digit hex present must be a known design-system token.
     known = {
         ds.TL_PRIMARY.lower(),
-        ds.TL_BG.lower(),
-        ds.TL_SURFACE.lower(),
-        ds.TL_SURFACE_2.lower(),
-        ds.TL_BORDER.lower(),
-        ds.TL_TEXT.lower(),
-        ds.TL_TEXT_MUTED.lower(),
+        ds.TL_SURFACE_CANVAS.lower(),
+        ds.TL_SURFACE_PANEL.lower(),
+        ds.TL_SURFACE_ELEVATED.lower(),
+        ds.TL_LINE_HAIRLINE.lower(),
+        ds.TL_CONTENT_PRIMARY.lower(),
+        ds.TL_CONTENT_SECONDARY.lower(),
         ds.TL_DANGER.lower(),
     }
     for hexval in re.findall(r"#[0-9a-fA-F]{6}", css):
@@ -297,12 +297,12 @@ def test_auth_card_text_meets_wcag_aa_on_its_own_surface():
     from tests.test_design_system import contrast_ratio
 
     pairs = [
-        ("label", ds.TL_TEXT, ds.TL_SURFACE),
-        ("caption", ds.TL_TEXT_MUTED, ds.TL_SURFACE),
-        ("field text", ds.TL_TEXT, ds.TL_SURFACE_2),
-        ("placeholder", ds.TL_TEXT_MUTED, ds.TL_SURFACE_2),
-        ("submit label", ds.TL_BG, ds.TL_PRIMARY),
-        ("focus ring", ds.TL_PRIMARY, ds.TL_SURFACE),
+        ("label", ds.TL_CONTENT_PRIMARY, ds.TL_SURFACE_PANEL),
+        ("caption", ds.TL_CONTENT_SECONDARY, ds.TL_SURFACE_PANEL),
+        ("field text", ds.TL_CONTENT_PRIMARY, ds.TL_SURFACE_ELEVATED),
+        ("placeholder", ds.TL_CONTENT_SECONDARY, ds.TL_SURFACE_ELEVATED),
+        ("submit label", ds.TL_SURFACE_CANVAS, ds.TL_PRIMARY),
+        ("focus ring", ds.TL_PRIMARY, ds.TL_SURFACE_PANEL),
     ]
     for name, fg, bg in pairs:
         ratio = contrast_ratio(fg, bg)

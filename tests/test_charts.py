@@ -151,9 +151,9 @@ def test_apply_chart_stage_paints_the_dark_stage():
     from src.tradelens.ui.components.charts import apply_chart_stage
 
     fig = apply_chart_stage(go.Figure())
-    assert fig.layout.paper_bgcolor == ds.TL_CHART_STAGE
-    assert fig.layout.plot_bgcolor == ds.TL_CHART_STAGE
-    assert fig.layout.font.color == ds.TL_TEXT
+    assert fig.layout.paper_bgcolor == ds.TL_SURFACE_CHART
+    assert fig.layout.plot_bgcolor == ds.TL_SURFACE_CHART
+    assert fig.layout.font.color == ds.TL_CONTENT_PRIMARY
 
 
 def test_apply_chart_stage_returns_the_same_figure():

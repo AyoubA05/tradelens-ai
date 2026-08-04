@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from src.tradelens.ui.design_system import (
-    TL_CHART_STAGE,
+    TL_SURFACE_CHART,
     TL_FONT_MONO,
     TL_DANGER,
     TL_DANGER_DIM,
@@ -14,10 +14,9 @@ from src.tradelens.ui.design_system import (
     TL_PRIMARY_DIM,
     TL_SUCCESS,
     TL_SUCCESS_DIM,
-    TL_SURFACE_2,
-    TL_TEXT,
-    TL_TEXT_FAINT,
-    TL_TEXT_MUTED,
+    TL_SURFACE_ELEVATED,
+    TL_CONTENT_PRIMARY,
+    TL_CONTENT_SECONDARY,
     TL_WARNING,
     TL_WARNING_DIM,
 )
@@ -25,15 +24,20 @@ from src.tradelens.ui.design_system import (
 # Chart color semantics (design-system tokens — single source of truth):
 # teal = brand, reserved for trajectory lines (equity, risk) and the gauge
 # bar; green/red = positive/negative outcomes, matching the KPI cards and
-# table pnl-pos/pnl-neg colors; muted gray = neutral series (breakevens);
-# faint gray = dashed $0 / median reference lines.
+# table pnl-pos/pnl-neg colors; secondary content = neutral series
+# (breakevens) and the dashed $0 / median reference lines.
+#
+# The old palette had two greys here — muted and faint, one step apart. The
+# role system has one secondary content colour, so both now resolve to it.
+# That is the intended collapse, not an oversight: two greys that differed by
+# a hair were carrying no information a reader could actually use.
 _TEAL = TL_PRIMARY
 _POS = TL_SUCCESS
 _NEG = TL_DANGER
-_GRAY = TL_TEXT_MUTED
+_GRAY = TL_CONTENT_SECONDARY
 _TEAL_FILL = TL_PRIMARY_DIM
 _NEG_FILL = TL_DANGER_DIM
-_REF_LINE = TL_TEXT_FAINT
+_REF_LINE = TL_CONTENT_SECONDARY
 
 # The dark chart stage, restated explicitly rather than left to the
 # template. Verified in the browser on streamlit==1.50.0: the frontend
@@ -47,9 +51,9 @@ _REF_LINE = TL_TEXT_FAINT
 # hovermode is NOT set here — each chart picks the appropriate mode.
 _BASE_LAYOUT = dict(
     margin=dict(l=0, r=0, t=32, b=0),
-    plot_bgcolor=TL_CHART_STAGE,
-    paper_bgcolor=TL_CHART_STAGE,
-    font=dict(color=TL_TEXT),
+    plot_bgcolor=TL_SURFACE_CHART,
+    paper_bgcolor=TL_SURFACE_CHART,
+    font=dict(color=TL_CONTENT_PRIMARY),
     showlegend=False,
 )
 
@@ -82,9 +86,9 @@ def apply_chart_stage(fig, *, title: Optional[str] = None, compact: bool = False
     # applied in either order.
     existing_bottom = getattr(fig.layout.margin, "b", None) or 0
     fig.update_layout(
-        paper_bgcolor=TL_CHART_STAGE,
-        plot_bgcolor=TL_CHART_STAGE,
-        font=dict(color=TL_TEXT),
+        paper_bgcolor=TL_SURFACE_CHART,
+        plot_bgcolor=TL_SURFACE_CHART,
+        font=dict(color=TL_CONTENT_PRIMARY),
         height=_STAGE_HEIGHT_COMPACT if compact else _STAGE_HEIGHT,
         margin=dict(l=8, r=8, t=32 if title else 8, b=max(8, existing_bottom)),
     )
@@ -121,7 +125,7 @@ def add_sample_annotation(fig, *, sample_size: int, minimum: int):
         xanchor="right",
         yanchor="top",
         showarrow=False,
-        font=dict(family=TL_FONT_MONO, size=11, color=TL_TEXT_MUTED),
+        font=dict(family=TL_FONT_MONO, size=11, color=TL_CONTENT_SECONDARY),
     )
     existing_bottom = getattr(fig.layout.margin, "b", None) or 0
     fig.update_layout(margin_b=max(existing_bottom, _SAMPLE_MARGIN))
@@ -666,7 +670,7 @@ def session_dow_heatmap(df: pd.DataFrame) -> go.Figure:
             z=piv.values,
             x=[c[:3] for c in piv.columns],
             y=list(piv.index),
-            colorscale=[[0.0, _NEG], [0.5, TL_SURFACE_2], [1.0, _POS]],
+            colorscale=[[0.0, _NEG], [0.5, TL_SURFACE_ELEVATED], [1.0, _POS]],
             zmid=0,
             zmin=-cmax,
             zmax=cmax,
@@ -725,7 +729,7 @@ def calendar_heatmap_chart(daily: pd.DataFrame, year: int, month: int) -> go.Fig
             text=text,
             texttemplate="%{text}",
             textfont=dict(size=11),
-            colorscale=[[0.0, _NEG], [0.5, TL_SURFACE_2], [1.0, _POS]],
+            colorscale=[[0.0, _NEG], [0.5, TL_SURFACE_ELEVATED], [1.0, _POS]],
             zmid=0,
             zmin=-cmax,
             zmax=cmax,

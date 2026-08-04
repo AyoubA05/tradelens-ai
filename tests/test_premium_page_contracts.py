@@ -101,7 +101,7 @@ def test_ledger_keeps_colour_on_monetary_text_only():
     src = _src("2_Trades.py")
     assert "_ledger_styles" in src
     # money keeps its sign colour; that is the one place red/green survives
-    assert "TL_DANGER_INK" in src and "TL_SUCCESS_INK" in src
+    assert "TL_DANGER" in src and "TL_SUCCESS" in src
 
 
 def test_ledger_marks_result_without_relying_on_colour():
@@ -239,9 +239,9 @@ def _ledger_module():
     ]
     module = ast.Module(body=kept, type_ignores=[])
     namespace = {
-        "TL_SUCCESS_INK": "#167A47",
-        "TL_DANGER_INK": "#B53A43",
-        "TL_MUTED": "#5B6A70",
+        "TL_SUCCESS": "#167A47",
+        "TL_DANGER": "#B53A43",
+        "TL_CONTENT_SECONDARY": "#5B6A70",
     }
     exec(compile(module, "<ledger>", "exec"), namespace)  # noqa: S102
     return namespace

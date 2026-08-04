@@ -12,15 +12,15 @@ from __future__ import annotations
 from html import escape
 
 from src.tradelens.ui.design_system import (
-    TL_BG,
-    TL_BORDER,
+    TL_SURFACE_CANVAS,
+    TL_LINE_HAIRLINE,
     TL_DANGER,
     TL_DANGER_DIM,
     TL_PRIMARY,
-    TL_SURFACE,
-    TL_SURFACE_2,
-    TL_TEXT,
-    TL_TEXT_MUTED,
+    TL_SURFACE_PANEL,
+    TL_SURFACE_ELEVATED,
+    TL_CONTENT_PRIMARY,
+    TL_CONTENT_SECONDARY,
     get_asset_as_base64,
 )
 
@@ -42,7 +42,7 @@ def auth_css() -> str:
     backdrop = (
         f"background-image:url(data:image/webp;base64,{bg});"
         if bg
-        else f"background-color:{TL_BG};"
+        else f"background-color:{TL_SURFACE_CANVAS};"
     )
     return f"""<style>
 /* SP3 auth screen — scoped .tl-auth-* only. */
@@ -55,8 +55,8 @@ def auth_css() -> str:
 .tl-auth-scrim {{
   position: fixed; inset: 0; z-index: 0;
   /* Token-derived, not the marketing site's #0d1117 — the app palette is
-     TL_BG. Mixing the two palettes is exactly the drift SP3 removes. */
-  background: linear-gradient(180deg, {TL_BG}d1, {TL_BG} 92%);
+     TL_SURFACE_CANVAS. Mixing the two palettes is exactly the drift SP3 removes. */
+  background: linear-gradient(180deg, {TL_SURFACE_CANVAS}d1, {TL_SURFACE_CANVAS} 92%);
 }}
 /* Streamlit-specific: the auth screen renders pre-login only, so these
    testid-scoped paddings never leak into the app pages. */
@@ -75,8 +75,8 @@ def auth_css() -> str:
 .tl-auth-card {{
   position: relative; z-index: 1;
   max-width: 420px; margin: 6vh auto 0;
-  background: {TL_SURFACE};
-  border: 1px solid {TL_BORDER};
+  background: {TL_SURFACE_PANEL};
+  border: 1px solid {TL_LINE_HAIRLINE};
   border-radius: 16px;
   padding: 30px 30px 22px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
@@ -94,15 +94,15 @@ def auth_css() -> str:
 .st-key-tl_auth_card [data-testid="stWidgetLabel"] p,
 .st-key-tl_auth_card [data-testid="stExpander"] summary,
 .st-key-tl_auth_card [data-testid="stExpanderDetails"] p {{
-  color: {TL_TEXT};
+  color: {TL_CONTENT_PRIMARY};
 }}
 .st-key-tl_auth_card [data-testid="stCaptionContainer"],
 .st-key-tl_auth_card [data-testid="stCaptionContainer"] p {{
-  color: {TL_TEXT_MUTED};
+  color: {TL_CONTENT_SECONDARY};
 }}
 .st-key-tl_auth_card [data-testid="stExpander"] details {{
   background: transparent;
-  border-color: {TL_BORDER};
+  border-color: {TL_LINE_HAIRLINE};
 }}
 .st-key-tl_auth_card [data-testid="stExpander"] summary {{
   min-height: 44px;
@@ -111,25 +111,25 @@ def auth_css() -> str:
 /* Text and password fields. 44px minimum so the controls are comfortable
    on touch; Streamlit's own default is 38px. */
 .st-key-tl_auth_card [data-testid="stTextInputRootElement"] {{
-  background: {TL_SURFACE_2};
-  border: 1px solid {TL_BORDER};
+  background: {TL_SURFACE_ELEVATED};
+  border: 1px solid {TL_LINE_HAIRLINE};
   min-height: 44px;
 }}
 /* BaseWeb nests its own container inside the root element and paints it
    white. Styling the root alone leaves a white field on the dark card —
    verified in the browser, not assumed. */
 .st-key-tl_auth_card [data-baseweb="base-input"] {{
-  background: {TL_SURFACE_2};
+  background: {TL_SURFACE_ELEVATED};
 }}
 .st-key-tl_auth_card [data-testid="stTextInputRootElement"] input {{
-  color: {TL_TEXT};
-  -webkit-text-fill-color: {TL_TEXT};
+  color: {TL_CONTENT_PRIMARY};
+  -webkit-text-fill-color: {TL_CONTENT_PRIMARY};
   caret-color: {TL_PRIMARY};
   background: transparent;
   min-height: 42px;
 }}
 .st-key-tl_auth_card [data-testid="stTextInputRootElement"] input::placeholder {{
-  color: {TL_TEXT_MUTED};
+  color: {TL_CONTENT_SECONDARY};
 }}
 /* Focus lands on the wrapper, not the bare input — the wrapper is what the
    user sees as the field. Bright teal reads 11.3:1 on this card. */
@@ -146,7 +146,7 @@ def auth_css() -> str:
 .st-key-tl_auth_card [data-testid="stTextInputRootElement"] button {{
   background: transparent;
   border: none;
-  color: {TL_TEXT_MUTED};
+  color: {TL_CONTENT_SECONDARY};
   min-width: 44px;
   min-height: 44px;
   padding: 0;
@@ -160,13 +160,13 @@ def auth_css() -> str:
    inactive half as a near-white pill on the dark card. */
 .st-key-tl_auth_card [data-testid="stBaseButton-segmented_control"] {{
   background: transparent;
-  color: {TL_TEXT_MUTED};
-  border-color: {TL_BORDER};
+  color: {TL_CONTENT_SECONDARY};
+  border-color: {TL_LINE_HAIRLINE};
   min-height: 44px;
 }}
 .st-key-tl_auth_card [data-testid="stBaseButton-segmented_controlActive"] {{
-  background: {TL_SURFACE_2};
-  color: {TL_TEXT};
+  background: {TL_SURFACE_ELEVATED};
+  color: {TL_CONTENT_PRIMARY};
   border-color: {TL_PRIMARY};
   min-height: 44px;
 }}
@@ -175,7 +175,7 @@ def auth_css() -> str:
    bright teal reads 11.3:1 against white-on-deep-teal's 5.1:1. */
 .st-key-tl_auth_card [data-testid="stFormSubmitButton"] button {{
   background: {TL_PRIMARY};
-  color: {TL_BG};
+  color: {TL_SURFACE_CANVAS};
   border: 1px solid {TL_PRIMARY};
   font-weight: 600;
   min-height: 44px;
@@ -197,7 +197,7 @@ def auth_css() -> str:
   align-items: center;
   min-height: 44px;
   margin-top: 0;
-  color: {TL_TEXT_MUTED};
+  color: {TL_CONTENT_SECONDARY};
   text-decoration: none;
 }}
 .st-key-tl_auth_card a.tl-auth-back:focus-visible {{
@@ -205,28 +205,28 @@ def auth_css() -> str:
   outline-offset: 2px;
 }}
 .tl-auth-brand {{ display: flex; align-items: center; gap: 10px; }}
-.tl-auth-word {{ font-weight: 700; font-size: 1.05rem; color: {TL_TEXT};
+.tl-auth-word {{ font-weight: 700; font-size: 1.05rem; color: {TL_CONTENT_PRIMARY};
   letter-spacing: -0.01em; }}
 .tl-auth-word em {{ font-style: normal; color: {TL_PRIMARY}; }}
-.tl-auth-title {{ font-size: 1.5rem; font-weight: 700; color: {TL_TEXT};
+.tl-auth-title {{ font-size: 1.5rem; font-weight: 700; color: {TL_CONTENT_PRIMARY};
   letter-spacing: -0.02em; margin: 18px 0 4px; }}
-.tl-auth-sub {{ color: {TL_TEXT_MUTED}; font-size: 0.9rem; margin-bottom: 18px; }}
+.tl-auth-sub {{ color: {TL_CONTENT_SECONDARY}; font-size: 0.9rem; margin-bottom: 18px; }}
 .tl-auth-err {{
   margin-top: 12px; padding: 10px 13px; border-radius: 9px;
   border: 1px solid {TL_DANGER}59; background: {TL_DANGER_DIM};
-  color: {TL_TEXT}; font-size: 0.85rem; line-height: 1.45;
+  color: {TL_CONTENT_PRIMARY}; font-size: 0.85rem; line-height: 1.45;
 }}
 .tl-auth-ok {{
   margin-top: 12px; padding: 10px 13px; border-radius: 9px;
   border: 1px solid {TL_PRIMARY}59; background: {TL_PRIMARY}1f;
-  color: {TL_TEXT}; font-size: 0.85rem; line-height: 1.45;
+  color: {TL_CONTENT_PRIMARY}; font-size: 0.85rem; line-height: 1.45;
 }}
 .tl-auth-note {{
-  margin-top: 18px; padding-top: 14px; border-top: 1px solid {TL_BORDER};
-  color: {TL_TEXT_MUTED}; font-size: 0.78rem; line-height: 1.5;
+  margin-top: 18px; padding-top: 14px; border-top: 1px solid {TL_LINE_HAIRLINE};
+  color: {TL_CONTENT_SECONDARY}; font-size: 0.78rem; line-height: 1.5;
 }}
-.tl-auth-note b {{ color: {TL_TEXT}; font-weight: 600; }}
-.tl-auth-back {{ display: inline-block; margin-top: 10px; color: {TL_TEXT_MUTED};
+.tl-auth-note b {{ color: {TL_CONTENT_PRIMARY}; font-weight: 600; }}
+.tl-auth-back {{ display: inline-block; margin-top: 10px; color: {TL_CONTENT_SECONDARY};
   font-size: 0.78rem; text-decoration: none; }}
 .tl-auth-back:hover {{ color: {TL_PRIMARY}; }}
 @media (max-width: 640px) {{

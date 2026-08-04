@@ -108,14 +108,14 @@ def test_theme_reexports_the_hybrid_workspace_roles():
     roles must be reachable here without a second set of literals."""
     from src.tradelens.ui import design_system as ds
 
-    assert theme.CANVAS == ds.TL_CANVAS
-    assert theme.PAPER == ds.TL_PAPER
-    assert theme.MIST == ds.TL_MIST
-    assert theme.INK == ds.TL_INK
-    assert theme.HAIRLINE == ds.TL_HAIRLINE
-    assert theme.RAIL == ds.TL_RAIL
-    assert theme.CHART_STAGE == ds.TL_CHART_STAGE
-    assert theme.ACTION == ds.TL_ACTION
+    assert theme.CANVAS == ds.TL_SURFACE_CANVAS
+    assert theme.PAPER == ds.TL_SURFACE_PANEL
+    assert theme.MIST == ds.TL_SURFACE_ELEVATED
+    assert theme.INK == ds.TL_CONTENT_PRIMARY
+    assert theme.HAIRLINE == ds.TL_LINE_HAIRLINE
+    assert theme.RAIL == ds.TL_SURFACE_RAIL
+    assert theme.CHART_STAGE == ds.TL_SURFACE_CHART
+    assert theme.ACTION == ds.TL_ACCENT_ACTION
 
 
 def test_theme_surface_tokens_follow_the_light_workspace():
@@ -124,11 +124,11 @@ def test_theme_surface_tokens_follow_the_light_workspace():
     white-on-white once the app canvas turns light."""
     from src.tradelens.ui import design_system as ds
 
-    assert theme.BG == ds.TL_CANVAS
-    assert theme.SURFACE == ds.TL_PAPER
-    assert theme.BORDER == ds.TL_HAIRLINE
-    assert theme.TEXT_PRIMARY == ds.TL_INK
-    assert theme.TEXT_MUTED == ds.TL_MUTED
+    assert theme.BG == ds.TL_SURFACE_CANVAS
+    assert theme.SURFACE == ds.TL_SURFACE_PANEL
+    assert theme.BORDER == ds.TL_LINE_HAIRLINE
+    assert theme.TEXT_PRIMARY == ds.TL_CONTENT_PRIMARY
+    assert theme.TEXT_MUTED == ds.TL_CONTENT_SECONDARY
 
 
 def test_font_stacks_defined():
@@ -146,8 +146,8 @@ def test_grade_colors_span_success_to_danger():
     # semantics rather than the brighter dark-instrument ones.
     from src.tradelens.ui import design_system as ds
 
-    assert theme.GRADE_COLORS["A+"] == ds.TL_SUCCESS_INK
-    assert theme.GRADE_COLORS["F"] == ds.TL_DANGER_INK
+    assert theme.GRADE_COLORS["A+"] == ds.TL_SUCCESS
+    assert theme.GRADE_COLORS["F"] == ds.TL_DANGER
     assert theme.GRADE_COLORS["A+"] != theme.TEAL
     assert theme.GRADE_COLORS["F"] != theme.TERRA
 
@@ -172,8 +172,8 @@ def test_plotly_template_paints_the_dark_chart_stage():
     from src.tradelens.ui import design_system as ds
 
     layout = theme.PLOTLY_TEMPLATE.layout
-    assert layout.paper_bgcolor == ds.TL_CHART_STAGE
-    assert layout.plot_bgcolor == ds.TL_CHART_STAGE
+    assert layout.paper_bgcolor == ds.TL_SURFACE_CHART
+    assert layout.plot_bgcolor == ds.TL_SURFACE_CHART
 
 
 def test_charts_pin_the_stage_explicitly_so_streamlit_cannot_repaint_it():
@@ -184,9 +184,9 @@ def test_charts_pin_the_stage_explicitly_so_streamlit_cannot_repaint_it():
     from src.tradelens.ui import design_system as ds
     from src.tradelens.ui.components import charts
 
-    assert charts._BASE_LAYOUT["plot_bgcolor"] == ds.TL_CHART_STAGE
-    assert charts._BASE_LAYOUT["paper_bgcolor"] == ds.TL_CHART_STAGE
-    assert charts._BASE_LAYOUT["font"]["color"] == ds.TL_TEXT
+    assert charts._BASE_LAYOUT["plot_bgcolor"] == ds.TL_SURFACE_CHART
+    assert charts._BASE_LAYOUT["paper_bgcolor"] == ds.TL_SURFACE_CHART
+    assert charts._BASE_LAYOUT["font"]["color"] == ds.TL_CONTENT_PRIMARY
     # never a literal — the stage has exactly one definition
     assert "rgba(0,0,0,0)" not in repr(charts._BASE_LAYOUT)
 
@@ -234,9 +234,9 @@ def test_rendered_figures_resolve_to_the_dark_stage():
         }
     )
     fig = charts.equity_curve_chart(df)
-    assert fig.layout.paper_bgcolor == ds.TL_CHART_STAGE
-    assert fig.layout.plot_bgcolor == ds.TL_CHART_STAGE
-    assert fig.layout.template.layout.paper_bgcolor == ds.TL_CHART_STAGE
+    assert fig.layout.paper_bgcolor == ds.TL_SURFACE_CHART
+    assert fig.layout.plot_bgcolor == ds.TL_SURFACE_CHART
+    assert fig.layout.template.layout.paper_bgcolor == ds.TL_SURFACE_CHART
     # and the trace drawn on it is a bright mark, not a light-surface one
     assert fig.data[0].line.color == ds.TL_PRIMARY
 
