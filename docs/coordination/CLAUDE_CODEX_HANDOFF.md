@@ -20,23 +20,22 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `NEW TRADE FIX AMENDED — AWAITING CODEX RE-REVIEW`
-- Last completed work: Claude amended the New Trade fix after Codex withheld
-  approval. The mirror is now synchronised only from the uploader's `on_change`
-  callback, so a remount is no longer mistaken for a removal; a second
-  unsettable widget key class (autofill buttons) was found by the real-file
-  browser run and exempted too. Ten tests added, three mutation-checked.
-- Verification: `1618 passed, 7 skipped` (was 1608/7); Ruff clean; Black clean
-  (174 files); `git diff --check` clean. Real-file browser round trip
-  upload -> Forward -> Back -> Forward held `6 of 15` at every step with zero
-  exceptions and a byte-identical retained chart.
-- Next owner: `CODEX` for diff review and browser re-verification.
-- Next work: review the amendment `8b35a6e` (plus this pointer commit),
-  re-run the New Trade round trip with a real file, then
-  rebuild the consolidated implementation plan from the Phase 1 spec. Do not
-  begin Phase 2 before that review lands.
+- Current phase: `IMPLEMENTATION PLAN REBUILT — AWAITING CODEX PLAN REVIEW`
+- Last completed work: Claude rebuilt the consolidated implementation plan from
+  the Phase 1 spec, the browser preflight, and the Codex rulings in this file.
+  Documentation only — no product code, no service, no test file changed.
+- Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
+  (2509 lines, 17 tasks, 143 steps). It supersedes
+  `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
+- Verification: none run — documentation only. The last code baseline stands at
+  `1618 passed, 7 skipped`; Ruff clean; Black clean (174 files);
+  `git diff --check` clean.
+- Next owner: `CODEX` for plan review.
+- Next work: review the rebuilt plan for scope, AI safety, tenancy, and
+  service-contract fidelity. Task 4 is assigned to Codex and must be executed by
+  Codex, not Claude. Do not begin Task 1 before the plan review lands.
 - Blocker: cleared. The `nt_shot` Back-navigation exception is fixed and proved
-  fixed in a real browser both ways (see the handoff-log entry below).
+  fixed in a real browser both ways (see the handoff-log entries below).
 
 ## Ownership boundaries
 
@@ -181,6 +180,68 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-04 — Consolidated implementation plan rebuilt (Claude)
+
+Codex approved `8b35a6e` and `3bb4a5f`, which cleared §16.5's gate. The plan was
+rebuilt from the three named sources with `superpowers:writing-plans`.
+
+**Plan:** `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
+— 17 tasks, 143 checkbox steps, 2509 lines. Each task carries exact file paths,
+an Interfaces block naming what it consumes from earlier tasks and produces for
+later ones, real test code before real implementation, and a Codex review gate.
+
+**How the three sources were used.**
+
+- The **spec** supplies the design contract. A closing coverage table maps every
+  spec section to the task that implements it, so a gap is visible rather than
+  discovered late.
+- The **preflight** overrode source-only reasoning in three places, recorded in
+  the plan's own "What the browser preflight already changed" section: the
+  Partner breakpoints (drawer at every sidebar-navigation width ≥768, full-page
+  destination only at ≤767 where bottom navigation actually renders), the
+  dataframe toolbar controls measured at ≈22.4×22.4 CSS px at 1440, and the
+  nested-route `_stcore` 404s as pre-existing infrastructure noise rather than a
+  redesign target.
+- **This file's rulings** became Task 4 verbatim. `RuleAdherenceSummary`,
+  `EdgeLeakSummary`, and `build_global_partner_context(*, user_id)` are written
+  as fixed interfaces that implementation may not renegotiate.
+
+**Ownership is explicit in the plan, not implied.** Task 4 is marked
+Codex-owned; if Claude reaches it, it stops and hands over the lock. The plan's
+global constraints repeat that Claude writes no service code and that
+`ai_client.py`, `partner.py`, `metrics.py`, and the auth/database/cost/tenant/
+secret modules are Codex-owned.
+
+**Two decisions the plan makes that are worth Codex's attention.**
+
+1. **Grade tokens are re-pointed at the dark semantic family.** `TL_GRADE_A`–`F`
+   currently alias the light-workspace ramp (`TL_SUCCESS_INK`, `TL_WARNING_INK`,
+   `TL_DANGER_INK`), which Task 1 deletes. The plan re-points A/C/F at
+   `TL_SUCCESS`/`TL_WARNING`/`TL_DANGER` and gives B and D brighter
+   lime/orange values, with a test asserting all five clear 4.5:1 on
+   `TL_SURFACE_PANEL`. This was not in the spec — the spec's deletion list made
+   it necessary, and it is flagged here rather than buried in a task.
+2. **`MIN_DATED_POINTS` is exposed publicly rather than duplicated.** Spec §5.4a
+   requires one policy for the equity curve and the calendar heatmap. The plan
+   exposes the existing `_MIN_DOMINANT_POINTS` constant as
+   `data_state.MIN_DATED_POINTS` with `show_dated_instrument(state)`, and pins
+   the two gates together with a parametrised test across 0–8 populated days, so
+   the heatmap cannot drift onto a second threshold.
+
+**Two known gaps are carried forward unchanged**, stated in the plan's closing
+section rather than silently dropped: the TradeZella reference images were never
+received, and the Partner's `position: fixed` behaviour is still unverified
+(Task 14 step 7 verifies it; step 8 is the reviewed docked fallback, which
+remains a recorded decision and never a silent substitution).
+
+**Files changed:** the plan (added) and this handoff. Documentation only — no
+product code, no service, no test, no token file touched. `git add -A` not used;
+untracked `src/tradelens/ui/.impeccable/` again deliberately not staged.
+
+**Tests and browser checks:** none. Nothing executable changed.
+
+Ownership returned to `NONE`.
 
 ### 2026-08-03 — New Trade fix amended after Codex review (Claude)
 
