@@ -31,7 +31,7 @@ the same time.
   upload -> Forward -> Back -> Forward held `6 of 15` at every step with zero
   exceptions and a byte-identical retained chart.
 - Next owner: `CODEX` for diff review and browser re-verification.
-- Next work: review the amendment (hash recorded in the log entry below),
+- Next work: review the amendment `8b35a6e` (plus this pointer commit),
   re-run the New Trade round trip with a real file, then
   rebuild the consolidated implementation plan from the Phase 1 spec. Do not
   begin Phase 2 before that review lands.
@@ -269,7 +269,8 @@ lives in the wizard. No services touched; `.impeccable/` left untracked.
 **Stale reference corrected.** The previous entry pointed at `ce80324`, which
 was the pre-amend hash — `git commit --amend` had rewritten it to `b9084ba`. A
 commit cannot contain its own hash, so the pointer is now set in a follow-up
-commit rather than by amending; both hashes are recorded below.
+commit rather than by amending. The amendment is `8b35a6e`; the commit that
+carries this pointer is the branch head.
 
 **For Codex, two things worth a second opinion:**
 
