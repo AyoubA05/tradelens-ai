@@ -20,21 +20,19 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `NEW TRADE REGRESSION FIXED — AWAITING CODEX DIFF REVIEW`
-- Last completed work: Claude fixed the New Trade Back-navigation regression
-  that blocked the browser preflight. Root cause was `keep_alive()` re-asserting
-  the `nt_shot` file_uploader key, which Streamlit forbids; the fix exempts
-  unsettable widget keys and mirrors the screenshot draft onto a wizard-owned
-  plain key so nothing is lost on steps 2-5. Five tests added, two of them
-  mutation-checked. Proved fixed in a real browser both with and without the
-  fix. No redesign UI was implemented.
-- Verification: `1608 passed, 7 skipped` (was 1603/7); Ruff clean; Black clean
-  (174 files); `git diff --check` clean. Live CDP round trip at 1440 against a
-  throwaway database: zero exceptions on step 1, step 2, and Back, with the
-  uploader restored on return. The same run reproduced the documented
-  exception verbatim when the fix was disabled.
+- Current phase: `NEW TRADE FIX AMENDED — AWAITING CODEX RE-REVIEW`
+- Last completed work: Claude amended the New Trade fix after Codex withheld
+  approval. The mirror is now synchronised only from the uploader's `on_change`
+  callback, so a remount is no longer mistaken for a removal; a second
+  unsettable widget key class (autofill buttons) was found by the real-file
+  browser run and exempted too. Ten tests added, three mutation-checked.
+- Verification: `1618 passed, 7 skipped` (was 1608/7); Ruff clean; Black clean
+  (174 files); `git diff --check` clean. Real-file browser round trip
+  upload -> Forward -> Back -> Forward held `6 of 15` at every step with zero
+  exceptions and a byte-identical retained chart.
 - Next owner: `CODEX` for diff review and browser re-verification.
-- Next work: review commit `ce80324`, re-run the New Trade round trip, then
+- Next work: review the amendment (hash recorded in the log entry below),
+  re-run the New Trade round trip with a real file, then
   rebuild the consolidated implementation plan from the Phase 1 spec. Do not
   begin Phase 2 before that review lands.
 - Blocker: cleared. The `nt_shot` Back-navigation exception is fixed and proved
@@ -183,6 +181,108 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-03 — New Trade fix amended after Codex review (Claude)
+
+Codex approved the crash fix but withheld approval because an uploaded
+screenshot was still lost after Back. Codex was right, and the reasoning in my
+previous commit comment was wrong where it mattered.
+
+**What I got wrong.** I wrote that the deletion branch "only runs while the
+uploader is on screen, so an empty widget here means the trader removed the
+file." The uploader is also on screen immediately after Back — freshly
+remounted and reporting `None` without the trader touching anything. That path
+deleted the mirror. The `6 of 15` Codex saw on the first returned render was
+`_FIELD_VALUES` reading the mirror at module level before `_step_screenshot()`
+deleted it further down the same run, which is why the loss only surfaced as
+`5 of 15` on the next step.
+
+**Corrected mechanism.** The mirror is now synchronised *only* from the
+uploader's `on_change` callback, which Streamlit fires on a genuine upload or
+removal and never on a remount. Two pure helpers moved into `trade_wizard.py`
+so the semantics are unit-testable without a browser:
+
+- `sync_screenshot_mirror(state)` — callback-only; stores on upload, clears on
+  a real removal.
+- `effective_screenshot(state)` — live widget wins, mirror answers otherwise.
+
+The page renders the effective screenshot, so after Back the preview and the
+draft count both hold. Because a remounted uploader cannot be told to show the
+file it had, the retained state is now stated explicitly ("Kept from earlier in
+this draft: <name>") with its own **Remove chart** control — without it a
+retained chart could never be taken off, since the uploader's own ✕ is gone
+with the remount.
+
+**A second defect the real-file run exposed.** Codex's instruction to test with
+an actual image was what caught it. Once a chart is uploaded, the autofill panel
+renders three `st.button`s keyed `_nt_ai_apply`, `_nt_ai_cancel`, and
+`_nt_ai_analyze`. Buttons are unsettable exactly like uploaders, and all three
+sit under the `_nt_` prefix, so `keep_alive` swept them up and Back raised
+`StreamlitValueAssignmentNotAllowedError` for `_nt_ai_analyze`. My first fix
+could not have caught this: with no file uploaded, that panel never renders. All
+three are now exempt. Re-asserting a button is pointless as well as illegal — a
+click is an event, not a draft value.
+
+**Guards, three of them mutation-checked:**
+
+- `test_the_page_syncs_the_mirror_only_from_the_change_callback` — requires
+  `on_change` on the uploader and allows at most one mirror deletion inside
+  `_step_screenshot` (the explicit Remove control). Reintroducing the exact
+  render-time deletion makes it fail.
+- `test_every_unsettable_widget_key_is_exempt_from_keep_alive` — now scans
+  **both** `1_NewTrade.py` and `ai_autofill_review.py` for `st.button`,
+  `download_button`, `form_submit_button`, `chat_input`, and `file_uploader`
+  keys under the wizard prefixes, resolving literal and constant keys alike.
+- `test_the_exemption_set_has_no_dead_entries` — the exemption set may not name
+  a widget that no longer exists.
+- Unit coverage for store / clear-on-removal / replace / remount-is-not-a-change
+  / live-wins / mirror-fallback / none, plus reset and ownership-change
+  clearing.
+
+**Real-file browser round trip** — headless Chrome over CDP at 1440, real PNG
+uploaded through `DOM.setFileInputFiles`, throwaway SQLite database:
+
+| Phase | Draft | Exceptions | Retained state |
+|---|---|---|---|
+| after upload | 6 of 15 | 0 | — |
+| Forward to step 2 | 6 of 15 | 0 | — |
+| Back to step 1 | **6 of 15** | **0** | shown |
+| Forward again | **6 of 15** | 0 | — |
+
+Chart identity was verified, not assumed: Streamlit serves uploaded media at a
+content-addressed URL, and it is byte-identical before and after Back
+(`/media/0617287abe4…jpg`), with the filename `test_chart.png` preserved in the
+retained caption. An intermediate run of this same script — before the button
+keys were exempted — reproduced the `_nt_ai_analyze` exception, so the driver
+demonstrably detects the failure it is asserting against.
+
+**Verification:** `1618 passed, 7 skipped` (was 1608/7); Ruff clean; Black clean
+(174 files); `git diff --check` clean. Dev database untouched
+(`data/tradelens.db`, Jul 31); no capture artifact entered the worktree; both
+browser and app processes stopped.
+
+**Files changed:** `src/tradelens/ui/components/trade_wizard.py`,
+`src/tradelens/ui/pages/1_NewTrade.py`, `tests/test_trade_wizard.py`, and this
+handoff. `ai_autofill_review.py` was read but **not modified** — the exemption
+lives in the wizard. No services touched; `.impeccable/` left untracked.
+
+**Stale reference corrected.** The previous entry pointed at `ce80324`, which
+was the pre-amend hash — `git commit --amend` had rewritten it to `b9084ba`. A
+commit cannot contain its own hash, so the pointer is now set in a follow-up
+commit rather than by amending; both hashes are recorded below.
+
+**For Codex, two things worth a second opinion:**
+
+1. The mirror holds an `UploadedFile` reference across reruns. Consumers only
+   read in-memory `BytesIO` data and the browser run confirms the bytes survive,
+   but lifetime remains the judgement call in this change.
+2. The exemption set is a hand-maintained list bound to source by a scanning
+   test. That is the best available given Streamlit exposes no way to ask
+   whether a key is settable — but if you know of a runtime check, it would be
+   strictly better than a scan.
+
+Ownership returned to `NONE`.
+
 
 ### 2026-08-03 — New Trade Back-navigation regression fixed (Claude)
 

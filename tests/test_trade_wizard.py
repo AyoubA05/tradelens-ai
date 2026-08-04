@@ -606,6 +606,108 @@ def test_keep_alive_skips_keys_streamlit_forbids_assigning():
     assert "nt_shot" in state, "the key must be left in place, only not re-assigned"
 
 
+class _Shot:
+    """Stand-in for an UploadedFile: identity and name are all that matter."""
+
+    def __init__(self, name="chart.png"):
+        self.name = name
+
+
+def test_mirror_stores_the_upload_on_a_change_event():
+    shot = _Shot()
+    state = {tw.SCREENSHOT_WIDGET_KEY: shot}
+    tw.sync_screenshot_mirror(state)
+    assert state[tw.SCREENSHOT_DRAFT_KEY] is shot
+
+
+def test_mirror_clears_on_a_genuine_removal():
+    """The trader clicked the uploader's ✕, so the widget reports None on a
+    real change event. That is a removal and must drop the mirror."""
+    state = {tw.SCREENSHOT_WIDGET_KEY: None, tw.SCREENSHOT_DRAFT_KEY: _Shot()}
+    tw.sync_screenshot_mirror(state)
+    assert tw.SCREENSHOT_DRAFT_KEY not in state
+
+
+def test_mirror_replaces_on_a_second_upload():
+    first, second = _Shot("first.png"), _Shot("second.png")
+    state = {tw.SCREENSHOT_WIDGET_KEY: first}
+    tw.sync_screenshot_mirror(state)
+    state[tw.SCREENSHOT_WIDGET_KEY] = second
+    tw.sync_screenshot_mirror(state)
+    assert state[tw.SCREENSHOT_DRAFT_KEY] is second
+
+
+def test_a_remount_does_not_touch_the_mirror():
+    """The regression Codex caught.
+
+    After Back the uploader remounts empty and reports None *without* firing
+    its change callback. Nothing may run sync_screenshot_mirror on that path,
+    so the mirror — and the draft field count — must survive untouched.
+    """
+    shot = _Shot()
+    state = {tw.SCREENSHOT_WIDGET_KEY: None, tw.SCREENSHOT_DRAFT_KEY: shot}
+
+    # A render is not a change: only effective_screenshot runs on this path.
+    assert tw.effective_screenshot(state) is shot
+    assert state[tw.SCREENSHOT_DRAFT_KEY] is shot
+
+
+def test_effective_screenshot_prefers_the_live_widget():
+    live, mirrored = _Shot("live.png"), _Shot("mirrored.png")
+    assert (
+        tw.effective_screenshot(
+            {tw.SCREENSHOT_WIDGET_KEY: live, tw.SCREENSHOT_DRAFT_KEY: mirrored}
+        )
+        is live
+    )
+
+
+def test_effective_screenshot_falls_back_to_the_mirror():
+    mirrored = _Shot()
+    assert (
+        tw.effective_screenshot(
+            {tw.SCREENSHOT_WIDGET_KEY: None, tw.SCREENSHOT_DRAFT_KEY: mirrored}
+        )
+        is mirrored
+    )
+
+
+def test_effective_screenshot_is_none_when_nothing_is_held():
+    assert tw.effective_screenshot({}) is None
+    assert tw.effective_screenshot({tw.SCREENSHOT_WIDGET_KEY: None}) is None
+
+
+def test_the_page_syncs_the_mirror_only_from_the_change_callback():
+    """Structural guard for the defect Codex caught.
+
+    A render-time `pop(SCREENSHOT_DRAFT_KEY)` deletes the chart every time the
+    uploader remounts. The mirror may only be cleared from the change callback
+    or the explicit remove control.
+    """
+    source = _PAGE.read_text(encoding="utf-8")
+
+    uploader = re.search(r"st\.file_uploader\((.*?)\n    \)", source, flags=re.DOTALL)
+    assert uploader, "could not locate the file_uploader call"
+    assert "on_change=" in uploader.group(
+        1
+    ), "the uploader must synchronise its mirror through on_change"
+
+    body = source[source.index("def _step_screenshot()") :]
+    body = body[: body.index("\ndef ")]
+    pops = re.findall(r"pop\(\s*SCREENSHOT_DRAFT_KEY", body)
+    assert len(pops) <= 1, (
+        "the only mirror deletion inside _step_screenshot may be the explicit "
+        f"Remove control; found {len(pops)}"
+    )
+
+
+def test_ownership_change_clears_the_mirror():
+    """A different trader must never inherit the previous one's chart."""
+    state = {tw.SCREENSHOT_DRAFT_KEY: _Shot(), tw.WIZARD_OWNER_KEY: "id:1"}
+    tw.scope_wizard_to_owner(state, "id:2")
+    assert tw.SCREENSHOT_DRAFT_KEY not in state
+
+
 def test_screenshot_draft_key_is_wizard_owned():
     """The mirror that carries the upload across steps must reset with the
     wizard. A mirror outside the owned prefix would survive a reset and leak
@@ -617,30 +719,87 @@ def test_screenshot_draft_key_is_wizard_owned():
     assert tw.SCREENSHOT_DRAFT_KEY not in state
 
 
-def test_every_uploader_key_on_the_page_is_exempt_from_keep_alive():
-    """The real guard against this regression returning.
+_AUTOFILL = (
+    Path(__file__).resolve().parents[1]
+    / "src"
+    / "tradelens"
+    / "ui"
+    / "components"
+    / "ai_autofill_review.py"
+)
 
-    A second file_uploader added to the wizard would reintroduce the exact
-    same crash, and neither AppTest nor the unit tests above would notice,
-    because they only know about `nt_shot`. So bind the exemption set to the
-    page: every uploader key the page declares must be exempt.
-    """
-    source = _PAGE.read_text(encoding="utf-8")
-    uploader_calls = re.findall(r"st\.file_uploader\((.*?)\)", source, flags=re.DOTALL)
-    assert uploader_calls, "expected at least one file_uploader on the page"
+# Widget types whose value Streamlit refuses to accept from session_state.
+_UNSETTABLE_WIDGETS = (
+    "button",
+    "download_button",
+    "form_submit_button",
+    "chat_input",
+    "file_uploader",
+)
 
+
+def _declared_unsettable_keys(source: str) -> set:
+    """Every wizard-prefixed key the source gives an unsettable widget."""
     keys = set()
-    for call in uploader_calls:
-        found = re.search(r"""key\s*=\s*["']([^"']+)["']""", call)
-        assert found, f"file_uploader without an explicit key: {call[:80]}"
-        keys.add(found.group(1))
+    for widget in _UNSETTABLE_WIDGETS:
+        for call in re.findall(
+            rf"\.{widget}\((.*?)\n\s*\)|\.{widget}\(([^()]*)\)",
+            source,
+            flags=re.DOTALL,
+        ):
+            body = call[0] or call[1]
+            literal = re.search(r"""key\s*=\s*["']([^"']+)["']""", body)
+            if literal:
+                keys.add(literal.group(1))
+                continue
+            named = re.search(r"key\s*=\s*([A-Z_][A-Z0-9_]*)\s*[,)]", body)
+            if named:
+                resolved = getattr(tw, named.group(1), None)
+                assert isinstance(resolved, str), (
+                    f"{widget} key {named.group(1)!r} does not resolve to a "
+                    "string constant on trade_wizard; this guard cannot verify it"
+                )
+                keys.add(resolved)
+    return {
+        k
+        for k in keys
+        if k.startswith(tw.FIELD_PREFIX) or k.startswith(tw.PRIVATE_PREFIX)
+    }
 
-    missing = keys - tw.UNSETTABLE_WIDGET_KEYS
+
+def test_every_unsettable_widget_key_is_exempt_from_keep_alive():
+    """The real guard against this class of regression returning.
+
+    Any uploader or button the wizard renders under its own key prefixes will
+    be swept up by keep_alive and crash Back navigation. The first fix covered
+    only `nt_shot`; a real-file browser run then hit `_nt_ai_analyze`, a button
+    in the autofill panel that only appears once a chart has been uploaded.
+    So bind the exemption set to the source of both files rather than to a
+    remembered list.
+    """
+    declared = _declared_unsettable_keys(
+        _PAGE.read_text(encoding="utf-8")
+    ) | _declared_unsettable_keys(_AUTOFILL.read_text(encoding="utf-8"))
+
+    assert declared, "expected to find unsettable widget keys to check"
+
+    missing = declared - tw.UNSETTABLE_WIDGET_KEYS
     assert not missing, (
-        f"file_uploader key(s) {sorted(missing)} are not in "
+        f"unsettable widget key(s) {sorted(missing)} are not in "
         "UNSETTABLE_WIDGET_KEYS; keep_alive will assign them and Back "
         "navigation will raise StreamlitValueAssignmentNotAllowedError"
     )
+
+
+def test_the_exemption_set_has_no_dead_entries():
+    """An exemption for a key nothing declares is a stale note, and it hides
+    the fact that the widget it named is gone."""
+    declared = _declared_unsettable_keys(
+        _PAGE.read_text(encoding="utf-8")
+    ) | _declared_unsettable_keys(_AUTOFILL.read_text(encoding="utf-8"))
+
+    stale = tw.UNSETTABLE_WIDGET_KEYS - declared
+    assert not stale, f"UNSETTABLE_WIDGET_KEYS lists absent widgets: {sorted(stale)}"
 
 
 # The two round trips below are workflow smoke tests, NOT regressions guards

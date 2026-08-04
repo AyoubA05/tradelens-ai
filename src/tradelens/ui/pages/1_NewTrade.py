@@ -66,9 +66,11 @@ from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.trade_wizard import (  # noqa: E402
     LAST_STEP,
     SCREENSHOT_DRAFT_KEY,
+    SCREENSHOT_WIDGET_KEY,
     WIZARD_STEPS,
     current_step,
     draft_completion,
+    effective_screenshot,
     keep_alive,
     missing_required_fields,
     next_step,
@@ -77,6 +79,7 @@ from src.tradelens.ui.components.trade_wizard import (  # noqa: E402
     safe_save_failure_message,
     scope_wizard_to_owner,
     set_step,
+    sync_screenshot_mirror,
 )
 from src.tradelens.ui.components.ui import error_box  # noqa: E402
 from src.tradelens.ui.components.workspace import (  # noqa: E402
@@ -300,15 +303,9 @@ emo_after = st.session_state.get("nt_emo_after")
 
 # The uploader only exists on step 1, and its key cannot be re-asserted the
 # way keep_alive preserves every other field (see UNSETTABLE_WIDGET_KEYS), so
-# Streamlit drops it the moment the trader moves on. The mirror written in
-# _step_screenshot carries the chart through the remaining steps, and the live
-# widget wins whenever it is on screen.
-_shot_widget = st.session_state.get("nt_shot")
-screenshot_file = (
-    _shot_widget
-    if _shot_widget is not None
-    else st.session_state.get(SCREENSHOT_DRAFT_KEY)
-)
+# Streamlit drops it the moment the trader moves on. The mirror kept in sync by
+# the uploader's change callback carries the chart through the remaining steps.
+screenshot_file = effective_screenshot(st.session_state)
 screenshot_url = _raw("nt_shot_url")
 
 # Field view the wizard's pure rules read (its own vocabulary, not widget keys).
@@ -334,6 +331,11 @@ _FIELD_VALUES = {
 # ══════════════════════════════════════════════════════════════════
 # Step 1 — Screenshot & AI Autofill (screenshot-first; Bug 2 + Change A)
 # ══════════════════════════════════════════════════════════════════
+def _on_screenshot_change() -> None:
+    """Uploader change callback — the only place the mirror is synchronised."""
+    sync_screenshot_mirror(st.session_state)
+
+
 def _step_screenshot() -> None:
     st.markdown(render_section_header("Start with your chart"), unsafe_allow_html=True)
     st.caption(
@@ -348,20 +350,43 @@ def _step_screenshot() -> None:
         ),
         unsafe_allow_html=True,
     )
-    screenshot_file = st.file_uploader(
-        "Upload screenshot", type=["png", "jpg", "jpeg", "webp"], key="nt_shot"
+    # on_change, not a render-time check: the uploader remounts empty after
+    # Back, and treating that as a removal is what dropped the chart from the
+    # draft. The callback fires only when the trader actually uploads or
+    # removes a file.
+    st.file_uploader(
+        "Upload screenshot",
+        type=["png", "jpg", "jpeg", "webp"],
+        key=SCREENSHOT_WIDGET_KEY,
+        on_change=_on_screenshot_change,
     )
-    # Mirror the upload onto a plain key so it survives steps 2-5. This branch
-    # only runs while the uploader is on screen, so an empty widget here means
-    # the trader removed the file — not that we are on another step.
-    if screenshot_file is not None:
-        st.session_state[SCREENSHOT_DRAFT_KEY] = screenshot_file
-    else:
-        st.session_state.pop(SCREENSHOT_DRAFT_KEY, None)
+    screenshot_file = effective_screenshot(st.session_state)
+    retained = (
+        screenshot_file is not None
+        and st.session_state.get(SCREENSHOT_WIDGET_KEY) is None
+    )
+    # A remounted uploader cannot be told to show the file it had, so say so
+    # rather than leaving the trader looking at an empty control while the
+    # draft counts a chart.
+    if retained:
+        st.caption(
+            "Kept from earlier in this draft: "
+            f"**{getattr(screenshot_file, 'name', 'your chart')}**. "
+            "Upload again to replace it."
+        )
+        # The uploader's own ✕ is gone with the remount, so removal needs its
+        # own control here or a retained chart could never be taken off.
+        if st.button("Remove chart", key="secondary_nt_shot_remove"):
+            st.session_state.pop(SCREENSHOT_DRAFT_KEY, None)
+            st.rerun()
     # The two-panel AI review shows the chart itself; only preview here when
     # no detection is staged (avoids rendering the same screenshot twice).
     if screenshot_file is not None and not has_staged_detection():
-        st.image(screenshot_file, caption="Preview", width="stretch")
+        st.image(
+            screenshot_file,
+            caption="Kept from earlier in this draft" if retained else "Preview",
+            width="stretch",
+        )
     screenshot_url = st.text_input(
         "Or paste a direct image URL (optional)", key="nt_shot_url"
     )

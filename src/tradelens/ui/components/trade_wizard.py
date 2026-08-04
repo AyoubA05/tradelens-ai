@@ -43,15 +43,28 @@ PRIVATE_PREFIX = "_nt_"
 _AUXILIARY_KEYS = frozenset({"trade_submit_in_progress", "just_saved_trade_id"})
 
 # Widget keys Streamlit refuses to let anything assign through session state.
-# A file_uploader's value can only come from the user, so writing the key —
-# even re-assigning the value it already holds — marks it user-set and makes
-# the next instantiation of that widget raise
+# Uploaders and buttons carry values only the user can produce, so writing the
+# key — even re-asserting the value it already holds — marks it user-set and
+# makes the next instantiation of that widget raise
 # StreamlitValueAssignmentNotAllowedError. keep_alive must step around these;
 # popping them is still allowed, so a reset is unaffected.
 #
-# Any new file_uploader in the wizard must be added here. tests/test_trade_wizard.py
-# scans the page for uploader keys and fails if one is missing.
-UNSETTABLE_WIDGET_KEYS = frozenset({"nt_shot"})
+# Re-asserting a button is pointless as well as illegal: a click is an event,
+# not a draft value, and nothing should carry it across a step change.
+#
+# Every unsettable widget the wizard renders must appear here.
+# tests/test_trade_wizard.py scans the page and its autofill component for
+# st.button / st.download_button / st.form_submit_button / st.chat_input /
+# st.file_uploader keys under the wizard prefixes and fails if one is missing.
+SCREENSHOT_WIDGET_KEY = FIELD_PREFIX + "shot"
+UNSETTABLE_WIDGET_KEYS = frozenset(
+    {
+        SCREENSHOT_WIDGET_KEY,  # st.file_uploader — the chart
+        PRIVATE_PREFIX + "ai_apply",  # st.button — apply detected fields
+        PRIVATE_PREFIX + "ai_cancel",  # st.button — skip AI
+        PRIVATE_PREFIX + "ai_analyze",  # st.button — re-analyze screenshot
+    }
+)
 
 # Where the uploaded chart is mirrored so it survives the steps that do not
 # render the uploader. It cannot live under its own widget key for the reason
@@ -230,6 +243,38 @@ def keep_alive(state: MutableMapping[str, object]) -> None:
         if key in UNSETTABLE_WIDGET_KEYS:
             continue
         state[key] = state[key]
+
+
+def sync_screenshot_mirror(state: MutableMapping[str, object]) -> None:
+    """Bring the mirror in line with the uploader after a real user action.
+
+    **Only ever call this from the uploader's own change callback.** Streamlit
+    fires that callback when the trader uploads or removes a file, and at no
+    other time.
+
+    Calling it on every render is the bug this replaced. When the wizard
+    returns to step 1, the uploader remounts empty and reports ``None`` even
+    though the trader never touched it — reading that as a removal deleted the
+    chart from the draft, and the field count silently dropped on the next
+    step. A widget that has merely been rebuilt has not been changed.
+    """
+    uploaded = state.get(SCREENSHOT_WIDGET_KEY)
+    if uploaded is None:
+        state.pop(SCREENSHOT_DRAFT_KEY, None)
+    else:
+        state[SCREENSHOT_DRAFT_KEY] = uploaded
+
+
+def effective_screenshot(state: Mapping[str, object]) -> object:
+    """The chart the draft should count, or ``None``.
+
+    The live widget wins whenever it holds a file, so replacing an upload
+    takes effect immediately. Otherwise the mirror answers — which is what
+    keeps the chart attached to the draft on the steps that never render the
+    uploader, and after a Back that remounts it empty.
+    """
+    live = state.get(SCREENSHOT_WIDGET_KEY)
+    return live if live is not None else state.get(SCREENSHOT_DRAFT_KEY)
 
 
 def reset_wizard_state(state: MutableMapping[str, object]) -> None:
