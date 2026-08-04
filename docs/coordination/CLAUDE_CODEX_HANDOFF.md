@@ -20,25 +20,24 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PLAN + SPEC AMENDED — AWAITING FINAL PLAN GATE`
-- Last completed work: Claude amended the plan **and the specification** after
-  Codex's second review found four remaining blockers in `26ce2d2`. Task 4,
-  Task 14, and Task 16 were written as real files and executed through pytest,
-  Ruff, and Black — not merely parsed.
+- Current phase: `TASK 4 + TASK 14 AMENDED — AWAITING FOCUSED FINAL GATE`
+- Last completed work: Claude amended **Task 4 and Task 14 only**, per Codex's
+  third review of `f546922`. Token, specification, layout, and Task 16
+  decisions were not reopened; everything else in `f546922` is unchanged.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
-  (4346 lines, 17 tasks, 145 steps). It supersedes
+  (4821 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification (2026-08-04, all executed): `source_probe` + `review_document`
-  32 passed · `partner_turn` 20 passed · metrics 15/15 against the real
-  `metrics.py` · `partner_context` + `dark_accessibility` 37 passed, 5 skipped
-  (skips gated on Task 1 tokens; confirmed to activate and pass when present) ·
-  Ruff clean and Black clean on every file · 40 of 41 plan code blocks parse
-  standalone, the 41st being a labelled f-string fragment. No product code was
-  left in the worktree, so the `1618 passed, 7 skipped` baseline is untouched.
-- Next owner: `CODEX` for the final plan gate.
-- Next work: review the amendment for scope, AI safety, tenancy, and
-  service-contract fidelity. Task 4 is assigned to Codex and must be executed by
-  Codex, not Claude. Do not begin Task 1 before the gate clears.
+- Verification (2026-08-04, all executed from the canonical worktree):
+  `test_partner_context.py` 34 passed · `test_partner_turn.py` 31 passed ·
+  both together 65 passed · Ruff clean · Black clean · 40 of 41 plan code
+  blocks parse standalone (the 41st is a labelled f-string fragment). Six
+  behaviours mutation-checked. Earlier-verified artifacts from `f546922` are
+  unchanged. No product code was left in the worktree, so the
+  `1618 passed, 7 skipped` baseline is untouched.
+- Next owner: `CODEX` for a focused final gate on Task 4 and Task 14.
+- Next work: review only the Task 4 and Task 14 diff. Task 4 is assigned to
+  Codex and must be executed by Codex, not Claude. Do not begin Task 1 before
+  the gate clears.
 - Spec/plan agreement: resolved. `TL_LINE_STRONG` is `#5C6E77` in both, and the
   spec now carries the measured all-six-surface contract (§4.4, amendment C6 in
   §15.3).
@@ -188,6 +187,81 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-04 — Task 4 and Task 14 amended for the final gate (Claude)
+
+Scope was Task 4 and Task 14 only. The token, specification, layout, and Task 16
+decisions were not reopened, and everything else in `f546922` is untouched.
+
+**Task 14 — three containment boundaries, not one.**
+
+`build_context(user_id=…)` now sits *inside* the containment. It opens a
+database session, so it can fail with a driver error carrying a DSN, and that
+failure was previously outside the `try` — it would have escaped as a raw
+exception onto the page. A test raises a `psycopg2.OperationalError` carrying
+`postgresql://tl:hunter2@…` and an `sk-ant-` key and asserts the question
+survives, fixed copy is stored, the exception is logged exactly once, nothing
+was billed, and no fragment of the DSN or key appears anywhere in state.
+
+`log_ai_usage` is contained separately, **after** the reply is stored. Cost
+logging is bookkeeping; a failed write must not discard an answer the trader has
+already been given. The turn stays `ok=True`, `usage_logged` goes `False`, the
+failure is logged, and no error slot is set — a rendered error would tell the
+trader their answer failed when it did not.
+
+**Task 14 — "Context used" is now per turn and persistent.**
+
+Each assistant turn stores the labels it was answered from, so a rerun
+re-renders the right records under the right answer instead of putting the
+newest context under every one. Tests cover two successful turns with different
+contexts plus a rerun, and an empty context storing no labels so no heading
+renders.
+
+`to_api_messages` then projects stored turns down to `role` and `content` before
+the service sees them. Presentation metadata is ours; sending it would put
+unrequested fields in the API payload and feed the model a list of record labels
+as though it were conversation.
+
+**Task 4 — one definition of a journal entry.**
+
+`_journal_text` now strips each candidate *before* judging it. The previous
+version tested truthiness first, so a `trade_process_notes` of `"   "` won the
+`or` chain — a non-empty string is truthy — and a real `notes` value behind it
+was silently lost. Process notes still take precedence when they say something.
+
+`journal_entry_count` is computed with that same function rather than a SQL
+count, so the number the trader is shown and the notes the prompt carries cannot
+answer different questions. The SQL clause only narrows and is documented as
+such: `TRIM` strips spaces but not tabs or newlines, so it cannot be the
+authority.
+
+**Six behaviours mutation-checked**, each reverted in turn to confirm the suite
+fails: context assembly outside containment (3 failures), uncontained usage
+logging (1), unprojected history (1), labels not stored per turn (2),
+`_journal_text` back to the truthiness chain (4), and counting rows instead of
+meaningful notes (1).
+
+**One defect the verification caught.** The send-path test file imported
+`partner_turn` by bare module name, which works in a scratch directory and
+fails collection in the worktree. Corrected to the real path and re-run there.
+
+**Verification, executed from the canonical worktree:**
+
+| Artifact | Result |
+|---|---|
+| `tests/test_partner_context.py` | 34 passed |
+| `tests/test_partner_turn.py` | 31 passed |
+| Both together | 65 passed |
+| Ruff / Black on all four files | clean |
+| Plan code blocks parsing standalone | 40 of 41 |
+
+Product code was copied into the worktree only to run and removed afterwards;
+the tree is documentation-only and the `1618 passed, 7 skipped` baseline is
+untouched.
+
+**Files changed:** the plan and this handoff. The specification was not touched.
+
+Ownership returned to `NONE`.
 
 ### 2026-08-04 — Four remaining blockers closed; spec amended too (Claude)
 

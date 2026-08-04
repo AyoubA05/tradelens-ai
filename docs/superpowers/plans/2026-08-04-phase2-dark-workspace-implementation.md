@@ -1173,7 +1173,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Write the failing Partner-context tests**
 
-Create `tests/test_partner_context.py`. **Verified 2026-08-04: this exact file and the implementation in Step 7 were run together — `21 passed`, Ruff clean, Black clean.**
+Create `tests/test_partner_context.py`. **Verified 2026-08-04: this exact file and the implementation in Step 7 were run together — `34 passed`, Ruff clean, Black clean.** Two behaviours were mutation-checked: reverting `_journal_text` to the truthiness chain fails 4 tests, and counting rows instead of meaningful notes fails 1.
 
 The fixtures follow the isolation pattern already established at `tests/test_user_isolation.py:28`. Both `partner_context.SessionLocal` and `strategy.SessionLocal` are patched, because the adapter reads trades through its own session and the strategy profile through the public `get_active_strategy`, which opens its own. `StaticPool` is required: without it each connection gets a fresh in-memory database and the seeded rows vanish.
 
@@ -1190,6 +1190,7 @@ import src.tradelens.services.strategy as strategy_service
 from src.tradelens.db.models import Base, Strategy, Trade, User
 from src.tradelens.services.partner_context import (
     PartnerContext,
+    _journal_text,
     PartnerEvidenceSource,
     build_global_partner_context,
 )
@@ -1472,6 +1473,152 @@ def test_a_user_with_nothing_yet_still_returns_a_usable_context(isolated_db):
 def test_the_module_imports_no_streamlit():
     source = open(partner_context.__file__).read()
     assert "import streamlit" not in source
+
+
+# ---------------------------------------------------------------------------
+# What counts as a journal entry
+# ---------------------------------------------------------------------------
+class _Row:
+    """Stand-in for either a Trade or the narrow column tuple the count uses."""
+
+    def __init__(self, trade_process_notes=None, notes=None):
+        self.trade_process_notes = trade_process_notes
+        self.notes = notes
+
+
+@pytest.mark.parametrize(
+    "row, expected",
+    [
+        (_Row(None, None), ""),
+        (_Row("", ""), ""),
+        (_Row("   ", None), ""),
+        (_Row("\t\n ", ""), ""),
+        (_Row("process", "fallback"), "process"),
+        (_Row(None, "fallback"), "fallback"),
+        (_Row("", "fallback"), "fallback"),
+        (_Row("  process  ", None), "process"),
+    ],
+)
+def test_journal_text_judges_each_candidate_after_stripping(row, expected):
+    assert _journal_text(row) == expected
+
+
+def test_whitespace_only_process_notes_fall_back_to_a_meaningful_note():
+    """The bug this pins: a non-empty string is truthy, so "   " won the `or`
+    chain and the real note behind it was never reached."""
+    assert _journal_text(_Row("   ", "the real note")) == "the real note"
+    assert _journal_text(_Row("\t\n", "the real note")) == "the real note"
+
+
+def test_blank_notes_are_excluded_from_the_journal_count(isolated_db):
+    uid = _seed_user(isolated_db, "kara", trades=0)
+    db = isolated_db()
+    try:
+        for process, note in (
+            ("a real note", None),
+            (None, "another real note"),
+            ("   ", None),  # whitespace-only, no fallback
+            ("\t\n ", ""),  # exotic whitespace, empty fallback
+            (None, None),  # nothing at all
+            ("", ""),  # empty strings
+            ("   ", "rescued"),  # blank process note, meaningful fallback
+        ):
+            db.add(
+                Trade(
+                    user_id=uid,
+                    asset="EURUSD",
+                    trade_date="2026-08-05",
+                    pnl=1.0,
+                    trade_process_notes=process,
+                    notes=note,
+                )
+            )
+        db.commit()
+    finally:
+        db.close()
+
+    context = build_global_partner_context(user_id=uid)
+    assert context.journal_entry_count == 3
+    assert context.completed_trade_count == 7
+
+
+def test_the_count_matches_the_journal_lines_actually_admitted(isolated_db):
+    """The count and the prompt answer the same question, by construction."""
+    uid = _seed_user(isolated_db, "liam", trades=0)
+    db = isolated_db()
+    try:
+        for process, note in (
+            ("kept one", None),
+            ("  ", "kept two"),
+            ("   ", "  "),
+            (None, "kept three"),
+        ):
+            db.add(
+                Trade(
+                    user_id=uid,
+                    asset="EURUSD",
+                    trade_date="2026-08-06",
+                    pnl=1.0,
+                    trade_process_notes=process,
+                    notes=note,
+                )
+            )
+        db.commit()
+    finally:
+        db.close()
+
+    context = build_global_partner_context(user_id=uid)
+    journal_sources = [s for s in context.evidence_sources if s.kind == "journal"]
+    assert context.journal_entry_count == 3
+    assert len(journal_sources) == 3
+    for token in ("kept one", "kept two", "kept three"):
+        assert token in context.context_text
+
+
+def test_a_rescued_fallback_note_reaches_the_prompt(isolated_db):
+    uid = _seed_user(isolated_db, "mira", trades=0)
+    db = isolated_db()
+    try:
+        db.add(
+            Trade(
+                user_id=uid,
+                asset="EURUSD",
+                trade_date="2026-08-07",
+                pnl=1.0,
+                trade_process_notes="   ",
+                notes="I moved my stop again",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    context = build_global_partner_context(user_id=uid)
+    assert context.journal_entry_count == 1
+    assert "I moved my stop again" in context.context_text
+    _assert_invariant(context)
+
+
+def test_journal_rows_stay_in_most_recent_first_order(isolated_db):
+    uid = _seed_user(isolated_db, "nina", trades=0)
+    db = isolated_db()
+    try:
+        for day, text in ((1, "oldest"), (15, "middle"), (28, "newest")):
+            db.add(
+                Trade(
+                    user_id=uid,
+                    asset="EURUSD",
+                    trade_date=f"2026-08-{day:02d}",
+                    pnl=1.0,
+                    trade_process_notes=text,
+                )
+            )
+        db.commit()
+    finally:
+        db.close()
+
+    text = build_global_partner_context(user_id=uid).context_text
+    assert text.index("newest") < text.index("middle") < text.index("oldest")
 ```
 
 - [ ] **Step 6: Run to verify failure**
@@ -1508,6 +1655,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
+
+from sqlalchemy import func
 
 from src.tradelens.db.models import Trade
 from src.tradelens.db.session import SessionLocal
@@ -1574,10 +1723,36 @@ def _require_concrete_user_id(user_id: int) -> int:
     return user_id
 
 
-def _journal_text(row: Trade) -> str:
+def _journal_text(row) -> str:
+    """The trader's own words on this row, or "" when there are none.
+
+    Each candidate is stripped *before* it is judged. An earlier version tested
+    truthiness first, so a `trade_process_notes` of "   " won — a non-empty
+    string is truthy — and the row silently lost a real `notes` value behind it.
+    Process notes still take precedence when they say something.
+
+    This is the single definition of a meaningful journal entry. The SQL filter
+    below only narrows; this decides.
+    """
+    for field in ("trade_process_notes", "notes"):
+        text = (getattr(row, field, None) or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _has_note_text():
+    """SQL prefilter: drop NULL and blank notes before they reach Python.
+
+    An optimisation, not the authority — SQL TRIM only strips spaces, so
+    tab- or newline-only values still survive it and are removed by
+    _journal_text. Keeping one authority is why the count below is computed
+    from _journal_text rather than from this clause.
+    """
     return (
-        getattr(row, "trade_process_notes", None) or getattr(row, "notes", None) or ""
-    ).strip()
+        (Trade.trade_process_notes.isnot(None))
+        & (func.trim(Trade.trade_process_notes) != "")
+    ) | ((Trade.notes.isnot(None)) & (func.trim(Trade.notes) != ""))
 
 
 def _admit(
@@ -1632,18 +1807,34 @@ def build_global_partner_context(*, user_id: int) -> PartnerContext:
 
     db = SessionLocal()
     try:
-        journalled = db.query(Trade).filter(
-            Trade.user_id == owner,
-            (Trade.notes.isnot(None)) | (Trade.trade_process_notes.isnot(None)),
-        )
         # Counts describe the journal, never the truncated sample: a budget
         # trims the prompt, it does not shrink what the trader has done.
         completed_trade_count = db.query(Trade).filter(Trade.user_id == owner).count()
-        journal_entry_count = journalled.count()
 
-        journal_rows = (
-            journalled.order_by(Trade.trade_date.desc()).limit(MAX_JOURNAL_ROWS).all()
+        # Two narrow columns for every candidate row, so "how many journal
+        # entries are there" is answered by the same function that decides what
+        # a journal entry says. A SQL count would answer a slightly different
+        # question and drift from the prompt the trader is shown.
+        note_rows = (
+            db.query(
+                Trade.id,
+                Trade.trade_date,
+                Trade.trade_process_notes,
+                Trade.notes,
+            )
+            .filter(Trade.user_id == owner, _has_note_text())
+            .order_by(Trade.trade_date.desc())
+            .all()
         )
+        meaningful_ids = [row.id for row in note_rows if _journal_text(row)]
+        journal_entry_count = len(meaningful_ids)
+
+        wanted = meaningful_ids[:MAX_JOURNAL_ROWS]
+        journal_rows = (
+            db.query(Trade).filter(Trade.id.in_(wanted)).all() if wanted else []
+        )
+        position = {trade_id: index for index, trade_id in enumerate(wanted)}
+        journal_rows.sort(key=lambda row: position[row.id])
         trade_rows = (
             db.query(Trade)
             .filter(Trade.user_id == owner)
@@ -1656,15 +1847,15 @@ def build_global_partner_context(*, user_id: int) -> PartnerContext:
 
     strategy_profile = get_active_strategy(owner)
 
-    candidates: List[_Candidate] = []
+    admissible: List[_Candidate] = []
 
     for row in journal_rows:
         note = _journal_text(row)
         if not note:
-            # A row whose note is blank contributes nothing, so it earns no
-            # evidence entry either.
+            # Unreachable via the selection above, which already applied
+            # _journal_text. Kept because this loop must not depend on that.
             continue
-        candidates.append(
+        admissible.append(
             _Candidate(
                 heading=JOURNAL_HEADING,
                 line=f"- {row.trade_date}: {note}",
@@ -1679,7 +1870,7 @@ def build_global_partner_context(*, user_id: int) -> PartnerContext:
         )
 
     for row in trade_rows:
-        candidates.append(
+        admissible.append(
             _Candidate(
                 heading=TRADES_HEADING,
                 line=f"- {row.trade_date} {row.asset} P&L {row.pnl}",
@@ -1695,7 +1886,7 @@ def build_global_partner_context(*, user_id: int) -> PartnerContext:
 
     if strategy_profile and strategy_profile.get("id") is not None:
         name = strategy_profile.get("name") or "Strategy Profile"
-        candidates.append(
+        admissible.append(
             _Candidate(
                 heading=STRATEGY_HEADING,
                 line=f"- {name}",
@@ -1708,7 +1899,7 @@ def build_global_partner_context(*, user_id: int) -> PartnerContext:
             )
         )
 
-    context_text, evidence_sources = _admit(candidates)
+    context_text, evidence_sources = _admit(admissible)
 
     return PartnerContext(
         context_text=context_text,
@@ -1720,6 +1911,8 @@ def build_global_partner_context(*, user_id: int) -> PartnerContext:
 ```
 
 **Why admission is atomic.** An earlier draft built both lists in lockstep and then trimmed them independently — `context_text` by character budget, `evidence_sources` by count. That produces exactly the two lies this surface cannot tell: an evidence link to a record the model never saw, and a claim drawn from a record the trader cannot open. `_admit` therefore admits a line and its source together or neither, and **skips** a candidate that does not fit instead of stopping, so one oversized journal note cannot suppress the completed-trade and strategy sections behind it.
+
+**One definition of a journal entry.** `_journal_text` strips each candidate *before* judging it, so a `trade_process_notes` of `"   "` no longer wins the comparison and hide a real `notes` value behind it — a non-empty string is truthy, which is how the earlier version lost them. The same function decides `journal_entry_count`, so the number the trader is shown and the notes the prompt carries can never answer different questions. The SQL clause only narrows; it is not the authority, because `TRIM` strips spaces but not tabs or newlines.
 
 Row budgets sum to `MAX_EVIDENCE_SOURCES` with the single strategy row, so the evidence cap is a backstop rather than a limit that silently starves later sections. The truncation tests reach it by monkeypatching the constant.
 - [ ] **Step 8: Run tests, lint, commit**
@@ -3084,11 +3277,13 @@ git commit -m "feat(ui): dark Strategy Profile, Settings, and auth surface"
 **Interfaces:**
 - Consumes: `build_global_partner_context(*, user_id)`, `PartnerContext`, `PartnerEvidenceSource` (Task 4); `partner_reply(messages, *, trade_context, strategy_profile, image_b64, per_trade_qa) -> tuple[str, Usage]` and `PartnerError` (`partner.py:272`, `:135`); `log_ai_usage(feature, usage, user_id=None)` (`cost.py:41`); `current_user_id()`; `TL_Z_PARTNER`.
 - Produces, in `partner_turn.py` (pure):
-  - `UNEXPECTED_ERROR: str`, `CONTEXT_USED_LABEL: str = "Context used"`
+  - `UNEXPECTED_ERROR: str`, `CONTEXT_USED_LABEL: str = "Context used"`, `CONTEXT_FIELD: str`, `API_TURN_FIELDS: tuple[str, ...]`
   - `history_key(user_id) -> str`, `error_key(user_id) -> str`
-  - `TurnResult(ok, reply, error, usage_logged)` — frozen
+  - `TurnResult(ok, reply, error, usage_logged, context_used)` — frozen
   - `send_turn(state, *, user_id, text, build_context, partner_reply, log_ai_usage, partner_error, log_exception=None) -> TurnResult`
-  - `context_used_rows(context) -> Sequence[str]`
+  - `to_api_messages(history) -> list[dict]` — projects stored turns to `role`/`content` only
+  - `context_used_for(turn) -> tuple[str, ...]` — the labels one stored assistant turn was answered from
+  - `context_used_rows(context) -> tuple[str, ...]`
 - Produces, in `partner_panel.py` (rendering):
   - `PARTNER_OPEN_KEY: str = "partner_open"`
   - `SUGGESTED_QUESTIONS: tuple[str, ...]` — 3–4 retrospective prompts
@@ -3209,7 +3404,7 @@ The drawer is `<aside>` with `aria-label="AI Partner"`, **no `aria-modal`**, no 
 
 The send path lives in `src/tradelens/ui/components/partner_turn.py`, **free of Streamlit**, so its orderings can be proved without a browser. `partner_panel.py` renders and wires the real collaborators. The split follows `trade_wizard.py`: the rules that must be right do not need a browser to prove, and proving them in one costs a suite nobody runs.
 
-**Verified 2026-08-04: this module and its tests were run together — `20 passed`, Ruff clean, Black clean.**
+**Verified 2026-08-04: this module and its tests were run together — `31 passed`, Ruff clean, Black clean. Four guarantees were mutation-checked** by reverting each in turn and confirming the suite fails: context assembly outside containment (3 failures), uncontained usage logging (1), unprojected history (1), and labels not stored per turn (2).
 
 ```python
 """The AI Partner send path, kept free of Streamlit so it can be tested.
@@ -3218,21 +3413,29 @@ The send path lives in `src/tradelens/ui/components/partner_turn.py`, **free of 
 `trade_wizard.py`: the rules that must be right do not need a browser to prove,
 and proving them in one costs a suite that nobody runs.
 
-Three orderings here are load-bearing and each is pinned by a test:
+Five behaviours here are load-bearing and each is pinned by a test:
 
-1. **The user's turn is appended before the model is called.** A failed call
-   must leave the trader's question on screen; re-typing it is the one thing an
-   error must never cost.
-2. **Usage is logged only after a reply is produced.** A failed call bills
-   nothing, so logging it would overstate spend in the trader's own cost view.
-3. **The assistant turn is appended only on success.** No placeholder turn, no
-   empty bubble, nothing to clean up on the next run.
+1. **The user's turn is appended before anything can fail.** A failed turn must
+   leave the trader's question on screen; re-typing it is the one thing an error
+   must never cost.
+2. **Context construction is inside the containment.** Assembling context opens
+   a database session, so it can fail with a driver error carrying a DSN. That
+   failure has to be caught exactly like a model failure, not left to escape as
+   a raw exception onto the page.
+3. **Usage logging is contained separately, after the reply.** A cost-table
+   write that fails must not discard an answer the trader already paid for. The
+   turn stays successful; only `usage_logged` records the truth.
+4. **Each assistant turn carries the context it was answered from.** The labels
+   are stored on the turn, so a rerun re-renders the right list under the right
+   answer instead of showing the newest context under every one.
+5. **Stored history is projected to role and content before the model sees it.**
+   Presentation metadata is ours, not the API's.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, List, MutableMapping, Optional, Sequence
+from typing import Callable, Dict, List, MutableMapping, Optional, Sequence, Tuple
 
 # What the UI shows when something outside the domain fails. Fixed copy: the
 # exception may carry a DSN, a driver string, or an API key.
@@ -3244,6 +3447,13 @@ ERROR_PREFIX = "partner_error_"
 # The heading the drawer and the Partner page put above the record list. It is
 # part of the contract, not a caption choice — see context_used_rows.
 CONTEXT_USED_LABEL = "Context used"
+
+# Where a turn keeps the labels it was answered from. Stripped before the
+# history reaches the model.
+CONTEXT_FIELD = "context_used"
+
+# The only keys the Anthropic message API may receive from a stored turn.
+API_TURN_FIELDS = ("role", "content")
 
 
 def history_key(user_id: object) -> str:
@@ -3264,6 +3474,43 @@ class TurnResult:
     reply: Optional[str] = None
     error: Optional[str] = None
     usage_logged: bool = False
+    context_used: Tuple[str, ...] = ()
+
+
+def to_api_messages(history: Sequence[dict]) -> List[dict]:
+    """Project stored turns down to what the model API accepts.
+
+    Stored turns carry presentation metadata — the context labels each answer
+    was produced from. That belongs to the UI. Sending it would put unrequested
+    fields into the API payload and, worse, feed the model a list of record
+    labels as though it were part of the conversation.
+    """
+    return [
+        {field: turn[field] for field in API_TURN_FIELDS if field in turn}
+        for turn in history
+    ]
+
+
+def context_used_for(turn: dict) -> Tuple[str, ...]:
+    """The labels a single stored assistant turn was answered from.
+
+    Empty for a user turn, and empty for an assistant turn produced when the
+    trader had no records yet — in which case the UI renders no heading at all
+    rather than an empty one.
+    """
+    return tuple(turn.get(CONTEXT_FIELD) or ())
+
+
+def context_used_rows(context) -> Tuple[str, ...]:
+    """Labels for the records fed into the prompt — not citations for an answer.
+
+    `partner_reply` returns only text and usage. It cannot report which records
+    a given sentence drew on, so presenting these as per-answer citations would
+    assert a relationship the service never established. They are labelled
+    "Context used" for that reason, and the wording is part of the contract
+    rather than a caption choice.
+    """
+    return tuple(source.label for source in getattr(context, "evidence_sources", ()))
 
 
 def send_turn(
@@ -3287,17 +3534,35 @@ def send_turn(
     if not question:
         return TurnResult(ok=False, error=None)
 
-    history: List[dict] = state.setdefault(history_key(user_id), [])
+    history: List[Dict] = state.setdefault(history_key(user_id), [])
     state.pop(error_key(user_id), None)
 
     # 1. The trader's turn lands first and stays, whatever happens next.
     history.append({"role": "user", "content": question})
 
-    context = build_context(user_id=user_id)
+    def _contain(exc_label: str) -> TurnResult:
+        """Log the failure, store fixed copy, and tell the trader nothing about
+        the driver, the DSN, or the key that produced it."""
+        if log_exception is not None:
+            log_exception(exc_label)
+        state[error_key(user_id)] = UNEXPECTED_ERROR
+        return TurnResult(ok=False, error=UNEXPECTED_ERROR)
+
+    # 2. Context assembly opens a session, so it fails like anything else that
+    #    touches a database — inside the containment, never outside it.
+    try:
+        context = build_context(user_id=user_id)
+    except partner_error as exc:
+        state[error_key(user_id)] = str(exc)
+        return TurnResult(ok=False, error=str(exc))
+    except Exception:
+        return _contain("AI Partner context assembly failed")
+
+    labels = context_used_rows(context)
 
     try:
         reply, usage = partner_reply(
-            list(history),
+            to_api_messages(history),
             trade_context=context.context_text,
             strategy_profile=context.strategy_profile,
             per_trade_qa=False,
@@ -3307,30 +3572,32 @@ def send_turn(
         state[error_key(user_id)] = str(exc)
         return TurnResult(ok=False, error=str(exc))
     except Exception:
+        return _contain("AI Partner turn failed")
+
+    # 3. The answer is the trader's now. Append it before anything else can go
+    #    wrong, and carry the labels it was produced from.
+    history.append({"role": "assistant", "content": reply, CONTEXT_FIELD: list(labels)})
+
+    # 4. Cost logging is bookkeeping. If it fails, the answer still stands; the
+    #    result records that the write did not happen rather than pretending.
+    usage_logged = False
+    try:
+        log_ai_usage("AI Partner", usage, user_id=user_id)
+        usage_logged = True
+    except Exception:
         if log_exception is not None:
-            log_exception("AI Partner turn failed")
-        state[error_key(user_id)] = UNEXPECTED_ERROR
-        return TurnResult(ok=False, error=UNEXPECTED_ERROR)
+            log_exception("AI Partner usage logging failed")
 
-    # 2. Success only: append the reply, then log usage exactly once.
-    history.append({"role": "assistant", "content": reply})
-    log_ai_usage("AI Partner", usage, user_id=user_id)
-    return TurnResult(ok=True, reply=reply, usage_logged=True)
-
-
-def context_used_rows(context) -> Sequence[str]:
-    """Labels for the records fed into the prompt — not citations for an answer.
-
-    `partner_reply` returns only text and usage. It cannot report which records
-    a given sentence drew on, so presenting these as per-answer citations would
-    assert a relationship the service never established. They are labelled
-    "Context used" for that reason, and the wording is part of the contract
-    rather than a caption choice.
-    """
-    return tuple(source.label for source in context.evidence_sources)
+    return TurnResult(
+        ok=True, reply=reply, usage_logged=usage_logged, context_used=labels
+    )
 ```
 
-**Evidence is labelled "Context used", and that wording is a contract, not a caption.** `partner_reply` returns `(reply_text, usage)` — nothing more. It cannot report which records a given sentence drew on, so rendering the adapter's records as per-answer citations would assert a relationship the service never established. The Partner shows the records that went *into* the prompt and says exactly that. If per-answer sourcing is ever wanted, it is a Codex-owned service change, not a UI relabel.
+**Three containment boundaries, not one.** Context assembly opens a database session, so it can fail with a driver error carrying a DSN — it sits *inside* the containment, not before it. The model call is contained separately. Usage logging is contained separately again and **after** the reply is already stored: a cost-table write that fails must not discard an answer the trader has already been given, so the turn stays `ok=True` and only `usage_logged` records that the write did not happen.
+
+**Evidence is labelled "Context used", and that wording is a contract.** `partner_reply` returns `(reply_text, usage)` — nothing more. It cannot report which records a given sentence drew on, so rendering the adapter's records as per-answer citations would assert a relationship the service never established. If per-answer sourcing is ever wanted it is a Codex-owned service change, not a UI relabel.
+
+**Labels are stored on the turn they belong to.** Each assistant turn carries the list it was answered from, so a rerun re-renders the right records under the right answer instead of putting the newest context under every one. `to_api_messages` then projects stored turns down to `role` and `content` before the service sees them — presentation metadata is ours, and feeding a model a list of record labels as if it were conversation would be a quiet corruption of the prompt.
 
 - [ ] **Step 5: Write the send-path tests**
 
@@ -3343,13 +3610,16 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import pytest
-from partner_turn import (
+from src.tradelens.ui.components.partner_turn import (
+    CONTEXT_FIELD,
     UNEXPECTED_ERROR,
     TurnResult,
+    context_used_for,
     context_used_rows,
     error_key,
     history_key,
     send_turn,
+    to_api_messages,
 )
 
 
@@ -3450,7 +3720,7 @@ def test_the_model_sees_the_user_turn_it_is_answering():
 
 
 def test_the_service_cannot_mutate_the_stored_history():
-    """A copy goes to the service; trim_history rewrites what it is given."""
+    """A projection goes to the service; trim_history rewrites what it is given."""
     captured = {}
 
     def spy(messages, **kwargs):
@@ -3604,7 +3874,7 @@ def test_the_label_states_context_used_not_a_citation_claim():
     why citations are not claimed, and a text scan cannot tell an explanation
     from a claim.
     """
-    import partner_turn
+    from src.tradelens.ui.components import partner_turn
 
     assert partner_turn.CONTEXT_USED_LABEL == "Context used"
     lowered = partner_turn.CONTEXT_USED_LABEL.lower()
@@ -3614,7 +3884,7 @@ def test_the_label_states_context_used_not_a_citation_claim():
 def test_no_public_name_promises_per_answer_sourcing():
     import ast
 
-    import partner_turn
+    from src.tradelens.ui.components import partner_turn
 
     tree = ast.parse(open(partner_turn.__file__).read())
     names = [
@@ -3631,11 +3901,227 @@ def test_no_public_name_promises_per_answer_sourcing():
     for name in names:
         low = name.lower()
         assert "citation" not in low and "cited" not in low, name
-```
 
+
+# ---------------------------------------------------------------------------
+# Context assembly fails inside the containment
+# ---------------------------------------------------------------------------
+def test_a_failing_context_build_is_contained_like_any_other_failure():
+    """Assembling context opens a database session, so it can fail with a
+    driver error carrying a DSN. That must not escape onto the page."""
+
+    def boom(*, user_id):
+        raise RuntimeError(
+            'psycopg2.OperationalError: dsn="postgresql://tl:hunter2@db:5432/tl" '
+            "key=sk-ant-api03-SECRET"
+        )
+
+    state = {}
+    exc_log = _recorder()
+    logger = _recorder()
+    result = send_turn(
+        state,
+        user_id=7,
+        text="What did I do well?",
+        **_wire(build_context=boom, log_exception=exc_log, log_ai_usage=logger),
+    )
+
+    assert result.ok is False
+    assert result.error == UNEXPECTED_ERROR
+    # The question survives.
+    assert [t["role"] for t in state[history_key(7)]] == ["user"]
+    assert state[history_key(7)][0]["content"] == "What did I do well?"
+    # Fixed copy only, nothing sensitive anywhere in state.
+    assert state[error_key(7)] == UNEXPECTED_ERROR
+    blob = repr(state)
+    for leak in ("psycopg2", "postgresql://", "hunter2", "sk-ant-", "OperationalError"):
+        assert leak not in blob, f"state leaked {leak!r}"
+    # Logged exactly once, and nothing was billed.
+    assert len(exc_log.calls) == 1
+    assert logger.calls == []
+    assert result.usage_logged is False
+
+
+def test_the_model_is_never_called_when_context_assembly_fails():
+    def boom(*, user_id):
+        raise RuntimeError("kaboom")
+
+    called = _recorder()
+    send_turn(
+        {}, user_id=7, text="hi", **_wire(build_context=boom, partner_reply=called)
+    )
+    assert called.calls == []
+
+
+def test_a_domain_error_from_context_keeps_its_trader_safe_reason():
+    def boom(*, user_id):
+        raise FakePartnerError("Your Strategy Profile is not set up yet.")
+
+    state = {}
+    result = send_turn(state, user_id=7, text="hi", **_wire(build_context=boom))
+    assert result.error == "Your Strategy Profile is not set up yet."
+    assert state[error_key(7)] == "Your Strategy Profile is not set up yet."
+
+
+# ---------------------------------------------------------------------------
+# Usage-logging failure must not cost the trader their answer
+# ---------------------------------------------------------------------------
+def test_a_failing_usage_log_keeps_the_answer_and_the_question():
+    def boom(*_a, **_k):
+        raise RuntimeError("cost table write failed: dsn=postgresql://tl:pw@db/tl")
+
+    state = {}
+    exc_log = _recorder()
+    result = send_turn(
+        state,
+        user_id=7,
+        text="What rule did I break?",
+        **_wire(log_ai_usage=boom, log_exception=exc_log),
+    )
+
+    assert result.ok is True
+    assert result.usage_logged is False
+    history = state[history_key(7)]
+    assert [t["role"] for t in history] == ["user", "assistant"]
+    assert history[1]["content"] == "You sized up after two losses."
+    # Bookkeeping failure is logged, never rendered.
+    assert len(exc_log.calls) == 1
+    assert error_key(7) not in state
+    assert "postgresql://" not in repr(state)
+
+
+def test_a_successful_turn_reports_usage_logged():
+    result = send_turn({}, user_id=7, text="hi", **_wire())
+    assert result.ok is True and result.usage_logged is True
+
+
+# ---------------------------------------------------------------------------
+# Each answer keeps its own context
+# ---------------------------------------------------------------------------
+def _context_with(*labels):
+    return FakeContext(
+        evidence_sources=tuple(
+            FakeSource("journal", i, 7, label) for i, label in enumerate(labels, 1)
+        )
+    )
+
+
+def test_each_assistant_turn_keeps_the_context_it_was_answered_from():
+    state = {}
+    send_turn(
+        state,
+        user_id=7,
+        text="first",
+        **_wire(build_context=lambda *, user_id: _context_with("EURUSD 2026-08-01")),
+    )
+    send_turn(
+        state,
+        user_id=7,
+        text="second",
+        **_wire(
+            build_context=lambda *, user_id: _context_with(
+                "GBPUSD 2026-08-02", "GBPUSD 2026-08-03"
+            )
+        ),
+    )
+
+    history = state[history_key(7)]
+    assert [t["role"] for t in history] == ["user", "assistant", "user", "assistant"]
+    assert context_used_for(history[1]) == ("EURUSD 2026-08-01",)
+    assert context_used_for(history[3]) == ("GBPUSD 2026-08-02", "GBPUSD 2026-08-03")
+
+
+def test_the_labels_survive_a_rerun():
+    """A rerun re-reads session state and re-renders from it. Each answer must
+    still carry its own list rather than the newest one."""
+    state = {}
+    send_turn(
+        state,
+        user_id=7,
+        text="first",
+        **_wire(build_context=lambda *, user_id: _context_with("EURUSD 2026-08-01")),
+    )
+    send_turn(
+        state,
+        user_id=7,
+        text="second",
+        **_wire(build_context=lambda *, user_id: _context_with("GBPUSD 2026-08-02")),
+    )
+
+    # Whatever a rerun does, it starts again from this dict.
+    reread = dict(state)
+    rendered = [
+        (t["content"], context_used_for(t))
+        for t in reread[history_key(7)]
+        if t["role"] == "assistant"
+    ]
+    assert rendered == [
+        ("You sized up after two losses.", ("EURUSD 2026-08-01",)),
+        ("You sized up after two losses.", ("GBPUSD 2026-08-02",)),
+    ]
+
+
+def test_an_empty_context_stores_no_labels_so_no_heading_renders():
+    state = {}
+    result = send_turn(state, user_id=7, text="hi", **_wire())
+    assert result.context_used == ()
+    assistant = state[history_key(7)][1]
+    assert context_used_for(assistant) == ()
+    assert not context_used_for(assistant), "an empty list must render no heading"
+
+
+def test_a_user_turn_carries_no_context_of_its_own():
+    state = {}
+    send_turn(
+        state,
+        user_id=7,
+        text="hi",
+        **_wire(build_context=lambda *, user_id: _context_with("x")),
+    )
+    assert context_used_for(state[history_key(7)][0]) == ()
+
+
+# ---------------------------------------------------------------------------
+# Presentation metadata never reaches the model API
+# ---------------------------------------------------------------------------
+def test_stored_turns_are_projected_to_role_and_content_only():
+    stored = [
+        {"role": "user", "content": "q"},
+        {"role": "assistant", "content": "a", CONTEXT_FIELD: ["EURUSD 2026-08-01"]},
+    ]
+    assert to_api_messages(stored) == [
+        {"role": "user", "content": "q"},
+        {"role": "assistant", "content": "a"},
+    ]
+
+
+def test_the_service_never_receives_the_context_field():
+    seen = {}
+
+    def spy(messages, **kwargs):
+        seen["messages"] = messages
+        return _reply_ok()
+
+    state = {}
+    send_turn(
+        state,
+        user_id=7,
+        text="first",
+        **_wire(build_context=lambda *, user_id: _context_with("EURUSD 2026-08-01")),
+    )
+    send_turn(
+        state,
+        user_id=7,
+        text="second",
+        **_wire(partner_reply=spy, build_context=lambda *, user_id: _context_with("X")),
+    )
+
+    assert all(set(m) == {"role", "content"} for m in seen["messages"])
+    assert CONTEXT_FIELD not in repr(seen["messages"])
+```
 - [ ] **Step 6: Wire the rendered conversation**
 
-`render_partner_body` is shared with Task 15's page. Alternating turns clearly attributed; model turns through `st.markdown` with HTML off. Three to four retrospective suggested questions derived from the existing `_PROMPT_CHIPS` pattern in `ai_trade_chat.py` — "What did I do well?", "What rule did I break?", "Summarize this trade in journal format." Never "what should I trade?". A composer with send disabled while a reply is in flight. The `Context used` list beneath a reply, populated from `context_used_rows(context)` and **omitted entirely when it is empty** rather than rendered as an empty heading. A subordinate Clear conversation control, immediate, with the session-only consequence already stated.
+`render_partner_body` is shared with Task 15's page. Alternating turns clearly attributed; model turns through `st.markdown` with HTML off. Three to four retrospective suggested questions derived from the existing `_PROMPT_CHIPS` pattern in `ai_trade_chat.py` — "What did I do well?", "What rule did I break?", "Summarize this trade in journal format." Never "what should I trade?". A composer with send disabled while a reply is in flight. The `Context used` list beneath **each** reply, populated from `context_used_for(turn)` — not from the newest context — and **omitted entirely when it is empty** rather than rendered as an empty heading. Rendering from the turn is what makes the list survive a rerun and stay attached to the answer it belongs to. A subordinate Clear conversation control, immediate, with the session-only consequence already stated.
 
 The page wires the real collaborators into `send_turn`:
 
@@ -3661,7 +4147,7 @@ History lives in `st.session_state` scoped per user and is never persisted. **No
 - [ ] **Step 8: Run the send-path tests to verify they pass**
 
 Run: `"$PY" -m pytest tests/test_partner_turn.py tests/test_partner_panel.py -v`
-Expected: PASS — 20 send-path tests plus the surface tests from Step 1.
+Expected: PASS — 31 send-path tests plus the surface tests from Step 1.
 
 - [ ] **Step 9: The fixed-positioning verification — Claude-owned, required before this ships**
 
