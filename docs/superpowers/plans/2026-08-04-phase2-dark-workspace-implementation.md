@@ -500,7 +500,7 @@ The spec (§4.1, §4.4) proposes `#3A4E56` and simultaneously requires ≥3:1 ag
 
 `TL_LINE_HAIRLINE` stays `#26373D` (1.53:1 on canvas). It is decorative by design; the plan's rule is that a *load-bearing* boundary uses `TL_LINE_STRONG`, so the hairline is not required to clear 3:1 and must stay visibly quieter.
 
-**Report this to Codex as a spec amendment**, not a silent plan deviation: spec §4.1's token block and §4.4's closing sentence both name `#3A4E56` and need updating to match.
+**The specification has been amended to match** (2026-08-04, recorded as C6 in spec §15.3). §4.1's token block now reads `#5C6E77` and §4.4 carries the measured table for both values plus the all-six-surface contract. Spec and plan agree; neither is a silent deviation from the other.
 
 - [ ] **Step 0: Create `tests/source_probe.py` and its tests**
 
@@ -962,10 +962,12 @@ git commit -m "feat(ui): darken controls and define all eight interaction states
 - Test: `tests/test_metrics.py`, `tests/test_partner_context.py` (create)
 
 **Interfaces:**
-- Consumes: existing `_is_followed` (`metrics.py:1089`), `total_edge_leak` (`:1036`), `partner_reply` (`partner.py:272`).
-- Produces: `RuleAdherenceSummary`, `rule_adherence_rate`, `EdgeLeakSummary`, `edge_leak_summary`, `PartnerContext`, `build_global_partner_context`. Tasks 5, 14, and 15 import exactly these names.
+- Consumes: `_is_followed` (`metrics.py:1089`), `_parse_mistake_tags` (`:962`), `_safe_float` (`:22`), `total_edge_leak` (`:1036`); `get_active_strategy` (`strategy.py:128`); `Trade` (`db/models.py:67`); `SessionLocal` (`db/session.py:34`).
+- Produces: `RuleAdherenceSummary`, `rule_adherence_rate`, `EdgeLeakSummary`, `edge_leak_summary`, `PartnerContext`, `PartnerEvidenceSource`, `build_global_partner_context`, and the module constants `MAX_CONTEXT_CHARS`, `MAX_EVIDENCE_SOURCES`, `JOURNAL_HEADING`, `TRADES_HEADING`, `STRATEGY_HEADING`. Tasks 5, 14, and 15 import exactly these names.
 
 The interfaces are fixed by handoff §16.1–16.3 and may not be renegotiated in implementation.
+
+**Files this task does NOT change.** Both open questions from the previous draft are settled in Step 7: the owner validator is **mirrored** (matching three existing service modules) and the strategy profile is read through the **public** `get_active_strategy`. No other service file is touched.
 
 - [ ] **Step 1: Write the failing metrics tests**
 
@@ -1171,14 +1173,20 @@ Expected: PASS.
 
 - [ ] **Step 5: Write the failing Partner-context tests**
 
-Create `tests/test_partner_context.py`. The fixtures follow the isolation pattern already established in `tests/test_user_isolation.py:28` — an in-memory SQLite engine, `Base.metadata.create_all`, the service's `SessionLocal` monkeypatched to a factory bound to it, and `drop_all` on teardown. Nothing touches a developer database.
+Create `tests/test_partner_context.py`. **Verified 2026-08-04: this exact file and the implementation in Step 7 were run together — `21 passed`, Ruff clean, Black clean.**
+
+The fixtures follow the isolation pattern already established at `tests/test_user_isolation.py:28`. Both `partner_context.SessionLocal` and `strategy.SessionLocal` are patched, because the adapter reads trades through its own session and the strategy profile through the public `get_active_strategy`, which opens its own. `StaticPool` is required: without it each connection gets a fresh in-memory database and the seeded rows vanish.
 
 ```python
+"""Tenancy, budgets, and the source-iff-contribution invariant."""
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 import src.tradelens.services.partner_context as partner_context
+import src.tradelens.services.strategy as strategy_service
 from src.tradelens.db.models import Base, Strategy, Trade, User
 from src.tradelens.services.partner_context import (
     PartnerContext,
@@ -1189,13 +1197,15 @@ from src.tradelens.services.partner_context import (
 
 @pytest.fixture
 def isolated_db(monkeypatch):
-    """Point the adapter's sessions at a throwaway in-memory database.
+    """Point every session this flow opens at one throwaway database.
 
-    A StaticPool keeps every connection on the same in-memory database; without
-    it each connection gets its own empty one and the seeded rows vanish.
+    Both modules are patched: build_global_partner_context reads trades through
+    its own SessionLocal and the strategy profile through the public
+    get_active_strategy, which opens its own.
+
+    StaticPool keeps every connection on the same in-memory database; without it
+    each connection gets a fresh empty one and the seeded rows vanish.
     """
-    from sqlalchemy.pool import StaticPool
-
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -1204,13 +1214,15 @@ def isolated_db(monkeypatch):
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr(partner_context, "SessionLocal", factory)
+    monkeypatch.setattr(strategy_service, "SessionLocal", factory)
     yield factory
     Base.metadata.drop_all(engine)
     engine.dispose()
 
 
-def _seed_user(factory, username: str, *, trades: int, asset: str = "EURUSD"):
-    """One user with a strategy and `trades` completed trades. Returns its id."""
+def _seed_user(
+    factory, username, *, trades=0, asset="EURUSD", note="note", strategy=True
+):
     db = factory()
     try:
         user = User(username=username, password_hash=f"hash-{username}")
@@ -1218,13 +1230,8 @@ def _seed_user(factory, username: str, *, trades: int, asset: str = "EURUSD"):
         db.commit()
         db.refresh(user)
         uid = user.id
-        db.add(
-            Strategy(
-                user_id=uid,
-                name=f"{username} playbook",
-                is_active=1,
-            )
-        )
+        if strategy:
+            db.add(Strategy(user_id=uid, name=f"{username} playbook", is_active=1))
         for n in range(trades):
             db.add(
                 Trade(
@@ -1232,8 +1239,7 @@ def _seed_user(factory, username: str, *, trades: int, asset: str = "EURUSD"):
                     asset=asset,
                     trade_date=f"2026-08-{(n % 28) + 1:02d}",
                     pnl=100.0 if n % 2 else -40.0,
-                    notes=f"{username} journal note {n}",
-                    trade_process_notes=f"{username} process note {n}",
+                    trade_process_notes=(f"{note} {n}" if note else None),
                 )
             )
         db.commit()
@@ -1249,25 +1255,23 @@ def seeded_user(isolated_db):
 
 @pytest.fixture
 def seeded_two_users(isolated_db):
-    """Two tenants whose data must never mix. Returns (owner_id, other_asset)."""
     owner = _seed_user(isolated_db, "alice", trades=4, asset="EURUSD")
-    _seed_user(isolated_db, "bob", trades=4, asset="ZZZBOBONLY")
+    _seed_user(isolated_db, "bob", trades=4, asset="ZZZBOBONLY", note="bobsecret")
     return owner, "ZZZBOBONLY"
 
 
 @pytest.fixture
 def seeded_large_user(isolated_db):
-    """Far more rows than any prompt budget should admit."""
     return _seed_user(isolated_db, "carol", trades=400)
 
 
+# ---------------------------------------------------------------------------
+# Ownership
+# ---------------------------------------------------------------------------
 @pytest.mark.parametrize("bad", [None, True, False, 0, -1, "3", 2.0])
 def test_invalid_owner_is_rejected_before_a_session_opens(bad, monkeypatch):
-    """Rejection must precede the session, not follow a query that returned
-    nothing — an ownerless read is a tenancy bug even when it finds no rows."""
-
     def explode(*_a, **_k):
-        raise AssertionError("a database session was opened for an invalid owner")
+        raise AssertionError("a session was opened for an invalid owner")
 
     monkeypatch.setattr(partner_context, "SessionLocal", explode)
     with pytest.raises(ValueError):
@@ -1279,9 +1283,13 @@ def test_context_is_scoped_to_the_authenticated_user(seeded_two_users):
     context = build_global_partner_context(user_id=owner)
     assert isinstance(context, PartnerContext)
     assert other_asset not in context.context_text
-    assert all(src.user_id == owner for src in context.evidence_sources)
+    assert "bobsecret" not in context.context_text
+    assert all(s.user_id == owner for s in context.evidence_sources)
 
 
+# ---------------------------------------------------------------------------
+# Ordering and counts
+# ---------------------------------------------------------------------------
 def test_context_orders_journal_notes_before_trades_before_strategy(seeded_user):
     text = build_global_partner_context(user_id=seeded_user).context_text
     assert (
@@ -1291,24 +1299,152 @@ def test_context_orders_journal_notes_before_trades_before_strategy(seeded_user)
     )
 
 
-def test_context_applies_service_owned_limits(seeded_large_user):
-    context = build_global_partner_context(user_id=seeded_large_user)
-    assert len(context.context_text) <= partner_context.MAX_CONTEXT_CHARS
-    assert len(context.evidence_sources) <= partner_context.MAX_EVIDENCE_SOURCES
-
-
 def test_counts_report_the_whole_journal_not_the_truncated_sample(seeded_large_user):
-    """A limit trims the prompt, never the trader's stated totals."""
     context = build_global_partner_context(user_id=seeded_large_user)
     assert context.completed_trade_count == 400
+    assert context.journal_entry_count == 400
+    assert len(context.evidence_sources) < 400
 
 
+# ---------------------------------------------------------------------------
+# The invariant: a source exists iff its record contributed a line
+# ---------------------------------------------------------------------------
+def _assert_invariant(context):
+    for source in context.evidence_sources:
+        if source.kind == "strategy":
+            assert source.label in context.context_text
+        else:
+            assert str(source.occurred_on) in context.context_text
+    lines = [line for line in context.context_text.split("\n") if line.startswith("- ")]
+    assert len(lines) == len(context.evidence_sources)
+
+
+def test_the_invariant_holds_on_a_normal_sample(seeded_user):
+    _assert_invariant(build_global_partner_context(user_id=seeded_user))
+
+
+def test_the_invariant_holds_under_character_truncation(isolated_db, monkeypatch):
+    monkeypatch.setattr(partner_context, "MAX_CONTEXT_CHARS", 240)
+    uid = _seed_user(isolated_db, "dave", trades=12, note="x" * 60)
+    context = build_global_partner_context(user_id=uid)
+    assert 0 < len(context.context_text) <= 240
+    _assert_invariant(context)
+
+
+def test_the_invariant_holds_under_evidence_truncation(isolated_db, monkeypatch):
+    monkeypatch.setattr(partner_context, "MAX_EVIDENCE_SOURCES", 3)
+    uid = _seed_user(isolated_db, "erin", trades=10)
+    context = build_global_partner_context(user_id=uid)
+    assert len(context.evidence_sources) == 3
+    _assert_invariant(context)
+
+
+def test_an_oversized_first_note_is_skipped_and_never_cited(isolated_db, monkeypatch):
+    """One journal note larger than the whole budget must not be half-admitted,
+    and must not suppress the sections behind it."""
+    monkeypatch.setattr(partner_context, "MAX_CONTEXT_CHARS", 400)
+    uid = _seed_user(isolated_db, "fred", trades=0)
+    db = isolated_db()
+    try:
+        db.add(
+            Trade(
+                user_id=uid,
+                asset="HUGE",
+                trade_date="2026-08-28",
+                pnl=1.0,
+                trade_process_notes="z" * 5000,
+            )
+        )
+        db.add(
+            Trade(
+                user_id=uid,
+                asset="SMALL",
+                trade_date="2026-08-01",
+                pnl=2.0,
+                trade_process_notes="tiny note",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    context = build_global_partner_context(user_id=uid)
+    assert "z" * 100 not in context.context_text
+    assert not any(
+        s.label.startswith("Journal note - HUGE") for s in context.evidence_sources
+    )
+    _assert_invariant(context)
+
+
+def test_the_later_sections_survive_an_oversized_note(isolated_db, monkeypatch):
+    monkeypatch.setattr(partner_context, "MAX_CONTEXT_CHARS", 600)
+    uid = _seed_user(isolated_db, "gina", trades=0)
+    db = isolated_db()
+    try:
+        db.add(
+            Trade(
+                user_id=uid,
+                asset="HUGE",
+                trade_date="2026-08-28",
+                pnl=1.0,
+                trade_process_notes="z" * 5000,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    context = build_global_partner_context(user_id=uid)
+    # The trade row and the strategy still make it in: skipping is per candidate,
+    # not a stop.
+    assert partner_context.TRADES_HEADING in context.context_text
+    assert partner_context.STRATEGY_HEADING in context.context_text
+    _assert_invariant(context)
+
+
+def test_a_blank_note_produces_neither_a_line_nor_a_source(isolated_db):
+    uid = _seed_user(isolated_db, "hana", trades=0)
+    db = isolated_db()
+    try:
+        db.add(
+            Trade(
+                user_id=uid,
+                asset="BLANK",
+                trade_date="2026-08-02",
+                pnl=1.0,
+                trade_process_notes="   ",
+                notes="",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    context = build_global_partner_context(user_id=uid)
+    journal_sources = [s for s in context.evidence_sources if s.kind == "journal"]
+    assert journal_sources == []
+    assert partner_context.JOURNAL_HEADING not in context.context_text
+    _assert_invariant(context)
+
+
+def test_no_heading_is_emitted_over_an_empty_section(isolated_db):
+    uid = _seed_user(isolated_db, "iris", trades=0, strategy=False)
+    context = build_global_partner_context(user_id=uid)
+    assert context.context_text == ""
+    assert context.evidence_sources == ()
+
+
+# ---------------------------------------------------------------------------
+# Boundaries
+# ---------------------------------------------------------------------------
 def test_adapter_never_calls_the_model_or_logs_usage(seeded_user, monkeypatch):
     import src.tradelens.services.cost as cost
     import src.tradelens.services.partner as partner
 
     monkeypatch.setattr(
-        partner, "partner_reply", lambda *a, **k: pytest.fail("adapter called the model")
+        partner,
+        "partner_reply",
+        lambda *a, **k: pytest.fail("adapter called the model"),
     )
     monkeypatch.setattr(
         cost, "log_ai_usage", lambda *a, **k: pytest.fail("adapter logged usage")
@@ -1327,29 +1463,63 @@ def test_evidence_sources_are_structured_not_parsed_from_prompt_text(seeded_user
 
 
 def test_a_user_with_nothing_yet_still_returns_a_usable_context(isolated_db):
-    uid = _seed_user(isolated_db, "dana", trades=0)
+    uid = _seed_user(isolated_db, "jane", trades=0)
     context = build_global_partner_context(user_id=uid)
     assert context.completed_trade_count == 0
-    assert context.evidence_sources == ()
+    assert context.journal_entry_count == 0
+
+
+def test_the_module_imports_no_streamlit():
+    source = open(partner_context.__file__).read()
+    assert "import streamlit" not in source
 ```
 
 - [ ] **Step 6: Run to verify failure**
 
-Run: `"$PY" -m pytest tests/test_partner_context.py -v`
-Expected: FAIL — module does not exist.
+Run: `"$PY" -m pytest tests/test_partner_context.py -q`
+Expected: FAIL — the module does not exist.
 
 - [ ] **Step 7: Implement the adapter**
 
-`partner_context.py` is a service module, so it takes **no Streamlit import**. It opens with `from __future__ import annotations` (Python 3.9 — see Toolchain).
+**Exact imports, no decisions left open.** Two were settled while verifying this:
 
-Reuse the existing owner validator rather than writing a second one: `strategy.py:121` already defines `_require_concrete_user_id`, which rejects booleans, non-integers, and non-positive values with `ValueError` before any session opens. Promote it to a shared helper or mirror its exact semantics — the parametrised test above pins them.
+- **Owner validator: mirrored, not promoted.** `_require_concrete_user_id` already exists as a private copy in `strategy.py:121`, `cost.py:34`, and `app_settings.py:16`. Three service modules carrying their own copy *is* the codebase's convention, so a fourth follows it rather than introducing a cross-service import for six lines. **No other service file changes.**
+- **Strategy serializer: the public API, not the private one.** The adapter calls `get_active_strategy(user_id)` rather than importing `strategy._to_dict`. It is public, already owner-validated, already tested, and its dict already carries `id` — which is what the evidence descriptor needs. **No other service file changes.**
+
+Task 4's file list is therefore unchanged: `metrics.py` plus the new `partner_context.py`.
 
 ```python
-# Service-owned budgets. The page cannot raise these; that is the point.
+"""User-scoped context assembly for the global AI Partner.
+
+Codex-owned. This module reads one authenticated trader's own records and
+shapes them into prompt text plus a parallel set of citable descriptors. It
+never calls the model and never logs usage — both belong to the UI turn that
+produced a reply.
+
+The invariant that shapes the whole file: **a PartnerEvidenceSource exists if
+and only if its record contributed a line to context_text.** Budgets are applied
+while admitting, not by trimming two lists afterwards, because trimming
+independently produces exactly the two lies this surface cannot tell — an
+evidence link to a record the model never saw, and a claim drawn from a record
+the trader cannot open.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
+
+from src.tradelens.db.models import Trade
+from src.tradelens.db.session import SessionLocal
+from src.tradelens.services.strategy import get_active_strategy
+
+# Service-owned budgets. A page cannot raise these; that is the point.
 MAX_CONTEXT_CHARS = 12_000
 MAX_EVIDENCE_SOURCES = 40
-MAX_JOURNAL_ROWS = 30
-MAX_TRADE_ROWS = 60
+MAX_JOURNAL_ROWS = 15
+MAX_TRADE_ROWS = 24
+# Row budgets sum to 40 with the single strategy row, so MAX_EVIDENCE_SOURCES is
+# a backstop rather than a limit that silently starves the later sections.
 
 JOURNAL_HEADING = "## Journal notes"
 TRADES_HEADING = "## Completed trades"
@@ -1358,28 +1528,97 @@ STRATEGY_HEADING = "## Active strategy profile"
 
 @dataclass(frozen=True)
 class PartnerEvidenceSource:
-    """One citable record, kept separate from the prompt text.
+    """One record that contributed to the prompt, kept out of the prompt text.
 
-    The UI renders evidence links from these fields. It must never recover a
-    record id by parsing model output — a model can produce a plausible id for
-    a trade that does not exist, and the link would open someone's absence of
-    a trade as if it were evidence.
+    The UI renders links from these fields. It must never recover a record id by
+    parsing model output: a model can produce a plausible id for a trade that
+    does not exist, and the link would open an absence of a trade as if it were
+    evidence.
     """
 
-    kind: str          # "journal" | "trade" | "strategy"
+    kind: str  # "journal" | "trade" | "strategy"
     record_id: int
     user_id: int
-    label: str         # already safe for display; no HTML, no PII beyond the user's own
-    occurred_on: str | None = None   # ISO date where the record has one
+    label: str
+    occurred_on: Optional[str] = None
 
 
 @dataclass(frozen=True)
 class PartnerContext:
     context_text: str
-    strategy_profile: dict | None
-    evidence_sources: tuple[PartnerEvidenceSource, ...]
+    strategy_profile: Optional[dict]
+    evidence_sources: Tuple[PartnerEvidenceSource, ...]
     completed_trade_count: int
     journal_entry_count: int
+
+
+@dataclass(frozen=True)
+class _Candidate:
+    """One admissible unit: a prompt line and the record that produced it."""
+
+    heading: str
+    line: str
+    source: PartnerEvidenceSource
+
+
+def _require_concrete_user_id(user_id: int) -> int:
+    """Reject an ownerless read before any session opens.
+
+    Mirrors the identical private helper in strategy.py, cost.py, and
+    app_settings.py. Mirrored rather than shared on purpose: three service
+    modules already carry their own copy, so a fourth follows the established
+    convention instead of introducing a cross-service import for six lines.
+    """
+    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
+        raise ValueError("user_id must be a positive integer")
+    return user_id
+
+
+def _journal_text(row: Trade) -> str:
+    return (
+        getattr(row, "trade_process_notes", None) or getattr(row, "notes", None) or ""
+    ).strip()
+
+
+def _admit(
+    candidates: List[_Candidate],
+) -> Tuple[str, Tuple[PartnerEvidenceSource, ...]]:
+    """Admit candidates in order, atomically, under both budgets.
+
+    A candidate is admitted only when its line *and* its source both fit. A
+    candidate that does not fit is skipped and the walk continues, so one
+    oversized journal note cannot suppress the completed-trade and strategy
+    sections behind it.
+
+    A heading is emitted only when its first candidate is admitted, so no
+    section header ever stands over nothing.
+    """
+    blocks: List[str] = []
+    sources: List[PartnerEvidenceSource] = []
+    emitted_headings: set = set()
+    length = 0
+
+    for candidate in candidates:
+        if len(sources) >= MAX_EVIDENCE_SOURCES:
+            break
+
+        pending: List[str] = []
+        if candidate.heading not in emitted_headings:
+            pending.append(candidate.heading)
+        pending.append(candidate.line)
+
+        # +1 per joined newline, counted only for lines after the first.
+        added = sum(len(p) for p in pending) + len(pending) - (0 if blocks else 1)
+        if length + added > MAX_CONTEXT_CHARS:
+            continue
+
+        if candidate.heading not in emitted_headings:
+            emitted_headings.add(candidate.heading)
+        blocks.extend(pending)
+        sources.append(candidate.source)
+        length += added
+
+    return "\n".join(blocks), tuple(sources)
 
 
 def build_global_partner_context(*, user_id: int) -> PartnerContext:
@@ -1389,27 +1628,21 @@ def build_global_partner_context(*, user_id: int) -> PartnerContext:
     facts, then the active Strategy Profile. A reflective partner should reason
     from what the trader wrote before what the system computed.
     """
-    owner = _require_concrete_user_id(user_id)      # raises before any session
+    owner = _require_concrete_user_id(user_id)
+
     db = SessionLocal()
     try:
-        # 1. Totals first, unfiltered by the row budget, so the counts the UI
-        #    states describe the journal rather than the truncated sample.
-        completed_trade_count = (
-            db.query(Trade).filter(Trade.user_id == owner).count()
+        journalled = db.query(Trade).filter(
+            Trade.user_id == owner,
+            (Trade.notes.isnot(None)) | (Trade.trade_process_notes.isnot(None)),
         )
+        # Counts describe the journal, never the truncated sample: a budget
+        # trims the prompt, it does not shrink what the trader has done.
+        completed_trade_count = db.query(Trade).filter(Trade.user_id == owner).count()
+        journal_entry_count = journalled.count()
+
         journal_rows = (
-            db.query(Trade)
-            .filter(Trade.user_id == owner)
-            .filter((Trade.notes != None) | (Trade.trade_process_notes != None))  # noqa: E711
-            .order_by(Trade.trade_date.desc())
-            .limit(MAX_JOURNAL_ROWS)
-            .all()
-        )
-        journal_entry_count = (
-            db.query(Trade)
-            .filter(Trade.user_id == owner)
-            .filter((Trade.notes != None) | (Trade.trade_process_notes != None))  # noqa: E711
-            .count()
+            journalled.order_by(Trade.trade_date.desc()).limit(MAX_JOURNAL_ROWS).all()
         )
         trade_rows = (
             db.query(Trade)
@@ -1418,83 +1651,77 @@ def build_global_partner_context(*, user_id: int) -> PartnerContext:
             .limit(MAX_TRADE_ROWS)
             .all()
         )
-        strategy_row = (
-            db.query(Strategy)
-            .filter(Strategy.user_id == owner, Strategy.is_active == 1)
-            .first()
-        )
     finally:
         db.close()
 
-    # 2. Build prompt text and evidence descriptors together, so a source can
-    #    never be cited that did not contribute to the text.
-    sources: list[PartnerEvidenceSource] = []
-    blocks: list[str] = []
+    strategy_profile = get_active_strategy(owner)
 
-    if journal_rows:
-        blocks.append(JOURNAL_HEADING)
-        for row in journal_rows:
-            note = (row.trade_process_notes or row.notes or "").strip()
-            if not note:
-                continue
-            blocks.append(f"- {row.trade_date}: {note}")
-            sources.append(
-                PartnerEvidenceSource(
+    candidates: List[_Candidate] = []
+
+    for row in journal_rows:
+        note = _journal_text(row)
+        if not note:
+            # A row whose note is blank contributes nothing, so it earns no
+            # evidence entry either.
+            continue
+        candidates.append(
+            _Candidate(
+                heading=JOURNAL_HEADING,
+                line=f"- {row.trade_date}: {note}",
+                source=PartnerEvidenceSource(
                     kind="journal",
                     record_id=row.id,
                     user_id=owner,
                     label=f"Journal note - {row.asset} {row.trade_date}",
                     occurred_on=row.trade_date,
-                )
+                ),
             )
+        )
 
-    if trade_rows:
-        blocks.append(TRADES_HEADING)
-        for row in trade_rows:
-            blocks.append(f"- {row.trade_date} {row.asset} P&L {row.pnl}")
-            sources.append(
-                PartnerEvidenceSource(
+    for row in trade_rows:
+        candidates.append(
+            _Candidate(
+                heading=TRADES_HEADING,
+                line=f"- {row.trade_date} {row.asset} P&L {row.pnl}",
+                source=PartnerEvidenceSource(
                     kind="trade",
                     record_id=row.id,
                     user_id=owner,
                     label=f"{row.asset} {row.trade_date}",
                     occurred_on=row.trade_date,
-                )
-            )
-
-    strategy_profile = _to_dict(strategy_row) if strategy_row else None
-    if strategy_profile:
-        blocks.append(STRATEGY_HEADING)
-        blocks.append(f"- {strategy_profile.get('name', 'Unnamed')}")
-        sources.append(
-            PartnerEvidenceSource(
-                kind="strategy",
-                record_id=strategy_row.id,
-                user_id=owner,
-                label=strategy_profile.get("name") or "Strategy Profile",
+                ),
             )
         )
 
-    # 3. Trim on a block boundary, never mid-sentence: a prompt cut through a
-    #    journal note reads as a claim the trader did not finish making.
-    context_text = ""
-    for block in blocks:
-        candidate = f"{context_text}\n{block}" if context_text else block
-        if len(candidate) > MAX_CONTEXT_CHARS:
-            break
-        context_text = candidate
+    if strategy_profile and strategy_profile.get("id") is not None:
+        name = strategy_profile.get("name") or "Strategy Profile"
+        candidates.append(
+            _Candidate(
+                heading=STRATEGY_HEADING,
+                line=f"- {name}",
+                source=PartnerEvidenceSource(
+                    kind="strategy",
+                    record_id=int(strategy_profile["id"]),
+                    user_id=owner,
+                    label=name,
+                ),
+            )
+        )
+
+    context_text, evidence_sources = _admit(candidates)
 
     return PartnerContext(
         context_text=context_text,
         strategy_profile=strategy_profile,
-        evidence_sources=tuple(sources[:MAX_EVIDENCE_SOURCES]),
+        evidence_sources=evidence_sources,
         completed_trade_count=completed_trade_count,
         journal_entry_count=journal_entry_count,
     )
 ```
 
-The adapter never calls the model and never logs usage — both belong to the UI turn that produced a reply. Codex may adjust the budgets and the exact text shape; the **interface, the ordering, the pre-session owner rejection, the whole-journal counts, and the structured evidence sources are fixed** by the tests above.
+**Why admission is atomic.** An earlier draft built both lists in lockstep and then trimmed them independently — `context_text` by character budget, `evidence_sources` by count. That produces exactly the two lies this surface cannot tell: an evidence link to a record the model never saw, and a claim drawn from a record the trader cannot open. `_admit` therefore admits a line and its source together or neither, and **skips** a candidate that does not fit instead of stopping, so one oversized journal note cannot suppress the completed-trade and strategy sections behind it.
 
+Row budgets sum to `MAX_EVIDENCE_SOURCES` with the single strategy row, so the evidence cap is a backstop rather than a limit that silently starves later sections. The truncation tests reach it by monkeypatching the constant.
 - [ ] **Step 8: Run tests, lint, commit**
 
 ```bash
@@ -1909,21 +2136,10 @@ git commit -m "feat(overview): trajectory band and recurring-edge band"
 **Interfaces:**
 - Consumes: `render_editorial_readout`, `EvidenceItem`, `render_next_step`, `_overview_observation` (`app.py:198`), `sample_state`, `show_dated_instrument`, `leading_category`, `consistency_score`, `_MIN_TRADES_FOR_CONSISTENCY`.
 - Produces, in `app.py`:
+  - `NextReviewAction` — a frozen dataclass with `kind: str` (`"next_step"` or `"observation"`), `title: str`, `body: str`, `progress: str | None` (`"{completed} of {total}"`, next-step only), and `evidence: EvidenceItem | None` (observation only).
+  - `_next_review_action(df, activation) -> NextReviewAction | None` — returns the band 5 payload, or `None` when the band is omitted entirely.
 
-```python
-@dataclass(frozen=True)
-class NextReviewAction:
-    kind: str          # "next_step" | "observation"
-    title: str
-    body: str
-    progress: str | None      # "{completed} of {total}", next_step only
-    evidence: EvidenceItem | None   # observation only
-
-
-def _next_review_action(df, activation) -> NextReviewAction | None: ...
-```
-
-Band 5 absorbs two existing elements into one; `None` means the band is omitted entirely.
+The complete implementation of both is in Step 3 of this task. Band 5 absorbs two existing elements into one.
 
 - [ ] **Step 1: Write the failing state tests**
 
@@ -2862,19 +3078,26 @@ git commit -m "feat(ui): dark Strategy Profile, Settings, and auth surface"
 ## Task 14: AI Partner — the desktop drawer
 
 **Files:**
-- Create: `src/tradelens/ui/components/partner_panel.py`, `tests/test_partner_panel.py`
+- Create: `src/tradelens/ui/components/partner_panel.py` (rendering), `src/tradelens/ui/components/partner_turn.py` (Streamlit-free send path), `tests/test_partner_panel.py`, `tests/test_partner_turn.py`
 - Modify: `src/tradelens/ui/design_system.py` (launcher and drawer selectors)
 
 **Interfaces:**
-- Consumes: `build_global_partner_context(*, user_id)` and `PartnerContext` (Task 4); `partner_reply(messages, *, trade_context, strategy_profile, image_b64, per_trade_qa)` (`partner.py:272`); `log_ai_usage(feature, usage, user_id=None)` (`cost.py:41`); `current_user_id()`; `TL_Z_PARTNER`.
-- Produces:
-  - `partner_panel.PARTNER_OPEN_KEY: str = "partner_open"`
-  - `partner_panel.SUGGESTED_QUESTIONS: tuple[str, ...]` — 3–4 retrospective prompts
-  - `partner_panel.EMPTY_STATE_BODY: str` — states the three context sources and that the conversation is not saved
-  - `partner_panel.history_key(user_id) -> str`
-  - `partner_panel.render_partner_launcher(st) -> None`
-  - `partner_panel.render_partner_drawer(st) -> None`
-  - `partner_panel.render_partner_body(st, *, surface: str) -> None` — shared by the drawer and Task 15's page
+- Consumes: `build_global_partner_context(*, user_id)`, `PartnerContext`, `PartnerEvidenceSource` (Task 4); `partner_reply(messages, *, trade_context, strategy_profile, image_b64, per_trade_qa) -> tuple[str, Usage]` and `PartnerError` (`partner.py:272`, `:135`); `log_ai_usage(feature, usage, user_id=None)` (`cost.py:41`); `current_user_id()`; `TL_Z_PARTNER`.
+- Produces, in `partner_turn.py` (pure):
+  - `UNEXPECTED_ERROR: str`, `CONTEXT_USED_LABEL: str = "Context used"`
+  - `history_key(user_id) -> str`, `error_key(user_id) -> str`
+  - `TurnResult(ok, reply, error, usage_logged)` — frozen
+  - `send_turn(state, *, user_id, text, build_context, partner_reply, log_ai_usage, partner_error, log_exception=None) -> TurnResult`
+  - `context_used_rows(context) -> Sequence[str]`
+- Produces, in `partner_panel.py` (rendering):
+  - `PARTNER_OPEN_KEY: str = "partner_open"`
+  - `SUGGESTED_QUESTIONS: tuple[str, ...]` — 3–4 retrospective prompts
+  - `EMPTY_STATE_BODY: str` — states the three context sources and that the conversation is not saved
+  - `render_partner_launcher(st) -> None`
+  - `render_partner_drawer(st) -> None`
+  - `render_partner_body(st, *, surface: str) -> None` — shared by the drawer and Task 15's page
+
+Task 15 imports `history_key` from `partner_turn`, not from `partner_panel`.
 
 The drawer applies at **every sidebar-navigation width (≥768)** per the live preflight. There is no mobile launcher and no bottom sheet.
 
@@ -2946,7 +3169,9 @@ def test_the_empty_state_says_the_conversation_is_not_saved():
 
 
 def test_history_is_scoped_per_user():
-    assert partner_panel.history_key(7) != partner_panel.history_key(8)
+    from src.tradelens.ui.components import partner_turn
+
+    assert partner_turn.history_key(7) != partner_turn.history_key(8)
 
 
 def test_the_drawer_does_not_claim_modal_semantics_it_cannot_enforce():
@@ -2980,22 +3205,465 @@ st.container(key="tl_partner_launcher")  →  .st-key-tl_partner_launcher
 
 The drawer is `<aside>` with `aria-label="AI Partner"`, **no `aria-modal`**, no blocking scrim, and a visible ≥44×44 Close control first in DOM order. There is no Esc-to-close without script, so the visible control is mandatory.
 
-- [ ] **Step 4: Implement the conversation body**
+- [ ] **Step 4: Implement the send path**
 
-`render_partner_body` is shared with Task 15's page. Alternating turns clearly attributed; model turns through `st.markdown` with HTML off. Three to four retrospective suggested questions derived from the existing `_PROMPT_CHIPS` pattern in `ai_trade_chat.py` — "What did I do well?", "What rule did I break?", "Summarize this trade in journal format." Never "what should I trade?". A composer with send disabled while a reply is in flight. An Evidence Rail beneath a reply **only when the service returns evidence** — the UI may surface evidence, sample size, confidence, and limitations but may never invent them. A subordinate Clear conversation control, immediate, with the session-only consequence already stated.
+The send path lives in `src/tradelens/ui/components/partner_turn.py`, **free of Streamlit**, so its orderings can be proved without a browser. `partner_panel.py` renders and wires the real collaborators. The split follows `trade_wizard.py`: the rules that must be right do not need a browser to prove, and proving them in one costs a suite nobody runs.
 
-- [ ] **Step 5: Implement the interaction states**
+**Verified 2026-08-04: this module and its tests were run together — `20 passed`, Ruff clean, Black clean.**
+
+```python
+"""The AI Partner send path, kept free of Streamlit so it can be tested.
+
+`partner_panel.py` renders; this decides what one turn does. The split follows
+`trade_wizard.py`: the rules that must be right do not need a browser to prove,
+and proving them in one costs a suite that nobody runs.
+
+Three orderings here are load-bearing and each is pinned by a test:
+
+1. **The user's turn is appended before the model is called.** A failed call
+   must leave the trader's question on screen; re-typing it is the one thing an
+   error must never cost.
+2. **Usage is logged only after a reply is produced.** A failed call bills
+   nothing, so logging it would overstate spend in the trader's own cost view.
+3. **The assistant turn is appended only on success.** No placeholder turn, no
+   empty bubble, nothing to clean up on the next run.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Callable, List, MutableMapping, Optional, Sequence
+
+# What the UI shows when something outside the domain fails. Fixed copy: the
+# exception may carry a DSN, a driver string, or an API key.
+UNEXPECTED_ERROR = "AI is temporarily unavailable. Please try again."
+
+HISTORY_PREFIX = "partner_history_"
+ERROR_PREFIX = "partner_error_"
+
+# The heading the drawer and the Partner page put above the record list. It is
+# part of the contract, not a caption choice — see context_used_rows.
+CONTEXT_USED_LABEL = "Context used"
+
+
+def history_key(user_id: object) -> str:
+    """Per-user history slot. Session state can outlive a sign-out in one tab,
+    so the key carries the owner rather than trusting the session."""
+    return f"{HISTORY_PREFIX}{user_id}"
+
+
+def error_key(user_id: object) -> str:
+    return f"{ERROR_PREFIX}{user_id}"
+
+
+@dataclass(frozen=True)
+class TurnResult:
+    """What the render path needs to know about the turn that just ran."""
+
+    ok: bool
+    reply: Optional[str] = None
+    error: Optional[str] = None
+    usage_logged: bool = False
+
+
+def send_turn(
+    state: MutableMapping,
+    *,
+    user_id: int,
+    text: str,
+    build_context: Callable,
+    partner_reply: Callable,
+    log_ai_usage: Callable,
+    partner_error: type,
+    log_exception: Optional[Callable] = None,
+) -> TurnResult:
+    """Run one Partner turn against the authenticated user's own context.
+
+    Every collaborator is injected rather than imported here, so a test can
+    prove the ordering without a database, a model, or a cost table. The page
+    wires the real ones.
+    """
+    question = (text or "").strip()
+    if not question:
+        return TurnResult(ok=False, error=None)
+
+    history: List[dict] = state.setdefault(history_key(user_id), [])
+    state.pop(error_key(user_id), None)
+
+    # 1. The trader's turn lands first and stays, whatever happens next.
+    history.append({"role": "user", "content": question})
+
+    context = build_context(user_id=user_id)
+
+    try:
+        reply, usage = partner_reply(
+            list(history),
+            trade_context=context.context_text,
+            strategy_profile=context.strategy_profile,
+            per_trade_qa=False,
+        )
+    except partner_error as exc:
+        # Domain failure: the service already phrased this for a trader.
+        state[error_key(user_id)] = str(exc)
+        return TurnResult(ok=False, error=str(exc))
+    except Exception:
+        if log_exception is not None:
+            log_exception("AI Partner turn failed")
+        state[error_key(user_id)] = UNEXPECTED_ERROR
+        return TurnResult(ok=False, error=UNEXPECTED_ERROR)
+
+    # 2. Success only: append the reply, then log usage exactly once.
+    history.append({"role": "assistant", "content": reply})
+    log_ai_usage("AI Partner", usage, user_id=user_id)
+    return TurnResult(ok=True, reply=reply, usage_logged=True)
+
+
+def context_used_rows(context) -> Sequence[str]:
+    """Labels for the records fed into the prompt — not citations for an answer.
+
+    `partner_reply` returns only text and usage. It cannot report which records
+    a given sentence drew on, so presenting these as per-answer citations would
+    assert a relationship the service never established. They are labelled
+    "Context used" for that reason, and the wording is part of the contract
+    rather than a caption choice.
+    """
+    return tuple(source.label for source in context.evidence_sources)
+```
+
+**Evidence is labelled "Context used", and that wording is a contract, not a caption.** `partner_reply` returns `(reply_text, usage)` — nothing more. It cannot report which records a given sentence drew on, so rendering the adapter's records as per-answer citations would assert a relationship the service never established. The Partner shows the records that went *into* the prompt and says exactly that. If per-answer sourcing is ever wanted, it is a Codex-owned service change, not a UI relabel.
+
+- [ ] **Step 5: Write the send-path tests**
+
+Create `tests/test_partner_turn.py`:
+
+```python
+"""The send path's orderings, pinned."""
+
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
+import pytest
+from partner_turn import (
+    UNEXPECTED_ERROR,
+    TurnResult,
+    context_used_rows,
+    error_key,
+    history_key,
+    send_turn,
+)
+
+
+class FakePartnerError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class FakeSource:
+    kind: str
+    record_id: int
+    user_id: int
+    label: str
+    occurred_on: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class FakeContext:
+    context_text: str = "## Journal notes\n- 2026-08-01: sized up after a loss"
+    strategy_profile: Optional[dict] = None
+    evidence_sources: Tuple[FakeSource, ...] = ()
+    completed_trade_count: int = 6
+    journal_entry_count: int = 6
+
+
+def _recorder():
+    calls = []
+
+    def fn(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    fn.calls = calls
+    return fn
+
+
+def _reply_ok(*_a, **_k):
+    return "You sized up after two losses.", {"input_tokens": 10, "output_tokens": 4}
+
+
+def _wire(**overrides):
+    wiring = dict(
+        build_context=lambda *, user_id: FakeContext(),
+        partner_reply=_reply_ok,
+        log_ai_usage=_recorder(),
+        partner_error=FakePartnerError,
+        log_exception=_recorder(),
+    )
+    wiring.update(overrides)
+    return wiring
+
+
+# ---------------------------------------------------------------------------
+# The happy path
+# ---------------------------------------------------------------------------
+def test_a_successful_turn_appends_both_turns_in_order():
+    state = {}
+    result = send_turn(state, user_id=7, text="What did I do well?", **_wire())
+    assert isinstance(result, TurnResult) and result.ok
+    history = state[history_key(7)]
+    assert [t["role"] for t in history] == ["user", "assistant"]
+    assert history[0]["content"] == "What did I do well?"
+    assert history[1]["content"] == "You sized up after two losses."
+
+
+def test_partner_reply_receives_exactly_the_agreed_arguments():
+    seen = {}
+
+    def spy(messages, **kwargs):
+        seen["messages"] = messages
+        seen["kwargs"] = kwargs
+        return _reply_ok()
+
+    context = FakeContext(strategy_profile={"id": 3, "name": "playbook"})
+    send_turn(
+        {},
+        user_id=7,
+        text="What rule did I break?",
+        **_wire(partner_reply=spy, build_context=lambda *, user_id: context),
+    )
+    assert seen["kwargs"] == {
+        "trade_context": context.context_text,
+        "strategy_profile": context.strategy_profile,
+        "per_trade_qa": False,
+    }
+    assert [t["role"] for t in seen["messages"]] == ["user"]
+
+
+def test_the_model_sees_the_user_turn_it_is_answering():
+    """The history passed to the service must already contain the question."""
+    seen = {}
+
+    def spy(messages, **kwargs):
+        seen["last"] = messages[-1]
+        return _reply_ok()
+
+    send_turn({}, user_id=7, text="Summarize this week.", **_wire(partner_reply=spy))
+    assert seen["last"] == {"role": "user", "content": "Summarize this week."}
+
+
+def test_the_service_cannot_mutate_the_stored_history():
+    """A copy goes to the service; trim_history rewrites what it is given."""
+    captured = {}
+
+    def spy(messages, **kwargs):
+        captured["messages"] = messages
+        messages.clear()
+        return _reply_ok()
+
+    state = {}
+    send_turn(state, user_id=7, text="hello", **_wire(partner_reply=spy))
+    assert captured["messages"] == []
+    assert len(state[history_key(7)]) == 2
+
+
+def test_usage_is_logged_exactly_once_with_the_authenticated_user():
+    logger = _recorder()
+    send_turn({}, user_id=7, text="hi", **_wire(log_ai_usage=logger))
+    assert len(logger.calls) == 1
+    args, kwargs = logger.calls[0]
+    assert args[0] == "AI Partner"
+    assert kwargs == {"user_id": 7}
+
+
+def test_a_prior_error_is_cleared_when_a_turn_succeeds():
+    state = {error_key(7): "stale failure"}
+    send_turn(state, user_id=7, text="hi", **_wire())
+    assert error_key(7) not in state
+
+
+# ---------------------------------------------------------------------------
+# Failure preserves the trader's work
+# ---------------------------------------------------------------------------
+def test_a_domain_error_keeps_the_question_and_shows_the_service_reason():
+    def boom(*_a, **_k):
+        raise FakePartnerError("The review period has no completed trades.")
+
+    state = {}
+    result = send_turn(
+        state, user_id=7, text="Why did I lose?", **_wire(partner_reply=boom)
+    )
+    assert result.ok is False
+    assert result.error == "The review period has no completed trades."
+    history = state[history_key(7)]
+    assert [t["role"] for t in history] == ["user"]
+    assert history[0]["content"] == "Why did I lose?"
+    assert state[error_key(7)] == "The review period has no completed trades."
+
+
+def test_a_domain_error_logs_no_usage():
+    def boom(*_a, **_k):
+        raise FakePartnerError("nope")
+
+    logger = _recorder()
+    result = send_turn(
+        {}, user_id=7, text="hi", **_wire(partner_reply=boom, log_ai_usage=logger)
+    )
+    assert logger.calls == []
+    assert result.usage_logged is False
+
+
+def test_an_unexpected_error_never_reaches_the_trader():
+    def boom(*_a, **_k):
+        raise RuntimeError(
+            "psycopg2 OperationalError dsn=postgresql://u:pw@host/db key=sk-ant-123"
+        )
+
+    state = {}
+    logger = _recorder()
+    exc_log = _recorder()
+    result = send_turn(
+        state,
+        user_id=7,
+        text="hi",
+        **_wire(partner_reply=boom, log_ai_usage=logger, log_exception=exc_log),
+    )
+    assert result.error == UNEXPECTED_ERROR
+    assert state[error_key(7)] == UNEXPECTED_ERROR
+    for leak in ("psycopg2", "postgresql://", "sk-ant-", "OperationalError"):
+        assert leak not in state[error_key(7)]
+    assert logger.calls == []
+    assert len(exc_log.calls) == 1
+
+
+def test_an_unexpected_error_still_keeps_the_question():
+    def boom(*_a, **_k):
+        raise RuntimeError("kaboom")
+
+    state = {}
+    send_turn(state, user_id=7, text="Keep me", **_wire(partner_reply=boom))
+    assert state[history_key(7)][0]["content"] == "Keep me"
+
+
+def test_prior_turns_survive_a_failure():
+    def boom(*_a, **_k):
+        raise FakePartnerError("nope")
+
+    state = {}
+    send_turn(state, user_id=7, text="first", **_wire())
+    send_turn(state, user_id=7, text="second", **_wire(partner_reply=boom))
+    history = state[history_key(7)]
+    assert [t["role"] for t in history] == ["user", "assistant", "user"]
+
+
+# ---------------------------------------------------------------------------
+# Guards
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("blank", ["", "   ", "\n", None])
+def test_a_blank_question_is_not_sent(blank):
+    logger = _recorder()
+    called = _recorder()
+    result = send_turn(
+        {}, user_id=7, text=blank, **_wire(partner_reply=called, log_ai_usage=logger)
+    )
+    assert result.ok is False
+    assert called.calls == [] and logger.calls == []
+
+
+def test_history_is_scoped_per_user():
+    assert history_key(7) != history_key(8)
+    state = {}
+    send_turn(state, user_id=7, text="mine", **_wire())
+    send_turn(state, user_id=8, text="theirs", **_wire())
+    assert state[history_key(7)][0]["content"] == "mine"
+    assert state[history_key(8)][0]["content"] == "theirs"
+
+
+# ---------------------------------------------------------------------------
+# Evidence presentation is honest about what the service proved
+# ---------------------------------------------------------------------------
+def test_context_used_rows_report_the_records_fed_to_the_prompt():
+    context = FakeContext(
+        evidence_sources=(
+            FakeSource("journal", 1, 7, "Journal note - EURUSD 2026-08-01"),
+            FakeSource("trade", 2, 7, "EURUSD 2026-08-01"),
+        )
+    )
+    assert context_used_rows(context) == (
+        "Journal note - EURUSD 2026-08-01",
+        "EURUSD 2026-08-01",
+    )
+
+
+def test_no_context_means_no_rows_rather_than_an_invented_one():
+    assert context_used_rows(FakeContext()) == ()
+
+
+def test_the_label_states_context_used_not_a_citation_claim():
+    """partner_reply returns text and usage only. It cannot report which
+    records a sentence drew on, so the heading promises context, not sourcing.
+
+    Asserted on the API surface rather than on prose: the docstrings explain
+    why citations are not claimed, and a text scan cannot tell an explanation
+    from a claim.
+    """
+    import partner_turn
+
+    assert partner_turn.CONTEXT_USED_LABEL == "Context used"
+    lowered = partner_turn.CONTEXT_USED_LABEL.lower()
+    assert "cite" not in lowered and "source" not in lowered
+
+
+def test_no_public_name_promises_per_answer_sourcing():
+    import ast
+
+    import partner_turn
+
+    tree = ast.parse(open(partner_turn.__file__).read())
+    names = [
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+    ] + [
+        target.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    ]
+    for name in names:
+        low = name.lower()
+        assert "citation" not in low and "cited" not in low, name
+```
+
+- [ ] **Step 6: Wire the rendered conversation**
+
+`render_partner_body` is shared with Task 15's page. Alternating turns clearly attributed; model turns through `st.markdown` with HTML off. Three to four retrospective suggested questions derived from the existing `_PROMPT_CHIPS` pattern in `ai_trade_chat.py` — "What did I do well?", "What rule did I break?", "Summarize this trade in journal format." Never "what should I trade?". A composer with send disabled while a reply is in flight. The `Context used` list beneath a reply, populated from `context_used_rows(context)` and **omitted entirely when it is empty** rather than rendered as an empty heading. A subordinate Clear conversation control, immediate, with the session-only consequence already stated.
+
+The page wires the real collaborators into `send_turn`:
+
+```python
+result = send_turn(
+    st.session_state,
+    user_id=uid,
+    text=question,
+    build_context=build_global_partner_context,
+    partner_reply=partner_reply,
+    log_ai_usage=log_ai_usage,
+    partner_error=PartnerError,
+    log_exception=logging.getLogger(__name__).exception,
+)
+```
+
+- [ ] **Step 7: Implement the interaction states**
 
 Closed → launcher only. Open and empty → what the Partner can do, its three context sources, the session-only notice, and the suggested questions. No Strategy Profile → says so and links to it. No trades → says it has nothing to review yet and links to New Trade. Sending → send disabled, inline pending state, `aria-live="polite"`, prior turns stay visible. Reply ready → appended, focus not stolen. Domain error → trader-safe specific reason, prior turns stay. Unexpected error → `"AI is temporarily unavailable. Please try again."`, exception logged and never rendered. AI disabled → the launcher states the Partner is unavailable rather than opening to a dead end. Out-of-scope question → the existing scope guard's refusal, phrased as redirection to what the Partner can review.
 
 History lives in `st.session_state` scoped per user and is never persisted. **No history list, no thread switcher, no search, and no stub of any of them** — Phase 1 authorises none of it.
 
-- [ ] **Step 6: Run to verify the tests pass**
+- [ ] **Step 8: Run the send-path tests to verify they pass**
 
-Run: `"$PY" -m pytest tests/test_partner_panel.py -v`
-Expected: PASS.
+Run: `"$PY" -m pytest tests/test_partner_turn.py tests/test_partner_panel.py -v`
+Expected: PASS — 20 send-path tests plus the surface tests from Step 1.
 
-- [ ] **Step 7: The fixed-positioning verification — Claude-owned, required before this ships**
+- [ ] **Step 9: The fixed-positioning verification — Claude-owned, required before this ships**
 
 `position: fixed` resolves against the nearest ancestor establishing a containing block. Any ancestor carrying `transform`, `filter`, `perspective`, `contain: paint`, or `will-change` silently converts fixed into ancestor-relative. Inspect Streamlit's `stMainBlockContainer` and app-view wrappers in a live browser at **1440, 1024, and coarse 768** and confirm:
 
@@ -3008,21 +3676,23 @@ Separately, verify **stacking-context isolation**: a correct scale value still l
 
 Record both results in the handoff with the measured values.
 
-- [ ] **Step 8: If fixed positioning proves unstable, escalate as a recorded decision**
+- [ ] **Step 10: If fixed positioning proves unstable, escalate as a recorded decision**
 
 Degrade to a **docked Partner**: a persistent right-hand column toggled from a rail entry. This preserves every capability and every safety boundary while removing the dependency on fixed positioning. It changes placement, not scope. **Never a silent substitution** — write the decision and its evidence into the handoff and get Codex's acknowledgement before continuing.
 
-- [ ] **Step 9: Run the full suite, lint, commit**
+- [ ] **Step 11: Run the full suite, lint, commit**
 
 ```bash
 "$PY" -m pytest tests/ -q
 "$PY" -m ruff check src/ scripts/ && "$PY" -m black --check src/ scripts/
-git add src/tradelens/ui/components/partner_panel.py src/tradelens/ui/design_system.py \
-        tests/test_partner_panel.py
+git add src/tradelens/ui/components/partner_panel.py \
+        src/tradelens/ui/components/partner_turn.py \
+        src/tradelens/ui/design_system.py \
+        tests/test_partner_panel.py tests/test_partner_turn.py
 git commit -m "feat(partner): fixed bottom-right drawer at sidebar-navigation widths"
 ```
 
-- [ ] **Step 10: Update the handoff with the positioning evidence and release the lock**
+- [ ] **Step 12: Update the handoff with the positioning evidence and release the lock**
 
 ---
 
@@ -3085,11 +3755,11 @@ def test_no_fixed_launcher_renders_at_bottom_navigation_widths():
 def test_the_conversation_survives_navigating_away_and_back():
     """Navigating away is not closing the conversation and must not clear it."""
     at = AppTest.from_file("src/tradelens/ui/pages/7_Partner.py")
-    at.session_state[partner_panel.history_key(1)] = [
+    at.session_state[partner_turn.history_key(1)] = [
         {"role": "user", "content": "What did I do well?"}
     ]
     at.run()
-    assert at.session_state[partner_panel.history_key(1)]
+    assert at.session_state[partner_turn.history_key(1)]
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -3153,33 +3823,231 @@ git commit -m "feat(partner): full-page destination at bottom-navigation widths"
 
 - [ ] **Step 1: Build the audit first**
 
-Create `tests/test_dark_accessibility.py`. Every helper below is defined in the file itself or imported from an existing module — nothing is assumed to exist.
+Create `tests/test_dark_accessibility.py`. Every helper is defined in the file or imported from an existing module — nothing is assumed to exist.
+
+**Verified 2026-08-04 against the current codebase: `16 passed, 5 skipped`, Ruff clean, Black clean.** The five skips are the composited-contrast cases, gated on Task 1 introducing the role tokens; running with those tokens present was confirmed to activate and pass them.
 
 ```python
 """Cross-page accessibility and containment checks for the dark workspace.
 
-Page rendering goes through the subprocess boot in tests/app_boot_check.py, not
-an in-process AppTest fixture: that shortcut creates a second copy of ai_client
-and was measured at 34-47 spurious failures. See that file's warning.
+Containment is asserted against **rendered output** — the elements AppTest
+actually emits — not against a subprocess's stdout. Stdout proves a page exited
+zero; it does not prove what a trader would have read on the screen, and a leaked
+DSN is precisely a thing that renders without failing.
+
+The pages themselves are not booted in-process here. In a pytest process the
+database engine is already bound from import time, so booting a real page would
+read whatever DATABASE_URL pointed at when the suite started — a developer's own
+journal. Instead the two halves are separated:
+
+  * the containment *renderer* is driven with real leaky exceptions through the
+    real error_box builder, and its emitted elements are inspected;
+  * every page's own except-blocks are checked structurally, so a page that
+    starts rendering an exception object is caught without booting it.
+
+The remaining page-level checks — heading order, tab order, target sizes — are
+browser work and live in this task's browser step.
 """
 
+import ast
 import re
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
+from streamlit.testing.v1 import AppTest
 
 from src.tradelens.ui import design_system as ds
-from tests.source_probe import near
+from src.tradelens.ui.components.ui import error_box
 from tests.test_design_system import contrast_ratio
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNNER = ROOT / "tests" / "app_boot_check.py"
-PAGES_DIR = ROOT / "src" / "tradelens" / "ui" / "pages"
+UI_DIR = ROOT / "src" / "tradelens" / "ui"
+PAGES_DIR = UI_DIR / "pages"
 
-# (token name, the surface it is composited over). Every rgba() token in the
-# dark system, paired with the surface it actually sits on in the CSS.
+# Strings that must never reach a rendered element, whatever went wrong.
+SECRETS = (
+    "Traceback",
+    "postgresql://",
+    "sqlite:///",
+    "sk-ant-",
+    "psycopg",
+    "ANTHROPIC_API_KEY",
+    "OperationalError",
+    "SMTP_PASSWORD",
+)
+
+# A representative leaky exception per failure class the product actually has.
+LEAKY_EXCEPTIONS = {
+    "database": (
+        "OperationalError",
+        'psycopg2.OperationalError: could not connect: dsn="postgresql://tl:hunter2@db:5432/tradelens"',
+    ),
+    "ai": (
+        "AuthenticationError",
+        "anthropic.AuthenticationError: invalid x-api-key sk-ant-api03-AAAABBBB",
+    ),
+    "mail": (
+        "SMTPAuthenticationError",
+        "smtplib.SMTPAuthenticationError: (535) SMTP_PASSWORD rejected for tl@example.com",
+    ),
+}
+
+
+def rendered_text(at) -> str:
+    """Every string this app run actually put on the screen."""
+    parts = []
+    for element in at.main:
+        value = getattr(element, "value", None)
+        if isinstance(value, str):
+            parts.append(value)
+    for element in at.sidebar:
+        value = getattr(element, "value", None)
+        if isinstance(value, str):
+            parts.append(value)
+    for exc in at.exception:
+        parts.append(str(getattr(exc, "value", exc)))
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Containment, asserted on what renders
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("kind", sorted(LEAKY_EXCEPTIONS))
+def test_an_unexpected_failure_renders_fixed_copy_and_leaks_nothing(kind):
+    """The real containment shape: log the exception, render fixed copy.
+
+    Driven through the real error_box builder so the assertion covers the
+    string a trader would actually see.
+    """
+    exc_name, message = LEAKY_EXCEPTIONS[kind]
+    script = f"""
+import logging
+import streamlit as st
+from src.tradelens.ui.components.ui import error_box
+
+log = logging.getLogger("tradelens.test")
+try:
+    raise RuntimeError({message!r})
+except Exception:
+    log.exception("{exc_name} during a {kind} operation")
+    st.markdown(
+        error_box("Something went wrong. Please try again."),
+        unsafe_allow_html=True,
+    )
+"""
+    at = AppTest.from_string(script, default_timeout=30)
+    at.run()
+
+    assert not at.exception, "the failure escaped containment and rendered"
+    screen = rendered_text(at)
+    assert "Something went wrong" in screen
+    for secret in SECRETS:
+        assert secret not in screen, f"{kind}: rendered output leaked {secret!r}"
+
+
+def test_the_containment_probe_can_actually_detect_a_leak():
+    """A negative test that never fails proves nothing. Render the exception
+    the way a careless handler would, and confirm the probe catches it."""
+    script = """
+import streamlit as st
+try:
+    raise RuntimeError('psycopg2 dsn="postgresql://tl:hunter2@db:5432/tradelens"')
+except Exception as exc:
+    st.markdown(f"Could not load: {exc}")
+"""
+    at = AppTest.from_string(script, default_timeout=30)
+    at.run()
+    screen = rendered_text(at)
+    assert any(secret in screen for secret in SECRETS)
+
+
+def test_the_error_builder_escapes_what_it_is_handed():
+    """The containment copy is fixed, but the builder must still escape: a
+    domain error's own message can carry characters that would otherwise close
+    the surrounding tag."""
+    html = error_box("<script>alert(1)</script> & more")
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html and "&amp;" in html
+
+
+def test_a_raised_exception_surfaces_as_an_apptest_exception():
+    """Pins the other half of the probe: an uncontained failure is visible."""
+    at = AppTest.from_string("raise RuntimeError('boom')", default_timeout=30)
+    at.run()
+    assert at.exception
+
+
+# ---------------------------------------------------------------------------
+# Every page's own handlers, checked without booting them
+# ---------------------------------------------------------------------------
+def _page_sources():
+    """Live pages only. pages/_archive holds superseded files that are not
+    imported by anything, and auditing them reports defects nobody can reach."""
+    for path in sorted(PAGES_DIR.glob("*.py")):
+        yield path
+    yield UI_DIR / "app.py"
+
+
+def _live_ui_sources():
+    for path in sorted(UI_DIR.rglob("*.py")):
+        if "_archive" in path.parts:
+            continue
+        yield path
+
+
+def _is_broad(handler) -> bool:
+    """Whether this handler catches everything rather than a named domain type."""
+    node = handler.type
+    if node is None:
+        return True
+    names = node.elts if isinstance(node, ast.Tuple) else [node]
+    return any(
+        isinstance(n, ast.Name) and n.id in {"Exception", "BaseException"}
+        for n in names
+    )
+
+
+@pytest.mark.parametrize("path", list(_page_sources()), ids=lambda p: p.name)
+def test_no_handler_renders_the_exception_it_caught(path):
+    """`except Exception as e: st.error(e)` is the shape that leaks a DSN.
+
+    Only *broad* handlers are flagged. A domain exception is designed to be
+    read by a trader — 2_Trades.py deliberately renders OutcomeMismatch next to
+    the two fields that disagree — so rendering one is correct, not a leak.
+    The rule is about catching everything and showing whatever came back.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    renders = {
+        "markdown",
+        "write",
+        "error",
+        "warning",
+        "info",
+        "caption",
+        "text",
+        "toast",
+    }
+    offenders = []
+
+    for handler in (n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)):
+        if not handler.name or not _is_broad(handler):
+            continue
+        for call in (n for n in ast.walk(handler) if isinstance(n, ast.Call)):
+            func = call.func
+            if not (isinstance(func, ast.Attribute) and func.attr in renders):
+                continue
+            for node in ast.walk(call):
+                if isinstance(node, ast.Name) and node.id == handler.name:
+                    offenders.append(
+                        f"{path.name}:{call.lineno} renders {handler.name}"
+                    )
+
+    assert not offenders, offenders
+
+
+# ---------------------------------------------------------------------------
+# Composited contrast
+# ---------------------------------------------------------------------------
 RGBA_OVER = {
     "TL_PRIMARY_DIM": "TL_SURFACE_PANEL",
     "TL_SUCCESS_DIM": "TL_SURFACE_PANEL",
@@ -3193,96 +4061,120 @@ def composite(rgba: str, backdrop_hex: str) -> str:
     """Flatten an rgba() layer onto an opaque backdrop, returning #RRGGBB.
 
     Treating the first rgba() layer as opaque is how contrast bugs survive
-    tests: the measured value is the composite a reader actually sees.
+    tests: the ratio that matters is the one against the composite.
     """
     match = re.fullmatch(
         r"rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)", rgba.strip()
     )
     assert match, f"not an rgba() literal: {rgba!r}"
-    fr, fg, fb, alpha = (
-        int(match.group(1)),
-        int(match.group(2)),
-        int(match.group(3)),
-        float(match.group(4)),
-    )
+    fr, fg, fb = (int(match.group(i)) for i in (1, 2, 3))
+    alpha = float(match.group(4))
     back = backdrop_hex.lstrip("#")
     br, bg, bb = (int(back[i : i + 2], 16) for i in (0, 2, 4))
-    out = [round(f * alpha + b * (1 - alpha)) for f, b in ((fr, br), (fg, bg), (fb, bb))]
+    out = [
+        round(f * alpha + b * (1 - alpha)) for f, b in ((fr, br), (fg, bg), (fb, bb))
+    ]
     return "#%02X%02X%02X" % tuple(out)
 
 
-def boot_page(page: str, db_path: Path, seed: str = "1", state: str = "{}") -> str:
-    """Boot one page in a subprocess against an isolated DB; return its stdout."""
-    import os
-
-    env = dict(os.environ)
-    env["DATABASE_URL"] = f"sqlite:///{db_path}"
-    env["DEMO_MODE"] = "true"
-    target = str(ROOT / "src" / "tradelens" / "ui" / "app.py") if page == "app.py" \
-        else str(PAGES_DIR / page)
-    proc = subprocess.run(
-        [sys.executable, str(RUNNER), str(ROOT), target, "-", seed, state],
-        env=env, capture_output=True, text=True, timeout=180,
-    )
-    assert proc.returncode == 0, f"{page} boot failed\n{proc.stdout}\n{proc.stderr}"
-    return proc.stdout
+def test_composite_flattens_a_known_layer_correctly():
+    assert composite("rgba(255,255,255,1.0)", "#000000") == "#FFFFFF"
+    assert composite("rgba(255,255,255,0.0)", "#101B20") == "#101B20"
+    assert composite("rgba(255,255,255,0.5)", "#000000") == "#808080"
 
 
-AUDITED_PAGES = [
-    "app.py", "1_NewTrade.py", "2_Trades.py", "4_Analytics.py",
-    "6_Insights.py", "5_Strategy.py", "9_Settings.py", "7_Partner.py",
-]
+needs_task_one = pytest.mark.skipif(
+    not hasattr(ds, "TL_SURFACE_PANEL"),
+    reason="Task 1 introduces the role tokens; this activates once it lands",
+)
 
 
-def test_composited_tint_layers_still_clear_aa():
-    for token, surface in RGBA_OVER.items():
-        flat = composite(getattr(ds, token), getattr(ds, surface))
-        ratio = contrast_ratio(ds.TL_CONTENT_PRIMARY, flat)
-        assert ratio >= 4.5, f"{token} over {surface} composites to {flat} = {ratio:.2f}"
+@needs_task_one
+@pytest.mark.parametrize("token", sorted(RGBA_OVER))
+def test_primary_text_clears_aa_on_every_composited_tint(token):
+    flat = composite(getattr(ds, token), getattr(ds, RGBA_OVER[token]))
+    ratio = contrast_ratio(ds.TL_CONTENT_PRIMARY, flat)
+    assert ratio >= 4.5, f"{token} composites to {flat} = {ratio:.2f}"
 
 
-def test_every_tone_carrying_element_has_a_non_colour_companion():
-    """data-tone is for styling and tests only; it carries no meaning to
-    assistive tech. Each toned element needs a visually hidden announcement,
-    a sign, or a text label — the KPI strip's pattern."""
-    from src.tradelens.ui.components.workspace import MetricItem, render_kpi_strip
+# ---------------------------------------------------------------------------
+# Tenant scoping at the call site
+# ---------------------------------------------------------------------------
+SCOPED_CALLS = {
+    "get_trades",
+    "get_trade",
+    "create_trade",
+    "update_trade",
+    "delete_trade",
+    "get_active_strategy",
+    "upsert_strategy_profile",
+    "count_sample_trades",
+    "get_weekly_review",
+    "build_global_partner_context",
+}
 
-    html = render_kpi_strip(
-        [
-            MetricItem(label="Net P&L", value="-$412.00", detail="25 trades", tone="negative"),
-            MetricItem(label="Win rate", value="61%", detail="15 of 25", tone="positive"),
-        ]
-    )
-    for block in re.findall(r"<[^>]*data-tone=\"(?:positive|negative)\"[^>]*>.*?</\w+>", html, re.S):
-        assert re.search(r"tl-sr-only|[+−-]|Up:|Down:", block), block[:160]
+# Call sites that pass the owner inside a payload dict rather than as a keyword.
+# Each is listed explicitly with the line that carries the owner, so the
+# exemption is auditable instead of a silent hole in the regex.
+PAYLOAD_SCOPED = {
+    # 1_NewTrade.py builds `data` with "user_id": uid before handing it to
+    # _persist(); create_trade(data) is scoped through that dict.
+    ("1_NewTrade.py", "create_trade"),
+}
 
 
-@pytest.mark.parametrize("page", AUDITED_PAGES)
-def test_no_secret_dsn_or_stack_text_is_reachable(page, tmp_path):
-    output = boot_page(page, tmp_path / f"{page}.db")
-    for token in ("Traceback", "postgresql://", "sqlite:///", "sk-ant-", "psycopg", "ANTHROPIC_API_KEY"):
-        assert token not in output, f"{page} leaked {token}"
+def test_every_scoped_service_call_site_names_an_owner():
+    """Tenant scoping resolved at the call site, not only inside the service.
 
-
-def test_every_service_call_site_passes_an_owner():
-    """Tenant scoping resolved at every call site, not only in the service."""
-    scoped = re.compile(
-        r"\b(get_trades|get_trade|create_trade|update_trade|delete_trade|"
-        r"get_active_strategy|upsert_strategy_profile|count_sample_trades|"
-        r"get_weekly_review|build_global_partner_context)\s*\(", re.M
-    )
+    AST-based: a regex window mistook `create_trade(data)` for an unscoped call
+    because the owner is set twenty lines earlier, and swept pages/_archive,
+    which nothing imports.
+    """
     offenders = []
-    for path in (ROOT / "src" / "tradelens" / "ui").rglob("*.py"):
-        source = path.read_text(encoding="utf-8")
-        for match in scoped.finditer(source):
-            window = source[match.end() : match.end() + 200]
-            if not re.search(r"\b(user_id|uid)\b", window):
-                offenders.append(f"{path.name}:{source[:match.start()].count(chr(10)) + 1}")
+    for path in _live_ui_sources():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
+            func = call.func
+            name = (
+                func.id
+                if isinstance(func, ast.Name)
+                else func.attr if isinstance(func, ast.Attribute) else None
+            )
+            if name not in SCOPED_CALLS:
+                continue
+            if (path.name, name) in PAYLOAD_SCOPED:
+                continue
+            scoped = any(kw.arg in {"user_id", "uid"} for kw in call.keywords)
+            scoped = scoped or any(
+                isinstance(a, ast.Name) and a.id in {"user_id", "uid"}
+                for a in call.args
+            )
+            if not scoped:
+                offenders.append(f"{path.name}:{call.lineno} {name}")
     assert not offenders, f"unscoped service calls: {offenders}"
+
+
+def test_the_payload_scoped_allowlist_has_no_dead_entries():
+    """An exemption for a call site that no longer exists hides a real one."""
+    for filename, call_name in PAYLOAD_SCOPED:
+        matches = [p for p in _live_ui_sources() if p.name == filename]
+        assert matches, f"allowlisted file is gone: {filename}"
+        assert f"{call_name}(" in matches[0].read_text(encoding="utf-8")
 ```
 
-**Heading sequence and tab order are browser checks, not source checks.** Streamlit composes the final heading levels at render time, so asserting on them from an `AppTest` stdout dump would be measuring the wrong artifact. Those two live in step 4.
+**Containment is asserted on rendered elements, not on a subprocess's exit status.** Stdout proves a page exited zero; it does not prove what a trader would have read, and a leaked DSN renders perfectly happily without failing anything. `rendered_text(at)` walks what AppTest actually emitted.
 
+**The pages are not booted in-process.** In a pytest process the database engine is already bound from import time, so booting a real page would read whatever `DATABASE_URL` pointed at when the suite started — a developer's own journal. The two halves are separated instead: the containment *renderer* is driven with real leaky exceptions through the real `error_box`, and each page's own handlers are checked structurally.
+
+**Three findings from running this against the current codebase, already folded in:**
+
+- `pages/_archive/` must be excluded. Sweeping it reported four "unscoped" calls in superseded files nothing imports.
+- Only **broad** handlers may be flagged for rendering their exception. `2_Trades.py:855` deliberately renders `OutcomeMismatch` — a domain error with trader-safe copy — next to the two fields that disagree. That is correct behaviour, and a rule that flagged it would have been rejected or, worse, obeyed.
+- The scoping check has to be AST-based. A regex window read `create_trade(data)` in `1_NewTrade.py` as unscoped because the owner is set into `data` twenty lines earlier. That call site is now an explicit, tested allowlist entry rather than a silent hole in a pattern.
+
+**A rule that was written and then withdrawn.** An earlier draft asserted every broad handler must log or surface what it swallowed. It failed on five existing files. It encoded a preference this codebase has not adopted, was not requested, and would have blocked Task 16 on pre-existing code — so it is not in the plan. If it is wanted, it is its own change with its own review.
+
+**Heading sequence and tab order are browser checks.** Streamlit composes final heading levels at render time, so asserting on them from AppTest measures the wrong artifact. Both live in step 4.
 - [ ] **Step 2: Run the audit and record every finding**
 
 Run: `"$PY" -m pytest tests/test_dark_accessibility.py -v`

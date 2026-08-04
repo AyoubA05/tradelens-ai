@@ -20,25 +20,28 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PLAN AMENDED — AWAITING SECOND CODEX PLAN REVIEW`
-- Last completed work: Claude amended the rebuilt plan after Codex found seven
-  blocking execution defects in `2363ea2`. All seven are fixed, and the code the
-  plan now carries was executed rather than asserted.
+- Current phase: `PLAN + SPEC AMENDED — AWAITING FINAL PLAN GATE`
+- Last completed work: Claude amended the plan **and the specification** after
+  Codex's second review found four remaining blockers in `26ce2d2`. Task 4,
+  Task 14, and Task 16 were written as real files and executed through pytest,
+  Ruff, and Black — not merely parsed.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
-  (3443 lines, 17 tasks, 144 steps). It supersedes
+  (4346 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification: the plan's own code was run in a scratch directory —
-  `source_probe` 16 passed, `review_document` 16 passed, metrics 15/15 against
-  the real `metrics.py`, all Ruff and Black clean. 38 of 39 Python blocks in the
-  plan parse standalone (the 39th is a labelled f-string fragment). No product
-  code changed, so the `1618 passed, 7 skipped` baseline is untouched.
-- Next owner: `CODEX` for a second plan review.
+- Verification (2026-08-04, all executed): `source_probe` + `review_document`
+  32 passed · `partner_turn` 20 passed · metrics 15/15 against the real
+  `metrics.py` · `partner_context` + `dark_accessibility` 37 passed, 5 skipped
+  (skips gated on Task 1 tokens; confirmed to activate and pass when present) ·
+  Ruff clean and Black clean on every file · 40 of 41 plan code blocks parse
+  standalone, the 41st being a labelled f-string fragment. No product code was
+  left in the worktree, so the `1618 passed, 7 skipped` baseline is untouched.
+- Next owner: `CODEX` for the final plan gate.
 - Next work: review the amendment for scope, AI safety, tenancy, and
   service-contract fidelity. Task 4 is assigned to Codex and must be executed by
-  Codex, not Claude. Do not begin Task 1 before the plan review lands.
-- Spec amendment required: §4.1 and §4.4 name `TL_LINE_STRONG = #3A4E56`, which
-  measures 1.84–2.20:1 and cannot satisfy the spec's own ≥3:1 rule. The plan
-  uses `#5C6E77`. The spec still needs correcting to match.
+  Codex, not Claude. Do not begin Task 1 before the gate clears.
+- Spec/plan agreement: resolved. `TL_LINE_STRONG` is `#5C6E77` in both, and the
+  spec now carries the measured all-six-surface contract (§4.4, amendment C6 in
+  §15.3).
 - Blocker: cleared. The `nt_shot` Back-navigation exception is fixed and proved
   fixed in a real browser both ways (see the handoff-log entries below).
 
@@ -185,6 +188,131 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-04 — Four remaining blockers closed; spec amended too (Claude)
+
+Codex's second review confirmed the original seven were addressed and found four
+more. All four were real, and one of them was a defect in the *specification*,
+not the plan.
+
+**1. Spec and plan no longer disagree — the spec was wrong.** Previously the plan
+carried `#5C6E77` while spec §4.1 still said `#3A4E56`. Rather than leaving the
+plan deviating from its own source of truth, the specification is amended:
+§4.1's token block now reads `#5C6E77`, §4.4 carries the measured table for both
+values and states the contract as **all six surfaces**, and §15.3 records it as
+amendment C6. `TL_SURFACE_ELEVATED` is named as the binding case — it is the
+lightest surface and it is where the Partner drawer's edge sits, so a
+canvas/rail/panel check would have passed a value still failing on the drawer.
+`TL_LINE_HAIRLINE` is explicitly exempt from the 3:1 floor with a required test
+that it stays quieter than the strong line.
+
+**2. `build_global_partner_context` now admits atomically.** The previous draft
+built the text and the evidence list in lockstep and then trimmed them
+*independently* — text by character budget, sources by count. That produces
+exactly the two lies this surface cannot tell: an evidence link to a record the
+model never saw, and a claim drawn from a record the trader cannot open.
+
+`_admit` now takes a line and its source together or neither, and **skips** a
+candidate that does not fit rather than stopping, so one oversized journal note
+cannot suppress the completed-trade and strategy sections behind it. Headings are
+emitted only when their first candidate is admitted, so no header stands over
+nothing. Row budgets sum to `MAX_EVIDENCE_SOURCES`, making the evidence cap a
+backstop rather than a limit that silently starves later sections.
+
+21 tests, including the five Codex named — oversized first note, character
+truncation, evidence truncation, blank notes, and continued inclusion of the
+trade and strategy sections — plus a shared `_assert_invariant` helper that
+re-checks source-iff-contribution on every scenario.
+
+**3. Task 4 is standalone; both open decisions are closed.**
+
+- **Owner validator: mirrored, not promoted.** `_require_concrete_user_id`
+  already exists as a private copy in `strategy.py:121`, `cost.py:34`, and
+  `app_settings.py:16`. Three service modules carrying their own copy *is* this
+  codebase's convention, so a fourth follows it rather than adding a
+  cross-service import for six lines.
+- **Strategy serializer: the public API, not the private one.** The adapter calls
+  `get_active_strategy(user_id)` instead of importing `strategy._to_dict`. It is
+  public, already owner-validated, already tested, and its dict already carries
+  `id`, which is what the evidence descriptor needs.
+
+Both decisions mean **no other service file changes**, so Task 4's file list is
+unchanged. Exact imports are now listed.
+
+**4. Task 14's send path is implemented and pinned.** It lives in a new
+Streamlit-free `partner_turn.py`, following the `trade_wizard.py` precedent, so
+the orderings are provable without a browser. 20 tests pin: the exact
+`partner_reply(list(history), trade_context=…, strategy_profile=…,
+per_trade_qa=False)` arguments; the user turn appended **before** the call so a
+failure never costs the trader their question; usage logged **only** on success
+and exactly once with the authenticated user; the assistant turn appended only
+on success; prior turns surviving both error classes; and an unexpected error
+rendering fixed copy while the raised DSN and `sk-ant-` key stay out of state.
+
+**On evidence, Codex was right and the previous draft overclaimed.**
+`partner_reply` returns `(reply_text, usage)` and nothing else, so it cannot
+report which records a given sentence drew on. Presenting the adapter's records
+as per-answer citations would assert a relationship the service never
+established. The contract is now `CONTEXT_USED_LABEL = "Context used"`, with the
+list omitted entirely when empty. Two tests hold the line, asserted on the API
+surface rather than on prose — a text scan cannot tell an explanation of why
+citations are not claimed from a claim, which is a mistake the first attempt
+actually made.
+
+**5. Task 16 tests rendered output.** The unused import is gone — replaced by a
+test that makes `error_box` earn its import by proving it escapes what it is
+handed. Containment is now asserted on the elements AppTest actually emits, via
+`rendered_text(at)`, driving three representative leaky exceptions (a Postgres
+DSN, an `sk-ant-` key, an SMTP password) through the real `error_box`. Two probe
+tests prove the check can detect a leak and an uncontained raise, so the negative
+tests cannot silently pass forever.
+
+Running it against the current codebase produced three corrections worth
+recording:
+
+- **`pages/_archive/` must be excluded.** Sweeping it reported four "unscoped"
+  calls in superseded files nothing imports.
+- **Only broad handlers may be flagged.** `2_Trades.py:855` deliberately renders
+  `OutcomeMismatch` — a domain error with trader-safe copy — beside the two
+  fields that disagree. That is correct, and a rule that flagged it would have
+  been either rejected or, worse, obeyed.
+- **Scoping must be AST-based.** A regex window read `create_trade(data)` in
+  `1_NewTrade.py` as unscoped because the owner is set into `data` twenty lines
+  earlier. That call site is now an explicit allowlist entry with its own
+  dead-entry test, rather than a silent hole in a pattern.
+
+**One rule was written and then withdrawn.** A draft asserted every broad handler
+must log or surface what it swallowed. It failed on five existing files. It
+encoded a preference this codebase has not adopted, was not requested, and would
+have blocked Task 16 on pre-existing code — so it is not in the plan. If it is
+wanted it is its own change with its own review.
+
+**6. No `...` stubs remain.** The last one, `_next_review_action`, is now a prose
+signature whose complete implementation sits in its task's Step 3.
+
+**7. Everything was executed, not parsed.** Every file above was written to disk
+and run:
+
+| Artifact | Result |
+|---|---|
+| `source_probe` + `review_document` | 32 passed |
+| `partner_turn` (Task 14) | 20 passed |
+| metrics vs. the real `metrics.py` | 15/15 |
+| `partner_context` + `dark_accessibility` | 37 passed, 5 skipped |
+| Ruff / Black, all files | clean |
+| Plan code blocks parsing standalone | 40 of 41 |
+
+The five skips are the composited-contrast cases, gated on Task 1 introducing
+the role tokens; injecting those tokens confirmed the gate opens and they pass,
+so they are not skipped forever. The 41st block is a labelled f-string fragment.
+
+Product code was copied into the worktree only to run, and removed after; the
+tree is documentation-only and the `1618 passed, 7 skipped` baseline is
+untouched.
+
+**Files changed:** the plan, the specification, and this handoff.
+
+Ownership returned to `NONE`.
 
 ### 2026-08-04 — Plan amended after Codex found execution defects (Claude)
 

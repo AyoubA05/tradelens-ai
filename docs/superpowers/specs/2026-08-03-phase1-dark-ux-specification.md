@@ -306,7 +306,7 @@ TL_SURFACE_FIELD       = "#122026"   # inputs and selectors
 TL_CONTENT_PRIMARY     = "#ECF5F4"   # main copy and values
 TL_CONTENT_SECONDARY   = "#91A3A7"   # descriptions and metadata
 TL_LINE_HAIRLINE       = "#26373D"   # structure without card-box noise
-TL_LINE_STRONG         = "#3A4E56"   # meaningful boundaries, rail edge  (new, see D4)
+TL_LINE_STRONG         = "#5C6E77"   # meaningful boundaries, rail edge  (new, see D4)
 TL_ACCENT_ACTION       = TL_PRIMARY  # existing bright TradeLens teal — unchanged
 ```
 
@@ -370,7 +370,30 @@ produces the dark-cards-on-dark-cards effect the plan forbids. The consequence i
 
 `TL_LINE_HAIRLINE` is 1.53:1 on canvas — fine for a decorative rule, insufficient where a
 line is the sole indicator of a control boundary. `TL_LINE_STRONG` exists for that case and
-must clear 3:1 against both adjacent surfaces.
+must clear 3:1 against **every** surface it can be drawn on.
+
+**Measured contract (amendment C6, 2026-08-04).** This section originally proposed
+`#3A4E56`. Computed against the six surfaces it scores **1.84–2.20:1** and therefore could
+never satisfy the ≥3:1 rule this same section states. The value is corrected to `#5C6E77` —
+the smallest value on the same cool blue-grey ramp that clears 3:1 everywhere:
+
+| Surface | `#3A4E56` (withdrawn) | `#5C6E77` (adopted) |
+|---|---:|---:|
+| canvas `#091216` | 2.17 ✗ | **3.56** ✓ |
+| rail `#071014` | 2.20 ✗ | **3.61** ✓ |
+| panel `#101B20` | 2.00 ✗ | **3.29** ✓ |
+| elevated `#152329` | 1.84 ✗ | **3.03** ✓ |
+| chart `#0C181D` | 2.07 ✗ | **3.39** ✓ |
+| field `#122026` | 1.91 ✗ | **3.14** ✓ |
+
+**The contract is all six surfaces, not three.** `TL_SURFACE_ELEVATED` is the binding case:
+it is the lightest surface *and* it is where the Partner drawer's edge sits (§8.4), so a
+check limited to canvas, rail, and panel would pass a value that still failed on the drawer.
+The implementation plan's Task 1 tests all six.
+
+`TL_LINE_HAIRLINE` keeps `#26373D` and is deliberately **not** held to 3:1 — it is the
+decorative weight. A test must assert the hairline stays quieter than the strong line;
+two line weights that measure the same are one line weight.
 
 ### 4.5 Z-index scale (resolves D13)
 
@@ -1223,6 +1246,15 @@ design database, no other redesign.
 C1 and C2 change stated behaviour and both are owner-directed. C2's z-order reversal is the one
 place a previously recorded rationale was overturned; the superseded reasoning is noted in §4.5
 so the change is visible rather than silent.
+
+### 15.3 Measured-value correction (2026-08-04, documentation only)
+
+| # | Correction | Section |
+|---|---|---|
+| C6 | **`TL_LINE_STRONG` corrected from `#3A4E56` to `#5C6E77`.** The proposed value measures 1.84–2.20:1 across the six surfaces and could not satisfy §4.4's own ≥3:1 requirement — the specification contradicted itself, and the implementation plan's contract test would have failed on the value the same task installs. Found while writing that test. §4.4 now carries the measured table for both values and states the contract as **all six surfaces**, with `TL_SURFACE_ELEVATED` named as the binding case because the Partner drawer's edge sits there; a canvas/rail/panel check would have passed a value still failing on the drawer. `TL_LINE_HAIRLINE` is unchanged and explicitly exempt from the 3:1 floor, with a required test that it stays quieter than the strong line | §4.1, §4.4 |
+
+No other token changed. The surface set, the content colours, the semantic ramp, the z-scale,
+and every contrast figure in §4.3 are untouched.
 
 ### 15.2 Adopted Partner placement (2026-08-03, documentation only)
 
