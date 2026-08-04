@@ -1173,7 +1173,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Write the failing Partner-context tests**
 
-Create `tests/test_partner_context.py`. **Verified 2026-08-04: this exact file and the implementation in Step 7 were run together — `34 passed`, Ruff clean, Black clean.** Two behaviours were mutation-checked: reverting `_journal_text` to the truthiness chain fails 4 tests, and counting rows instead of meaningful notes fails 1.
+Create `tests/test_partner_context.py`. **Verified 2026-08-04: this exact file and the implementation in Step 7 were run together — `37 passed`, Ruff clean, Black clean.** Three behaviours were mutation-checked: reverting `_journal_text` to the truthiness chain fails 4 tests, counting rows instead of meaningful notes fails 1, and dropping the owner predicate from the journal hydration fails 1 — and *only* that 1.
 
 The fixtures follow the isolation pattern already established at `tests/test_user_isolation.py:28`. Both `partner_context.SessionLocal` and `strategy.SessionLocal` are patched, because the adapter reads trades through its own session and the strategy profile through the public `get_active_strategy`, which opens its own. `StaticPool` is required: without it each connection gets a fresh in-memory database and the seeded rows vanish.
 
@@ -1190,6 +1190,7 @@ import src.tradelens.services.strategy as strategy_service
 from src.tradelens.db.models import Base, Strategy, Trade, User
 from src.tradelens.services.partner_context import (
     PartnerContext,
+    _hydrate_journal_rows,
     _journal_text,
     PartnerEvidenceSource,
     build_global_partner_context,
@@ -1619,6 +1620,67 @@ def test_journal_rows_stay_in_most_recent_first_order(isolated_db):
 
     text = build_global_partner_context(user_id=uid).context_text
     assert text.index("newest") < text.index("middle") < text.index("oldest")
+
+
+# ---------------------------------------------------------------------------
+# Every lookup states its tenant at the point of the lookup
+# ---------------------------------------------------------------------------
+def test_hydration_refuses_a_trade_id_belonging_to_another_user(isolated_db):
+    """The owner predicate on the hydration query, guarded directly.
+
+    `test_context_is_scoped_to_the_authenticated_user` cannot catch this: the
+    ids it hydrates already came from an owner-scoped query, so the output is
+    correct whether or not the predicate is there. This hands the helper a
+    foreign id — the thing the predicate exists to refuse — so removing it
+    fails here and only here.
+    """
+    owner = _seed_user(isolated_db, "owner", trades=1, asset="EURUSD")
+    other = _seed_user(isolated_db, "intruder", trades=1, asset="ZZZBOBONLY")
+
+    db = isolated_db()
+    try:
+        foreign_id = db.query(Trade.id).filter(Trade.user_id == other).scalar()
+        own_id = db.query(Trade.id).filter(Trade.user_id == owner).scalar()
+
+        assert _hydrate_journal_rows(db, owner, [foreign_id]) == []
+        assert [r.id for r in _hydrate_journal_rows(db, owner, [own_id])] == [own_id]
+        # A mixed list yields only what the owner owns.
+        mixed = _hydrate_journal_rows(db, owner, [foreign_id, own_id])
+        assert [r.id for r in mixed] == [own_id]
+    finally:
+        db.close()
+
+
+def test_hydration_preserves_the_requested_order(isolated_db):
+    uid = _seed_user(isolated_db, "orderly", trades=0)
+    db = isolated_db()
+    try:
+        for day in (1, 2, 3):
+            db.add(
+                Trade(
+                    user_id=uid,
+                    asset="EURUSD",
+                    trade_date=f"2026-08-{day:02d}",
+                    pnl=1.0,
+                    trade_process_notes=f"note {day}",
+                )
+            )
+        db.commit()
+        ids = [row.id for row in db.query(Trade.id).filter(Trade.user_id == uid).all()]
+        reversed_ids = list(reversed(ids))
+        assert [
+            r.id for r in _hydrate_journal_rows(db, uid, reversed_ids)
+        ] == reversed_ids
+    finally:
+        db.close()
+
+
+def test_hydration_of_an_empty_selection_opens_no_query(isolated_db):
+    class Exploding:
+        def query(self, *_a, **_k):
+            raise AssertionError("queried the database for an empty selection")
+
+    assert _hydrate_journal_rows(Exploding(), 1, []) == []
 ```
 
 - [ ] **Step 6: Run to verify failure**
@@ -1755,6 +1817,24 @@ def _has_note_text():
     ) | ((Trade.notes.isnot(None)) & (func.trim(Trade.notes) != ""))
 
 
+def _hydrate_journal_rows(db, owner: int, wanted: List[int]) -> List[Trade]:
+    """Load the chosen journal rows, in the order they were chosen.
+
+    **The owner predicate is not redundant.** `wanted` happens to come from an
+    owner-scoped query today, so removing `Trade.user_id == owner` would still
+    produce correct output — which is exactly why it needs its own guard. Every
+    lookup states its tenant at the point of the lookup, so a future caller that
+    assembles ids some other way cannot turn this into a cross-tenant read by
+    doing nothing wrong here.
+    """
+    if not wanted:
+        return []
+    rows = db.query(Trade).filter(Trade.user_id == owner, Trade.id.in_(wanted)).all()
+    position = {trade_id: index for index, trade_id in enumerate(wanted)}
+    rows.sort(key=lambda row: position[row.id])
+    return rows
+
+
 def _admit(
     candidates: List[_Candidate],
 ) -> Tuple[str, Tuple[PartnerEvidenceSource, ...]]:
@@ -1829,12 +1909,9 @@ def build_global_partner_context(*, user_id: int) -> PartnerContext:
         meaningful_ids = [row.id for row in note_rows if _journal_text(row)]
         journal_entry_count = len(meaningful_ids)
 
-        wanted = meaningful_ids[:MAX_JOURNAL_ROWS]
-        journal_rows = (
-            db.query(Trade).filter(Trade.id.in_(wanted)).all() if wanted else []
+        journal_rows = _hydrate_journal_rows(
+            db, owner, meaningful_ids[:MAX_JOURNAL_ROWS]
         )
-        position = {trade_id: index for index, trade_id in enumerate(wanted)}
-        journal_rows.sort(key=lambda row: position[row.id])
         trade_rows = (
             db.query(Trade)
             .filter(Trade.user_id == owner)
@@ -1912,7 +1989,9 @@ def build_global_partner_context(*, user_id: int) -> PartnerContext:
 
 **Why admission is atomic.** An earlier draft built both lists in lockstep and then trimmed them independently — `context_text` by character budget, `evidence_sources` by count. That produces exactly the two lies this surface cannot tell: an evidence link to a record the model never saw, and a claim drawn from a record the trader cannot open. `_admit` therefore admits a line and its source together or neither, and **skips** a candidate that does not fit instead of stopping, so one oversized journal note cannot suppress the completed-trade and strategy sections behind it.
 
-**One definition of a journal entry.** `_journal_text` strips each candidate *before* judging it, so a `trade_process_notes` of `"   "` no longer wins the comparison and hide a real `notes` value behind it — a non-empty string is truthy, which is how the earlier version lost them. The same function decides `journal_entry_count`, so the number the trader is shown and the notes the prompt carries can never answer different questions. The SQL clause only narrows; it is not the authority, because `TRIM` strips spaces but not tabs or newlines.
+**One definition of a journal entry.** `_journal_text` strips each candidate *before* judging it, so a `trade_process_notes` of `"   "` no longer wins the comparison and hides a real `notes` value behind it — a non-empty string is truthy, which is how the earlier version lost them. The same function decides `journal_entry_count`, so the number the trader is shown and the notes the prompt carries can never answer different questions. The SQL clause only narrows; it is not the authority, because `TRIM` strips spaces but not tabs or newlines.
+
+**Every lookup states its tenant at the point of the lookup.** `_hydrate_journal_rows` filters on `Trade.user_id == owner` as well as `Trade.id.in_(wanted)`. The predicate is not redundant, and the reason it needs its own test is exactly why it is easy to drop: `wanted` comes from an owner-scoped query today, so removing it still produces correct output and the cross-user output test keeps passing. `test_hydration_refuses_a_trade_id_belonging_to_another_user` hands the helper a foreign id directly — the thing the predicate exists to refuse — so it is the only test that fails when the predicate goes. Extracting the helper is what makes that seam reachable.
 
 Row budgets sum to `MAX_EVIDENCE_SOURCES` with the single strategy row, so the evidence cap is a backstop rather than a limit that silently starves later sections. The truncation tests reach it by monkeypatching the constant.
 - [ ] **Step 8: Run tests, lint, commit**

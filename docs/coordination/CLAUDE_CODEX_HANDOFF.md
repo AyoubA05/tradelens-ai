@@ -20,24 +20,24 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `TASK 4 + TASK 14 AMENDED — AWAITING FOCUSED FINAL GATE`
-- Last completed work: Claude amended **Task 4 and Task 14 only**, per Codex's
-  third review of `f546922`. Token, specification, layout, and Task 16
-  decisions were not reopened; everything else in `f546922` is unchanged.
+- Current phase: `TASK 4 TENANT-SCOPING FIXED — AWAITING FINAL GATE`
+- Last completed work: Claude closed the last plan-gate blocker — the Task 4
+  journal hydration query is now explicitly tenant-scoped, with a focused guard
+  that fails when the owner predicate is removed. Task 4 only; nothing else in
+  `f682534` changed.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
-  (4821 lines, 17 tasks, 145 steps). It supersedes
+  (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
 - Verification (2026-08-04, all executed from the canonical worktree):
-  `test_partner_context.py` 34 passed · `test_partner_turn.py` 31 passed ·
-  both together 65 passed · Ruff clean · Black clean · 40 of 41 plan code
-  blocks parse standalone (the 41st is a labelled f-string fragment). Six
-  behaviours mutation-checked. Earlier-verified artifacts from `f546922` are
-  unchanged. No product code was left in the worktree, so the
+  `test_partner_context.py` 37 passed · `test_partner_turn.py` 31 passed ·
+  both together 68 passed · Ruff clean · Black clean · 40 of 41 plan code
+  blocks parse standalone (the 41st is a labelled f-string fragment). Seven
+  behaviours mutation-checked. No product code was left in the worktree, so the
   `1618 passed, 7 skipped` baseline is untouched.
-- Next owner: `CODEX` for a focused final gate on Task 4 and Task 14.
-- Next work: review only the Task 4 and Task 14 diff. Task 4 is assigned to
-  Codex and must be executed by Codex, not Claude. Do not begin Task 1 before
-  the gate clears.
+- Next owner: `CODEX` for the final gate.
+- Next work: review the Task 4 hydration diff. Task 4 is assigned to Codex and
+  must be executed by Codex, not Claude. **Implementation has not begun and
+  must not begin before the gate clears.**
 - Spec/plan agreement: resolved. `TL_LINE_STRONG` is `#5C6E77` in both, and the
   spec now carries the measured all-six-surface contract (§4.4, amendment C6 in
   §15.3).
@@ -187,6 +187,53 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-04 — Journal hydration explicitly tenant-scoped (Claude)
+
+Codex's last plan-gate blocker. Scope was Task 4 only.
+
+**The finding was right, and so was the reason it needed its own guard.** The
+journal hydration query filtered on `Trade.id.in_(wanted)` alone. Because
+`wanted` is derived from an owner-scoped query, the output was correct — which
+is precisely what made the gap invisible: `test_context_is_scoped_to_the_
+authenticated_user` passes with or without the predicate.
+
+**Fix.** The hydration is extracted into `_hydrate_journal_rows(db, owner,
+wanted)` and filters on `Trade.user_id == owner` as well as the id set.
+Extracting it is what creates a seam a test can reach; inline, there was no way
+to hand the query a foreign id.
+
+**Guard.** `test_hydration_refuses_a_trade_id_belonging_to_another_user` calls
+the helper directly with another user's trade id — the thing the predicate
+exists to refuse — and also checks a mixed list returns only the owner's row.
+Two supporting tests cover requested-order preservation and the empty-selection
+short circuit, which must not open a query at all.
+
+**Mutation check, run both ways as Codex asked:**
+
+| With `Trade.user_id == owner` removed | Result |
+|---|---|
+| Whole file | 1 failed, 36 passed |
+| `test_context_is_scoped_to_the_authenticated_user` alone | **passed** — confirming it was insufficient |
+| `test_hydration_refuses_a_trade_id_belonging_to_another_user` alone | **failed** — the only test that catches it |
+
+**Verification, executed from the canonical worktree:**
+
+| Artifact | Result |
+|---|---|
+| `tests/test_partner_context.py` | 37 passed |
+| `tests/test_partner_turn.py` | 31 passed |
+| Both together | 68 passed |
+| Ruff / Black on all four files | clean |
+| Plan code blocks parsing standalone | 40 of 41 |
+
+Product code was copied into the worktree only to run and removed afterwards;
+the tree is documentation-only and the `1618 passed, 7 skipped` baseline is
+untouched. **No implementation has begun.**
+
+**Files changed:** the plan and this handoff.
+
+Ownership returned to `NONE`.
 
 ### 2026-08-04 — Task 4 and Task 14 amended for the final gate (Claude)
 
