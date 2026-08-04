@@ -20,24 +20,21 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `TASK 4 TENANT-SCOPING FIXED — AWAITING FINAL GATE`
-- Last completed work: Claude closed the last plan-gate blocker — the Task 4
-  journal hydration query is now explicitly tenant-scoped, with a focused guard
-  that fails when the owner predicate is removed. Task 4 only; nothing else in
-  `f682534` changed.
+- Current phase: `PHASE 2 TASK 1 COMPLETE — AWAITING CODEX REVIEW GATE`
+- Last completed work: **Phase 2 Task 1 implemented** (`dbae906`) — the dark
+  token contract. Two live colour systems collapsed into one role namespace,
+  superseded names deleted rather than aliased, the z-index scale defined, and
+  Streamlit's own theme pinned to the role tokens.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification (2026-08-04, all executed from the canonical worktree):
-  `test_partner_context.py` 37 passed · `test_partner_turn.py` 31 passed ·
-  both together 68 passed · Ruff clean · Black clean · 40 of 41 plan code
-  blocks parse standalone (the 41st is a labelled f-string fragment). Seven
-  behaviours mutation-checked. No product code was left in the worktree, so the
-  `1618 passed, 7 skipped` baseline is untouched.
-- Next owner: `CODEX` for the final gate.
-- Next work: review the Task 4 hydration diff. Task 4 is assigned to Codex and
-  must be executed by Codex, not Claude. **Implementation has not begun and
-  must not begin before the gate clears.**
+- Verification: `1668 passed, 7 skipped` (was `1618/7`) · Ruff clean · Black
+  clean (177 files) · `git diff --check` clean. The +50 is 16 source-probe
+  tests, 37 dark-workspace contract tests, minus 3 hybrid tests deleted.
+- Next owner: `CODEX` for the Task 1 review gate.
+- Next work: review `dbae906`. **Task 2 has not begun and must not begin
+  before this gate clears.** Task 2 owns the shell retarget and must delete the
+  CSS compatibility bridge described below.
 - Spec/plan agreement: resolved. `TL_LINE_STRONG` is `#5C6E77` in both, and the
   spec now carries the measured all-six-surface contract (§4.4, amendment C6 in
   §15.3).
@@ -187,6 +184,92 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-04 — Phase 2 Task 1: the dark token contract (Claude)
+
+**Commit:** `dbae906`. Task 1 only; Task 2 not started.
+
+**What shipped.** One role namespace (`TL_SURFACE_*`, `TL_CONTENT_*`,
+`TL_LINE_*`, `TL_ACCENT_ACTION`) replaces the light workspace and the duplicate
+legacy dark set. Superseded names are **deleted, not aliased** — an alias is how
+two live systems came to coexist, and a deleted name raises ImportError at the
+call site instead of silently changing meaning. 241 references across 5 source
+and 6 test files were repointed. The `--tl-z-*` scale is defined and the three
+arbitrary literals (1000, 20, 100) are migrated onto it.
+
+**`TL_LINE_STRONG` is `#5C6E77`**, not the spec's original `#3A4E56`, which
+measures 1.84–2.20:1 against a required ≥3:1. That was corrected in the
+specification as amendment C6 before this task ran, so spec and code agree. The
+contract test covers all six surfaces because `TL_SURFACE_ELEVATED` is the
+binding case at 3.03:1.
+
+**Three deviations from the plan's letter, all deliberate.**
+
+1. **The skip link went to `--tl-z-overlay`, not `--tl-z-nav`.** The plan mapped
+   the `1000` literal to the nav tier. Reading the selector, that literal is the
+   keyboard skip link, which was above everything; putting it level with the
+   rail lets DOM order decide whether it is reachable. Spec §12 requires full
+   keyboard operation, and the spec outranks a line-level mapping in the plan.
+2. **`.tl-mobile-nav` went to `--tl-z-nav`, not `--tl-z-sheet`.** Same cause: the
+   plan's mapping was made from line numbers, and that selector is the bottom
+   navigation itself, not the `More` sheet inside it.
+3. **A CSS compatibility bridge was added.** The plan's Step 4 said *add* the
+   role properties; my first pass also removed the old ones, which would have
+   left every existing rule referencing undefined variables. The old CSS
+   variable names now resolve to the new roles, clearly labelled, so the product
+   renders between Task 1 and Task 2. **Task 2 must delete that block.** The
+   Python names are still gone, so nothing can quietly keep importing them.
+
+**Two defects found by executing, both fixed.**
+
+- The skip link set `color: var(--tl-rail-ink)` — a variable defined nowhere,
+  so it inherited onto a near-black background. Pre-existing, and invisible
+  until the tokens were audited. A new test fails on **any** `var()` reference
+  with no definition, and was mutation-checked by restoring the dangling name.
+- `charts.py` carried two greys, muted and faint, one step apart. The role
+  system has one secondary content colour and both now resolve to it. Recorded
+  as an intended collapse: two greys differing by a hair carried no information
+  a reader could use.
+
+**Streamlit's own theme is now dark.** `.streamlit/config.toml` goes
+`base = "dark"` with its four values pinned to the role tokens. Streamlit paints
+its chrome from these, so leaving them light would have put two palettes on one
+screen. Parity is tested.
+
+**Grade chips** moved from the deleted light `PAPER` onto the dark panel, so the
+A–F ramp re-points at the dark semantic family with brighter lime and orange
+intermediates. All five clear 4.5:1 on the panel.
+
+**Verification:** `1668 passed, 7 skipped` (was `1618/7`); Ruff clean; Black
+clean (177 files); `git diff --check` clean. The +50 is 16 source-probe tests
+and 37 dark-workspace contract tests, minus 3 hybrid tests deleted as
+superseded.
+
+**Files changed:** `.streamlit/config.toml`, `design_system.py`, `theme.py`,
+`charts.py`, `auth_screen.py`, `2_Trades.py`; added `tests/source_probe.py`,
+`tests/test_source_probe.py`, `tests/test_dark_workspace.py`; migrated
+`test_design_system.py`, `test_theme.py`, `test_charts.py`,
+`test_auth_screen.py`, `test_premium_page_contracts.py`. `git add -A` not used;
+untracked `src/tradelens/ui/.impeccable/` deliberately not staged.
+
+**Unresolved concerns for the gate.**
+
+1. **No browser evidence yet.** Task 1 is a token change and the suite is green,
+   but nothing has rendered in a real browser on this commit. Task 2's step 6 is
+   the first browser check and will be the first proof the app looks right.
+2. **`TL_RULE = #AFBEC0` was left alone.** It is a light-surface Evidence Rail
+   colour, not in the spec's deletion list or the contract test, so touching it
+   would have widened Task 1. On dark it will read too bright and belongs to
+   Task 2, which restyles that component.
+3. **`theme.py`'s public names now lie.** `PAPER` is a dark panel and `INK` is
+   light text. They are compatibility re-exports with a comment saying so; Task
+   2 retires them.
+4. **`test_rendered_figures_resolve_to_the_dark_stage` is order-dependent.** It
+   fails when run alone and passes in the full suite. Verified pre-existing by
+   stashing this task's changes and reproducing it on the original code — not
+   introduced here, but worth its own fix.
+
+Ownership returned to `NONE`. **Task 2 must not begin until Codex approves.**
 
 ### 2026-08-04 — Journal hydration explicitly tenant-scoped (Claude)
 
