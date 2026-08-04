@@ -6,7 +6,23 @@
 
 **Architecture:** Retarget the shared token layer first so every later task consumes tokens rather than literals, then migrate the shell, then the controls, then each page. Three service additions are Codex-owned and land in one reviewed commit before the surfaces that consume them. The AI Partner reuses the existing `partner_reply` service through one Codex-authored context adapter; the UI owns only presentation. One pure Markdown document model makes long AI notes navigable without touching how they are generated.
 
-**Tech Stack:** Python 3.11, Streamlit 1.50, Plotly, Pandas, SQLAlchemy 2.x, pytest, Streamlit AppTest (`streamlit.testing.v1`), Ruff, Black, headless Chrome over CDP for browser verification.
+**Tech Stack:** Streamlit 1.50.0, Plotly, Pandas, SQLAlchemy 2.x, pytest 8.4.2, Streamlit AppTest (`streamlit.testing.v1`), Ruff 0.15.16, Black 25.1.0, headless Chrome over CDP for browser verification.
+
+## Toolchain
+
+The redesign worktree has **no `.venv` of its own**. Every command in this plan runs from the canonical worktree against the interpreter in the main checkout. Export this once per shell before running anything:
+
+```bash
+export PY=/Users/ayoub/tradelens-ai/.venv/bin/python
+cd /Users/ayoub/tradelens-ai/.claude/worktrees/codex+full-dark-streamlit-redesign
+"$PY" -V && "$PY" -m pytest --version && "$PY" -m ruff --version && "$PY" -m black --version
+```
+
+Verified 2026-08-04 from the canonical worktree: `Python 3.9.6`, `pytest 8.4.2`, `ruff 0.15.16`, `black 25.1.0`, `streamlit 1.50.0`. `"$PY" -m pytest tests/test_data_state.py -q` → `17 passed`.
+
+Ruff and Black are invoked as `"$PY" -m ruff` / `"$PY" -m black`, not as bare binaries, so a stray `ruff` on `PATH` cannot be used by accident.
+
+> **The interpreter is Python 3.9.6, not 3.11.** `CLAUDE.md` names 3.11; the environment that produced the `1618 passed` baseline is 3.9.6, and that is the one these commands use. The consequence binds every task: **every new module in this plan must open with `from __future__ import annotations`**, because PEP 604 unions (`str | None`) and builtin generics in annotations are otherwise a runtime `TypeError` on 3.9. `app.py:1` and `workspace.py` already carry it for exactly this reason; `metrics.py` does not, which is why Task 4 uses `typing.Optional` there rather than `| None`.
 
 **Sources this plan is built from — read all three before Task 1:**
 
@@ -129,6 +145,10 @@ The New Trade Back-navigation blocker (`StreamlitValueAssignmentNotAllowedError`
 
 Several tasks assert against source text and generated CSS. Those helpers are defined once, in `tests/source_probe.py`, created as the first step of Task 1. Every later task imports from here rather than redefining them.
 
+**This source is verified, not sketched.** It and its test file were executed together on 2026-08-04 with the toolchain above: `16 passed`, Ruff clean, Black clean. The first draft of `function_source` and `outside` were both broken — they used `re.search(r"^\S", rest[1:], re.M)` to find a block end, which matches at offset 0 and truncated every block to a single character. That is why these now carry their own tests.
+
+`tests/source_probe.py`:
+
 ```python
 """Source- and CSS-inspection helpers shared across the dark-workspace tests.
 
@@ -136,18 +156,23 @@ Structural assertions against source are a blunt instrument, and they are used
 deliberately: several rules in this phase (no hover-gated layout, one usage log,
 no cache clear before regeneration) are properties of *where* code sits, which
 no runtime assertion can observe.
+
+Every function returns a value rather than raising when its target is absent,
+so a caller fails on the assertion it wrote instead of on a lookup error.
 """
 
 from __future__ import annotations
 
 import re
 
+_DEF = re.compile(r"^(?:async\s+)?def\s+(\w+)\s*\(", re.M)
+
 
 def near(source: str, anchor: str, radius: int = 400) -> str:
-    """The text surrounding the first occurrence of `anchor`.
+    """The text surrounding the first occurrence of ``anchor``.
 
-    Returns "" when the anchor is absent, so a caller asserting on the window
-    fails on the assertion it wrote rather than on an IndexError.
+    Returns "" when the anchor is absent, so an assertion on the window fails
+    on its own terms rather than on an IndexError.
     """
     at = source.find(anchor)
     if at == -1:
@@ -155,42 +180,293 @@ def near(source: str, anchor: str, radius: int = 400) -> str:
     return source[max(0, at - radius) : at + radius]
 
 
+def _block_end(lines: list[str], start: int) -> int:
+    """Index of the first line after the block opening at ``start``.
+
+    A top-level block ends at the next line that is non-blank, unindented, and
+    not a decorator continuation. Comments at column 0 end it too: a top-level
+    comment belongs to whatever follows, not to what preceded it.
+    """
+    for index in range(start + 1, len(lines)):
+        line = lines[index]
+        if not line.strip():
+            continue
+        if line[:1].isspace():
+            continue
+        return index
+    return len(lines)
+
+
 def function_source(source: str, name: str) -> str:
-    """The body of a top-level `def name(...)`, up to the next top-level def."""
-    match = re.search(rf"^def {re.escape(name)}\(", source, re.M)
-    if not match:
-        return ""
-    rest = source[match.start() :]
-    end = re.search(r"^\S", rest[1:], re.M)
-    return rest[: end.start() + 1] if end else rest
+    """The complete body of a top-level ``def name(...)``, decorators included.
+
+    Returns "" when the function is absent. Nested defs of the same name are
+    ignored — only a definition at column 0 counts, because these probes make
+    claims about module-level structure.
+    """
+    lines = source.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        match = _DEF.match(line)
+        if not match or match.group(1) != name:
+            continue
+        start = index
+        # Walk back over stacked decorators so @property/@staticmethod stay
+        # attached to the function they modify.
+        while start and lines[start - 1].lstrip().startswith("@"):
+            start -= 1
+        return "".join(lines[start : _block_end(lines, index)])
+    return ""
 
 
-def outside(source: str, marker: str) -> str:
-    """Everything except the block introduced by `marker` — used to prove a
-    token appears only inside the region licensed to carry it."""
-    at = source.find(marker)
-    if at == -1:
+def outside(source: str, name: str) -> str:
+    """``source`` with the complete top-level block ``name`` removed.
+
+    Used to prove a token appears only inside the region licensed to carry it —
+    for example that TL_DANGER is referenced only within the Danger Zone
+    renderer. ``name`` is a top-level ``def`` name; when it is absent the whole
+    source is returned, so the caller's assertion still runs against real text.
+    """
+    block = function_source(source, name)
+    if not block:
         return source
-    end = re.search(r"^\S", source[at + 1 :], re.M)
-    stop = at + 1 + (end.start() if end else len(source))
-    return source[:at] + source[stop:]
+    return source.replace(block, "", 1)
 
 
 def media_context(css: str, block: str) -> str:
-    """The `@media (...)` condition a CSS block sits inside, or ""."""
+    """The ``@media (...)`` condition ``block`` sits inside, or "".
+
+    Brace-counted rather than "the nearest preceding @media": an earlier media
+    query that already closed must not be reported as the enclosing one.
+    """
     at = css.find(block)
     if at == -1:
         return ""
-    opens = [m for m in re.finditer(r"@media\s*\(([^)]*)\)", css[:at])]
-    return opens[-1].group(1) if opens else ""
+    depth = 0
+    stack: list[tuple[int, str]] = []
+    for match in re.finditer(r"@media([^{]*)\{|\{|\}", css[:at]):
+        token = match.group(0)
+        if token.startswith("@media"):
+            stack.append((depth, match.group(1).strip()))
+            depth += 1
+        elif token == "{":
+            depth += 1
+        else:
+            depth -= 1
+            while stack and stack[-1][0] >= depth:
+                stack.pop()
+    return stack[-1][1] if stack else ""
 ```
 
-Per-file fixtures each task defines locally, named consistently so a reader moving between test files is not learning new vocabulary:
+`tests/test_source_probe.py`:
 
-- `_sample_frame()` — a `pd.DataFrame` of ten trades across six dates with mixed outcomes.
-- `_daily_frame(pnls)` — a `calendar_daily_pnl`-shaped frame, one row per supplied value.
-- `_rendered_pages(include_error_states=False)` — yields `(page_name, html)` for the seven authenticated destinations via `AppTest`.
-- `_render_to_string(view)` — runs a `ReviewView` through `render_review_reader` against a recording stub and returns the concatenated HTML.
+```python
+"""The probes make structural claims, so they need structural tests.
+
+A probe that silently returns a truncated block turns every assertion built on
+it into a false pass — which is exactly what the first version of
+function_source did.
+"""
+
+import source_probe
+from source_probe import function_source, media_context, near, outside
+
+SAMPLE = '''\
+"""Module docstring."""
+
+import re
+
+CONSTANT = 1
+
+
+def alpha(x):
+    """First."""
+    if x:
+        return 1
+    return 0
+
+
+@decorator
+@decorator_two
+def beta():
+    return "beta body"
+
+
+class Gamma:
+    def alpha(self):
+        """A nested alpha that must not be picked up."""
+        return None
+
+
+def delta():
+    return 3
+'''
+
+
+def test_function_source_returns_the_complete_body():
+    block = function_source(SAMPLE, "alpha")
+    assert block.startswith("def alpha(x):")
+    assert '"""First."""' in block
+    assert "return 0" in block
+    assert "def beta" not in block
+
+
+def test_function_source_stops_before_the_next_top_level_statement():
+    assert "CONSTANT" not in function_source(SAMPLE, "alpha")
+    assert "class Gamma" not in function_source(SAMPLE, "beta")
+
+
+def test_function_source_includes_stacked_decorators():
+    block = function_source(SAMPLE, "beta")
+    assert block.startswith("@decorator\n@decorator_two\ndef beta():")
+    assert 'return "beta body"' in block
+
+
+def test_function_source_ignores_a_nested_method_of_the_same_name():
+    block = function_source(SAMPLE, "alpha")
+    assert "must not be picked up" not in block
+
+
+def test_function_source_handles_the_last_function_in_a_file():
+    block = function_source(SAMPLE, "delta")
+    assert block.strip() == "def delta():\n    return 3"
+
+
+def test_function_source_returns_empty_for_a_missing_name():
+    assert function_source(SAMPLE, "nope") == ""
+
+
+def test_outside_removes_the_whole_block_and_keeps_everything_else():
+    rest = outside(SAMPLE, "beta")
+    assert "beta body" not in rest
+    assert "@decorator_two" not in rest
+    assert "def alpha(x):" in rest
+    assert "def delta():" in rest
+    assert "CONSTANT = 1" in rest
+
+
+def test_outside_returns_the_source_unchanged_for_a_missing_name():
+    assert outside(SAMPLE, "nope") == SAMPLE
+
+
+def test_outside_removes_only_the_first_match():
+    doubled = SAMPLE + "\n\ndef delta():\n    return 4\n"
+    rest = outside(doubled, "delta")
+    assert rest.count("def delta():") == 1
+
+
+def test_near_returns_a_window_and_empty_for_a_missing_anchor():
+    assert "CONSTANT" in near(SAMPLE, "import re", radius=60)
+    assert near(SAMPLE, "absent") == ""
+
+
+CSS = """
+.a { color: red; }
+@media (max-width: 767px) {
+  .in-phone { display: none; }
+}
+.after-phone { color: blue; }
+@media (min-width: 768px) {
+  .in-desktop { display: block; }
+  @supports (display: grid) {
+    .nested { display: grid; }
+  }
+}
+.top-level-last { color: green; }
+"""
+
+
+def test_media_context_reports_the_enclosing_query():
+    assert media_context(CSS, ".in-phone") == "(max-width: 767px)"
+    assert media_context(CSS, ".in-desktop") == "(min-width: 768px)"
+
+
+def test_media_context_is_empty_for_a_rule_outside_every_query():
+    assert media_context(CSS, ".a {") == ""
+    assert media_context(CSS, ".top-level-last") == ""
+
+
+def test_a_closed_media_query_is_not_reported_as_enclosing():
+    """The bug this replaced: '.after-phone' follows a closed max-width query
+    and would have been reported as living inside it."""
+    assert media_context(CSS, ".after-phone") == ""
+
+
+def test_media_context_survives_a_nested_at_rule():
+    assert media_context(CSS, ".nested") == "(min-width: 768px)"
+
+
+def test_media_context_is_empty_for_absent_text():
+    assert media_context(CSS, ".missing") == ""
+
+
+def test_the_probes_import_nothing_beyond_the_standard_library():
+    source = open(source_probe.__file__).read()
+    assert "import streamlit" not in source
+    assert "from src." not in source
+```
+### Shared data builders
+
+Two frame builders are used by several test files. Define them once in `tests/source_probe.py` alongside the probes, so no task invents a second shape.
+
+```python
+def sample_frame(days: int = 6, trades_per_day: int = 2):
+    """A trade frame with `days` distinct dates and mixed outcomes.
+
+    Imported lazily so source_probe stays importable without pandas for the
+    pure-structural tests that are its main job.
+    """
+    import pandas as pd
+
+    rows = []
+    for day in range(days):
+        for n in range(trades_per_day):
+            rows.append(
+                {
+                    "trade_date": f"2026-08-{day + 1:02d}",
+                    "asset": ["EURUSD", "GBPUSD"][n % 2],
+                    "session": ["London", "New York"][n % 2],
+                    "setup_type": ["FVG", "OB"][n % 2],
+                    "pnl": 120.0 if (day + n) % 3 else -80.0,
+                    "followed_rules": (day + n) % 4 != 0,
+                    "mistake_tags": '["fomo"]' if (day + n) % 4 == 0 else "",
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def daily_frame(pnls):
+    """A calendar_daily_pnl-shaped frame: one row per supplied value.
+
+    `None` means a day with no trade, which is information rather than missing
+    data — the heatmap has to render it as its own state.
+    """
+    import pandas as pd
+
+    return pd.DataFrame(
+        [
+            {"trade_date": f"2026-08-{i + 1:02d}", "pnl": value, "trades": 0 if value is None else 1}
+            for i, value in enumerate(pnls)
+        ]
+    )
+```
+
+### Rendering a page in a test — use the existing subprocess boot
+
+**Do not write an in-process page-rendering helper.** `tests/app_boot_check.py` carries an explicit, measured warning against it: setting `DATABASE_URL`, purging `src.tradelens.*` from `sys.modules`, and re-importing creates a *second* copy of `ai_client`, and every downstream `isinstance(x, AIUnavailable)` check bound at collection time then fails. That was measured at 34–47 spurious failures. The subprocess is the correct isolation boundary.
+
+Reuse the established mechanism from `tests/test_pages_boot.py`:
+
+```python
+def _boot(page: str, db_path: Path, seed: str, marker: str = "-", state: str = "{}"):
+    """Boot one page under AppTest in a subprocess with an isolated tmp DB.
+
+    `state` is JSON applied to session_state before the first run, which is how
+    a test reaches a specific view (a Journal detail, an error slot) without the
+    runner knowing anything about that page.
+    """
+```
+
+Any task needing rendered output calls `_boot(...)` with a `tmp_path` database and asserts on the child's exit code and captured output. `ALL_PAGES` in `tests/test_pages_boot.py` is the canonical page list and gains `7_Partner.py` in Task 15.
 
 ---
 
@@ -207,9 +483,33 @@ Per-file fixtures each task defines locally, named consistently so a reader movi
 
 Resolves spec findings D1, D2, D3, D4, D13.
 
-- [ ] **Step 0: Create `tests/source_probe.py`**
+### `TL_LINE_STRONG` — the spec's proposed value does not pass
 
-Write the module exactly as given in the "Shared test helpers" section above. It has no test of its own; every later task's structural assertion depends on it.
+The spec (§4.1, §4.4) proposes `#3A4E56` and simultaneously requires ≥3:1 against adjacent surfaces. Measured with the WCAG 2.x relative-luminance formula, it does not:
+
+| Surface | `#3A4E56` (spec) | `#5C6E77` (this plan) |
+|---|---:|---:|
+| canvas `#091216` | 2.17 ✗ | **3.56** ✓ |
+| rail `#071014` | 2.20 ✗ | **3.61** ✓ |
+| panel `#101B20` | 2.00 ✗ | **3.29** ✓ |
+| elevated `#152329` | 1.84 ✗ | **3.03** ✓ |
+| chart `#0C181D` | 2.07 ✗ | **3.39** ✓ |
+| field `#122026` | 1.91 ✗ | **3.14** ✓ |
+
+`#5C6E77` is the smallest value on the same cool blue-grey ramp clearing 3:1 everywhere. **`elevated` is the binding case**, not canvas — it is the lightest surface and it is where the Partner drawer's edge sits, so the three-surface check the spec implies would have passed a value that still failed on the drawer.
+
+`TL_LINE_HAIRLINE` stays `#26373D` (1.53:1 on canvas). It is decorative by design; the plan's rule is that a *load-bearing* boundary uses `TL_LINE_STRONG`, so the hairline is not required to clear 3:1 and must stay visibly quieter.
+
+**Report this to Codex as a spec amendment**, not a silent plan deviation: spec §4.1's token block and §4.4's closing sentence both name `#3A4E56` and need updating to match.
+
+- [ ] **Step 0: Create `tests/source_probe.py` and its tests**
+
+Write both files exactly as given in the "Shared test helpers" section above. Both are staged in this task's commit. Run them before anything else:
+
+Run: `"$PY" -m pytest tests/test_source_probe.py -v`
+Expected: `16 passed`. Verified 2026-08-04 in a scratch directory against this exact source.
+
+The probes are not a convenience — several rules in this phase are properties of *where* code sits, which no runtime assertion can observe. A probe that silently returns a truncated block turns every assertion built on it into a false pass, so they are tested first and tested directly.
 
 - [ ] **Step 1: Write the failing contract tests**
 
@@ -298,11 +598,20 @@ def test_grade_ramp_clears_aa_on_the_panel_surface():
         assert ratio >= 4.5, f"{name} on panel = {ratio:.2f}"
 
 
-def test_line_strong_is_a_usable_boundary_against_its_neighbours():
+def test_line_strong_is_a_usable_boundary_on_every_surface():
     # D4: rail vs canvas separates at 1.02:1, so tone cannot carry a boundary.
-    for surface in ("TL_SURFACE_CANVAS", "TL_SURFACE_RAIL", "TL_SURFACE_PANEL"):
+    # All six, not just three: the drawer edge sits on ELEVATED, which is the
+    # lightest surface and therefore the binding constraint.
+    for surface in SURFACES:
         ratio = contrast_ratio(ds.TL_LINE_STRONG, getattr(ds, surface))
         assert ratio >= 3.0, f"TL_LINE_STRONG on {surface} = {ratio:.2f}"
+
+
+def test_the_hairline_stays_quieter_than_the_strong_line():
+    """Two line weights that measure the same are one line weight."""
+    assert contrast_ratio(ds.TL_LINE_HAIRLINE, ds.TL_SURFACE_CANVAS) < contrast_ratio(
+        ds.TL_LINE_STRONG, ds.TL_SURFACE_CANVAS
+    )
 
 
 @pytest.mark.parametrize("name", DELETED_TOKENS)
@@ -362,7 +671,7 @@ def test_no_page_module_declares_a_colour_literal():
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `.venv/bin/python -m pytest tests/test_dark_workspace.py -v`
+Run: `"$PY" -m pytest tests/test_dark_workspace.py -v`
 Expected: FAIL — `AttributeError: module ... has no attribute 'TL_SURFACE_CANVAS'`, and the deletion tests fail because the old names still exist.
 
 - [ ] **Step 3: Replace the token block**
@@ -392,7 +701,12 @@ TL_CONTENT_PRIMARY = "#ECF5F4"  # 14.52-17.32:1 across the six surfaces
 TL_CONTENT_SECONDARY = "#91A3A7"  # 6.13-7.32:1 across the six surfaces
 
 TL_LINE_HAIRLINE = "#26373D"  # structure without card-box noise
-TL_LINE_STRONG = "#3A4E56"  # load-bearing boundaries; >=3:1 either side
+# The spec proposed #3A4E56. Measured, it is 1.84-2.20:1 across the six
+# surfaces - below the 3:1 floor a non-text boundary needs, and it would have
+# failed the contract test in this task. #5C6E77 is the smallest value on the
+# same cool blue-grey ramp that clears 3:1 on all six, ELEVATED being the
+# binding case at 3.03:1.
+TL_LINE_STRONG = "#5C6E77"  # load-bearing boundaries; >=3:1 on every surface
 
 TL_ACCENT_ACTION = TL_PRIMARY  # unchanged bright TradeLens teal
 
@@ -420,7 +734,7 @@ TL_Z_OVERLAY = 50  # blocking confirmations
 
 - [ ] **Step 4: Mirror the roles as CSS custom properties**
 
-In the `:root` block emitted by `build_css()`, add:
+In the `:root` block emitted by `build_css()`, add the following. **This is a fragment of an existing f-string, not a standalone statement** — the doubled braces are f-string escapes and it will not parse on its own:
 
 ```python
     :root {{
@@ -450,7 +764,7 @@ In the `:root` block emitted by `build_css()`, add:
 
 - [ ] **Step 6: Fix every import of a deleted name**
 
-Run: `.venv/bin/python -m pytest tests/ -x -q 2>&1 | head -40`
+Run: `"$PY" -m pytest tests/ -x -q 2>&1 | head -40`
 Follow each `ImportError` and repoint the call site at its role token. This is the deletion working as designed — it converts a silent meaning change into a build failure.
 
 - [ ] **Step 7: Update `tests/test_design_system.py`**
@@ -470,9 +784,9 @@ Keep `test_dark_instrument_palette_is_unchanged` — `TL_PRIMARY`, `TL_SUCCESS`,
 - [ ] **Step 8: Run the full suite, Ruff, Black**
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
-.venv/bin/ruff check src/ scripts/
-.venv/bin/black --check src/ scripts/
+"$PY" -m pytest tests/ -q
+"$PY" -m ruff check src/ scripts/
+"$PY" -m black --check src/ scripts/
 git diff --check
 ```
 Expected: all green, count ≥ baseline plus the new tests.
@@ -480,7 +794,9 @@ Expected: all green, count ≥ baseline plus the new tests.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add src/tradelens/ui/design_system.py tests/test_dark_workspace.py tests/test_design_system.py
+git add src/tradelens/ui/design_system.py \
+        tests/source_probe.py tests/test_source_probe.py \
+        tests/test_dark_workspace.py tests/test_design_system.py
 git commit -m "feat(design): one dark role system and an ordered z-scale"
 ```
 
@@ -526,7 +842,7 @@ def test_shell_surfaces_use_role_variables_not_literals():
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_dark_workspace.py -k "rail or shell_surfaces" -v`
+Run: `"$PY" -m pytest tests/test_dark_workspace.py -k "rail or shell_surfaces" -v`
 Expected: FAIL — the rail has no strong edge and shell rules still carry literals.
 
 - [ ] **Step 3: Retarget the shell CSS**
@@ -539,7 +855,7 @@ In `design_system.py`, repoint the app-view container, sidebar rail, bottom nav,
 
 - [ ] **Step 5: Run shell and component tests**
 
-Run: `.venv/bin/python -m pytest tests/test_premium_shell.py tests/test_workspace_components.py tests/test_dark_workspace.py tests/test_pages_boot.py -q`
+Run: `"$PY" -m pytest tests/test_premium_shell.py tests/test_workspace_components.py tests/test_dark_workspace.py tests/test_pages_boot.py -q`
 Expected: PASS.
 
 - [ ] **Step 6: Browser verification — the shell renders dark and does not overflow**
@@ -551,8 +867,8 @@ Never point the browser at `data/tradelens.db`. Capture no artifact into the wor
 - [ ] **Step 7: Full verification and commit**
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
-.venv/bin/ruff check src/ scripts/ && .venv/bin/black --check src/ scripts/ && git diff --check
+"$PY" -m pytest tests/ -q
+"$PY" -m ruff check src/ scripts/ && "$PY" -m black --check src/ scripts/ && git diff --check
 git add src/tradelens/ui/design_system.py src/tradelens/ui/components/sidebar.py \
         src/tradelens/ui/components/workspace.py src/tradelens/ui/components/data_state.py \
         src/tradelens/ui/app.py src/tradelens/ui/pages/6_Insights.py tests/test_dark_workspace.py
@@ -612,7 +928,7 @@ def test_field_surface_is_quiet_when_unfocused():
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_dark_workspace.py -k "focus or hover or disabled or field_surface" -v`
+Run: `"$PY" -m pytest tests/test_dark_workspace.py -k "focus or hover or disabled or field_surface" -v`
 Expected: FAIL on at least the hover-layout and focus rules.
 
 - [ ] **Step 3: Implement the control system**
@@ -626,8 +942,8 @@ Add one rule setting `min-height: 44px; min-width: 44px;` on every interactive c
 - [ ] **Step 5: Run tests, lint, commit**
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
-.venv/bin/ruff check src/ scripts/ && .venv/bin/black --check src/ scripts/
+"$PY" -m pytest tests/ -q
+"$PY" -m ruff check src/ scripts/ && "$PY" -m black --check src/ scripts/
 git add src/tradelens/ui/design_system.py tests/test_dark_workspace.py
 git commit -m "feat(ui): darken controls and define all eight interaction states"
 ```
@@ -721,17 +1037,50 @@ def test_edge_leak_summary_agrees_with_the_existing_scalar():
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_metrics.py -k "adherence or edge_leak_summary" -v`
+Run: `"$PY" -m pytest tests/test_metrics.py -k "adherence or edge_leak_summary" -v`
 Expected: FAIL with `ImportError: cannot import name 'RuleAdherenceSummary'`.
 
 - [ ] **Step 3: Implement the two metrics additions**
 
+`metrics.py` has **no** `from __future__ import annotations`, so this uses `typing.Optional`, not `| None`. `Optional` is already imported there.
+
+This implementation was executed against the real `metrics.py` on 2026-08-04 — `_is_followed`, `_parse_mistake_tags`, and `_safe_float` are the shipped ones, not paraphrases — and passed 15/15 checks, including agreement with `total_edge_leak` across five frame shapes.
+
 ```python
+def _is_recorded(value) -> bool:
+    """True when followed_rules carries an explicit, parseable answer.
+
+    None, NaN, and blank strings are the absence of an answer, not a "no".
+    Folding them into the denominator would report a trader who left the field
+    empty as having broken their rules.
+    """
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, float) and value != value:  # NaN
+        return False
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return False
+        try:
+            int(float(text))
+        except ValueError:
+            return text.lower() in {"true", "false", "yes", "no"}
+        return True
+    try:
+        int(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 @dataclass(frozen=True)
 class RuleAdherenceSummary:
     """Adherence with the sample it was measured over.
 
-    A bare float cannot tell a trader apart from an unknown sample: 0% over
+    A bare float cannot tell a known 0% apart from an unknown sample: 0% over
     forty recorded trades and 0% over nothing look identical. `rate` is None
     when nothing was recorded, so the UI can never print a false 0%.
     """
@@ -761,65 +1110,208 @@ class EdgeLeakSummary:
     recorded_trades: int
 
 
+def _leak_mask(trades: pd.DataFrame):
+    """The mask total_edge_leak builds, extracted so the two cannot drift.
+
+    Returns (mask, has_followed, has_mistakes).
+    """
+    has_followed = "followed_rules" in trades.columns
+    has_mistakes = "mistake_tags" in trades.columns
+    mask = pd.Series([False] * len(trades), index=trades.index)
+    if has_followed:
+        fr = pd.to_numeric(trades["followed_rules"], errors="coerce")
+        mask = mask | (fr == 0)
+    if has_mistakes:
+        mask = mask | trades["mistake_tags"].apply(
+            lambda raw: len(_parse_mistake_tags(raw)) > 0
+        )
+    return mask, has_followed, has_mistakes
+
+
+def _has_leak_evidence(row, has_followed: bool, has_mistakes: bool) -> bool:
+    """Whether one row carries a usable rule-adherence or mistake signal."""
+    if has_followed and _is_recorded(row.get("followed_rules")):
+        return True
+    if has_mistakes and len(_parse_mistake_tags(row.get("mistake_tags"))) > 0:
+        return True
+    return False
+
+
 def edge_leak_summary(trades: pd.DataFrame) -> EdgeLeakSummary:
-    """Companion to total_edge_leak. The scalar stays unchanged for callers."""
+    """Companion to total_edge_leak. The scalar is unchanged for its callers.
+
+    Distinguishes the three states the Overview needs and the scalar cannot
+    express: unknown (None, 0, 0), a known clean sample (0.0, 0, n), and
+    rule-breaking trades that netted exactly zero (0.0, q, n) with q > 0.
+    """
+    if trades is None or trades.empty or "pnl" not in trades.columns:
+        return EdgeLeakSummary(None, 0, 0)
+    mask, has_followed, has_mistakes = _leak_mask(trades)
+    if not has_followed and not has_mistakes:
+        return EdgeLeakSummary(None, 0, 0)
+    recorded = sum(
+        1
+        for _, row in trades.iterrows()
+        if _has_leak_evidence(row, has_followed, has_mistakes)
+    )
+    if recorded == 0:
+        return EdgeLeakSummary(None, 0, 0)
+    pnl = pd.to_numeric(trades["pnl"], errors="coerce").fillna(0.0)
+    return EdgeLeakSummary(_safe_float(pnl[mask].sum()), int(mask.sum()), recorded)
 ```
 
-`_is_recorded` is a new private helper: an explicit, parseable `followed_rules` value. `total_edge_leak(trades) -> float` keeps its current signature and behaviour for every existing caller.
+`total_edge_leak(trades) -> float` keeps its current signature and behaviour for every existing caller; refactoring it to call `_leak_mask` is optional and must not change its results.
+
+> **`mistake_tags` is a JSON-list string, not a bare tag.** `_parse_mistake_tags("fomo")` returns `[]`; `_parse_mistake_tags('["fomo"]')` returns `["fomo"]`. Test data must use the JSON form or the leak mask silently sees nothing. This cost two false failures while verifying the implementation above.
 
 - [ ] **Step 4: Run the metrics tests to verify they pass**
 
-Run: `.venv/bin/python -m pytest tests/test_metrics.py -v`
+Run: `"$PY" -m pytest tests/test_metrics.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Write the failing Partner-context tests**
 
-Create `tests/test_partner_context.py`:
+Create `tests/test_partner_context.py`. The fixtures follow the isolation pattern already established in `tests/test_user_isolation.py:28` — an in-memory SQLite engine, `Base.metadata.create_all`, the service's `SessionLocal` monkeypatched to a factory bound to it, and `drop_all` on teardown. Nothing touches a developer database.
 
 ```python
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+import src.tradelens.services.partner_context as partner_context
+from src.tradelens.db.models import Base, Strategy, Trade, User
 from src.tradelens.services.partner_context import (
     PartnerContext,
+    PartnerEvidenceSource,
     build_global_partner_context,
 )
 
 
-@pytest.mark.parametrize("bad", [None, True, False, 0, -1])
+@pytest.fixture
+def isolated_db(monkeypatch):
+    """Point the adapter's sessions at a throwaway in-memory database.
+
+    A StaticPool keeps every connection on the same in-memory database; without
+    it each connection gets its own empty one and the seeded rows vanish.
+    """
+    from sqlalchemy.pool import StaticPool
+
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    monkeypatch.setattr(partner_context, "SessionLocal", factory)
+    yield factory
+    Base.metadata.drop_all(engine)
+    engine.dispose()
+
+
+def _seed_user(factory, username: str, *, trades: int, asset: str = "EURUSD"):
+    """One user with a strategy and `trades` completed trades. Returns its id."""
+    db = factory()
+    try:
+        user = User(username=username, password_hash=f"hash-{username}")
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        uid = user.id
+        db.add(
+            Strategy(
+                user_id=uid,
+                name=f"{username} playbook",
+                is_active=1,
+            )
+        )
+        for n in range(trades):
+            db.add(
+                Trade(
+                    user_id=uid,
+                    asset=asset,
+                    trade_date=f"2026-08-{(n % 28) + 1:02d}",
+                    pnl=100.0 if n % 2 else -40.0,
+                    notes=f"{username} journal note {n}",
+                    trade_process_notes=f"{username} process note {n}",
+                )
+            )
+        db.commit()
+        return uid
+    finally:
+        db.close()
+
+
+@pytest.fixture
+def seeded_user(isolated_db):
+    return _seed_user(isolated_db, "alice", trades=6)
+
+
+@pytest.fixture
+def seeded_two_users(isolated_db):
+    """Two tenants whose data must never mix. Returns (owner_id, other_asset)."""
+    owner = _seed_user(isolated_db, "alice", trades=4, asset="EURUSD")
+    _seed_user(isolated_db, "bob", trades=4, asset="ZZZBOBONLY")
+    return owner, "ZZZBOBONLY"
+
+
+@pytest.fixture
+def seeded_large_user(isolated_db):
+    """Far more rows than any prompt budget should admit."""
+    return _seed_user(isolated_db, "carol", trades=400)
+
+
+@pytest.mark.parametrize("bad", [None, True, False, 0, -1, "3", 2.0])
 def test_invalid_owner_is_rejected_before_a_session_opens(bad, monkeypatch):
+    """Rejection must precede the session, not follow a query that returned
+    nothing — an ownerless read is a tenancy bug even when it finds no rows."""
+
     def explode(*_a, **_k):
         raise AssertionError("a database session was opened for an invalid owner")
 
-    monkeypatch.setattr("src.tradelens.services.partner_context.get_session", explode)
+    monkeypatch.setattr(partner_context, "SessionLocal", explode)
     with pytest.raises(ValueError):
         build_global_partner_context(user_id=bad)
 
 
 def test_context_is_scoped_to_the_authenticated_user(seeded_two_users):
-    owner, other = seeded_two_users
+    owner, other_asset = seeded_two_users
     context = build_global_partner_context(user_id=owner)
     assert isinstance(context, PartnerContext)
-    assert other.asset not in context.context_text
+    assert other_asset not in context.context_text
+    assert all(src.user_id == owner for src in context.evidence_sources)
 
 
 def test_context_orders_journal_notes_before_trades_before_strategy(seeded_user):
     text = build_global_partner_context(user_id=seeded_user).context_text
-    assert text.index("Journal") < text.index("Completed trades") < text.index("Strategy")
+    assert (
+        text.index(partner_context.JOURNAL_HEADING)
+        < text.index(partner_context.TRADES_HEADING)
+        < text.index(partner_context.STRATEGY_HEADING)
+    )
 
 
 def test_context_applies_service_owned_limits(seeded_large_user):
     context = build_global_partner_context(user_id=seeded_large_user)
-    assert len(context.context_text) <= 12000
+    assert len(context.context_text) <= partner_context.MAX_CONTEXT_CHARS
+    assert len(context.evidence_sources) <= partner_context.MAX_EVIDENCE_SOURCES
+
+
+def test_counts_report_the_whole_journal_not_the_truncated_sample(seeded_large_user):
+    """A limit trims the prompt, never the trader's stated totals."""
+    context = build_global_partner_context(user_id=seeded_large_user)
+    assert context.completed_trade_count == 400
 
 
 def test_adapter_never_calls_the_model_or_logs_usage(seeded_user, monkeypatch):
+    import src.tradelens.services.cost as cost
+    import src.tradelens.services.partner as partner
+
     monkeypatch.setattr(
-        "src.tradelens.services.partner.partner_reply",
-        lambda *a, **k: pytest.fail("adapter called the model"),
+        partner, "partner_reply", lambda *a, **k: pytest.fail("adapter called the model")
     )
     monkeypatch.setattr(
-        "src.tradelens.services.cost.log_ai_usage",
-        lambda *a, **k: pytest.fail("adapter logged usage"),
+        cost, "log_ai_usage", lambda *a, **k: pytest.fail("adapter logged usage")
     )
     build_global_partner_context(user_id=seeded_user)
 
@@ -828,27 +1320,186 @@ def test_evidence_sources_are_structured_not_parsed_from_prompt_text(seeded_user
     context = build_global_partner_context(user_id=seeded_user)
     assert context.evidence_sources
     first = context.evidence_sources[0]
-    assert isinstance(first.record_id, int) and isinstance(first.label, str)
+    assert isinstance(first, PartnerEvidenceSource)
+    assert isinstance(first.record_id, int)
+    assert isinstance(first.label, str) and first.label
+    assert first.kind in {"journal", "trade", "strategy"}
+
+
+def test_a_user_with_nothing_yet_still_returns_a_usable_context(isolated_db):
+    uid = _seed_user(isolated_db, "dana", trades=0)
+    context = build_global_partner_context(user_id=uid)
+    assert context.completed_trade_count == 0
+    assert context.evidence_sources == ()
 ```
 
 - [ ] **Step 6: Run to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_partner_context.py -v`
+Run: `"$PY" -m pytest tests/test_partner_context.py -v`
 Expected: FAIL — module does not exist.
 
 - [ ] **Step 7: Implement the adapter**
 
+`partner_context.py` is a service module, so it takes **no Streamlit import**. It opens with `from __future__ import annotations` (Python 3.9 — see Toolchain).
+
+Reuse the existing owner validator rather than writing a second one: `strategy.py:121` already defines `_require_concrete_user_id`, which rejects booleans, non-integers, and non-positive values with `ValueError` before any session opens. Promote it to a shared helper or mirror its exact semantics — the parametrised test above pins them.
+
 ```python
-def build_global_partner_context(*, user_id: int) -> PartnerContext: ...
+# Service-owned budgets. The page cannot raise these; that is the point.
+MAX_CONTEXT_CHARS = 12_000
+MAX_EVIDENCE_SOURCES = 40
+MAX_JOURNAL_ROWS = 30
+MAX_TRADE_ROWS = 60
+
+JOURNAL_HEADING = "## Journal notes"
+TRADES_HEADING = "## Completed trades"
+STRATEGY_HEADING = "## Active strategy profile"
+
+
+@dataclass(frozen=True)
+class PartnerEvidenceSource:
+    """One citable record, kept separate from the prompt text.
+
+    The UI renders evidence links from these fields. It must never recover a
+    record id by parsing model output — a model can produce a plausible id for
+    a trade that does not exist, and the link would open someone's absence of
+    a trade as if it were evidence.
+    """
+
+    kind: str          # "journal" | "trade" | "strategy"
+    record_id: int
+    user_id: int
+    label: str         # already safe for display; no HTML, no PII beyond the user's own
+    occurred_on: str | None = None   # ISO date where the record has one
+
+
+@dataclass(frozen=True)
+class PartnerContext:
+    context_text: str
+    strategy_profile: dict | None
+    evidence_sources: tuple[PartnerEvidenceSource, ...]
+    completed_trade_count: int
+    journal_entry_count: int
+
+
+def build_global_partner_context(*, user_id: int) -> PartnerContext:
+    """Assemble one user's reflective context for the global Partner.
+
+    Order is the trader's own words first: journal notes, then completed-trade
+    facts, then the active Strategy Profile. A reflective partner should reason
+    from what the trader wrote before what the system computed.
+    """
+    owner = _require_concrete_user_id(user_id)      # raises before any session
+    db = SessionLocal()
+    try:
+        # 1. Totals first, unfiltered by the row budget, so the counts the UI
+        #    states describe the journal rather than the truncated sample.
+        completed_trade_count = (
+            db.query(Trade).filter(Trade.user_id == owner).count()
+        )
+        journal_rows = (
+            db.query(Trade)
+            .filter(Trade.user_id == owner)
+            .filter((Trade.notes != None) | (Trade.trade_process_notes != None))  # noqa: E711
+            .order_by(Trade.trade_date.desc())
+            .limit(MAX_JOURNAL_ROWS)
+            .all()
+        )
+        journal_entry_count = (
+            db.query(Trade)
+            .filter(Trade.user_id == owner)
+            .filter((Trade.notes != None) | (Trade.trade_process_notes != None))  # noqa: E711
+            .count()
+        )
+        trade_rows = (
+            db.query(Trade)
+            .filter(Trade.user_id == owner)
+            .order_by(Trade.trade_date.desc())
+            .limit(MAX_TRADE_ROWS)
+            .all()
+        )
+        strategy_row = (
+            db.query(Strategy)
+            .filter(Strategy.user_id == owner, Strategy.is_active == 1)
+            .first()
+        )
+    finally:
+        db.close()
+
+    # 2. Build prompt text and evidence descriptors together, so a source can
+    #    never be cited that did not contribute to the text.
+    sources: list[PartnerEvidenceSource] = []
+    blocks: list[str] = []
+
+    if journal_rows:
+        blocks.append(JOURNAL_HEADING)
+        for row in journal_rows:
+            note = (row.trade_process_notes or row.notes or "").strip()
+            if not note:
+                continue
+            blocks.append(f"- {row.trade_date}: {note}")
+            sources.append(
+                PartnerEvidenceSource(
+                    kind="journal",
+                    record_id=row.id,
+                    user_id=owner,
+                    label=f"Journal note - {row.asset} {row.trade_date}",
+                    occurred_on=row.trade_date,
+                )
+            )
+
+    if trade_rows:
+        blocks.append(TRADES_HEADING)
+        for row in trade_rows:
+            blocks.append(f"- {row.trade_date} {row.asset} P&L {row.pnl}")
+            sources.append(
+                PartnerEvidenceSource(
+                    kind="trade",
+                    record_id=row.id,
+                    user_id=owner,
+                    label=f"{row.asset} {row.trade_date}",
+                    occurred_on=row.trade_date,
+                )
+            )
+
+    strategy_profile = _to_dict(strategy_row) if strategy_row else None
+    if strategy_profile:
+        blocks.append(STRATEGY_HEADING)
+        blocks.append(f"- {strategy_profile.get('name', 'Unnamed')}")
+        sources.append(
+            PartnerEvidenceSource(
+                kind="strategy",
+                record_id=strategy_row.id,
+                user_id=owner,
+                label=strategy_profile.get("name") or "Strategy Profile",
+            )
+        )
+
+    # 3. Trim on a block boundary, never mid-sentence: a prompt cut through a
+    #    journal note reads as a claim the trader did not finish making.
+    context_text = ""
+    for block in blocks:
+        candidate = f"{context_text}\n{block}" if context_text else block
+        if len(candidate) > MAX_CONTEXT_CHARS:
+            break
+        context_text = candidate
+
+    return PartnerContext(
+        context_text=context_text,
+        strategy_profile=strategy_profile,
+        evidence_sources=tuple(sources[:MAX_EVIDENCE_SOURCES]),
+        completed_trade_count=completed_trade_count,
+        journal_entry_count=journal_entry_count,
+    )
 ```
 
-`PartnerContext` carries `context_text`, `strategy_profile`, an immutable collection of evidence-source descriptors, `completed_trade_count`, and `journal_entry_count`. The adapter rejects a missing, boolean, zero, or negative owner ID **before opening a database session**; performs every lookup with that concrete `user_id`; applies service-owned row and character limits so a page cannot request an unbounded prompt; orders context as journal notes, then completed-trade facts, then the active Strategy Profile; returns record identifiers and safe labels separately from prompt text; and never calls the model or logs usage.
+The adapter never calls the model and never logs usage — both belong to the UI turn that produced a reply. Codex may adjust the budgets and the exact text shape; the **interface, the ordering, the pre-session owner rejection, the whole-journal counts, and the structured evidence sources are fixed** by the tests above.
 
 - [ ] **Step 8: Run tests, lint, commit**
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
-.venv/bin/ruff check src/ scripts/ && .venv/bin/black --check src/ scripts/
+"$PY" -m pytest tests/ -q
+"$PY" -m ruff check src/ scripts/ && "$PY" -m black --check src/ scripts/
 git add src/tradelens/services/metrics.py src/tradelens/services/partner_context.py \
         tests/test_metrics.py tests/test_partner_context.py
 git commit -m "feat(services): rule adherence, edge-leak, and Partner context summaries"
@@ -920,7 +1571,7 @@ def test_the_shared_gate_agrees_with_the_existing_dominant_series_gate(days):
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_data_state.py -k dated -v`
+Run: `"$PY" -m pytest tests/test_data_state.py -k dated -v`
 Expected: FAIL — `ImportError: cannot import name 'MIN_DATED_POINTS'`.
 
 - [ ] **Step 3: Implement the shared gate**
@@ -944,7 +1595,7 @@ def show_dated_instrument(state: SampleState) -> bool:
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `.venv/bin/python -m pytest tests/test_data_state.py -v`
+Run: `"$PY" -m pytest tests/test_data_state.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Write the failing discipline-panel tests**
@@ -1012,7 +1663,7 @@ def test_one_root_element():
 
 - [ ] **Step 6: Run to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_overview_bands.py -v`
+Run: `"$PY" -m pytest tests/test_overview_bands.py -v`
 Expected: FAIL — module does not exist.
 
 - [ ] **Step 7: Implement the discipline panel**
@@ -1041,7 +1692,7 @@ def render_discipline_panel(measures: Sequence[DisciplineMeasure]) -> str:
 
 - [ ] **Step 8: Run to verify it passes**
 
-Run: `.venv/bin/python -m pytest tests/test_overview_bands.py -v`
+Run: `"$PY" -m pytest tests/test_overview_bands.py -v`
 Expected: PASS.
 
 - [ ] **Step 9: Write the failing Overview band tests**
@@ -1052,7 +1703,7 @@ Append to `tests/test_dashboard.py`:
 def test_band_one_keeps_the_five_headline_measures_in_order():
     from src.tradelens.ui.app import _overview_metrics  # noqa: PLC0415
 
-    labels = [item.label for item in _overview_metrics(_sample_frame())]
+    labels = [item.label for item in _overview_metrics(sample_frame())]
     assert labels[:5] == [
         "Net P&L", "Win rate", "Expectancy", "Profit factor", "Trades"
     ]
@@ -1061,7 +1712,7 @@ def test_band_one_keeps_the_five_headline_measures_in_order():
 def test_trade_count_is_never_toned():
     from src.tradelens.ui.app import _overview_metrics  # noqa: PLC0415
 
-    trades = [i for i in _overview_metrics(_sample_frame()) if i.label == "Trades"][0]
+    trades = [i for i in _overview_metrics(sample_frame()) if i.label == "Trades"][0]
     assert trades.tone == "neutral"
 
 
@@ -1104,7 +1755,7 @@ def test_consistency_is_withheld_below_five_trades_and_says_what_unlocks_it():
 
 - [ ] **Step 10: Run to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_dashboard.py -k "band_one or adherence or edge_leak or consistency" -v`
+Run: `"$PY" -m pytest tests/test_dashboard.py -k "band_one or adherence or edge_leak or consistency" -v`
 Expected: FAIL — `_discipline_measures` does not exist.
 
 - [ ] **Step 11: Implement bands 1 and 2 in `app.py`**
@@ -1116,8 +1767,8 @@ Add `_discipline_measures(df) -> list[DisciplineMeasure]` for band 2: max drawdo
 - [ ] **Step 12: Run tests, lint, commit**
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
-.venv/bin/ruff check src/ scripts/ && .venv/bin/black --check src/ scripts/
+"$PY" -m pytest tests/ -q
+"$PY" -m ruff check src/ scripts/ && "$PY" -m black --check src/ scripts/
 git add src/tradelens/ui/components/data_state.py \
         src/tradelens/ui/components/overview_bands.py src/tradelens/ui/app.py \
         tests/test_data_state.py tests/test_overview_bands.py tests/test_dashboard.py
@@ -1189,7 +1840,7 @@ Append to `tests/test_charts.py`:
 def test_the_calendar_heatmap_uses_a_divergent_scale_with_a_neutral_zero():
     """Signed data cannot use a one-directional gradient: it makes a large
     loss and a large gain read as the same intensity (spec §5.5)."""
-    daily = _daily_frame(pnls=[-300.0, 0.0, 250.0])
+    daily = daily_frame([-300.0, 0.0, 250.0])
     fig = calendar_heatmap_chart(daily, 2026, 8)
     trace = fig.data[0]
     assert trace.zmid == 0
@@ -1197,7 +1848,7 @@ def test_the_calendar_heatmap_uses_a_divergent_scale_with_a_neutral_zero():
 
 
 def test_the_heatmap_legend_carries_numeric_ticks_not_a_bare_ramp():
-    fig = calendar_heatmap_chart(_daily_frame(pnls=[-300.0, 250.0]), 2026, 8)
+    fig = calendar_heatmap_chart(daily_frame([-300.0, 250.0]), 2026, 8)
     bar = fig.data[0].colorbar
     assert bar.tickvals is not None and len(bar.tickvals) >= 3
 
@@ -1205,20 +1856,20 @@ def test_the_heatmap_legend_carries_numeric_ticks_not_a_bare_ramp():
 def test_every_day_kind_carries_a_non_colour_cue():
     """Positive, negative, breakeven, and no-trade must survive greyscale."""
     fig = calendar_heatmap_chart(
-        _daily_frame(pnls=[120.0, -80.0, 0.0, None]), 2026, 8
+        daily_frame([120.0, -80.0, 0.0, None]), 2026, 8
     )
     text = " ".join(str(t) for row in fig.data[0].text for t in row)
     assert "+" in text and "−" in text
 
 
 def test_exact_values_are_reachable_without_hover():
-    fig = calendar_heatmap_chart(_daily_frame(pnls=[120.0]), 2026, 8)
+    fig = calendar_heatmap_chart(daily_frame([120.0]), 2026, 8)
     assert fig.data[0].texttemplate or fig.data[0].text is not None
 ```
 
 - [ ] **Step 3: Run both sets to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_overview_bands.py tests/test_charts.py -k "ranked or heatmap or divergent or non_colour" -v`
+Run: `"$PY" -m pytest tests/test_overview_bands.py tests/test_charts.py -k "ranked or heatmap or divergent or non_colour" -v`
 Expected: FAIL.
 
 - [ ] **Step 4: Implement the ranked list**
@@ -1238,8 +1889,8 @@ Band 4: two ranked lists plus the heatmap. Below the gate, the heatmap falls bac
 - [ ] **Step 7: Run tests, lint, commit**
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
-.venv/bin/ruff check src/ scripts/ && .venv/bin/black --check src/ scripts/
+"$PY" -m pytest tests/ -q
+"$PY" -m ruff check src/ scripts/ && "$PY" -m black --check src/ scripts/
 git add src/tradelens/ui/components/overview_bands.py src/tradelens/ui/components/charts.py \
         src/tradelens/ui/app.py tests/test_overview_bands.py tests/test_charts.py tests/test_dashboard.py
 git commit -m "feat(overview): trajectory band and recurring-edge band"
@@ -1287,7 +1938,7 @@ def test_band_five_is_omitted_when_neither_element_is_earned():
 def test_an_unactivated_account_gets_one_action_never_a_checklist():
     from src.tradelens.ui.app import _next_review_action  # noqa: PLC0415
 
-    band = _next_review_action(_sample_frame(), activation=_incomplete_activation())
+    band = _next_review_action(sample_frame(), activation=_incomplete_activation())
     assert band.kind == "next_step"
     assert band.progress == "2 of 4"
 
@@ -1295,7 +1946,7 @@ def test_an_unactivated_account_gets_one_action_never_a_checklist():
 def test_the_action_is_always_a_review_action_never_a_trade_action():
     from src.tradelens.ui.app import _next_review_action  # noqa: PLC0415
 
-    band = _next_review_action(_sample_frame(), activation=_complete_activation())
+    band = _next_review_action(sample_frame(), activation=_complete_activation())
     lowered = band.body.lower()
     for word in ("buy", "sell", "enter", "entry", "target", "should trade"):
         assert word not in lowered
@@ -1327,12 +1978,88 @@ def test_three_trades_on_one_day_withholds_both_dated_instruments():
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_dashboard.py -k "band_five or unactivated or review_action or one_day" -v`
+Run: `"$PY" -m pytest tests/test_dashboard.py -k "band_five or unactivated or review_action or one_day" -v`
 Expected: FAIL — `_next_review_action` does not exist.
 
 - [ ] **Step 3: Implement band 5**
 
-Add `_next_review_action(df, activation)` returning `None`, an activation next step, or a period observation. It absorbs the `render_next_step` activation card and the `_overview_observation` readout into one band. Not yet activated → one action with progress as `{completed} of {total}`, never a checklist. Activated → the period observation with its existing Evidence Rail (evidence, sample `n=x of y`, confidence banded at 12/6, and the `is_only_category` limitation). Neither earned → the band is omitted entirely.
+`app.py` already carries `from __future__ import annotations` at line 1, so `| None` is safe there.
+
+```python
+@dataclass(frozen=True)
+class NextReviewAction:
+    """The one thing to go and re-read. Never a trade action.
+
+    Two of today's elements collapse into this: the activation next-step card
+    and the period observation. Which one appears is a state question, not a
+    layout question, so it is decided here rather than in the render path.
+    """
+
+    kind: str                        # "next_step" | "observation"
+    title: str
+    body: str
+    progress: str | None = None      # "{completed} of {total}", next_step only
+    evidence: EvidenceItem | None = None   # observation only
+
+
+def _next_review_action(df, activation) -> NextReviewAction | None:
+    """The band 5 payload, or None when the band is omitted entirely.
+
+    An empty band is worse than no band, so "neither element earned" returns
+    None rather than a placeholder.
+    """
+    # Activation outranks the observation: a trader who has not finished
+    # setting up does not need a pattern read, they need the next setup step.
+    if activation is not None and not activation.is_complete:
+        step = activation.next_step          # (title, body, completed, total)
+        return NextReviewAction(
+            kind="next_step",
+            title=step.title,
+            body=step.body,
+            progress=f"{step.completed} of {step.total}",
+        )
+
+    observation = _overview_observation(df)   # existing helper, app.py:198
+    if observation is None:
+        return None
+
+    title, body, evidence = observation
+    return NextReviewAction(
+        kind="observation", title=title, body=body, evidence=evidence
+    )
+```
+
+`_overview_observation` already returns the tuple carrying its Evidence Rail (evidence, sample `n=x of y`, confidence banded at 12/6, and the `is_only_category` limitation) — this reuses it rather than recomputing. Confirm its exact return shape at `app.py:198` before wiring; if it differs, adapt this destructuring and nothing else.
+
+Test fixtures for the two activation states, defined in `tests/test_dashboard.py`:
+
+```python
+from src.tradelens.services.activation import TRADES_FOR_REVIEW  # noqa: F401
+
+
+class _Step:
+    def __init__(self, title, body, completed, total):
+        self.title, self.body = title, body
+        self.completed, self.total = completed, total
+
+
+class _Activation:
+    def __init__(self, complete, step=None):
+        self.is_complete = complete
+        self.next_step = step
+
+
+def _incomplete_activation():
+    return _Activation(
+        False, _Step("Log five completed trades", "Then the weekly recap unlocks.", 2, 4)
+    )
+
+
+def _complete_activation():
+    return _Activation(True)
+```
+
+These stand in for whatever `activation.py` returns. **Before writing them, read `src/tradelens/services/activation.py` and match its real attribute names**; if they differ, change the stubs, not the service.
 
 - [ ] **Step 4: Implement the state matrix**
 
@@ -1358,8 +2085,8 @@ Replace the expander above the numbers with a collapsed control plus the existin
 - [ ] **Step 6: Run tests, lint, commit**
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
-.venv/bin/ruff check src/ scripts/ && .venv/bin/black --check src/ scripts/
+"$PY" -m pytest tests/ -q
+"$PY" -m ruff check src/ scripts/ && "$PY" -m black --check src/ scripts/
 git add src/tradelens/ui/app.py tests/test_dashboard.py tests/test_activation.py
 git commit -m "feat(overview): next-review-action band and the full state matrix"
 ```
@@ -1386,7 +2113,7 @@ At 1440, 1024, coarse 768, coarse 375, against a throwaway database seeded to hi
 
 - [ ] **Step 1: Confirm the existing guards still hold before changing anything**
 
-Run: `.venv/bin/python -m pytest tests/test_trade_wizard.py -v`
+Run: `"$PY" -m pytest tests/test_trade_wizard.py -v`
 Expected: PASS, 59 tests. If any fail, stop — a later task broke the wizard and that is the bug to fix first.
 
 - [ ] **Step 2: Write the failing presentation tests**
@@ -1414,7 +2141,7 @@ def test_the_screenshot_waiting_state_reserves_its_height():
 
 - [ ] **Step 3: Run to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_trade_wizard.py -k "progress_system or empty_groups or waiting_state" -v`
+Run: `"$PY" -m pytest tests/test_trade_wizard.py -k "progress_system or empty_groups or waiting_state" -v`
 Expected: FAIL.
 
 - [ ] **Step 4: Implement the dark treatment**
@@ -1423,7 +2150,7 @@ Quiet progress, one primary action, never five bright pills. Blocking validation
 
 - [ ] **Step 5: Run the wizard suite and the full suite**
 
-Run: `.venv/bin/python -m pytest tests/test_trade_wizard.py tests/test_ai_autofill_review.py -v` then `.venv/bin/python -m pytest tests/ -q`
+Run: `"$PY" -m pytest tests/test_trade_wizard.py tests/test_ai_autofill_review.py -v` then `"$PY" -m pytest tests/ -q`
 Expected: PASS.
 
 - [ ] **Step 6: Browser round trip with a real file**
@@ -1468,7 +2195,7 @@ def test_the_dataframe_toolbar_controls_are_lifted_to_the_target_floor():
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_page_polish.py -k toolbar -v`
+Run: `"$PY" -m pytest tests/test_page_polish.py -k toolbar -v`
 Expected: FAIL — no rule targets the toolbar.
 
 - [ ] **Step 3: Fix the toolbar targets**
@@ -1511,8 +2238,8 @@ Measure the toolbar controls again at 1440 and assert ≥44×44.
 - [ ] **Step 7: Run tests, lint, commit**
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
-.venv/bin/ruff check src/ scripts/ && .venv/bin/black --check src/ scripts/
+"$PY" -m pytest tests/ -q
+"$PY" -m ruff check src/ scripts/ && "$PY" -m black --check src/ scripts/
 git add src/tradelens/ui/pages/2_Trades.py src/tradelens/ui/components/trade_calendar.py \
         src/tradelens/ui/design_system.py tests/test_journal.py tests/test_page_polish.py
 git commit -m "feat(ui): dark Journal and 44px dataframe toolbar targets"
@@ -1600,7 +2327,7 @@ Task 12 consumes exactly these names. The parser is pure: no Streamlit, no HTML 
 
 Create `tests/test_review_document.py`:
 
-```python
+````python
 """The parser is presentation only.
 
 It never rewrites what the model produced: every section keeps its original
@@ -1626,6 +2353,7 @@ def test_blank_content_returns_an_empty_document():
 def test_content_with_no_headings_returns_one_fallback_section():
     doc = parse_review_markdown("Just a paragraph of review prose.")
     assert len(doc.sections) == 1
+    assert isinstance(doc.sections[0], ReviewSection)
     assert doc.sections[0].body_md == "Just a paragraph of review prose."
 
 
@@ -1677,28 +2405,50 @@ def test_no_section_content_is_ever_dropped():
 def test_non_string_input_degrades_to_an_empty_document(junk):
     """This runs inside a render path — raising would blank the page."""
     assert parse_review_markdown(junk).is_empty is True
-```
+
+
+def test_a_backtick_fence_is_not_closed_by_tildes():
+    doc = parse_review_markdown("## Real\n```\n~~~\n## Still code\n```\n## After\nx")
+    assert [s.title for s in doc.sections] == ["Real", "After"]
+
+
+def test_an_unclosed_fence_swallows_the_rest_rather_than_raising():
+    doc = parse_review_markdown("## Real\n```\n## Not a heading\n")
+    assert len(doc.sections) == 1
+
+
+def test_a_heading_with_no_alphanumerics_still_gets_an_id():
+    doc = parse_review_markdown("## ???\nbody")
+    assert doc.sections[0].id == "section"
+````
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_review_document.py -v`
+Run: `"$PY" -m pytest tests/test_review_document.py -v`
 Expected: FAIL — module does not exist.
 
 - [ ] **Step 3: Implement the parser**
 
-```python
+Verified 2026-08-04: this exact source passes all 13 tests above plus 3 extra edge cases (an unclosed fence, a backtick fence not closed by tildes, a heading with no alphanumerics) — `16 passed`, Ruff clean, Black clean.
+
+````python
 """A pure document model for AI-generated review Markdown.
 
 Standard library only. No Streamlit, no HTML, no model, no database — this
 decides where a long note's sections begin and ends there. Rendering,
-sanitising, and safety belong to the caller, which keeps this testable
-without a browser and keeps the model output path unchanged.
+sanitising, and safety belong to the caller, which keeps this testable without a
+browser and keeps the model-output path unchanged.
+
+It never rewrites what the model produced: every section keeps its original
+Markdown, so `Read full note` can always render the complete response. A parser
+that dropped content would silently discard a trader's review.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Tuple
 
 _HEADING = re.compile(r"^(#{2,3})\s+(.*\S)\s*$")
 _FENCE = re.compile(r"^\s*(```|~~~)")
@@ -1706,6 +2456,8 @@ _FENCE = re.compile(r"^\s*(```|~~~)")
 
 @dataclass(frozen=True)
 class ReviewSection:
+    """One `##`/`###` section, with its Markdown exactly as generated."""
+
     id: str
     level: int
     title: str
@@ -1714,23 +2466,101 @@ class ReviewSection:
 
 @dataclass(frozen=True)
 class ReviewDocument:
+    """Prose before the first heading, then the sections in reading order."""
+
     intro_md: str
-    sections: tuple[ReviewSection, ...]
+    sections: Tuple[ReviewSection, ...]
 
     @property
     def is_empty(self) -> bool:
         return not self.intro_md.strip() and not self.sections
 
 
+def _slug(title: str, taken: dict) -> str:
+    """A deterministic id, suffixed on collision.
+
+    Deterministic matters: the id survives a rerun, so the reader's selected
+    section is still selected after an unrelated widget change.
+    """
+    base = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "section"
+    taken[base] = taken.get(base, 0) + 1
+    return base if taken[base] == 1 else f"{base}-{taken[base]}"
+
+
 def parse_review_markdown(content_md: object) -> ReviewDocument:
-    ...
-```
+    """Split generated Markdown into an intro and its sections.
 
-Slug IDs are `re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")`, suffixed `-2`, `-3`, … on collision so they stay deterministic across reruns. Track fence state while scanning so a heading inside a fenced block stays body text.
+    Non-string input degrades to an empty document rather than raising: this
+    runs inside a render path, where an exception blanks the page.
+    """
+    if not isinstance(content_md, str) or not content_md.strip():
+        return ReviewDocument(intro_md="", sections=())
 
+    intro: list = []
+    sections: list = []
+    current: dict | None = None
+    taken: dict = {}
+    fence: str | None = None
+
+    for line in content_md.splitlines(keepends=True):
+        opener = _FENCE.match(line)
+        if opener:
+            marker = opener.group(1)
+            if fence is None:
+                fence = marker
+            elif marker == fence:
+                fence = None
+            (current["body"] if current else intro).append(line)
+            continue
+
+        heading = None if fence else _HEADING.match(line.rstrip("\n"))
+        if heading:
+            if current:
+                sections.append(current)
+            title = heading.group(2)
+            current = {
+                "id": _slug(title, taken),
+                "level": len(heading.group(1)),
+                "title": title,
+                "body": [],
+            }
+            continue
+
+        (current["body"] if current else intro).append(line)
+
+    if current:
+        sections.append(current)
+
+    intro_md = "".join(intro).strip()
+
+    if not sections:
+        # No headings at all: one fallback section carrying everything, so the
+        # reader has something to select and nothing is lost.
+        return ReviewDocument(
+            intro_md="",
+            sections=(
+                ReviewSection(id="note", level=2, title="Review", body_md=intro_md),
+            ),
+        )
+
+    return ReviewDocument(
+        intro_md=intro_md,
+        sections=tuple(
+            ReviewSection(
+                id=s["id"],
+                level=s["level"],
+                title=s["title"],
+                body_md="".join(s["body"]).strip(),
+            )
+            for s in sections
+        ),
+    )
+````
+
+Two decisions worth naming. **Ids are deterministic** (`section`, `section-2`, …) because the reader's selected section must survive an unrelated rerun; a hash of position would not. **A document with no headings returns one fallback section rather than an empty one**, so `Read full note` always has something to render and the no-heading case is not a special path for every caller to remember.
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `.venv/bin/python -m pytest tests/test_review_document.py -v`
+Run: `"$PY" -m pytest tests/test_review_document.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Add a purity guard**
@@ -1745,8 +2575,8 @@ def test_the_parser_imports_nothing_from_streamlit_or_the_services():
 - [ ] **Step 6: Run tests, lint, commit**
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
-.venv/bin/ruff check src/ scripts/ && .venv/bin/black --check src/ scripts/
+"$PY" -m pytest tests/ -q
+"$PY" -m ruff check src/ scripts/ && "$PY" -m black --check src/ scripts/
 git add src/tradelens/ui/components/review_document.py tests/test_review_document.py
 git commit -m "feat(ai-reviews): pure Markdown document model for generated notes"
 ```
@@ -1769,7 +2599,8 @@ git commit -m "feat(ai-reviews): pure Markdown document model for generated note
   - `review_reader.view_from_note(note: ResearchNote) -> ReviewView`
   - `review_reader.view_from_markdown(*, title, sample, content_md, evidence, actions, evidence_used) -> ReviewView`
   - `review_reader.clamp_section(*, index: int, total: int) -> int`
-  - `review_reader.render_review_reader(st, view: ReviewView, *, state_key: str) -> None`
+  - `review_reader.build_note_regions(view: ReviewView) -> str` — **pure**, returns the five regions' chrome HTML with every caller value escaped, exactly as `workspace.py`'s builders do. Generated Markdown is *not* embedded here; it is handed separately to `st.markdown` with HTML off. This is what makes the shell testable without a browser.
+  - `review_reader.render_review_reader(st, view: ReviewView, *, state_key: str) -> None` — the only Streamlit-touching entry point.
 
 Resolves spec findings D5, D6, D7, D8.
 
@@ -1787,6 +2618,7 @@ product has two different ideas of what a review looks like (D6).
 
 from src.tradelens.ui.components.review_reader import (
     ReviewView,
+    build_note_regions,
     view_from_markdown,
     view_from_note,
 )
@@ -1835,7 +2667,7 @@ def test_the_evidence_rail_appears_once_per_note_not_under_every_paragraph():
         content_md="Lead.\n\n## A\na\n\n## B\nb",
         evidence=_EVIDENCE, actions=(), evidence_used=(),
     )
-    html = _render_to_string(view)
+    html = build_note_regions(view)
     assert html.count("tl-evidence-rail") == 1
 
 
@@ -1896,7 +2728,7 @@ def test_the_skeleton_appears_only_when_there_is_no_prior_note():
 
 - [ ] **Step 3: Run both sets to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_review_reader.py tests/test_insights_page.py -v`
+Run: `"$PY" -m pytest tests/test_review_reader.py tests/test_insights_page.py -v`
 Expected: FAIL.
 
 - [ ] **Step 4: Implement the reading shell**
@@ -1979,7 +2811,7 @@ git commit -m "feat(ai-reviews): one reading shell and non-destructive regenerat
 
 - [ ] **Step 1: Confirm the persistence scenarios still pass first**
 
-Run: `.venv/bin/python -m pytest tests/test_strategy.py tests/test_app_settings.py tests/test_account_deletion.py -v`
+Run: `"$PY" -m pytest tests/test_strategy.py tests/test_app_settings.py tests/test_account_deletion.py -v`
 Expected: PASS. These cover starter persistence, blank-name refusal, corrected save, untouched-field preservation, and contained write failure with no DSN leak. They are the contract this task must not break.
 
 - [ ] **Step 2: Write the failing Danger Zone test**
@@ -2131,7 +2963,7 @@ def test_the_close_control_is_first_in_the_drawer_dom_order():
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_partner_panel.py -v`
+Run: `"$PY" -m pytest tests/test_partner_panel.py -v`
 Expected: FAIL — module does not exist.
 
 - [ ] **Step 3: Implement the launcher and drawer**
@@ -2160,7 +2992,7 @@ History lives in `st.session_state` scoped per user and is never persisted. **No
 
 - [ ] **Step 6: Run to verify the tests pass**
 
-Run: `.venv/bin/python -m pytest tests/test_partner_panel.py -v`
+Run: `"$PY" -m pytest tests/test_partner_panel.py -v`
 Expected: PASS.
 
 - [ ] **Step 7: The fixed-positioning verification — Claude-owned, required before this ships**
@@ -2183,8 +3015,8 @@ Degrade to a **docked Partner**: a persistent right-hand column toggled from a r
 - [ ] **Step 9: Run the full suite, lint, commit**
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
-.venv/bin/ruff check src/ scripts/ && .venv/bin/black --check src/ scripts/
+"$PY" -m pytest tests/ -q
+"$PY" -m ruff check src/ scripts/ && "$PY" -m black --check src/ scripts/
 git add src/tradelens/ui/components/partner_panel.py src/tradelens/ui/design_system.py \
         tests/test_partner_panel.py
 git commit -m "feat(partner): fixed bottom-right drawer at sidebar-navigation widths"
@@ -2198,8 +3030,10 @@ git commit -m "feat(partner): fixed bottom-right drawer at sidebar-navigation wi
 
 **Files:**
 - Create: `src/tradelens/ui/pages/7_Partner.py`
-- Modify: `src/tradelens/ui/components/sidebar.py:69-78`, `src/tradelens/ui/design_system.py` (launcher media query)
+- Modify: `src/tradelens/ui/components/sidebar.py:69-78`, `src/tradelens/ui/design_system.py` (launcher media query), `tests/test_pages_boot.py` (`ALL_PAGES` gains `7_Partner.py`)
 - Test: `tests/test_partner_panel.py`, `tests/test_premium_shell.py`, `tests/test_pages_boot.py`
+
+Adding the page to `ALL_PAGES` is not bookkeeping: that list drives the parametrised boot test, so a page absent from it is a page nothing proves boots.
 
 **Interfaces:**
 - Consumes: `render_partner_body` (Task 14); `MOBILE_MORE`, `MOBILE_MORE_SLUGS`, `route_href`, `_active_slug` (`sidebar.py`).
@@ -2260,7 +3094,7 @@ def test_the_conversation_survives_navigating_away_and_back():
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `.venv/bin/python -m pytest tests/test_partner_panel.py tests/test_premium_shell.py -k partner -v`
+Run: `"$PY" -m pytest tests/test_partner_panel.py tests/test_premium_shell.py -k partner -v`
 Expected: FAIL — `/Partner` is not in `MOBILE_MORE` and the page does not exist.
 
 - [ ] **Step 3: Add the `More` entry**
@@ -2283,7 +3117,7 @@ Selecting the Partner from `More` navigates, and the rerun re-emits `More` close
 
 - [ ] **Step 6: Run to verify the tests pass**
 
-Run: `.venv/bin/python -m pytest tests/test_partner_panel.py tests/test_premium_shell.py tests/test_pages_boot.py -v`
+Run: `"$PY" -m pytest tests/test_partner_panel.py tests/test_premium_shell.py tests/test_pages_boot.py -v`
 Expected: PASS.
 
 - [ ] **Step 7: Browser verification at coarse 375**
@@ -2295,10 +3129,11 @@ At coarse 768, confirm the opposite: the drawer is present and the `More` sheet 
 - [ ] **Step 8: Run the full suite, lint, commit**
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
-.venv/bin/ruff check src/ scripts/ && .venv/bin/black --check src/ scripts/
+"$PY" -m pytest tests/ -q
+"$PY" -m ruff check src/ scripts/ && "$PY" -m black --check src/ scripts/
 git add src/tradelens/ui/pages/7_Partner.py src/tradelens/ui/components/sidebar.py \
-        src/tradelens/ui/design_system.py tests/test_partner_panel.py tests/test_premium_shell.py
+        src/tradelens/ui/design_system.py tests/test_partner_panel.py \
+        tests/test_premium_shell.py tests/test_pages_boot.py
 git commit -m "feat(partner): full-page destination at bottom-navigation widths"
 ```
 
@@ -2318,45 +3153,139 @@ git commit -m "feat(partner): full-page destination at bottom-navigation widths"
 
 - [ ] **Step 1: Build the audit first**
 
-Create `tests/test_dark_accessibility.py` covering the spec §12 requirements as executable checks:
+Create `tests/test_dark_accessibility.py`. Every helper below is defined in the file itself or imported from an existing module — nothing is assumed to exist.
 
 ```python
-def test_contrast_is_measured_after_alpha_compositing():
-    """Treating the first rgba() layer as opaque is how contrast bugs
-    survive tests. Composite, then measure."""
-    for token, over in _RGBA_TOKENS:
-        composited = _composite(token, over)
-        assert contrast_ratio(ds.TL_CONTENT_PRIMARY, composited) >= 4.5
+"""Cross-page accessibility and containment checks for the dark workspace.
+
+Page rendering goes through the subprocess boot in tests/app_boot_check.py, not
+an in-process AppTest fixture: that shortcut creates a second copy of ai_client
+and was measured at 34-47 spurious failures. See that file's warning.
+"""
+
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from src.tradelens.ui import design_system as ds
+from tests.source_probe import near
+from tests.test_design_system import contrast_ratio
+
+ROOT = Path(__file__).resolve().parents[1]
+RUNNER = ROOT / "tests" / "app_boot_check.py"
+PAGES_DIR = ROOT / "src" / "tradelens" / "ui" / "pages"
+
+# (token name, the surface it is composited over). Every rgba() token in the
+# dark system, paired with the surface it actually sits on in the CSS.
+RGBA_OVER = {
+    "TL_PRIMARY_DIM": "TL_SURFACE_PANEL",
+    "TL_SUCCESS_DIM": "TL_SURFACE_PANEL",
+    "TL_DANGER_DIM": "TL_SURFACE_PANEL",
+    "TL_WARNING_DIM": "TL_SURFACE_PANEL",
+    "TL_NEUTRAL_DIM": "TL_SURFACE_PANEL",
+}
 
 
-def test_every_colour_carried_meaning_has_a_non_colour_companion():
-    for html in _rendered_samples():
-        for node in _tone_carrying_nodes(html):
-            assert _has_text_sign_or_label(node), node[:120]
+def composite(rgba: str, backdrop_hex: str) -> str:
+    """Flatten an rgba() layer onto an opaque backdrop, returning #RRGGBB.
+
+    Treating the first rgba() layer as opaque is how contrast bugs survive
+    tests: the measured value is the composite a reader actually sees.
+    """
+    match = re.fullmatch(
+        r"rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)", rgba.strip()
+    )
+    assert match, f"not an rgba() literal: {rgba!r}"
+    fr, fg, fb, alpha = (
+        int(match.group(1)),
+        int(match.group(2)),
+        int(match.group(3)),
+        float(match.group(4)),
+    )
+    back = backdrop_hex.lstrip("#")
+    br, bg, bb = (int(back[i : i + 2], 16) for i in (0, 2, 4))
+    out = [round(f * alpha + b * (1 - alpha)) for f, b in ((fr, br), (fg, bg), (fb, bb))]
+    return "#%02X%02X%02X" % tuple(out)
 
 
-def test_headings_are_sequential_with_no_skipped_level():
-    for page, html in _rendered_pages():
-        levels = [int(m) for m in re.findall(r"<h([1-6])", html)]
-        for previous, current in zip(levels, levels[1:]):
-            assert current <= previous + 1, f"{page}: h{previous} -> h{current}"
+def boot_page(page: str, db_path: Path, seed: str = "1", state: str = "{}") -> str:
+    """Boot one page in a subprocess against an isolated DB; return its stdout."""
+    import os
+
+    env = dict(os.environ)
+    env["DATABASE_URL"] = f"sqlite:///{db_path}"
+    env["DEMO_MODE"] = "true"
+    target = str(ROOT / "src" / "tradelens" / "ui" / "app.py") if page == "app.py" \
+        else str(PAGES_DIR / page)
+    proc = subprocess.run(
+        [sys.executable, str(RUNNER), str(ROOT), target, "-", seed, state],
+        env=env, capture_output=True, text=True, timeout=180,
+    )
+    assert proc.returncode == 0, f"{page} boot failed\n{proc.stdout}\n{proc.stderr}"
+    return proc.stdout
 
 
-def test_no_secret_dsn_or_stack_text_is_reachable_in_any_audited_state():
-    for page, html in _rendered_pages(include_error_states=True):
-        for token in ("Traceback", "postgresql://", "sqlite:///", "sk-ant-", "psycopg"):
-            assert token not in html, f"{page} leaked {token}"
+AUDITED_PAGES = [
+    "app.py", "1_NewTrade.py", "2_Trades.py", "4_Analytics.py",
+    "6_Insights.py", "5_Strategy.py", "9_Settings.py", "7_Partner.py",
+]
 
 
-def test_every_service_call_site_passes_the_authenticated_user_id():
-    for path in Path("src/tradelens/ui").rglob("*.py"):
-        for call in _service_calls(path.read_text()):
-            assert "user_id" in call or "uid" in call, f"{path}: {call[:80]}"
+def test_composited_tint_layers_still_clear_aa():
+    for token, surface in RGBA_OVER.items():
+        flat = composite(getattr(ds, token), getattr(ds, surface))
+        ratio = contrast_ratio(ds.TL_CONTENT_PRIMARY, flat)
+        assert ratio >= 4.5, f"{token} over {surface} composites to {flat} = {ratio:.2f}"
+
+
+def test_every_tone_carrying_element_has_a_non_colour_companion():
+    """data-tone is for styling and tests only; it carries no meaning to
+    assistive tech. Each toned element needs a visually hidden announcement,
+    a sign, or a text label — the KPI strip's pattern."""
+    from src.tradelens.ui.components.workspace import MetricItem, render_kpi_strip
+
+    html = render_kpi_strip(
+        [
+            MetricItem(label="Net P&L", value="-$412.00", detail="25 trades", tone="negative"),
+            MetricItem(label="Win rate", value="61%", detail="15 of 25", tone="positive"),
+        ]
+    )
+    for block in re.findall(r"<[^>]*data-tone=\"(?:positive|negative)\"[^>]*>.*?</\w+>", html, re.S):
+        assert re.search(r"tl-sr-only|[+−-]|Up:|Down:", block), block[:160]
+
+
+@pytest.mark.parametrize("page", AUDITED_PAGES)
+def test_no_secret_dsn_or_stack_text_is_reachable(page, tmp_path):
+    output = boot_page(page, tmp_path / f"{page}.db")
+    for token in ("Traceback", "postgresql://", "sqlite:///", "sk-ant-", "psycopg", "ANTHROPIC_API_KEY"):
+        assert token not in output, f"{page} leaked {token}"
+
+
+def test_every_service_call_site_passes_an_owner():
+    """Tenant scoping resolved at every call site, not only in the service."""
+    scoped = re.compile(
+        r"\b(get_trades|get_trade|create_trade|update_trade|delete_trade|"
+        r"get_active_strategy|upsert_strategy_profile|count_sample_trades|"
+        r"get_weekly_review|build_global_partner_context)\s*\(", re.M
+    )
+    offenders = []
+    for path in (ROOT / "src" / "tradelens" / "ui").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        for match in scoped.finditer(source):
+            window = source[match.end() : match.end() + 200]
+            if not re.search(r"\b(user_id|uid)\b", window):
+                offenders.append(f"{path.name}:{source[:match.start()].count(chr(10)) + 1}")
+    assert not offenders, f"unscoped service calls: {offenders}"
 ```
+
+**Heading sequence and tab order are browser checks, not source checks.** Streamlit composes the final heading levels at render time, so asserting on them from an `AppTest` stdout dump would be measuring the wrong artifact. Those two live in step 4.
 
 - [ ] **Step 2: Run the audit and record every finding**
 
-Run: `.venv/bin/python -m pytest tests/test_dark_accessibility.py -v`
+Run: `"$PY" -m pytest tests/test_dark_accessibility.py -v`
 Record each failure with its page, width, and reproduction. Do not fix anything yet.
 
 - [ ] **Step 3: Fix only reproduced defects**
@@ -2367,6 +3296,11 @@ Fix what the audit actually reproduces. Do not refactor adjacent code, do not "i
 
 All seven authenticated destinations plus the Partner, at 1440, 1024, real coarse-pointer 768, real coarse-pointer 375, and with `prefers-reduced-motion: reduce`. Coarse-pointer verification uses real media emulation (`pointer: coarse`, `hover: none`), not desktop viewport resizing. Assert per destination: expected heading, zero `stException` elements, no document-level horizontal overflow, every visible interactive target ≥44×44 with ≥8 px separation, focus visible on every control, and tab order matching visual order.
 
+Two checks moved here from step 1 because only a browser can answer them:
+
+- **Heading sequence.** Collect `document.querySelectorAll('h1,h2,h3,h4,h5,h6')` and assert no level is skipped. Streamlit composes final heading levels at render time, so source inspection measures the wrong artifact.
+- **Tab order.** Walk focus with repeated `Tab`, record `document.activeElement`'s bounding box each time, and assert the sequence is non-decreasing in (top, left) within each landmark. This is also where the Partner drawer's "Close is the first tab stop" claim is confirmed rather than asserted from DOM order.
+
 Recheck the nested-route `_stcore` console 404s recorded in the preflight and state plainly whether they persist. They are baseline infrastructure noise, not a target of this phase.
 
 - [ ] **Step 5: Preserve every workflow**
@@ -2376,9 +3310,9 @@ Confirm still green: the New Trade five-step wizard including the screenshot rou
 - [ ] **Step 6: Full verification**
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
-.venv/bin/ruff check src/ scripts/
-.venv/bin/black --check src/ scripts/
+"$PY" -m pytest tests/ -q
+"$PY" -m ruff check src/ scripts/
+"$PY" -m black --check src/ scripts/
 git diff --check
 ```
 
@@ -2436,9 +3370,9 @@ Items 04, 06, 07, and 08 are the phase's real work. A target missed is reported 
 - [ ] **Step 4: Final verification**
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
-.venv/bin/ruff check src/ scripts/
-.venv/bin/black --check src/ scripts/
+"$PY" -m pytest tests/ -q
+"$PY" -m ruff check src/ scripts/
+"$PY" -m black --check src/ scripts/
 git diff --check
 git log --oneline
 ```

@@ -20,20 +20,25 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `IMPLEMENTATION PLAN REBUILT — AWAITING CODEX PLAN REVIEW`
-- Last completed work: Claude rebuilt the consolidated implementation plan from
-  the Phase 1 spec, the browser preflight, and the Codex rulings in this file.
-  Documentation only — no product code, no service, no test file changed.
+- Current phase: `PLAN AMENDED — AWAITING SECOND CODEX PLAN REVIEW`
+- Last completed work: Claude amended the rebuilt plan after Codex found seven
+  blocking execution defects in `2363ea2`. All seven are fixed, and the code the
+  plan now carries was executed rather than asserted.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
-  (2509 lines, 17 tasks, 143 steps). It supersedes
+  (3443 lines, 17 tasks, 144 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification: none run — documentation only. The last code baseline stands at
-  `1618 passed, 7 skipped`; Ruff clean; Black clean (174 files);
-  `git diff --check` clean.
-- Next owner: `CODEX` for plan review.
-- Next work: review the rebuilt plan for scope, AI safety, tenancy, and
+- Verification: the plan's own code was run in a scratch directory —
+  `source_probe` 16 passed, `review_document` 16 passed, metrics 15/15 against
+  the real `metrics.py`, all Ruff and Black clean. 38 of 39 Python blocks in the
+  plan parse standalone (the 39th is a labelled f-string fragment). No product
+  code changed, so the `1618 passed, 7 skipped` baseline is untouched.
+- Next owner: `CODEX` for a second plan review.
+- Next work: review the amendment for scope, AI safety, tenancy, and
   service-contract fidelity. Task 4 is assigned to Codex and must be executed by
   Codex, not Claude. Do not begin Task 1 before the plan review lands.
+- Spec amendment required: §4.1 and §4.4 name `TL_LINE_STRONG = #3A4E56`, which
+  measures 1.84–2.20:1 and cannot satisfy the spec's own ≥3:1 rule. The plan
+  uses `#5C6E77`. The spec still needs correcting to match.
 - Blocker: cleared. The `nt_shot` Back-navigation exception is fixed and proved
   fixed in a real browser both ways (see the handoff-log entries below).
 
@@ -180,6 +185,124 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-04 — Plan amended after Codex found execution defects (Claude)
+
+Codex reviewed `2363ea2` and found seven blocking defects. All seven were real.
+The through-line: the first rebuild asserted that its code worked instead of
+running it. This pass ran it.
+
+**1. `TL_LINE_STRONG` did not pass its own test.** Codex measured ~1.74–2.17:1;
+my computation gives 1.84–2.20:1 across the six surfaces, against a required
+≥3:1. Either way the spec's `#3A4E56` fails, and Task 1's contract test would
+have failed on the value the same task installs.
+
+Replaced with `#5C6E77` — the smallest value on the same cool blue-grey ramp
+clearing 3:1 everywhere. The measured table is in the plan.
+
+**`elevated` is the binding surface, not canvas.** It is the lightest of the six
+*and* it is where the Partner drawer's edge sits, so the three-surface check the
+spec implies (canvas/rail/panel) would have passed a value still failing on the
+drawer. The test now covers all six. **This needs a spec amendment**: §4.1's
+token block and §4.4's closing sentence both still say `#3A4E56`.
+
+**2. Every command was unrunnable.** The redesign worktree has no `.venv`; the
+interpreter lives in the main checkout. All 57 `.venv/bin/…` invocations now go
+through one exported `$PY`, verified from the canonical worktree.
+
+Verifying that surfaced something the plan had wrong on its own: **the
+environment is Python 3.9.6, not the 3.11 `CLAUDE.md` claims**. That is the
+interpreter that produced the `1618 passed` baseline. The consequence binds
+every task — new modules need `from __future__ import annotations` or PEP 604
+unions are a runtime `TypeError`. `app.py:1` already carries it with a comment
+saying exactly why; `metrics.py` does not, which is why Task 4 uses
+`typing.Optional`. Ruff and Black are invoked as `"$PY" -m …` so a stray binary
+on `PATH` cannot be used by accident.
+
+**3. `function_source` and `outside` were both broken.** Both used
+`re.search(r"^\S", rest[1:], re.M)` to find a block end. With `re.MULTILINE`,
+`^` matches at offset 0, so that returned a one-character block — every
+structural assertion built on them would have been a false pass. `media_context`
+had a third bug: it reported the nearest preceding `@media` even when that query
+had already closed.
+
+Rewritten line-based and brace-counted, and now shipped with
+`tests/test_source_probe.py` — 16 tests covering complete-body extraction,
+stacked decorators, nested same-name methods, last-function-in-file, first-match
+removal, and the closed-media-query case. Both files are in Task 1's commit,
+which they were not before.
+
+**4. Placeholders replaced with executed code.** `edge_leak_summary`,
+`_is_recorded`, `_leak_mask`, `_has_leak_evidence`, `parse_review_markdown`,
+`_next_review_action`, `PartnerContext`, `PartnerEvidenceSource`, and
+`build_global_partner_context` are now complete.
+
+The metrics implementations were run against the **real** `metrics.py` —
+`_is_followed`, `_parse_mistake_tags`, `_safe_float` are the shipped functions,
+not paraphrases — and pass 15/15, including agreement with `total_edge_leak`
+across five frame shapes. That run caught a trap now recorded in the plan:
+`mistake_tags` is a **JSON-list string**, so `_parse_mistake_tags("fomo")`
+returns `[]` and test data using bare tags silently exercises nothing.
+
+The parser passes 16 tests including three edge cases the first draft had not
+considered — an unclosed fence, a backtick fence not closed by tildes, and a
+heading with no alphanumerics.
+
+For the Partner adapter I stopped at complete implementation rather than
+inventing a service Codex owns: the interface, ordering, pre-session owner
+rejection, whole-journal counts, and structured evidence sources are pinned by
+tests, and Codex may adjust budgets and text shape. It reuses
+`strategy.py:121`'s existing `_require_concrete_user_id` rather than adding a
+second validator.
+
+**5. Partner fixtures defined.** `seeded_user`, `seeded_two_users`, and
+`seeded_large_user` now follow the isolation pattern already established at
+`tests/test_user_isolation.py:28` — in-memory SQLite, `create_all`, the
+service's `SessionLocal` monkeypatched, `drop_all` and `dispose` on teardown,
+with a `StaticPool` so the seeded rows survive across connections.
+
+**6. Task 16 rewritten against real mechanisms.** The seven sketched helpers are
+gone. `composite()` and `boot_page()` are implemented; the rest are replaced by
+existing machinery.
+
+This one mattered more than it looked: my `_rendered_pages` sketch would have
+rendered pages in-process, and `tests/app_boot_check.py` carries an explicit
+warning against exactly that — it creates a second copy of `ai_client` and was
+**measured at 34–47 spurious failures**. Task 16 now uses the documented
+subprocess boot. Heading sequence and tab order moved to the browser step, where
+they can actually be measured.
+
+**7. Full sweep.** Remaining `...` are three interface signatures whose bodies
+appear in their task's implementation step, plus one labelled f-string fragment.
+Task 1 now stages `source_probe.py` and its tests; Task 15 stages
+`tests/test_pages_boot.py`, since `ALL_PAGES` drives the parametrised boot test
+and a page missing from it is a page nothing proves boots. Ruff caught an unused
+`ReviewSection` import in the plan's own test file — fixed by asserting the type
+rather than dropping the import.
+
+**One correction to my own process.** While sweeping I reported finding a
+Markdown fence defect, on the strength of a check that used a non-greedy regex
+to extract code blocks. That regex was wrong, not the document: a ``` inside a
+Python string mid-line does not close a fence. Re-checked with a correct
+line-based fence parser, all 39 blocks were already well-formed. The two blocks
+were still promoted to four-backtick fences, because naive extractors — mine
+included — mishandle them, but the plan was not broken and I should not have
+said it was.
+
+**Validation performed:** `source_probe` 16 passed · `review_document` 16 passed
+· metrics 15/15 against the real module · Ruff and Black clean on all four
+scratch files · 38 of 39 plan code blocks parse standalone · `"$PY" -m pytest
+tests/test_data_state.py -q` → 17 passed from the canonical worktree ·
+`git diff --check` clean.
+
+**Not run:** the full suite, because no product code changed. The `1618 passed,
+7 skipped` baseline is untouched.
+
+**Files changed:** the plan and this handoff. Documentation only. `git add -A`
+not used; untracked `src/tradelens/ui/.impeccable/` again not staged. The
+verification scripts stayed in scratchpad and did not enter the worktree.
+
+Ownership returned to `NONE`.
 
 ### 2026-08-04 — Consolidated implementation plan rebuilt (Claude)
 
