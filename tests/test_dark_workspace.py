@@ -534,13 +534,34 @@ ALERT_KINDS = ("Error", "Warning", "Info", "Success")
 
 
 @pytest.mark.parametrize("kind", ALERT_KINDS)
-def test_each_alert_carries_primary_copy_on_a_semantic_tint(kind):
-    """A tint pulls its surface toward its own hue, so semantic text on its own
-    tint never clears AA. Copy is primary content; the hue is ground and edge."""
+def test_each_alert_kind_stays_readable_on_the_shared_quiet_ground(kind):
+    """All four alert kinds share ONE elevated ground — there are no semantic
+    tints here, and the earlier name said otherwise.
+
+    Differentiating the ground by kind would need `:has()` to reach the
+    container from the kind class inside it, because the container exposes its
+    own kind only through hashed `st-*` classes this repo does not build on.
+    So the ground is uniform and quiet, the copy is content-primary on it, and
+    the kind is carried by Streamlit's per-kind icon and by the sentence —
+    which also means colour is never the only thing saying which kind it is.
+
+    The contract this pins: whatever the kind, the copy stays readable and is
+    never recoloured to the semantic hue. Semantic text on its own tint cannot
+    clear AA at any tint strength, so a kind that tinted its own copy would be
+    unreadable exactly when it mattered.
+    """
     css = ds.build_css()
     blocks = [b for b in css.split("}") if f"stAlertContent{kind}" in b]
     assert blocks, f"stAlertContent{kind} has no rule"
-    assert "--tl-content-primary" in " ".join(blocks), f"{kind} alert tints its copy"
+    joined = " ".join(blocks)
+    assert "--tl-content-primary" in joined, f"{kind} alert does not use primary copy"
+    for hue in ("--tl-danger", "--tl-warning", "--tl-success", "--tl-accent-action"):
+        assert f"color: var({hue})" not in joined, f"{kind} alert tints its own copy"
+
+    # The shared ground is the elevated surface, stated once for all kinds.
+    container = [b for b in css.split("}") if "stAlertContainer" in b]
+    assert container, "the alert container has no rule"
+    assert "--tl-surface-elevated" in " ".join(container)
 
 
 def test_loading_feedback_reserves_its_space():

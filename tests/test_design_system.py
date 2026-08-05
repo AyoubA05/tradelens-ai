@@ -281,8 +281,13 @@ def test_css_uses_only_proven_testids():
         # browser preflight, the smallest targets in the product.
         "stElementToolbarButton",
         "stBaseButton-elementToolbar",
-        # Streamlit's own button variants. stBaseButton-secondary had no focus
-        # rule of ours and fell through to a default ring measured at 1.08:1.
+        # Streamlit's own button variants. These carry an explicit focus rule
+        # so the ring comes from TL_ACCENT_ACTION rather than from a framework
+        # default that can change between releases (spec 4.6). Not a fix for an
+        # invisible ring: tabbing through 26 controls with the rule removed
+        # showed the default already clears 3:1. An earlier note here cited
+        # 1.08:1, which measured :focus via el.focus() — that does not activate
+        # :focus-visible in Chrome, so the figure described the wrong state.
         "stBaseButton-primary",
         "stBaseButton-secondary",
         "stBaseButton-secondaryFormSubmit",
