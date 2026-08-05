@@ -296,8 +296,8 @@ def _render_generated_note(review: dict, title: str, sample: str) -> None:
             unsafe_allow_html=True,
         )
         # Same disclosure builder as the composed note, on the same
-        # surface: st.expander put this on the light workspace at 38px
-        # while the Patterns note's sat on the dark sheet at 44px.
+        # surface: st.expander rendered this at 38px while the Patterns
+        # note's sat on the note sheet at 44px.
         st.markdown(
             render_evidence_disclosure(_evidence_used(review)),
             unsafe_allow_html=True,

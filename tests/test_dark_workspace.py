@@ -282,19 +282,25 @@ def test_the_compatibility_bridge_is_gone():
     assert not found, f"compatibility bridge still present: {found}"
 
 
-def test_no_structural_icon_is_an_emoji():
-    """D9: emoji are font-dependent, carry their own colour, and cannot be
-    token-controlled. Structural icons are Material ligature names — plain
-    text styled by the font the mobile nav already proves in the browser.
+def test_no_empty_state_icon_is_an_emoji():
+    """D9, scoped honestly: the empty-state renderers only.
 
-    Scans every icon-taking renderer across the live UI, not one call form:
-    the first version of this test only matched `render_empty_state("x"` on
-    the following line and silently missed six emoji, including a whole page
-    that routes through a local `_empty()` helper.
+    This covers exactly three call sites' worth of surface —
+    ``render_empty_state``, ``render_data_state``, and Analytics' local
+    ``_empty`` adapter — because those are the Phase 1 D9 finding. It does
+    NOT cover the rest of the product: toast icons, button labels, subheaders
+    and the corrections sidebar still carry emoji, and they belong to the
+    tasks that own those surfaces (8, 9, 12, 13). A guard that claimed more
+    than it checked would be worse than no guard.
 
-    Typographic VALUES are not icons and are deliberately out of scope — the
+    Within that scope the rule is: icons are Material ligature names — plain
+    escaped text styled by the font the mobile nav relies on. Emoji are
+    font-dependent, carry their own colour, and cannot be token-controlled.
+
+    Typographic VALUES are not icons and are deliberately excluded — the
     infinity sign for an undefined profit factor, delta arrows, the stepper
-    tick, and em-dash placeholders all carry meaning as text.
+    tick, ledger result marks, and em-dash placeholders all carry meaning as
+    text.
     """
     ui = Path("src/tradelens/ui")
     renderers = ("render_empty_state", "render_data_state", "_empty")
@@ -305,7 +311,6 @@ def test_no_structural_icon_is_an_emoji():
             continue
         source = path.read_text(encoding="utf-8")
         for match in pattern.finditer(source):
-            # Every string literal in this call's argument list.
             window = source[match.end() : match.end() + 400]
             depth, end = 1, 0
             for i, ch in enumerate(window):
@@ -325,7 +330,10 @@ def test_no_structural_icon_is_an_emoji():
                 if len(literal) <= 2 and not literal.isascii():
                     line = source[: match.start()].count("\n") + 1
                     offenders.append(f"{path.name}:{line} {literal!r}")
-    assert not offenders, f"non-ligature structural icons: {offenders}"
+    assert not offenders, (
+        "empty-state icons must be Material ligature names, not emoji "
+        f"(this guard covers {', '.join(renderers)} only): {offenders}"
+    )
 
 
 def test_the_empty_state_icon_uses_the_material_font():

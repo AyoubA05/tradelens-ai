@@ -512,12 +512,12 @@ def _site_var(name: str) -> str:
 
 
 def test_app_and_marketing_site_share_one_brand_accent():
-    """Seam guard, restated for the hybrid theme.
+    """Seam guard for the site -> app handoff.
 
-    The signed-in app is now a LIGHT workspace; the marketing site stays dark
-    and frozen. Their backgrounds are deliberately different, so asserting a
-    shared background would only assert the old design. What must not drift is
-    the brand mark itself: one teal across the site -> app handoff.
+    Both surfaces are dark now, but their backgrounds are still tuned
+    separately — the marketing site is frozen at its own values — so
+    asserting a shared background would assert a coincidence. What must not
+    drift is the brand mark itself: one teal across the handoff.
     """
     assert ds.TL_FOCUS.lower() == _site_var("accent")
 
@@ -741,7 +741,7 @@ def test_focus_ring_meets_non_text_contrast():
 # ---------------------------------------------------------------------------
 
 
-def test_css_declares_the_hybrid_surface_variables():
+def test_css_declares_the_role_surface_variables():
     css = ds.build_css()
     for var in (
         "--tl-surface-canvas",
@@ -793,9 +793,14 @@ def test_type_roles_do_not_reintroduce_the_retired_face():
     assert "Inter" not in ds.build_css()
 
 
-def test_navigation_rail_is_dark_and_workspace_is_light():
+def test_the_rail_is_the_deepest_surface_and_the_canvas_sits_above_it():
+    """One family, two depths: the rail is the deepest structural surface and
+    the workspace canvas sits above it. Both are dark — the rail is not a
+    dark island in a light product any more — so the separation is carried by
+    the strong line, which test_rail_and_canvas_are_separated_by_a_line
+    covers in tests/test_dark_workspace.py."""
     css = ds.build_css()
-    rail = css[css.index('[data-testid="stSidebar"] {') :][:240]
+    rail = css[css.index('[data-testid="stSidebar"] {') :][:280]
     assert "var(--tl-surface-rail)" in rail
     assert "background: var(--tl-surface-canvas)" in css
 

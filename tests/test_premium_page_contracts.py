@@ -704,8 +704,8 @@ def test_generated_prose_never_reaches_an_html_allowing_path():
 
 
 def test_the_note_body_gets_the_dark_reading_surface():
-    """Spec 7: filters and controls stay on the light workspace; the thing
-    being read gets its own plane."""
+    """Spec 7: the thing being read gets its own plane, distinct from the
+    filters and controls around it."""
     from src.tradelens.ui import design_system as ds
 
     src = _src("6_Insights.py")
@@ -874,8 +874,8 @@ def test_dark_surface_overrides_name_both_reading_surfaces():
     """There are TWO dark reading surfaces: `.tl-note`, the note we compose
     ourselves, and `.st-key-tl_note_sheet`, the container a generated review
     is written into. The Evidence Rail and the numbered finding are built
-    once and used on both, so they carry the light workspace's ink by
-    default and every repaint has to name both.
+    once and used on both, so a rule naming only one leaves the other
+    unstyled and every repaint has to name both.
 
     Naming only `.tl-note` left the rail's claim and values at 1.07:1 on the
     generated note — the signature component, invisible, in two of the three

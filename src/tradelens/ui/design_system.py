@@ -185,11 +185,11 @@ ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 # =========================================================================
 # PLOTLY TEMPLATE (single source of truth for chart theming)
 # =========================================================================
-# Charts are DARK INSTRUMENTS inside the light workspace (spec 7/11.4), so
-# the figure paints its own stage rather than inheriting whatever surface
-# frames it. This is what makes a chart legible on the light canvas without
-# darkening the page around it, and it keeps the bright semantic ramp —
-# which needs a dark ground — as the mark colours.
+# A figure paints its own stage rather than inheriting whatever surface
+# frames it. That mattered when the workspace was light and still does: the
+# chart stage is a distinct surface from the canvas and the panel, so a
+# figure that inherited would sit on whichever one happened to frame it and
+# the bright semantic ramp would lose the dark ground it needs.
 #
 # The stage is set here, on the template, because design_system.py is the
 # single source of truth for chart theming. Task 6 may centralise a
@@ -1601,8 +1601,8 @@ def build_css() -> str:
 }}
 /* --- dark-surface repaint for the shared components ---
    The Evidence Rail and the numbered finding are built once and used on
-   BOTH surfaces, so they carry the light workspace's ink by default. Every
-   rule below must therefore name BOTH reading surfaces: `.tl-note` (the
+   BOTH reading surfaces, so a rule that names only one leaves the other
+   unstyled. Every rule below must therefore name BOTH: `.tl-note` (the
    note we compose ourselves) and `.st-key-tl_note_sheet` (the container
    the generated note is written into). Listing only `.tl-note` left the
    rail's claim and values at 1.07:1 on the generated note — invisible, and
@@ -2121,9 +2121,8 @@ def build_css() -> str:
 
 /* === HERO KPI ROW (dashboard) ===
    Superseded by .tl-kpi-strip; kept legible until Overview is recomposed.
-   The background image the dark hero carried is not reinstated on the
-   light workspace — decoration behind figures is what made the old
-   dashboard hard to read. */
+   The background image the old hero carried is not reinstated —
+   decoration behind figures is what made that dashboard hard to read. */
 .tl-hero-wrap {{
   border: 1px solid var(--tl-line-hairline);
   border-radius: var(--tl-radius-md);
