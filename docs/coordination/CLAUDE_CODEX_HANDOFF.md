@@ -20,22 +20,20 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 2 TASK 1 AMENDED — AWAITING CODEX RE-REVIEW`
-- Last completed work: **Task 1 amendment** (`0b40b2e`) closing the two gate
-  findings — charts no longer depend on `pio.templates.default`, and
-  `auth_screen.py` carried the last raw z-index in the product. Task 1 itself
-  is `dbae906`.
+- Current phase: `PHASE 2 TASK 2 COMPLETE — AWAITING CODEX REVIEW GATE`
+- Last completed work: **Phase 2 Task 2** (`8919771`) — the shell retarget.
+  The Task 1 compatibility bridge is deleted, 274 CSS variable references are
+  repointed at the role tokens, the rail draws a strong edge, and every emoji
+  structural icon is a Material ligature. Task 1 is `dbae906` + `0b40b2e`.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification: `1669 passed, 7 skipped` (was `1618/7` before Task 1) · Ruff
-  clean · Black clean (177 files) · `git diff --check` clean. Both amendments
-  mutation-checked.
-- Next owner: `CODEX` for the Task 1 re-review gate.
-- Next work: review `0b40b2e` on top of `dbae906`. **Task 2 has not begun and
-  must not begin before this gate clears.** Task 2 owns the shell retarget and
-  must delete the CSS compatibility bridge, plus the auth widget overrides it
-  can prove redundant.
+- Verification: `1676 passed, 7 skipped` (was `1669/7`) · Ruff clean · Black
+  clean (177 files) · `git diff --check` clean · **28/28 browser combinations
+  pass** at 1440, 1024, real coarse 768 and real coarse 375.
+- Next owner: `CODEX` for the Task 2 review gate.
+- Next work: review `8919771`. **Task 3 has not begun and must not begin before
+  this gate clears.**
 - Spec/plan agreement: resolved. `TL_LINE_STRONG` is `#5C6E77` in both, and the
   spec now carries the measured all-six-surface contract (§4.4, amendment C6 in
   §15.3).
@@ -185,6 +183,118 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-05 — Phase 2 Task 2: the shell retarget (Claude)
+
+**Commit:** `8919771`. Task 2 only; Task 3 not started.
+
+**The bridge is gone.** Task 1's compatibility aliases are deleted and every
+rule now names a role token — **274 references**, not the 265 the first sweep
+found. `design_system.py` is not the only file emitting `var(--tl-*)`:
+`1_NewTrade.py` and `2_Trades.py` build inline styles for money colours and
+captions, and those nine pointed at variables that no longer existed. An
+undefined `var()` resolves to nothing and silently inherits, so this was
+invisible until a test looked for it. A new guard scans every UI module and was
+mutation-checked.
+
+**The rail draws its edge with `TL_LINE_STRONG`.** Rail and canvas separate at
+1.02:1, which no eye resolves. The one structural division present on every
+screen has to be drawn rather than toned, and drawn at the weight that says
+navigation is not work — the hairline is for things that belong together.
+
+**Emoji structural icons (D9): the plan listed six, there were nineteen.** The
+first guard I wrote matched only `render_empty_state("x"` on the following line
+and missed thirteen, including a whole page routing through a local `_empty()`
+helper. The broadened guard parses each call's argument list across every
+icon-taking renderer.
+
+Icons are Material **ligature names** — plain escaped text styled by the font
+the mobile nav already relies on. `:material/…:` cannot work here because the
+icon is escaped into authored HTML, where it would render literally. All 13
+names were verified in the browser to form real glyphs: 32px advance at 32px
+font-size, against 167px for the same string as literal text. That matters
+because Streamlit could have loaded a font subset; it has not. An absent icon
+now emits no element rather than an empty 32px box.
+
+Typographic **values** are deliberately untouched — `∞` for an undefined profit
+factor, `▲▼` deltas, the stepper `✓`, and `—` placeholders all carry meaning as
+text and are not icons.
+
+**Browser verification — 28 route/viewport combinations, all pass:**
+
+| Width | Canvas | Exceptions | Overflow | Rail | Bottom nav |
+|---|---|---|---|---|---|
+| 1440 | `rgb(9,18,22)` | 0 | 0 | visible | absent |
+| 1024 | `rgb(9,18,22)` | 0 | 0 | visible | absent |
+| coarse 768 | `rgb(9,18,22)` | 0 | 0 | absent | absent |
+| coarse 375 | `rgb(9,18,22)` | 0 | 0 | absent | visible |
+
+Rail edge computes to `rgb(92,110,119)` = `#5C6E77` at every width. The
+navigation pattern matches the preflight's corrected mapping exactly, and rail
+and bottom bar are never both visible — which required measuring **on-screen
+geometry**, not `display`: at 375 Streamlit keeps the sidebar in the DOM,
+translated `-256px` off-canvas.
+
+**The auth widget overrides were measured and KEPT.** The instruction was to
+remove them only if browser evidence proved them redundant. It proved them
+*partly* redundant: card, inputs, labels and expander summary render identically
+without them — same `rgb(236,245,244)` on `rgb(16,27,32)`, 15.78:1, zero
+exceptions. But two rules still do work:
+
+| | with | without |
+|---|---|---|
+| button text | `rgb(145,163,167)` | `rgb(236,245,244)` |
+| placeholder | `rgb(145,163,167)` | `rgba(236,245,244,0.6)` |
+
+The button one is load-bearing. Sign-in has one filled primary action and the
+secondary control must stay quieter; without the override Streamlit paints both
+at full content weight and the card reads as two primaries. Deleting 171 lines
+on a partial result would have been a regression, so the evidence is recorded in
+the source and the narrowing handed to **Task 13**, which owns the auth surface.
+
+**Three measurement errors I made and corrected before drawing conclusions**,
+recorded because each nearly became a false report:
+
+1. Measured a block-level `<div>`'s width (690px) and read it as a broken
+   ligature. It was the container; a Range around the text gives 32px.
+2. Restarted the app from the main checkout instead of the worktree — the shell
+   cwd resets between commands — and briefly measured the *old* palette.
+3. Tested rail visibility with `display !== none`, which an off-canvas drawer
+   passes. Only on-screen geometry answers that question.
+
+**Test contract migrations.** Seven suites asserted the retired names. Two had
+premises that no longer hold and were rewritten rather than repointed:
+`test_no_semantic_hue_is_used_as_text_on_a_wash_or_mist` (the quiet grounds are
+`*_DIM` now) and `test_trade_detail_uses_light_surface_tokens` → `..._dark_...`
+(the card is a dark panel, so the reasoning inverts). `TL_LINE_STRONG` was added
+to the neutral side-border set — "strong" is a weight, not a hue.
+
+**Verification:** `1676 passed, 7 skipped` (was `1669/7`); Ruff clean; Black
+clean (177 files); `git diff --check` clean. Dev database untouched (`Jul 31`);
+all browser and app processes stopped; no capture artifact entered the worktree.
+
+**Files changed:** `design_system.py`, `auth_screen.py`, `data_state.py`,
+`app.py`, `1_NewTrade.py`, `2_Trades.py`, `4_Analytics.py`, `6_Insights.py`, and
+four test modules. `git add -A` not used; untracked
+`src/tradelens/ui/.impeccable/` deliberately not staged.
+
+**Unresolved concerns.**
+
+1. **`TL_RULE = #AFBEC0` is still a light-surface value.** Not in the deletion
+   list or any contract test, so touching it stayed out of Task 1 and Task 2.
+   It will read too bright on the Evidence Rail and belongs to Task 12.
+2. **`theme.py`'s compatibility names still lie** — `PAPER` is a dark panel,
+   `INK` is light text. Commented as such; they want retiring.
+3. **Analytics was edited beyond Task 2's stated scope** — 19 icon replacements
+   including 13 in `4_Analytics.py`, which Task 10 owns. D9 is one defect, and a
+   guard asserting "no structural icon is an emoji" while thirteen remained
+   would have been false. Flagged so Task 10 knows the file moved.
+4. **Empty states were not seen rendered.** The seeded database has 60 trades,
+   so no empty state appeared in the sweep; the ligature mechanism was proved by
+   injecting a real `.tl-empty-card` and measuring. Task 10 should confirm the
+   real ones on a sparse database.
+
+Ownership returned to `NONE`. **Task 3 must not begin until Codex approves.**
 
 ### 2026-08-04 — Task 1 amendment: chart template and auth z-scale (Claude)
 
