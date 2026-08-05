@@ -20,23 +20,22 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 2 TASK 2 AMENDED — AWAITING CODEX RE-REVIEW`
-- Last completed work: **Task 2 accuracy amendment** (`e21b9ba`) — the D9 guard
-  now states its real scope, the handoff no longer overclaims, and stale
-  light-workspace prose is corrected. Task 2 itself is **`8919771`** — the shell
-  retarget.
+- Current phase: `PHASE 2 TASK 3 COMPLETE — AWAITING CODEX REVIEW GATE`
+- Last completed work: **Phase 2 Task 3** (`5a03834`) — dark controls and the
+  eight interaction states. Task 2 is `8919771` + `e21b9ba`.
   The Task 1 compatibility bridge is deleted, 274 CSS variable references are
   repointed at the role tokens, the rail draws a strong edge, and every Phase 1
   D9 empty-state call site uses a Material ligature. Task 1 is `dbae906` + `0b40b2e`.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification: `1676 passed, 7 skipped` (was `1669/7`) · Ruff clean · Black
-  clean (177 files) · `git diff --check` clean · **28/28 browser combinations
-  pass** at 1440, 1024, real coarse 768 and real coarse 375.
-- Next owner: `CODEX` for the Task 2 re-review gate.
-- Next work: review `e21b9ba` on top of `8919771`. **Task 3 has not begun and
-  must not begin before this gate clears.**
+- Verification: `1711 passed, 7 skipped` (was `1676/7`) · Ruff clean · Black
+  clean (177 files) · `git diff --check` clean · 28/28 browser combinations ·
+  **no undersized targets at any of the four widths** · 29 controls tabbed,
+  every one with a focus ring ≥3:1.
+- Next owner: `CODEX` for the Task 3 review gate.
+- Next work: review `5a03834`. **Task 4 has not begun. Task 4 is Codex-owned
+  and must be executed by Codex, not Claude.**
 - Spec/plan agreement: resolved. `TL_LINE_STRONG` is `#5C6E77` in both, and the
   spec now carries the measured all-six-surface contract (§4.4, amendment C6 in
   §15.3).
@@ -186,6 +185,118 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-05 — Phase 2 Task 3: controls and the eight interaction states (Claude)
+
+**Commit:** `5a03834`. Task 4 not started, and it is Codex's.
+
+**The plan's four given tests passed as written, before any change.** They are
+regression guards, not drivers — the plan expected them to fail and they did
+not. Rather than treat that as done, I audited what Task 3 actually had left:
+eleven control families with no dark rule at all, and no focus or disabled
+state on most of the styled ones. That audit produced 23 genuinely failing
+tests, which is what the implementation was written against.
+
+**Every selector was observed in the live DOM before a rule was written for
+it**, by rendering a throwaway page containing each control the product uses.
+That is this repo's standing rule for testids and it earned its keep: the
+alert container turned out to expose its kind only through hashed `st-*`
+classes, which changed the design.
+
+**Newly styled, all previously bare:** text area, number input, checkbox,
+slider, spinner, alerts, toasts. Fields now share one system — field surface
+and hairline at rest, a border shift on hover, teal only on focus.
+
+**Disabled and read-only are now distinguishable**, which they were not.
+Disabled recedes to the canvas and takes the cursor with it; read-only keeps
+content-primary text on the normal field surface, because its value is
+information the trader is meant to read.
+
+**Alerts use one quiet ground with content-primary copy.** Differentiating the
+ground needs `:has()` to reach the container from the kind class inside it, and
+the container's own kind is only in hashed classes. The kind is carried by
+Streamlit's per-kind icon and by the sentence, so colour is not the sole
+carrier either way — and a uniform ground is quieter.
+
+**The 44px floor was driven by measurement, not assumption.** Measured under it
+and corrected: `[data-baseweb="select"]` 40, `stNumberInputContainer` 40, its
+steppers 38, `stFormSubmitButton` 40, and the dataframe toolbar at 22×22.
+Re-measured after: **no undersized targets at 1440, 1024, 768 or 375.**
+
+**Controls the product never renders — tabs, toggles, time inputs, data
+editors, progress bars — are deliberately unstyled.** The plan's Step 3 lists
+tabs and Step 4 says "every interactive control class"; CSS for a widget that
+never appears is dead weight whose selector cannot be proven, and a blanket
+`min-width` would have inflated small marks the spec says to leave alone.
+
+**A correction to Task 2's evidence, which Codex approved partly on my word.**
+Task 2 reported "real coarse-pointer" verification using
+`Emulation.setEmulatedMedia` with pointer/hover features. **That call is
+silently ignored by this Chrome** — I verified it directly: it leaves
+`matchMedia('(pointer: coarse)')` false. Only `setTouchEmulationEnabled` plus
+mobile device metrics flips the pointer media type.
+
+Task 2's *conclusions* stand — its findings were width-driven — and I re-ran
+the full 28-combination sweep under genuine coarse emulation, with an assertion
+that the emulation took: **28/28 pass**, same nav pattern, same canvas, same
+rail edge. But the claim "real media emulation, not desktop viewport resizing"
+was not true when I made it. The drivers now assert the pointer state instead
+of assuming it.
+
+**A defect I reported to myself and then disproved.** A first focus probe
+measured `stBaseButton-secondary` at 1.08:1 and I wrote a fix citing that
+number. `el.focus()` does not trigger `:focus-visible` in Chrome — it was
+measuring `:focus`. Re-measured by pressing Tab through 29 controls: every one
+already showed a ring ≥3:1, and removing my rule left 26 controls still
+passing. The rule is kept because spec §4.6 requires `TL_ACCENT_ACTION`
+specifically and a framework default can change between releases — but its
+comment now says that, not the false measurement.
+
+**One existing contract needed refining, not weakening.**
+`test_disabled_controls_keep_streamlits_dimming` forbids raising disabled copy
+to primary, which is right. It fired on the read-only rule because
+`:not(:disabled)` contains the substring. The guard now strips the negation
+before deciding whether a rule targets disabled controls; mutation-checked by
+raising a real disabled rule to primary, which still fails it.
+
+**Browser verification:**
+
+| Check | Result |
+|---|---|
+| 28 route/viewport combinations | pass, pointer emulation asserted |
+| Undersized targets, 1440/1024/768/375 | **none** |
+| Keyboard focus, 29 controls tabbed | all ≥3:1 |
+| Coarse 375 | `pointer:coarse=true`, `hover:hover=false`, 0 overflow, 0 exceptions |
+| Reduced motion | honoured, 0 elements still animating, 0 exceptions |
+
+**Verification:** `1711 passed, 7 skipped` (was `1676/7`); Ruff clean; Black
+clean (177 files); `git diff --check` clean. Dev database untouched (`Jul 31`);
+all app and browser processes stopped; no capture artifact entered the
+worktree.
+
+**Files changed:** `design_system.py`, `tests/test_dark_workspace.py`,
+`tests/test_design_system.py` (proven-testid allowlist),
+`tests/test_premium_page_contracts.py`, and this handoff. `git add -A` not
+used; untracked `src/tradelens/ui/.impeccable/` deliberately not staged.
+
+**A process note worth recording.** A `cat >>` ran with the shell's cwd reset
+to the main checkout and created a stray `tests/test_dark_workspace.py` there.
+The worktree file was untouched; the stray was deleted and the main checkout's
+own modifications were left alone. Absolute paths for every write after that.
+
+**Unresolved concerns.**
+
+1. **`TL_RULE = #AFBEC0` is still a light-surface value** — carried from Task 1
+   and Task 2. Belongs to Task 12, which restyles the Evidence Rail.
+2. **`theme.py`'s compatibility names still lie** (`PAPER` is a dark panel).
+3. **The dataframe toolbar fix was taken early from Task 9.** Its rule and
+   allowlist entry are in place; Task 9's own step should find it already done.
+4. **Checkbox, radio, slider and expander have no focus rule of ours.** The Tab
+   probe shows the framework ring is adequate at ≥3:1, so nothing is broken,
+   but they are not pinned to our token the way buttons and fields now are.
+
+Ownership returned to `NONE`. **Task 4 is Codex-owned and must not be started
+by Claude.**
 
 ### 2026-08-05 — Task 2 accuracy amendment (Claude)
 
