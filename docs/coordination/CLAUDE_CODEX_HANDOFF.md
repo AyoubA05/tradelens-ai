@@ -20,22 +20,33 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 2 TASK 3 COMPLETE — AWAITING CODEX REVIEW GATE`
-- Last completed work: **Phase 2 Task 3** (`5a03834`) — dark controls and the
-  eight interaction states. Task 2 is `8919771` + `e21b9ba`.
+- Current phase: `TASK 3 COMPLETE AND AMENDED — BLOCKED ON TASK 4 (CODEX)`
+- Last completed work: **Task 3 accuracy amendment** (`16a81ee`) — test naming
+  and comments only; the control CSS is byte-identical to Task 3's `5a03834`.
   The Task 1 compatibility bridge is deleted, 274 CSS variable references are
   repointed at the role tokens, the rail draws a strong edge, and every Phase 1
   D9 empty-state call site uses a Material ligature. Task 1 is `dbae906` + `0b40b2e`.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification: `1711 passed, 7 skipped` (was `1676/7`) · Ruff clean · Black
-  clean (177 files) · `git diff --check` clean · 28/28 browser combinations ·
-  **no undersized targets at any of the four widths** · 29 controls tabbed,
-  every one with a focus ring ≥3:1.
-- Next owner: `CODEX` for the Task 3 review gate.
-- Next work: review `5a03834`. **Task 4 has not begun. Task 4 is Codex-owned
-  and must be executed by Codex, not Claude.**
+- Verification: `1711 passed, 7 skipped` · Ruff clean · Black clean (177 files)
+  · `git diff --check` clean · 28/28 browser combinations · no undersized
+  targets at any of the four widths · 29 controls tabbed, every one ≥3:1.
+- Next owner: **`CODEX` — to implement Task 4.**
+- Next work: **Task 4 (Codex-owned).** `RuleAdherenceSummary`,
+  `rule_adherence_rate`, `EdgeLeakSummary`, `edge_leak_summary`,
+  `PartnerContext`, `PartnerEvidenceSource`, `build_global_partner_context`,
+  and their tests. Complete implementations and test suites are written out in
+  the plan's Task 4, verified against the real `metrics.py`.
+- **Claude is blocked and has stopped.** The master directive authorises Tasks
+  5–17 continuously, but only after the handoff records Task 4 as implemented,
+  verified, committed, and released by Codex. Verified in the tree just now:
+  `src/tradelens/services/partner_context.py` does not exist, `metrics.py`
+  contains zero occurrences of the four metrics names, and
+  `tests/test_partner_context.py` does not exist. Task 5's band 2 consumes
+  `rule_adherence_rate` and `edge_leak_summary` directly, and the directive
+  forbids a UI-side substitute or duplicating the calculation in page code —
+  so there is no correct way to start Task 5 first.
 - Spec/plan agreement: resolved. `TL_LINE_STRONG` is `#5C6E77` in both, and the
   spec now carries the measured all-six-surface contract (§4.4, amendment C6 in
   §15.3).
@@ -185,6 +196,70 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-05 — Task 3 accuracy amendment; blocked on Task 4 (Claude)
+
+**Commit:** `16a81ee`. Test naming and comments only — `design_system.py` is
+byte-identical to Task 3's `5a03834`, verified with `git diff --quiet`.
+
+**Two corrections, both requested at the Task 3 gate.**
+
+1. **The 1.08:1 focus-ring claim is gone.** The allowlist note said
+   `stBaseButton-secondary`'s default ring measured 1.08:1. That was disproven:
+   `el.focus()` does not activate `:focus-visible` in Chrome, so the figure
+   described `:focus`. Tabbing through 26 controls with our rule removed showed
+   the default already clears 3:1. The note now gives the real rationale — the
+   explicit rule pins focus to `TL_ACCENT_ACTION` rather than a framework
+   default that can change between releases (spec §4.6).
+
+2. **`test_each_alert_carries_primary_copy_on_a_semantic_tint` is renamed**
+   `test_each_alert_kind_stays_readable_on_the_shared_quiet_ground`. There are
+   no semantic tints: the implementation deliberately uses one shared elevated
+   ground, because the container exposes its kind only through hashed `st-*`
+   classes and differentiating it would need `:has()`. The docstring now
+   describes what was built and why kind is carried by Streamlit's per-kind
+   icon and by the sentence.
+
+   **Its assertions are stronger, not weaker.** It still requires
+   content-primary copy, and now also asserts that no kind recolours its own
+   copy to a semantic hue and that the shared ground is the elevated surface.
+   Mutation-checked by tinting the error alert's copy, which fails it.
+
+**Verification:** `1711 passed, 7 skipped` — unchanged, which is the expected
+result for a naming and comment amendment. Ruff clean; Black clean (177 files);
+`git diff --check` clean.
+
+**Blocked here, deliberately.** The master directive authorises Tasks 5–17
+continuously and its closing line says to resume from Task 5, but the same
+directive states: *"Do not start Task 5 until the handoff records Task 4 as
+implemented, verified, committed, and released by Codex."* Checked in the tree:
+
+| Task 4 artefact | Present? |
+|---|---|
+| `src/tradelens/services/partner_context.py` | **no** |
+| `RuleAdherenceSummary` / `rule_adherence_rate` in `metrics.py` | **no** (0 occurrences) |
+| `EdgeLeakSummary` / `edge_leak_summary` in `metrics.py` | **no** (0 occurrences) |
+| `tests/test_partner_context.py` | **no** |
+
+Task 5's band 2 consumes `rule_adherence_rate` and `edge_leak_summary`
+directly, and the directive forbids both a UI-side substitute and duplicating
+the calculation in page code. Starting Task 5 first would require one of them,
+so the gate is honoured rather than worked around.
+
+**For Codex.** The plan's Task 4 carries complete implementations and test
+suites, executed against the real `metrics.py` while the plan was written:
+34 `partner_context` tests and 15 metrics checks, with `_journal_text`,
+`journal_entry_count`, atomic admission, and the tenant-scoped hydration guard
+all mutation-checked. Ownership decisions are already settled there — the owner
+validator is mirrored (matching `strategy.py`, `cost.py`, `app_settings.py`)
+and the strategy profile is read through the public `get_active_strategy`, so
+no other service file changes.
+
+Ownership returned to `NONE`. **Next owner is CODEX for Task 4.** When the
+handoff records Task 4 as released, the master directive authorises Claude to
+claim the lock, verify the interfaces exist exactly as specified, run Task 4's
+tests, and then execute Tasks 5–17 continuously with a separate commit per
+task.
 
 ### 2026-08-05 — Phase 2 Task 3: controls and the eight interaction states (Claude)
 
