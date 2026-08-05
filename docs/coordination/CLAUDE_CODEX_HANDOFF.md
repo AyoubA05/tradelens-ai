@@ -20,21 +20,22 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 2 TASK 1 COMPLETE — AWAITING CODEX REVIEW GATE`
-- Last completed work: **Phase 2 Task 1 implemented** (`dbae906`) — the dark
-  token contract. Two live colour systems collapsed into one role namespace,
-  superseded names deleted rather than aliased, the z-index scale defined, and
-  Streamlit's own theme pinned to the role tokens.
+- Current phase: `PHASE 2 TASK 1 AMENDED — AWAITING CODEX RE-REVIEW`
+- Last completed work: **Task 1 amendment** (`0b40b2e`) closing the two gate
+  findings — charts no longer depend on `pio.templates.default`, and
+  `auth_screen.py` carried the last raw z-index in the product. Task 1 itself
+  is `dbae906`.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification: `1668 passed, 7 skipped` (was `1618/7`) · Ruff clean · Black
-  clean (177 files) · `git diff --check` clean. The +50 is 16 source-probe
-  tests, 37 dark-workspace contract tests, minus 3 hybrid tests deleted.
-- Next owner: `CODEX` for the Task 1 review gate.
-- Next work: review `dbae906`. **Task 2 has not begun and must not begin
-  before this gate clears.** Task 2 owns the shell retarget and must delete the
-  CSS compatibility bridge described below.
+- Verification: `1669 passed, 7 skipped` (was `1618/7` before Task 1) · Ruff
+  clean · Black clean (177 files) · `git diff --check` clean. Both amendments
+  mutation-checked.
+- Next owner: `CODEX` for the Task 1 re-review gate.
+- Next work: review `0b40b2e` on top of `dbae906`. **Task 2 has not begun and
+  must not begin before this gate clears.** Task 2 owns the shell retarget and
+  must delete the CSS compatibility bridge, plus the auth widget overrides it
+  can prove redundant.
 - Spec/plan agreement: resolved. `TL_LINE_STRONG` is `#5C6E77` in both, and the
   spec now carries the measured all-six-surface contract (§4.4, amendment C6 in
   §15.3).
@@ -184,6 +185,79 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-04 — Task 1 amendment: chart template and auth z-scale (Claude)
+
+**Commit:** `0b40b2e`, on top of Task 1's `dbae906`. Scope limited to the two
+gate findings. Task 2 not started.
+
+**1. Charts no longer resolve through `pio.templates.default`.**
+
+That default is process-wide mutable state: import order decides it, any test
+can swap it, and Streamlit sets its own. A figure that resolved correctly
+through it was right by accident. `PLOTLY_TEMPLATE` is now pinned on
+`_BASE_LAYOUT` and in `apply_chart_stage`, so the template travels with the
+figure.
+
+The old regression test proved nothing — it asserted against the global default,
+which is exactly why it passed inside the suite and failed when run alone. The
+rewrite sets the default to `plotly_white` first, builds a real figure, requires
+the **embedded** template to still be the TradeLens stage, and restores the
+global in a `finally` block with a post-condition assert so it cannot leak into
+another test.
+
+**2. `auth_screen.py` had the last raw z-index in the product.**
+
+The card's bare `z-index: 1` is now `TL_Z_RAISED`, and the background photograph
+and its scrim are `TL_Z_BASE` — the same ordering, stated in the one scale
+everything else is measured against. The contract test now inspects `auth_css()`
+as well as `build_css()`; a scale only one file is measured against is a
+convention, not a contract. A second test pins bg < scrim < card explicitly, so
+tokenising the layering cannot silently reorder it.
+
+**Both mutation-checked.** Removing the explicit template fails the template
+test; restoring `z-index: 1` fails both z-scale tests.
+
+**3. Two stale comments the token change had falsified.** The
+`apply_chart_stage` docstring still said "on the light workspace" — Codex named
+this one. Reviewing it surfaced a second: `auth_screen.py` justified its
+Streamlit widget overrides with "the workspace base is light", which is now the
+opposite of true, and implies most of that block may be redundant now that
+`base = "dark"`.
+
+**The overrides were left in place.** Removing widget styling is a visual change
+that needs a browser to confirm, and Task 1 has no browser evidence. The comment
+now states that plainly and hands the deletion to Task 2.
+
+**4. One assertion tightened rather than deleted.**
+`test_charts_pin_the_stage_explicitly_so_streamlit_cannot_repaint_it` scanned
+`repr(_BASE_LAYOUT)` for a transparent literal. Embedding the template object
+put `rgba(0,0,0,0)` into that repr legitimately — from the template's own
+internals, not from the stage. The repr scan was a proxy for "the stage keys are
+not transparent", so it now checks those keys directly and additionally asserts
+the template identity. The property is unchanged; the proxy was replaced.
+
+**Verification.** Focused tests run individually and together, then the full
+suite against the exact final state:
+
+| Check | Result |
+|---|---|
+| 4 focused tests, one at a time | each 1 passed |
+| theme + dark_workspace + charts + auth_screen + design_system | 169 passed |
+| Full suite | **1669 passed, 7 skipped** |
+| Ruff · Black · `git diff --check` | clean |
+
+**Files changed:** `charts.py`, `auth_screen.py`, `tests/test_theme.py`,
+`tests/test_dark_workspace.py`, and this handoff. `git add -A` not used;
+untracked `src/tradelens/ui/.impeccable/` deliberately not staged.
+
+**Unresolved concerns carried forward from Task 1**, unchanged: no browser
+evidence yet; `TL_RULE = #AFBEC0` still a light-surface value awaiting Task 2;
+`theme.py`'s compatibility names still describe light surfaces. Added by this
+amendment: the auth widget-override block is probably now redundant and should
+be deleted in Task 2 once a browser confirms it.
+
+Ownership returned to `NONE`. **Task 2 must not begin until Codex approves.**
 
 ### 2026-08-04 — Phase 2 Task 1: the dark token contract (Claude)
 
