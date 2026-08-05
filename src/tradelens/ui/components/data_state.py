@@ -32,6 +32,30 @@ _MIN_PATTERN_TRADES = 5
 # where a shape starts to exist (spec 11.1).
 _MIN_DOMINANT_POINTS = 4
 
+# Spec 5.4a. One rule governs every dated instrument — the equity curve and
+# the calendar heatmap alike. This is not a new threshold: it is the existing
+# dominant-series constant, exposed publicly so the heatmap cannot drift onto
+# a second one.
+#
+# The generic "fewer than 20 cells" heatmap heuristic does NOT transfer. It
+# assumes every cell samples a continuous variable, so an unfilled cell is
+# missing data. In a trading calendar an empty day means no trade was taken,
+# which is information — a sparse month is a truthful picture of a sparse
+# month. What four populated days protects against is narrower: a grid with
+# too few days to show any weekday or clustering pattern at all.
+MIN_DATED_POINTS = _MIN_DOMINANT_POINTS
+
+
+def show_dated_instrument(state: SampleState) -> bool:
+    """Whether a dated instrument has earned the right to draw.
+
+    Populated trading days, not trades: two trades on one date are one day.
+    Every populated day carries at least one trade, so `dated >= 4` already
+    implies `trades >= 4` — which is why this agrees with show_dominant_series
+    on every sample, pinned by a parametrised test rather than assumed.
+    """
+    return state.dated_points >= MIN_DATED_POINTS
+
 
 @dataclass(frozen=True)
 class SampleState:

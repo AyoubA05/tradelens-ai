@@ -6,6 +6,7 @@ surface rather than re-decided per page.
 """
 
 import pandas as pd
+import pytest
 
 from src.tradelens.ui.components.data_state import enough_categories, sample_state
 
@@ -154,3 +155,41 @@ def test_analytics_does_not_report_a_losing_largest_win():
     )
     assert 'if m["wins"] else "—"' in src
     assert 'if m["losses"] else "—"' in src
+
+
+# ---------------------------------------------------------------------------
+# Task 5 — the shared date-series policy (spec §5.4a)
+# ---------------------------------------------------------------------------
+from src.tradelens.ui.components.data_state import (  # noqa: E402
+    MIN_DATED_POINTS,
+    show_dated_instrument,
+)
+
+
+def test_a_dated_instrument_needs_four_populated_trading_days():
+    """Spec §5.4a. One rule for the equity curve and the calendar heatmap."""
+    assert MIN_DATED_POINTS == 4
+
+
+def test_two_trades_on_one_date_are_one_populated_trading_day():
+    df = pd.DataFrame(
+        {"trade_date": ["2026-08-01", "2026-08-01", "2026-08-02"], "pnl": [1, 2, 3]}
+    )
+    assert sample_state(df).dated_points == 2
+    assert show_dated_instrument(sample_state(df)) is False
+
+
+def test_four_populated_days_unlock_the_dated_instruments():
+    dates = ["2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04"]
+    df = pd.DataFrame({"trade_date": dates, "pnl": [1, 2, 3, 4]})
+    assert show_dated_instrument(sample_state(df)) is True
+
+
+@pytest.mark.parametrize("days", range(0, 9))
+def test_the_shared_gate_agrees_with_the_existing_dominant_series_gate(days):
+    """Extending one constant, not inventing a threshold: every populated day
+    carries at least one trade, so dated >= 4 already implies trades >= 4."""
+    dates = [f"2026-08-{d + 1:02d}" for d in range(days)]
+    df = pd.DataFrame({"trade_date": dates, "pnl": [1.0] * days})
+    state = sample_state(df)
+    assert show_dated_instrument(state) == state.show_dominant_series

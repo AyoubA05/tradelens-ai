@@ -2529,6 +2529,74 @@ def build_css() -> str:
   overflow-x: auto;
 }}
 
+/* === OVERVIEW BAND 2 — the discipline panel ===
+   Band 1 above it is a ruled KPI strip. This is deliberately a different
+   form: figure above sample, hairline-divided rows on one panel rather than
+   four tiles. Five bands, five forms — the anti-grid rule is what stops the
+   Overview becoming a wall of equal cards.
+
+   No tone attribute is ever set here. Rule adherence and consistency are
+   process measures, and red/green is reserved for money; a discipline figure
+   painted green would be claiming an outcome it does not describe. */
+.tl-discipline {{
+  background: var(--tl-surface-panel);
+  border: 1px solid var(--tl-line-hairline);
+  border-radius: var(--tl-radius-md);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}}
+.tl-discipline-row {{
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--tl-space-4) var(--tl-space-5);
+  border-right: 1px solid var(--tl-line-hairline);
+}}
+.tl-discipline-row:last-child {{
+  border-right: none;
+}}
+.tl-discipline-label {{
+  font-family: var(--tl-font-ui);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tl-content-secondary);
+}}
+/* The figure is always text. Never encoded only in the length or fill of an
+   indicator, and never hover-only — spec 5.3's threshold-legibility rule. */
+.tl-discipline-value {{
+  font-family: var(--tl-font-mono);
+  font-size: 22px;
+  line-height: 1.2;
+  color: var(--tl-content-primary);
+  font-variant-numeric: tabular-nums;
+}}
+.tl-discipline-sample {{
+  font-family: var(--tl-font-mono);
+  font-size: 11px;
+  color: var(--tl-content-secondary);
+  font-variant-numeric: tabular-nums;
+}}
+.tl-discipline-note {{
+  margin: var(--tl-space-1) 0 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--tl-content-secondary);
+  max-width: 34ch;
+}}
+@media (max-width: 767px) {{
+  .tl-discipline {{
+    grid-template-columns: 1fr;
+  }}
+  .tl-discipline-row {{
+    border-right: none;
+    border-bottom: 1px solid var(--tl-line-hairline);
+  }}
+  .tl-discipline-row:last-child {{
+    border-bottom: none;
+  }}
+}}
+
 /* === CONTROLS — the eight interaction states (spec 10) ===
    Every selector below was observed in the live DOM on streamlit==1.50.0
    before it was written. Controls this product never renders — tabs,

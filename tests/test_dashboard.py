@@ -577,3 +577,87 @@ def test_dashboard_has_asset_filter_and_calendar():
     ):
         assert fn in src, fn
     assert "equity_curve_chart(eq)" in src
+
+
+# ---------------------------------------------------------------------------
+# Task 5 — Overview band 2, the discipline panel
+# ---------------------------------------------------------------------------
+def _discipline(df):
+    """From the pure module, not the page. app.py runs its whole Streamlit
+    script at module scope, so importing it to reach one helper boots a page
+    and needs a database — which is why this logic lives in overview_bands."""
+    from src.tradelens.ui.components.overview_bands import (  # noqa: PLC0415
+        discipline_measures,
+    )
+
+    return {m.label: m for m in discipline_measures(df)}
+
+
+def test_band_two_carries_the_four_discipline_measures():
+    measures = _discipline(
+        pd.DataFrame(
+            {
+                "trade_date": [f"2026-08-{d:02d}" for d in range(1, 7)],
+                "pnl": [10.0, -4.0, 2.0, 8.0, -1.0, 5.0],
+                "followed_rules": [True, False, True, True, False, True],
+            }
+        )
+    )
+    assert set(measures) == {
+        "Max drawdown",
+        "Rule adherence",
+        "Edge leak",
+        "Consistency",
+    }
+
+
+def test_unknown_adherence_reads_not_recorded_never_zero_percent():
+    """A rate over an unknown sample is not 0% — it is unknown. Reporting 0%
+    would accuse a trader who simply never filled the field."""
+    adherence = _discipline(pd.DataFrame({"pnl": [1.0, 2.0]}))["Rule adherence"]
+    assert adherence.value == "Not recorded"
+    assert "0%" not in adherence.value
+
+
+def test_a_known_zero_adherence_is_shown_as_zero_with_its_sample():
+    df = pd.DataFrame({"followed_rules": [False, False], "pnl": [-1.0, -2.0]})
+    adherence = _discipline(df)["Rule adherence"]
+    assert adherence.value == "0%"
+    assert adherence.sample == "0 of 2"
+
+
+def test_a_positive_edge_leak_is_never_presented_as_a_good_outcome():
+    """Rule-breaking that happened to net a profit is lucky, not repeatable,
+    and must never read as a win."""
+    df = pd.DataFrame({"followed_rules": [False, True], "pnl": [40.0, 10.0]})
+    leak = _discipline(df)["Edge leak"]
+    assert leak.note and "not repeatable" in leak.note.lower()
+
+
+def test_an_unknown_edge_leak_is_distinguished_from_a_clean_sample():
+    """Spec D10: 0.0 meant three different things. They must read
+    differently."""
+    unknown = _discipline(pd.DataFrame({"pnl": [1.0]}))["Edge leak"]
+    clean = _discipline(
+        pd.DataFrame({"followed_rules": [True, True], "pnl": [5.0, 6.0]})
+    )["Edge leak"]
+    assert unknown.value == "Not recorded"
+    assert clean.value != "Not recorded"
+    assert unknown.value != clean.value
+
+
+def test_consistency_is_withheld_below_five_trades_and_says_what_unlocks_it():
+    df = pd.DataFrame({"pnl": [1.0, 2.0, 3.0]})
+    score = _discipline(df)["Consistency"]
+    assert "2 more" in score.sample
+
+
+def test_no_discipline_measure_is_toned():
+    """Process measures may not borrow the money palette."""
+    from src.tradelens.ui.components.overview_bands import (  # noqa: PLC0415
+        discipline_measures,
+    )
+
+    df = pd.DataFrame({"followed_rules": [True, False], "pnl": [5.0, -5.0]})
+    for measure in discipline_measures(df):
+        assert not hasattr(measure, "tone")

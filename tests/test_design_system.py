@@ -318,6 +318,11 @@ def test_css_has_no_semantic_colored_side_borders():
     declarations = re.findall(r"border-(?:left|right):\s*([^;]+);", css)
     assert declarations, "expected the ruled structure to use side borders"
     for decl in declarations:
+        # Removing a border is not a coloured side border. The grid rows in
+        # the discipline panel drop their divider on the last cell, which has
+        # no colour to be semantic about.
+        if decl.strip() in {"none", "0", "0px"}:
+            continue
         used = set(re.findall(r"var\(--tl-[a-z0-9-]+\)", decl))
         assert used, f"side border must use a token, not a literal: {decl!r}"
         assert used <= neutral, f"semantic side border: {decl!r}"

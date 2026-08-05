@@ -52,6 +52,10 @@ from src.tradelens.ui.components.data_state import (  # noqa: E402
     render_data_state,
     sample_state,
 )
+from src.tradelens.ui.components.overview_bands import (  # noqa: E402
+    discipline_measures,
+    render_discipline_panel,
+)
 from src.tradelens.ui.components.sidebar import (  # noqa: E402
     render_sidebar,
     route_href,
@@ -404,8 +408,25 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── One ruled KPI strip — not six separate cards ──────────────────
+# ── Band 1: current standing. One ruled KPI strip, not six cards ──
 st.markdown(render_kpi_strip(_overview_metrics(df)), unsafe_allow_html=True)
+
+# ── Band 2: can this standing be trusted? ─────────────────────────
+# A different FORM from band 1 on purpose — figure above sample, one ruled
+# panel. Five bands, five forms is what keeps the Overview an argument
+# rather than a wall of equal cards (spec 5.1). Only shown once there is a
+# trade to be disciplined about.
+if not df.empty:
+    st.markdown(
+        render_section_header(
+            "Risk and discipline",
+            "Whether the numbers above describe a process or a run of luck.",
+        ),
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        render_discipline_panel(discipline_measures(df)), unsafe_allow_html=True
+    )
 
 # ── Next step, while the trader is still getting to first value ───
 # One action, not a checklist, and only until they've had a real review.
