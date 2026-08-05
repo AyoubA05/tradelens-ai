@@ -1653,7 +1653,13 @@ def test_disabled_controls_keep_streamlits_dimming():
     css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
     for match in re.finditer(r"([^{}]*)\{([^{}]*)\}", css):
         selector, body = match.group(1), match.group(2)
-        if "disabled" not in selector:
+        # A :not(:disabled) selector targets the OPPOSITE of a disabled
+        # control — the read-only field whose value the trader is meant to
+        # read — so the negation is removed before asking whether this rule
+        # is about disabled controls at all. Without this the guard fired on
+        # the rule that exists to keep read-only text legible.
+        targets = re.sub(r":not\(:?\[?disabled\]?\)", "", selector)
+        if "disabled" not in targets:
             continue
         if "color:" not in body:
             continue

@@ -397,3 +397,174 @@ def test_no_ui_module_references_a_retired_css_variable():
             line = source[: match.start()].count("\n") + 1
             offenders.append(f"{path.name}:{line} {match.group(1)}")
     assert not offenders, f"retired CSS variables still referenced: {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — the eight interaction states (spec §10)
+# ---------------------------------------------------------------------------
+def test_focus_is_never_removed_and_never_hover_gated():
+    """A Streamlit rerun can move focus, so no interaction may depend on it
+    persisting — but it must always be visible when it lands somewhere."""
+    css = ds.build_css()
+    compact = css.replace(" ", "")
+    assert "outline:none" not in compact and "outline:0" not in compact
+    for block in css.split("}"):
+        if ":hover" in block and ":focus" not in block:
+            assert "outline" not in block, f"hover-gated focus rule: {block[:120]}"
+
+
+def test_no_hover_rule_carries_layout_behaviour():
+    """Hover is visual only — a coarse pointer never receives it, so layout
+    that only exists on hover does not exist on a phone."""
+    layout = ("display:", "position:", "width:", "height:", "margin:", "padding:")
+    for block in ds.build_css().split("}"):
+        if ":hover" not in block:
+            continue
+        rules = block.split("{", 1)[-1]
+        for prop in layout:
+            assert prop not in rules.replace(
+                " ", ""
+            ), f"hover layout rule: {block[:120]}"
+
+
+def test_disabled_controls_are_distinguishable_from_read_only():
+    css = ds.build_css()
+    assert ":disabled" in css or "[disabled]" in css
+
+
+def test_field_surface_is_quiet_when_unfocused():
+    """A field is not neon until it is focused."""
+    ratio = contrast_ratio(ds.TL_LINE_HAIRLINE, ds.TL_SURFACE_FIELD)
+    assert ratio < contrast_ratio(ds.TL_ACCENT_ACTION, ds.TL_SURFACE_FIELD)
+
+
+# ---------------------------------------------------------------------------
+# Task 3 — control coverage, proven against the live DOM on streamlit 1.50.0
+# ---------------------------------------------------------------------------
+# Every selector below was observed in a real browser before it was written,
+# which is this repo's standing rule for testids. Controls the product never
+# renders — tabs, toggles, time inputs, data editors, progress bars — are
+# deliberately absent: CSS for a widget that never appears is dead weight, and
+# its selector cannot be proven.
+CONTROLS_THE_PRODUCT_USES = {
+    "text input": "stTextInputRootElement",
+    "number input": "stNumberInputContainer",
+    "text area": "stTextAreaRootElement",
+    "select": '[data-baseweb="select"]',
+    "date input": "stDateInputField",
+    "checkbox": "stCheckbox",
+    "radio": "stRadio",
+    "slider": "stSlider",
+    "expander": "stExpander",
+    "dataframe": "stDataFrame",
+    "alert": "stAlertContainer",
+    "toast": "stToastContainer",
+    "spinner": "stSpinner",
+    "form submit": "stFormSubmitButton",
+    "file uploader": "stFileUploader",
+}
+
+
+@pytest.mark.parametrize("name,selector", sorted(CONTROLS_THE_PRODUCT_USES.items()))
+def test_every_control_the_product_renders_is_styled(name, selector):
+    css = ds.build_css()
+    assert selector in css, f"{name} ({selector}) has no rule in the design system"
+
+
+FIELDS = (
+    "stTextInputRootElement",
+    "stNumberInputContainer",
+    "stTextAreaRootElement",
+    '[data-baseweb="select"]',
+    "stDateInputField",
+)
+
+
+@pytest.mark.parametrize("selector", FIELDS)
+def test_every_field_is_quiet_at_rest_and_teal_on_focus(selector):
+    """Default is quiet; focus is the only place teal touches a field.
+
+    Judged on the SELECTOR, not on the whole block: a first version searched
+    the block text for "focus" and excluded the rest-state rule because a
+    comment above it used the word "focused". A test that reads prose is
+    testing prose.
+    """
+    css = ds.build_css()
+
+    def parts(block):
+        head, _, body = block.rpartition("{")
+        return head, body
+
+    rest, focused = [], []
+    for block in css.split("}"):
+        if selector not in block:
+            continue
+        head, body = parts(block)
+        if selector not in head:
+            continue
+        if ":focus" in head:
+            focused.append(body)
+        elif ":hover" not in head:
+            rest.append(body)
+
+    assert rest, f"{selector} has no rest-state rule"
+    joined = " ".join(rest)
+    assert "--tl-surface-field" in joined, f"{selector} is not on the field surface"
+    assert "--tl-accent-action" not in joined, f"{selector} is teal before focus"
+
+    assert focused, f"{selector} defines no focus state"
+    assert "--tl-accent-action" in " ".join(focused)
+
+
+def test_disabled_is_visibly_distinct_from_read_only():
+    """Both are un-editable; only one is unavailable. If they look the same a
+    trader cannot tell "you may not" from "nothing here yet"."""
+    css = ds.build_css()
+    disabled = [b for b in css.split("}") if ":disabled" in b or "[disabled]" in b]
+    assert disabled, "no disabled state is defined"
+    joined = " ".join(disabled)
+    assert "--tl-content-secondary" in joined, "disabled copy is not dimmed"
+    assert "not-allowed" in joined, "disabled controls do not say so to the cursor"
+    readonly = [b for b in css.split("}") if "read-only" in b or "readonly" in b]
+    assert readonly, "read-only is not distinguished from disabled"
+    assert "--tl-content-primary" in " ".join(readonly)
+
+
+ALERT_KINDS = ("Error", "Warning", "Info", "Success")
+
+
+@pytest.mark.parametrize("kind", ALERT_KINDS)
+def test_each_alert_carries_primary_copy_on_a_semantic_tint(kind):
+    """A tint pulls its surface toward its own hue, so semantic text on its own
+    tint never clears AA. Copy is primary content; the hue is ground and edge."""
+    css = ds.build_css()
+    blocks = [b for b in css.split("}") if f"stAlertContent{kind}" in b]
+    assert blocks, f"stAlertContent{kind} has no rule"
+    assert "--tl-content-primary" in " ".join(blocks), f"{kind} alert tints its copy"
+
+
+def test_loading_feedback_reserves_its_space():
+    """A spinner that collapses its own row makes the page jump when it goes."""
+    css = ds.build_css()
+    spinner = [b for b in css.split("}") if "stSpinner" in b]
+    assert spinner, "the spinner is unstyled"
+    assert "min-height" in " ".join(spinner)
+
+
+# Every selector here was MEASURED under 44px in a real browser before its rule
+# was written. The floor extends the hit area; it never inflates a small mark.
+MEASURED_UNDER_44 = (
+    '[data-baseweb="select"]',
+    "stNumberInputContainer",
+    "stNumberInputStepUp",
+    "stNumberInputStepDown",
+    "stFormSubmitButton",
+)
+
+
+@pytest.mark.parametrize("selector", MEASURED_UNDER_44)
+def test_controls_measured_under_the_floor_now_declare_it(selector):
+    css = ds.build_css()
+    blocks = [b for b in css.split("}") if selector in b]
+    assert blocks, f"{selector} has no rule"
+    assert "min-height: 44px" in " ".join(blocks), f"{selector} lacks the floor"

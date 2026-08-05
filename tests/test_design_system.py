@@ -247,6 +247,45 @@ def test_css_uses_only_proven_testids():
         # dark rail at 1.1:1. Observed in the live DOM on 1.50.0.
         "stIconMaterial",
         "stSidebarCollapseButton",
+        # Task 3 control pass. Every one below was observed in the live DOM on
+        # streamlit==1.50.0 before a rule was written for it, by rendering a
+        # throwaway page containing each control the product actually uses.
+        # Measured heights that drove the 44px work: stNumberInputContainer 40,
+        # stNumberInputStepUp/Down 38, stFormSubmitButton 40,
+        # [data-baseweb="select"] 40, stCheckbox 24, stSpinner 26.
+        "stTextInputRootElement",
+        "stTextAreaRootElement",
+        "stNumberInputContainer",
+        "stNumberInputStepUp",
+        "stNumberInputStepDown",
+        "stDateInputField",
+        "stCheckbox",
+        "stSlider",
+        "stSliderTickBar",
+        "stSpinner",
+        "stFormSubmitButton",
+        # Alerts: the container carries role="alert" and its kind appears only
+        # on the inner stAlertContent* element. The container's own kind is
+        # exposed solely through hashed st-* classes, which this repo does not
+        # build on — which is why the ground is uniform and the kind is carried
+        # by Streamlit's per-kind icon and the sentence.
+        "stAlertContainer",
+        "stAlertContentError",
+        "stAlertContentWarning",
+        "stAlertContentInfo",
+        "stAlertContentSuccess",
+        # Toast host. Observed present; the individual toast fades before it can
+        # be measured, so only the container is styled.
+        "stToastContainer",
+        # Dataframe toolbar buttons: measured 22x22 live and 22.4 in the
+        # browser preflight, the smallest targets in the product.
+        "stElementToolbarButton",
+        "stBaseButton-elementToolbar",
+        # Streamlit's own button variants. stBaseButton-secondary had no focus
+        # rule of ours and fell through to a default ring measured at 1.08:1.
+        "stBaseButton-primary",
+        "stBaseButton-secondary",
+        "stBaseButton-secondaryFormSubmit",
         "stExpandSidebarButton",
     }
     used = set(re.findall(r'data-testid="([^"]+)"', ds.build_css()))

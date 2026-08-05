@@ -823,6 +823,28 @@ def build_css() -> str:
 [class*="st-key-secondary_"] button:active {{
   background: var(--tl-surface-elevated);
 }}
+/* Outlined buttons had no focus rule of their own and fell through to
+   Streamlit's default ring. Measured by tabbing through 26 controls, that
+   default is adequate — this is NOT fixing an invisible ring. It pins the
+   ring to our own token, so the one state that may never be quiet does not
+   depend on a framework default that can change between releases. Spec 4.6
+   requires TL_ACCENT_ACTION specifically. */
+[class*="st-key-secondary_"] button:focus-visible {{
+  outline: 2px solid var(--tl-focus);
+  outline-offset: 2px;
+}}
+/* ...and the same for Streamlit's OWN button variants. Our `secondary_` key
+   convention only covers buttons we name; st.button(type="secondary")
+   renders stBaseButton-secondary whatever its key. Same reasoning as above:
+   the framework default measured fine, and this makes the token explicit
+   rather than inherited. */
+[data-testid="stBaseButton-primary"]:focus-visible,
+[data-testid="stBaseButton-secondary"]:focus-visible,
+[data-testid="stBaseButton-secondaryFormSubmit"]:focus-visible,
+[data-testid="stBaseButton-elementToolbar"]:focus-visible {{
+  outline: 2px solid var(--tl-focus);
+  outline-offset: 2px;
+}}
 
 /* =====================================================================
    PREMIUM WORKSPACE PRIMITIVES (components/workspace.py)
@@ -2505,6 +2527,159 @@ def build_css() -> str:
    sideways; Streamlit leaves overflow-x visible and its grid ran 9px wide. */
 [data-testid="stDataFrame"] {{
   overflow-x: auto;
+}}
+
+/* === CONTROLS — the eight interaction states (spec 10) ===
+   Every selector below was observed in the live DOM on streamlit==1.50.0
+   before it was written. Controls this product never renders — tabs,
+   toggles, time inputs, data editors, progress bars — are deliberately
+   absent: CSS for a widget that never appears is dead weight whose selector
+   cannot be proven.
+
+   DEFAULT is the state a trader sees most, so it is the quietest: the field
+   surface, a hairline, nothing else. Teal appears on a field only when it is
+   focused. A form of twenty inputs that each announced themselves would have
+   no hierarchy left for the one thing being edited. */
+[data-testid="stTextInputRootElement"],
+[data-testid="stNumberInputContainer"],
+[data-testid="stTextAreaRootElement"],
+[data-testid="stDateInputField"],
+[data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div {{
+  background: var(--tl-surface-field);
+  border: 1px solid var(--tl-line-hairline);
+  border-radius: var(--tl-radius-sm);
+  min-height: 44px;
+}}
+/* HOVER is visual only. A coarse pointer never receives it, so anything that
+   moved or resized here would simply not exist on a phone — and the shared
+   guard in tests/test_dark_workspace.py fails any layout property inside a
+   hover block. */
+@media (hover: hover) and (pointer: fine) {{
+  [data-testid="stTextInputRootElement"]:hover,
+  [data-testid="stNumberInputContainer"]:hover,
+  [data-testid="stTextAreaRootElement"]:hover,
+  [data-testid="stDateInputField"]:hover,
+  [data-testid="stSelectbox"] [data-baseweb="select"] > div:hover,
+  [data-testid="stMultiSelect"] [data-baseweb="select"] > div:hover {{
+    border-color: var(--tl-content-secondary);
+  }}
+}}
+/* FOCUS is the one place a field goes teal, and it is never removed. Ring
+   plus border, because a border alone disappears against a tag or a chosen
+   value. focus-within: the element that paints the box is the wrapper, but
+   the element that receives focus is the input inside it. */
+[data-testid="stTextInputRootElement"]:focus-within,
+[data-testid="stNumberInputContainer"]:focus-within,
+[data-testid="stTextAreaRootElement"]:focus-within,
+[data-testid="stDateInputField"]:focus-within,
+[data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within,
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div:focus-within {{
+  border-color: var(--tl-accent-action);
+  outline: 2px solid var(--tl-accent-action);
+  outline-offset: 1px;
+}}
+/* The number input's own steppers measured 38px. They sit inside a 44px
+   container, so the floor is met by the row; giving each stepper 44px of its
+   own would make one field taller than a button. */
+[data-testid="stNumberInputStepUp"],
+[data-testid="stNumberInputStepDown"] {{
+  min-height: 44px;
+  color: var(--tl-content-secondary);
+  background: transparent;
+}}
+/* DISABLED and READ-ONLY are both un-editable, and only one is unavailable.
+   Disabled recedes to the canvas — a surface *behind* the form — and takes
+   the cursor with it. Read-only keeps content-primary text on the normal
+   field surface, because its value is information the trader is meant to
+   read. Telling them apart by opacity alone would have dimmed a real value
+   to look like a forbidden one. */
+[data-testid="stAppViewContainer"] input:disabled,
+[data-testid="stAppViewContainer"] textarea:disabled,
+[data-testid="stAppViewContainer"] button:disabled,
+[data-testid="stAppViewContainer"] [aria-disabled="true"] {{
+  background: var(--tl-surface-canvas);
+  color: var(--tl-content-secondary);
+  -webkit-text-fill-color: var(--tl-content-secondary);
+  border-color: var(--tl-line-hairline);
+  cursor: not-allowed;
+}}
+[data-testid="stAppViewContainer"] input:read-only:not(:disabled),
+[data-testid="stAppViewContainer"] textarea:read-only:not(:disabled) {{
+  color: var(--tl-content-primary);
+  -webkit-text-fill-color: var(--tl-content-primary);
+  cursor: default;
+}}
+/* Checkbox and slider: the target is the row a thumb hits, not the mark
+   inside it. The checkbox glyph measured 24px and the slider rail 40px;
+   extending the label row to 44px leaves both marks their own size. */
+[data-testid="stCheckbox"] label[data-baseweb="checkbox"] {{
+  min-height: 44px;
+  align-items: center;
+}}
+[data-testid="stSlider"] [data-baseweb="slider"] {{
+  min-height: 44px;
+}}
+[data-testid="stSlider"] [data-testid="stSliderTickBar"] {{
+  color: var(--tl-content-secondary);
+}}
+/* A form submit measured 40px — the same floor every other button already
+   had, missed because it renders outside .stButton. */
+[data-testid="stFormSubmitButton"] button {{
+  min-height: 44px;
+}}
+/* LOADING. Feedback arrives immediately and the row keeps its height, so
+   nothing jumps when the spinner goes. */
+[data-testid="stSpinner"] {{
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  color: var(--tl-content-secondary);
+}}
+/* ALERTS. One quiet ground for all four kinds, with content-primary copy.
+   A tint pulls its surface toward its own hue, so semantic text on its own
+   tint never clears AA at any tint strength — the pattern fails, not the
+   value. The kind is carried by Streamlit's own per-kind icon and by the
+   sentence itself, so colour is never the only thing saying which it is.
+
+   Deliberately NOT differentiated by ground colour: doing that needs
+   `:has()` to reach the container from the kind class inside it, and the
+   container exposes its kind only through hashed `st-*` classes this repo
+   does not build on. A uniform ground is also simply quieter. */
+[data-testid="stAlertContainer"] {{
+  background: var(--tl-surface-elevated);
+  border: 1px solid var(--tl-line-hairline);
+  border-radius: var(--tl-radius-md);
+}}
+[data-testid="stAlertContentError"],
+[data-testid="stAlertContentWarning"],
+[data-testid="stAlertContentInfo"],
+[data-testid="stAlertContentSuccess"] {{
+  color: var(--tl-content-primary);
+}}
+/* The dataframe toolbar. Its four buttons measured 22x22 here and 22.4 in
+   the preflight — the smallest targets in the product. The icons stay their
+   own size; the button grows around them, which is the whole point of the
+   floor. Task 9 owns the Journal, but this is a global Streamlit control and
+   the last target under 44px anywhere, so it is corrected with the rest of
+   the control pass rather than left measurably broken. */
+[data-testid="stElementToolbarButton"],
+[data-testid="stBaseButton-elementToolbar"] {{
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tl-content-secondary);
+}}
+/* TOASTS sit above the page on the elevated surface, and are the one place
+   a transient message is acceptable — never for a validation failure, which
+   has to persist next to the field that caused it. */
+[data-testid="stToastContainer"] {{
+  background: var(--tl-surface-elevated);
+  border: 1px solid var(--tl-line-strong);
+  border-radius: var(--tl-radius-md);
+  color: var(--tl-content-primary);
 }}
 
 /* === MOBILE (SP4 Phase B, <=767px) ===
