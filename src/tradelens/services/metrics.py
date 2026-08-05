@@ -14,6 +14,7 @@
 import datetime as dt
 import json
 import math
+from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import pandas as pd
@@ -1070,6 +1071,101 @@ def total_edge_leak(trades: pd.DataFrame) -> float:
         leak_mask = leak_mask | has_tag
 
     return _safe_float(pnl[leak_mask].sum())
+
+
+def _is_recorded(value) -> bool:
+    """Return whether followed_rules carries an explicit, parseable answer."""
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, float) and value != value:  # NaN
+        return False
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return False
+        try:
+            int(float(text))
+        except ValueError:
+            return text.lower() in {"true", "false", "yes", "no"}
+        return True
+    try:
+        int(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+@dataclass(frozen=True)
+class RuleAdherenceSummary:
+    """Rule adherence together with the sample it was measured over."""
+
+    followed: int
+    recorded: int
+    rate: Optional[float]
+
+
+def rule_adherence_rate(trades: pd.DataFrame) -> RuleAdherenceSummary:
+    """Return the share of recorded trades that followed the trader's plan."""
+    if trades is None or trades.empty or "followed_rules" not in trades.columns:
+        return RuleAdherenceSummary(0, 0, None)
+    recorded = [value for value in trades["followed_rules"] if _is_recorded(value)]
+    if not recorded:
+        return RuleAdherenceSummary(0, 0, None)
+    followed = sum(1 for value in recorded if _is_followed(value))
+    return RuleAdherenceSummary(followed, len(recorded), followed / len(recorded))
+
+
+@dataclass(frozen=True)
+class EdgeLeakSummary:
+    """Edge leak together with the evidence needed to interpret a zero."""
+
+    net_pnl: Optional[float]
+    qualifying_trades: int
+    recorded_trades: int
+
+
+def _leak_mask(trades: pd.DataFrame):
+    """Return the existing leak mask and the evidence columns that produced it."""
+    has_followed = "followed_rules" in trades.columns
+    has_mistakes = "mistake_tags" in trades.columns
+    mask = pd.Series([False] * len(trades), index=trades.index)
+    if has_followed:
+        followed = pd.to_numeric(trades["followed_rules"], errors="coerce")
+        mask = mask | (followed == 0)
+    if has_mistakes:
+        mask = mask | trades["mistake_tags"].apply(
+            lambda raw: len(_parse_mistake_tags(raw)) > 0
+        )
+    return mask, has_followed, has_mistakes
+
+
+def _has_leak_evidence(row, has_followed: bool, has_mistakes: bool) -> bool:
+    """Return whether one row contains a usable process or mistake answer."""
+    if has_followed and _is_recorded(row.get("followed_rules")):
+        return True
+    if has_mistakes and len(_parse_mistake_tags(row.get("mistake_tags"))) > 0:
+        return True
+    return False
+
+
+def edge_leak_summary(trades: pd.DataFrame) -> EdgeLeakSummary:
+    """Distinguish unknown, clean, and exactly-net-zero edge-leak samples."""
+    if trades is None or trades.empty or "pnl" not in trades.columns:
+        return EdgeLeakSummary(None, 0, 0)
+    mask, has_followed, has_mistakes = _leak_mask(trades)
+    if not has_followed and not has_mistakes:
+        return EdgeLeakSummary(None, 0, 0)
+    recorded = sum(
+        1
+        for _, row in trades.iterrows()
+        if _has_leak_evidence(row, has_followed, has_mistakes)
+    )
+    if recorded == 0:
+        return EdgeLeakSummary(None, 0, 0)
+    pnl = pd.to_numeric(trades["pnl"], errors="coerce").fillna(0.0)
+    return EdgeLeakSummary(_safe_float(pnl[mask].sum()), int(mask.sum()), recorded)
 
 
 # Letter grade → numeric (F..A spans a 0..4 range used for the trend component).

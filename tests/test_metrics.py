@@ -7,6 +7,8 @@ import pandas as pd
 import pytest
 
 from src.tradelens.services.metrics import (
+    EdgeLeakSummary,
+    RuleAdherenceSummary,
     by_asset,
     by_day_of_week,
     by_hour_of_day,
@@ -24,11 +26,13 @@ from src.tradelens.services.metrics import (
     confirmation_model_performance,
     daily_pnl,
     drawdown_series,
+    edge_leak_summary,
     emotion_vs_rr,
     equity_curve_series,
     killzone_performance,
     mistake_frequency,
     r_multiple_distribution,
+    rule_adherence_rate,
 )
 
 
@@ -1179,3 +1183,61 @@ def test_zero_pnl_is_breakeven_regardless_of_label():
     m = compute_basic_metrics(pd.DataFrame({"result": ["Win"], "pnl": [0.0]}))
     assert m["breakevens"] == 1
     assert m["wins"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Honest rule-adherence and edge-leak summaries
+# ---------------------------------------------------------------------------
+
+
+def test_rule_adherence_all_followed():
+    df = pd.DataFrame({"followed_rules": [True, True, True]})
+    assert rule_adherence_rate(df) == RuleAdherenceSummary(3, 3, 1.0)
+
+
+def test_rule_adherence_none_followed_is_a_known_zero():
+    df = pd.DataFrame({"followed_rules": [False, False]})
+    assert rule_adherence_rate(df) == RuleAdherenceSummary(0, 2, 0.0)
+
+
+def test_rule_adherence_mixed():
+    df = pd.DataFrame({"followed_rules": [True, False, True, False]})
+    assert rule_adherence_rate(df) == RuleAdherenceSummary(2, 4, 0.5)
+
+
+def test_rule_adherence_unrecorded_rows_leave_the_sample():
+    df = pd.DataFrame({"followed_rules": [True, None, "", False]})
+    assert rule_adherence_rate(df) == RuleAdherenceSummary(1, 2, 0.5)
+
+
+def test_rule_adherence_empty_frame_is_unknown_not_zero_percent():
+    assert rule_adherence_rate(pd.DataFrame()) == RuleAdherenceSummary(0, 0, None)
+
+
+def test_rule_adherence_missing_column_is_unknown():
+    df = pd.DataFrame({"pnl": [1.0, -2.0]})
+    assert rule_adherence_rate(df) == RuleAdherenceSummary(0, 0, None)
+
+
+def test_edge_leak_summary_distinguishes_all_three_zero_states():
+    unknown = edge_leak_summary(pd.DataFrame())
+    assert unknown == EdgeLeakSummary(None, 0, 0)
+
+    clean = pd.DataFrame({"followed_rules": [True, True], "pnl": [10.0, -4.0]})
+    assert edge_leak_summary(clean) == EdgeLeakSummary(0.0, 0, 2)
+
+    netted = pd.DataFrame(
+        {"followed_rules": [False, False, True], "pnl": [12.0, -12.0, 5.0]}
+    )
+    result = edge_leak_summary(netted)
+    assert result.net_pnl == 0.0 and result.qualifying_trades == 2
+    assert result.recorded_trades == 3
+
+
+def test_edge_leak_summary_agrees_with_the_existing_scalar():
+    from src.tradelens.services.metrics import total_edge_leak
+
+    df = pd.DataFrame(
+        {"followed_rules": [False, True, False], "pnl": [-30.0, 8.0, 5.0]}
+    )
+    assert edge_leak_summary(df).net_pnl == total_edge_leak(df)
