@@ -219,7 +219,7 @@ def _one_category_note(breakdown: pd.DataFrame, column: str, noun: str) -> None:
         f"One {noun} so far: {row[column]}",
         f"{trades} trade{'s' if trades != 1 else ''}, {_money(total)} net. "
         f"Trade another {noun} to compare them.",
-        "◆",
+        "insights",
     )
 
 
@@ -290,7 +290,7 @@ if not df_raw.empty:
 
 if df_raw.empty:
     _empty(
-        "◆",
+        "analytics",
         "No trades in this range yet",
         "Log a trade to unlock your analytics.",
     )
@@ -333,7 +333,7 @@ if sel_strats:
     df = df[df["strategy_used"].isin(sel_strats)]
 
 if df.empty:
-    _empty("◆", "No matching trades", "Adjust the date range or filters.")
+    _empty("filter_alt", "No matching trades", "Adjust the date range or filters.")
     st.stop()
 
 # One shared decision about what this sample has earned the right to show,
@@ -394,7 +394,7 @@ def _render_performance_lens(frame: pd.DataFrame) -> None:
         render_data_state(
             "Add one more dated trade",
             "Two trading dates are needed to draw a meaningful curve.",
-            "📈",
+            "show_chart",
         )
     elif not eq_df.empty:
         _chart(
@@ -405,7 +405,11 @@ def _render_performance_lens(frame: pd.DataFrame) -> None:
             "Equity curve",
         )
     else:
-        _empty("📈", "Equity curve not available", "Log P&L on trades to chart it.")
+        _empty(
+            "show_chart",
+            "Equity curve not available",
+            "Log P&L on trades to chart it.",
+        )
 
     if _sessions_comparable:
         rows = []
@@ -467,7 +471,7 @@ def _render_risk_lens(frame: pd.DataFrame) -> None:
         render_data_state(
             "Drawdown needs a second date",
             "A drawdown axis drawn from one trading day has no peak to fall from.",
-            "📉",
+            "trending_down",
         )
     elif not dd_df.empty:
         _chart(
@@ -478,7 +482,11 @@ def _render_risk_lens(frame: pd.DataFrame) -> None:
             "Drawdown",
         )
     else:
-        _empty("📉", "Drawdown not available", "Log a few more trades to chart it.")
+        _empty(
+            "trending_down",
+            "Drawdown not available",
+            "Log a few more trades to chart it.",
+        )
 
     rc1, rc2 = st.columns(2)
     with rc1:
@@ -489,17 +497,17 @@ def _render_risk_lens(frame: pd.DataFrame) -> None:
             render_data_state(
                 "Risk trend needs a second date",
                 "A trend over time needs at least two trading dates.",
-                "📏",
+                "straighten",
             )
         elif not frame["risk_amount"].notna().any():
-            _empty("📏", "Risk trend not available", "Log Risk ($) to unlock.")
+            _empty("straighten", "Risk trend not available", "Log Risk ($) to unlock.")
         elif not has_variation(frame["risk_amount"]):
             _fixed = pd.to_numeric(frame["risk_amount"], errors="coerce").dropna()
             render_data_state(
                 f"Risk is fixed at {_money(_fixed.iloc[0])}",
                 "Every logged trade risked the same amount, so there is no "
                 "trend to plot — which is what consistent sizing looks like.",
-                "📏",
+                "straighten",
             )
         else:
             _chart(
@@ -515,7 +523,7 @@ def _render_risk_lens(frame: pd.DataFrame) -> None:
         foll_n, broke_n = int(foll_mask.sum()), int(broke_mask.sum())
         if not (foll_n or broke_n):
             _empty(
-                "📐",
+                "straighten",
                 "Rule data not available",
                 "Answer 'Followed your rules?' when logging to see this.",
             )
@@ -525,7 +533,7 @@ def _render_risk_lens(frame: pd.DataFrame) -> None:
                 "Nothing to compare yet",
                 f"Every logged trade so far {_kept} your rules. The comparison "
                 "appears once both cases exist.",
-                "📐",
+                "straighten",
             )
         else:
             _chart(
@@ -608,14 +616,14 @@ def _render_timing_lens(frame: pd.DataFrame) -> None:
         render_data_state(
             "Heatmap needs more spread",
             "Trade across at least two sessions and two days to fill this grid.",
-            "🗓",
+            "calendar_month",
         )
 
     ts1, ts2 = st.columns(2)
     with ts1:
         if sess_df.empty:
             _empty(
-                "🕐",
+                "schedule",
                 "Session data not available",
                 "Sessions are auto-detected from entry time on new trades.",
             )
@@ -628,7 +636,7 @@ def _render_timing_lens(frame: pd.DataFrame) -> None:
     with ts2:
         if dow_df.empty:
             _empty(
-                "📅",
+                "calendar_month",
                 "Day-of-week data not available",
                 "Log more trades to see day-of-week trends.",
             )
@@ -719,7 +727,7 @@ def _render_setups_lens(frame: pd.DataFrame) -> None:
 
     if setup_df.empty:
         _empty(
-            "🧩",
+            "extension",
             "Setup data not available",
             "Assign setup types to trades to see this leaderboard.",
         )
@@ -727,7 +735,7 @@ def _render_setups_lens(frame: pd.DataFrame) -> None:
         render_data_state(
             f"{trades_needed(_state, 5)} more trades to rank setups",
             "Ranking setups on a handful of trades mostly ranks luck.",
-            "🧩",
+            "extension",
         )
     else:
         # compute_breakdown returns rows sorted by total_pnl desc → rank order.
@@ -751,7 +759,9 @@ def _render_setups_lens(frame: pd.DataFrame) -> None:
 
     emo_df = compute_breakdown(frame, "emotions_before")
     if emo_df.empty:
-        _empty("🧠", "Emotion data not available", "Fill Reflection when logging.")
+        _empty(
+            "psychology", "Emotion data not available", "Fill Reflection when logging."
+        )
     elif not enough_categories(emo_df, "emotions_before"):
         _one_category_note(emo_df, "emotions_before", "emotional state")
     else:

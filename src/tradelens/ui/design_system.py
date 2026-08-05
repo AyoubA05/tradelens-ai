@@ -294,28 +294,6 @@ def build_css() -> str:
   --tl-z-base: {TL_Z_BASE}; --tl-z-raised: {TL_Z_RAISED};
   --tl-z-partner: {TL_Z_PARTNER}; --tl-z-nav: {TL_Z_NAV};
   --tl-z-sheet: {TL_Z_SHEET}; --tl-z-overlay: {TL_Z_OVERLAY};
-  /* -- COMPATIBILITY BRIDGE — removed by Task 2 --
-     Every rule in this stylesheet still names the old variables. Task 1 owns
-     the token layer; Task 2 retargets the rules. Repointing the old names at
-     the new roles here keeps the product rendering between the two, and makes
-     the theme go dark in one commit instead of leaving a half-styled app on
-     the branch. These are CSS aliases only — the Python names are deleted, so
-     nothing can quietly keep importing them. Delete this block in Task 2. */
-  --tl-canvas: {TL_SURFACE_CANVAS}; --tl-paper: {TL_SURFACE_PANEL};
-  --tl-mist: {TL_SURFACE_ELEVATED};
-  --tl-ink: {TL_CONTENT_PRIMARY}; --tl-muted: {TL_CONTENT_SECONDARY};
-  --tl-hairline: {TL_LINE_HAIRLINE};
-  --tl-action: {TL_ACCENT_ACTION}; --tl-action-hover: {TL_PRIMARY_HOVER};
-  --tl-success-ink: {TL_SUCCESS}; --tl-danger-ink: {TL_DANGER};
-  --tl-warning-ink: {TL_WARNING};
-  --tl-success-wash: {TL_SUCCESS_DIM}; --tl-danger-wash: {TL_DANGER_DIM};
-  --tl-warning-wash: {TL_WARNING_DIM}; --tl-action-wash: {TL_PRIMARY_DIM};
-  --tl-rail: {TL_SURFACE_RAIL}; --tl-chart-stage: {TL_SURFACE_CHART};
-  --tl-bg: {TL_SURFACE_CANVAS}; --tl-surface: {TL_SURFACE_PANEL};
-  --tl-surface-2: {TL_SURFACE_ELEVATED};
-  --tl-border: {TL_LINE_HAIRLINE}; --tl-border-subtle: {TL_LINE_HAIRLINE};
-  --tl-text: {TL_CONTENT_PRIMARY}; --tl-text-muted: {TL_CONTENT_SECONDARY};
-  --tl-text-faint: {TL_CONTENT_SECONDARY};
   /* -- semantic ramp -- */
   --tl-focus: {TL_FOCUS};
   --tl-primary: {TL_PRIMARY}; --tl-primary-hover: {TL_PRIMARY_HOVER};
@@ -351,9 +329,9 @@ def build_css() -> str:
    Background also comes from .streamlit/config.toml [theme]; declared here
    so the workspace does not flash a stale surface before CSS lands. */
 [data-testid="stAppViewContainer"] {{
-  background: var(--tl-canvas);
+  background: var(--tl-surface-canvas);
   font-family: var(--tl-font-ui);
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
 }}
 /* Schibsted sets titles only — used everywhere it becomes texture. */
 [data-testid="stAppViewContainer"] h1,
@@ -362,7 +340,7 @@ def build_css() -> str:
   font-family: var(--tl-font-display);
   font-weight: 700;
   letter-spacing: -0.01em;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
 }}
 [data-testid="stHeader"] {{
   background: transparent;
@@ -376,13 +354,17 @@ def build_css() -> str:
   max-width: 1320px;
 }}
 
-/* === SIDEBAR — the dark architectural rail ===
-   Ink-dark against the light canvas so the workspace reads as a plane the
-   navigation sits beside, not a panel floating on top of it. */
+/* === SIDEBAR — the architectural rail ===
+   The rail is the deepest surface in the product, but only just: measured,
+   it separates from the canvas at 1.02:1, which no eye resolves. Tone cannot
+   carry this boundary, so the edge is drawn — and drawn with the STRONG line,
+   not the hairline, because this is the one structural division on every
+   screen. Hairlines divide things that belong together; this separates
+   navigation from work. */
 [data-testid="stSidebar"] {{
-  background: var(--tl-rail);
-  border-right: 1px solid var(--tl-border);
-  color: var(--tl-text);
+  background: var(--tl-surface-rail);
+  border-right: 1px solid var(--tl-line-strong);
+  color: var(--tl-content-primary);
 }}
 [data-testid="stSidebar"] a,
 [data-testid="stSidebar"] p,
@@ -390,7 +372,7 @@ def build_css() -> str:
 [data-testid="stSidebar"] h1,
 [data-testid="stSidebar"] h2,
 [data-testid="stSidebar"] h3 {{
-  color: var(--tl-text);
+  color: var(--tl-content-primary);
 }}
 /* Nav links (st.page_link renders an anchor): quiet rest state, surface
    hover, visible keyboard focus. */
@@ -400,7 +382,7 @@ def build_css() -> str:
 }}
 @media (hover: hover) and (pointer: fine) {{
   [data-testid="stSidebar"] a:hover {{
-    background: var(--tl-surface-2);
+    background: var(--tl-surface-elevated);
   }}
 }}
 [data-testid="stSidebar"] a:focus-visible {{
@@ -421,13 +403,13 @@ def build_css() -> str:
   gap: var(--tl-space-2);
   padding: 0 var(--tl-space-3);
   border-radius: var(--tl-radius-sm);
-  color: var(--tl-text);
+  color: var(--tl-content-primary);
   position: relative;
   transition: background var(--tl-dur-state) var(--tl-ease-out);
 }}
 @media (hover: hover) and (pointer: fine) {{
   [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover {{
-    background: var(--tl-surface-2);
+    background: var(--tl-surface-elevated);
   }}
 }}
 [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:focus-visible {{
@@ -437,14 +419,14 @@ def build_css() -> str:
 /* Press feedback only — these rows are visited dozens of times a session,
    so nothing here is allowed to take time to finish. */
 [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:active {{
-  background: var(--tl-surface-2);
+  background: var(--tl-surface-elevated);
 }}
 
 /* --- the current destination ---
    Three cues, none of them colour on its own: a teal indicator bar, a
    heavier label, and a raised surface. */
 [class*="st-key-tl_nav_"][class*="_active"] [data-testid="stPageLink-NavLink"] {{
-  background: var(--tl-surface-2);
+  background: var(--tl-surface-elevated);
   font-weight: 700;
 }}
 [class*="st-key-tl_nav_"][class*="_active"]
@@ -467,7 +449,7 @@ def build_css() -> str:
 }}
 .st-key-tl_nav_action [data-testid="stPageLink-NavLink"] {{
   background: var(--tl-focus);
-  color: var(--tl-rail);
+  color: var(--tl-surface-rail);
   font-weight: 600;
   justify-content: center;
   transition: opacity var(--tl-dur-state) var(--tl-ease-out),
@@ -504,7 +486,7 @@ def build_css() -> str:
 
 /* --- utility group --- */
 [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {{
-  color: var(--tl-text-muted);
+  color: var(--tl-content-secondary);
 }}
 
 /* --- tablet: a narrower rail, same hierarchy --- */
@@ -577,7 +559,7 @@ def build_css() -> str:
   min-height: 44px;
   padding: 6px 4px;
   text-decoration: none;
-  color: var(--tl-text-muted);
+  color: var(--tl-content-secondary);
   transition: color var(--tl-dur-state) var(--tl-ease-out),
               transform var(--tl-dur-press) var(--tl-ease-out);
 }}
@@ -648,8 +630,8 @@ def build_css() -> str:
   bottom: 100%;
   right: 0;
   min-width: 208px;
-  background: var(--tl-rail);
-  border: 1px solid var(--tl-border);
+  background: var(--tl-surface-rail);
+  border: 1px solid var(--tl-line-hairline);
   border-radius: var(--tl-radius-md) var(--tl-radius-md) 0 0;
   padding: var(--tl-space-2);
   box-shadow: var(--tl-shadow);
@@ -665,7 +647,7 @@ def build_css() -> str:
   text-decoration: none;
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-text);
+  color: var(--tl-content-primary);
 }}
 .tl-mobile-more-icon {{
   font-family: 'Material Symbols Rounded';
@@ -681,11 +663,11 @@ def build_css() -> str:
    rather than reading as a third piece of work. */
 [data-testid="stAppViewContainer"] a.tl-mobile-more-item.is-quiet,
 .tl-mobile-more-item.is-quiet {{
-  color: var(--tl-text-muted);
+  color: var(--tl-content-secondary);
   font-weight: 400;
   margin-top: var(--tl-space-2);
   padding-top: var(--tl-space-2);
-  border-top: 1px solid var(--tl-border);
+  border-top: 1px solid var(--tl-line-hairline);
   border-radius: 0;
 }}
 
@@ -715,10 +697,10 @@ def build_css() -> str:
   font-weight: 700;
   font-size: 1.05rem;
   letter-spacing: -0.01em;
-  color: var(--tl-text);
+  color: var(--tl-content-primary);
 }}
 .tl-side-brand-sub {{
-  color: var(--tl-text-muted);
+  color: var(--tl-content-secondary);
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.09em;
@@ -726,17 +708,17 @@ def build_css() -> str:
   margin: 2px 0 var(--tl-space-3) 28px;
 }}
 .tl-side-note {{
-  border: 1px solid var(--tl-border);
-  background: var(--tl-surface-2);
+  border: 1px solid var(--tl-line-hairline);
+  background: var(--tl-surface-elevated);
   border-radius: var(--tl-radius-sm);
   padding: var(--tl-space-2) var(--tl-space-3);
   margin: var(--tl-space-3) 0;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--tl-text-muted);
+  color: var(--tl-content-secondary);
 }}
 .tl-side-note b {{
-  color: var(--tl-text);
+  color: var(--tl-content-primary);
   font-weight: 700;
 }}
 /* Active state, so the teal edge is functional rather than decoration.
@@ -754,8 +736,8 @@ def build_css() -> str:
 /* === NATIVE METRICS (proven stMetric* set; replaces the legacy
        'metric-container' selector from the spec) === */
 .stMetric {{
-  background: var(--tl-paper);
-  border: 1px solid var(--tl-hairline);
+  background: var(--tl-surface-panel);
+  border: 1px solid var(--tl-line-hairline);
   border-radius: var(--tl-radius-md);
   padding: 12px 16px;
 }}
@@ -763,13 +745,13 @@ def build_css() -> str:
   font-family: var(--tl-font-mono);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
 }}
 .stMetric [data-testid="stMetricDelta"] {{
   font-family: var(--tl-font-mono);
 }}
 .stMetric [data-testid="stMetricLabel"] {{
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
 }}
 
 /* === BUTTONS (all states: rest, hover, focus, active) ===
@@ -777,9 +759,9 @@ def build_css() -> str:
    they get the identical treatment as .stButton. */
 .stButton > button,
 .stFormSubmitButton > button {{
-  background: var(--tl-action);
-  color: var(--tl-paper);
-  border: 1px solid var(--tl-action);
+  background: var(--tl-accent-action);
+  color: var(--tl-surface-panel);
+  border: 1px solid var(--tl-accent-action);
   border-radius: var(--tl-radius-sm);
   font-family: var(--tl-font-ui);
   font-weight: 500;
@@ -789,32 +771,32 @@ def build_css() -> str:
 @media (hover: hover) and (pointer: fine) {{
   .stButton > button:hover,
   .stFormSubmitButton > button:hover {{
-    background: var(--tl-action-hover);
-    border-color: var(--tl-action-hover);
+    background: var(--tl-primary-hover);
+    border-color: var(--tl-primary-hover);
   }}
 }}
 .stButton > button:focus-visible,
 .stFormSubmitButton > button:focus-visible {{
-  outline: 2px solid var(--tl-action);
+  outline: 2px solid var(--tl-accent-action);
   outline-offset: 2px;
 }}
 .stButton > button:active,
 .stFormSubmitButton > button:active {{
-  background: var(--tl-action-hover);
+  background: var(--tl-primary-hover);
 }}
 /* The rail holds exactly ONE filled action — "Log completed trade". Sign
    out is a utility control, so it is outlined: two filled teal buttons in
    one column read as two primaries and the eye cannot tell which matters. */
 [data-testid="stSidebar"] .stButton > button {{
   background: transparent;
-  border-color: var(--tl-border);
-  color: var(--tl-text);
+  border-color: var(--tl-line-hairline);
+  color: var(--tl-content-primary);
   min-height: 44px;
 }}
 @media (hover: hover) and (pointer: fine) {{
   [data-testid="stSidebar"] .stButton > button:hover {{
-    background: var(--tl-surface-2);
-    border-color: var(--tl-text-muted);
+    background: var(--tl-surface-elevated);
+    border-color: var(--tl-content-secondary);
   }}
 }}
 [data-testid="stSidebar"] .stButton > button:focus-visible {{
@@ -829,17 +811,17 @@ def build_css() -> str:
    would repaint every button on the page. */
 [class*="st-key-secondary_"] button {{
   background: transparent;
-  color: var(--tl-ink);
-  border-color: var(--tl-hairline);
+  color: var(--tl-content-primary);
+  border-color: var(--tl-line-hairline);
 }}
 @media (hover: hover) and (pointer: fine) {{
   [class*="st-key-secondary_"] button:hover {{
-    background: var(--tl-mist);
-    border-color: var(--tl-muted);
+    background: var(--tl-surface-elevated);
+    border-color: var(--tl-content-secondary);
   }}
 }}
 [class*="st-key-secondary_"] button:active {{
-  background: var(--tl-mist);
+  background: var(--tl-surface-elevated);
 }}
 
 /* =====================================================================
@@ -869,7 +851,7 @@ def build_css() -> str:
   gap: var(--tl-space-4);
   flex-wrap: wrap;
   padding-bottom: var(--tl-space-4);
-  border-bottom: 1px solid var(--tl-hairline);
+  border-bottom: 1px solid var(--tl-line-hairline);
   margin-bottom: var(--tl-space-6);
 }}
 .tl-masthead-lede {{ min-width: 0; }}
@@ -880,7 +862,7 @@ def build_css() -> str:
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: 0 0 var(--tl-space-1) 0;
 }}
 /* === PAGE CHROME TYPE, ANCHORED ===
@@ -900,13 +882,13 @@ def build_css() -> str:
   line-height: 50px;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin: 0;
 }}
 [data-testid="stAppViewContainer"] .tl-masthead-subtitle {{
   font-size: 16px;
   line-height: 20px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: var(--tl-space-1) 0 0 0;
   max-width: 68ch;
 }}
@@ -914,7 +896,7 @@ def build_css() -> str:
   font-family: var(--tl-font-mono);
   font-size: 12px;
   line-height: 18px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: 0;
   white-space: nowrap;
 }}
@@ -925,8 +907,8 @@ def build_css() -> str:
 .tl-kpi-strip {{
   display: flex;
   flex-wrap: wrap;
-  background: var(--tl-paper);
-  border: 1px solid var(--tl-hairline);
+  background: var(--tl-surface-panel);
+  border: 1px solid var(--tl-line-hairline);
   border-radius: var(--tl-radius-md);
   margin-bottom: var(--tl-space-6);
 }}
@@ -936,7 +918,7 @@ def build_css() -> str:
   padding: var(--tl-space-3) var(--tl-space-4);
 }}
 .tl-kpi-cell + .tl-kpi-cell {{
-  border-left: 1px solid var(--tl-hairline);
+  border-left: 1px solid var(--tl-line-hairline);
 }}
 .tl-kpi-key {{
   font-size: 12px;
@@ -944,7 +926,7 @@ def build_css() -> str:
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: 0;
 }}
 .tl-kpi-figure {{
@@ -954,17 +936,17 @@ def build_css() -> str:
   line-height: 34px;
   font-weight: 500;
   letter-spacing: -0.02em;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin: var(--tl-space-1) 0 0 0;
 }}
-.tl-kpi-cell.tone-positive .tl-kpi-figure {{ color: var(--tl-success-ink); }}
-.tl-kpi-cell.tone-negative .tl-kpi-figure {{ color: var(--tl-danger-ink); }}
-.tl-kpi-cell.tone-warning .tl-kpi-figure {{ color: var(--tl-warning-ink); }}
+.tl-kpi-cell.tone-positive .tl-kpi-figure {{ color: var(--tl-success); }}
+.tl-kpi-cell.tone-negative .tl-kpi-figure {{ color: var(--tl-danger); }}
+.tl-kpi-cell.tone-warning .tl-kpi-figure {{ color: var(--tl-warning); }}
 .tl-kpi-detail {{
   font-family: var(--tl-font-mono);
   font-size: 12px;
   line-height: 18px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: var(--tl-space-1) 0 0 0;
 }}
 
@@ -996,13 +978,13 @@ def build_css() -> str:
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: 0;
 }}
 [data-testid="stAppViewContainer"] .tl-evidence-claim {{
   font-size: 14px;
   line-height: 20px;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin: var(--tl-space-1) 0 0 0;
 }}
 .tl-evidence-facts {{
@@ -1021,14 +1003,14 @@ def build_css() -> str:
   font-size: 12px;
   line-height: 18px;
   font-weight: 500;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: 0;
 }}
 [data-testid="stAppViewContainer"] .tl-evidence-facts dd {{
   font-family: var(--tl-font-mono);
   font-size: 12px;
   line-height: 18px;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin: 0;
 }}
 /* Confidence is spelled out and marked — never color alone. */
@@ -1039,24 +1021,24 @@ def build_css() -> str:
   height: 6px;
   margin-right: 6px;
   border-radius: var(--tl-radius-full);
-  background: var(--tl-muted);
+  background: var(--tl-content-secondary);
 }}
-.tl-evidence-confidence.conf-high::before {{ background: var(--tl-success-ink); }}
-.tl-evidence-confidence.conf-medium::before {{ background: var(--tl-warning-ink); }}
+.tl-evidence-confidence.conf-high::before {{ background: var(--tl-success); }}
+.tl-evidence-confidence.conf-medium::before {{ background: var(--tl-warning); }}
 
 /* --- numbered research finding --- */
 .tl-finding {{
   display: flex;
   gap: var(--tl-space-4);
   padding: var(--tl-space-6) 0;
-  border-top: 1px solid var(--tl-hairline);
+  border-top: 1px solid var(--tl-line-hairline);
 }}
 [data-testid="stAppViewContainer"] .tl-finding-number {{
   font-family: var(--tl-font-mono);
   font-size: 14px;
   line-height: 24px;
   font-weight: 500;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: 0;
   flex: 0 0 2.5rem;
 }}
@@ -1066,13 +1048,13 @@ def build_css() -> str:
   font-size: 17px;
   line-height: 24px;
   font-weight: 700;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin: 0;
 }}
 [data-testid="stAppViewContainer"] .tl-finding-text {{
   font-size: 16px;
   line-height: 25px;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin: var(--tl-space-2) 0 0 0;
   max-width: 68ch;
 }}
@@ -1080,7 +1062,7 @@ def build_css() -> str:
 /* --- editorial readout (interpretation beneath a chart) --- */
 .tl-readout {{
   padding-top: var(--tl-space-4);
-  border-top: 1px solid var(--tl-hairline);
+  border-top: 1px solid var(--tl-line-hairline);
   margin-top: var(--tl-space-4);
 }}
 .tl-readout-title {{
@@ -1088,13 +1070,13 @@ def build_css() -> str:
   font-size: 17px;
   line-height: 24px;
   font-weight: 700;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin: 0;
 }}
 .tl-readout-body {{
   font-size: 16px;
   line-height: 25px;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin: var(--tl-space-2) 0 0 0;
   max-width: 68ch;
 }}
@@ -1112,57 +1094,57 @@ def build_css() -> str:
   align-items: baseline;
   gap: 6px;
   padding: 2px 10px;
-  border: 1px solid var(--tl-hairline);
+  border: 1px solid var(--tl-line-hairline);
   border-radius: var(--tl-radius-full);
-  background: var(--tl-mist);
+  background: var(--tl-surface-elevated);
   font-size: 12px;
   line-height: 18px;
 }}
 .tl-filter-key {{
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   font-weight: 500;
 }}
 .tl-filter-value {{
   font-family: var(--tl-font-mono);
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
 }}
 .tl-filter-empty {{
   font-size: 12px;
   line-height: 18px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
 }}
 
 /* --- surfaces: white sheet, dark instrument stage, dark reading sheet --- */
 .tl-sheet {{
-  background: var(--tl-paper);
-  border: 1px solid var(--tl-hairline);
+  background: var(--tl-surface-panel);
+  border: 1px solid var(--tl-line-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-6);
 }}
 .tl-chart-stage {{
-  background: var(--tl-chart-stage);
+  background: var(--tl-surface-chart);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-4);
-  color: var(--tl-text);
+  color: var(--tl-content-primary);
 }}
 .tl-ink-sheet {{
-  background: var(--tl-chart-stage);
+  background: var(--tl-surface-chart);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-6);
-  color: var(--tl-text);
+  color: var(--tl-content-primary);
 }}
 .tl-ink-sheet .tl-finding-title,
 .tl-ink-sheet .tl-finding-text,
 .tl-ink-sheet .tl-evidence-claim,
 .tl-ink-sheet .tl-readout-title,
-.tl-ink-sheet .tl-readout-body {{ color: var(--tl-text); }}
+.tl-ink-sheet .tl-readout-body {{ color: var(--tl-content-primary); }}
 .tl-ink-sheet .tl-evidence-label,
 .tl-ink-sheet .tl-finding-number,
-.tl-ink-sheet .tl-evidence-facts dt {{ color: var(--tl-text-muted); }}
-.tl-ink-sheet .tl-evidence-facts dd {{ color: var(--tl-text); }}
-.tl-ink-sheet .tl-evidence-rail {{ border-left-color: var(--tl-border); }}
+.tl-ink-sheet .tl-evidence-facts dt {{ color: var(--tl-content-secondary); }}
+.tl-ink-sheet .tl-evidence-facts dd {{ color: var(--tl-content-primary); }}
+.tl-ink-sheet .tl-evidence-rail {{ border-left-color: var(--tl-line-hairline); }}
 .tl-ink-sheet .tl-finding,
-.tl-ink-sheet .tl-readout {{ border-top-color: var(--tl-border); }}
+.tl-ink-sheet .tl-readout {{ border-top-color: var(--tl-line-hairline); }}
 .tl-ink-sheet .tl-evidence-confidence.conf-high::before {{
   background: var(--tl-success);
 }}
@@ -1172,8 +1154,8 @@ def build_css() -> str:
 
 /* === KPI CARD (legacy single-card form; superseded by .tl-kpi-strip) === */
 .tl-kpi-card {{
-  background: var(--tl-paper);
-  border: 1px solid var(--tl-hairline);
+  background: var(--tl-surface-panel);
+  border: 1px solid var(--tl-line-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-4);
 }}
@@ -1182,7 +1164,7 @@ def build_css() -> str:
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
 }}
 .tl-kpi-value {{
   font-size: 26px;
@@ -1191,34 +1173,34 @@ def build_css() -> str:
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
   white-space: nowrap;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   line-height: 1.1;
   margin-top: 4px;
 }}
-.tl-kpi-value.positive {{ color: var(--tl-success-ink); }}
-.tl-kpi-value.negative {{ color: var(--tl-danger-ink); }}
-.tl-kpi-value.missing {{ color: var(--tl-muted); }}
+.tl-kpi-value.positive {{ color: var(--tl-success); }}
+.tl-kpi-value.negative {{ color: var(--tl-danger); }}
+.tl-kpi-value.missing {{ color: var(--tl-content-secondary); }}
 .tl-kpi-delta {{
   font-size: 12px;
   font-family: var(--tl-font-mono);
   margin-top: 2px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
 }}
-.tl-kpi-delta.positive {{ color: var(--tl-success-ink); }}
-.tl-kpi-delta.negative {{ color: var(--tl-danger-ink); }}
+.tl-kpi-delta.positive {{ color: var(--tl-success); }}
+.tl-kpi-delta.negative {{ color: var(--tl-danger); }}
 
 /* === INSIGHT CARD ===
    Variants use tinted backgrounds + accent icon (NO colored side
    borders — PRODUCT.md anti-pattern; owner decision 2026-07-06). */
 .tl-insight-card {{
-  background: var(--tl-paper);
-  border: 1px solid var(--tl-hairline);
+  background: var(--tl-surface-panel);
+  border: 1px solid var(--tl-line-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-4);
 }}
-.tl-insight-card.strength {{ background: var(--tl-success-wash); }}
-.tl-insight-card.leak {{ background: var(--tl-danger-wash); }}
-.tl-insight-card.neutral {{ background: var(--tl-mist); }}
+.tl-insight-card.strength {{ background: var(--tl-success-dim); }}
+.tl-insight-card.leak {{ background: var(--tl-danger-dim); }}
+.tl-insight-card.neutral {{ background: var(--tl-surface-elevated); }}
 .tl-insight-head {{
   display: flex;
   align-items: center;
@@ -1226,24 +1208,24 @@ def build_css() -> str:
   margin-bottom: var(--tl-space-2);
 }}
 .tl-insight-icon {{ font-size: 16px; }}
-.tl-insight-card.strength .tl-insight-icon {{ color: var(--tl-success-ink); }}
-.tl-insight-card.leak .tl-insight-icon {{ color: var(--tl-danger-ink); }}
-.tl-insight-card.neutral .tl-insight-icon {{ color: var(--tl-muted); }}
+.tl-insight-card.strength .tl-insight-icon {{ color: var(--tl-success); }}
+.tl-insight-card.leak .tl-insight-icon {{ color: var(--tl-danger); }}
+.tl-insight-card.neutral .tl-insight-icon {{ color: var(--tl-content-secondary); }}
 .tl-insight-title {{
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   flex: 1;
 }}
 .tl-insight-body {{
   font-size: 14px;
   line-height: 20px;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin: 0 0 var(--tl-space-2) 0;
 }}
 .tl-insight-evidence {{
   font-size: 12px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: 0;
 }}
 
@@ -1251,8 +1233,8 @@ def build_css() -> str:
    Neutral border, not a teal outline: a passive container that happens to
    hold generated text is not an action (spec 8). */
 .tl-ai-card {{
-  background: var(--tl-paper);
-  border: 1px solid var(--tl-hairline);
+  background: var(--tl-surface-panel);
+  border: 1px solid var(--tl-line-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-4);
   position: relative;
@@ -1266,13 +1248,13 @@ def build_css() -> str:
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.12em;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
 }}
 
 /* === FORM SECTION CARD === */
 .tl-form-card {{
-  background: var(--tl-paper);
-  border: 1px solid var(--tl-hairline);
+  background: var(--tl-surface-panel);
+  border: 1px solid var(--tl-line-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-6);
   margin-bottom: var(--tl-space-4);
@@ -1280,19 +1262,22 @@ def build_css() -> str:
 .tl-form-card h3 {{
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin-bottom: var(--tl-space-4);
 }}
 
 /* === EMPTY STATE CARD === */
 .tl-empty-card {{
-  background: var(--tl-paper);
-  border: 1px dashed var(--tl-hairline);
+  background: var(--tl-surface-panel);
+  border: 1px dashed var(--tl-line-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-8);
   text-align: center;
 }}
 .tl-empty-card .icon {{
+  font-family: 'Material Symbols Rounded';
+  font-weight: 300;
+  line-height: 1;
   font-size: 32px;
   margin-bottom: var(--tl-space-3);
   opacity: 0.4;
@@ -1300,13 +1285,13 @@ def build_css() -> str:
 .tl-empty-card h4 {{
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin-bottom: var(--tl-space-2);
 }}
 .tl-empty-card p {{
   font-size: 14px;
   line-height: 20px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   max-width: 46ch;
   margin: 0 auto;
 }}
@@ -1315,9 +1300,9 @@ def build_css() -> str:
    neutral hairline. The mono step count carries the only accent — a
    colored side border is a documented anti-pattern here. */
 .tl-next-step {{
-  border: 1px solid var(--tl-hairline);
+  border: 1px solid var(--tl-line-hairline);
   border-radius: var(--tl-radius-md);
-  background: var(--tl-paper);
+  background: var(--tl-surface-panel);
   padding: var(--tl-space-4) var(--tl-space-5);
   margin-bottom: var(--tl-space-4);
 }}
@@ -1326,19 +1311,19 @@ def build_css() -> str:
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--tl-action);
+  color: var(--tl-accent-action);
 }}
 .tl-next-step-label {{
   font-size: 17px;
   line-height: 24px;
   font-weight: 700;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin-top: var(--tl-space-1);
 }}
 .tl-next-step-detail {{
   font-size: 14px;
   line-height: 20px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin-top: var(--tl-space-1);
 }}
 
@@ -1367,7 +1352,7 @@ def build_css() -> str:
   margin-top: var(--tl-space-3);
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-action);
+  color: var(--tl-accent-action);
 }}
 
 /* === BADGES / CHIPS ===
@@ -1384,7 +1369,7 @@ def build_css() -> str:
   font-size: 12px;
   line-height: 18px;
   font-weight: 500;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
 }}
 .tl-badge-success::before,
 .tl-badge-danger::before,
@@ -1397,29 +1382,29 @@ def build_css() -> str:
   width: 6px;
   height: 6px;
   border-radius: var(--tl-radius-full);
-  background: var(--tl-muted);
+  background: var(--tl-content-secondary);
 }}
-.tl-badge-success {{ background: var(--tl-success-wash); }}
-.tl-badge-success::before {{ background: var(--tl-success-ink); }}
-.tl-badge-danger {{ background: var(--tl-danger-wash); }}
-.tl-badge-danger::before {{ background: var(--tl-danger-ink); }}
-.tl-badge-warning {{ background: var(--tl-warning-wash); }}
-.tl-badge-warning::before {{ background: var(--tl-warning-ink); }}
-.tl-badge-primary {{ background: var(--tl-action-wash); }}
-.tl-badge-primary::before {{ background: var(--tl-action); }}
+.tl-badge-success {{ background: var(--tl-success-dim); }}
+.tl-badge-success::before {{ background: var(--tl-success); }}
+.tl-badge-danger {{ background: var(--tl-danger-dim); }}
+.tl-badge-danger::before {{ background: var(--tl-danger); }}
+.tl-badge-warning {{ background: var(--tl-warning-dim); }}
+.tl-badge-warning::before {{ background: var(--tl-warning); }}
+.tl-badge-primary {{ background: var(--tl-primary-dim); }}
+.tl-badge-primary::before {{ background: var(--tl-accent-action); }}
 /* Neutral chips carry setup and tag names — a grey dot on every tag is
    noise, so the neutral variant stays unmarked. */
 .tl-badge-neutral {{
-  background: var(--tl-mist);
-  color: var(--tl-muted);
+  background: var(--tl-surface-elevated);
+  color: var(--tl-content-secondary);
 }}
-.tl-confidence-high {{ background: var(--tl-success-wash); }}
-.tl-confidence-high::before {{ background: var(--tl-success-ink); }}
-.tl-confidence-medium {{ background: var(--tl-warning-wash); }}
-.tl-confidence-medium::before {{ background: var(--tl-warning-ink); }}
+.tl-confidence-high {{ background: var(--tl-success-dim); }}
+.tl-confidence-high::before {{ background: var(--tl-success); }}
+.tl-confidence-medium {{ background: var(--tl-warning-dim); }}
+.tl-confidence-medium::before {{ background: var(--tl-warning); }}
 .tl-confidence-low {{
-  background: var(--tl-mist);
-  color: var(--tl-muted);
+  background: var(--tl-surface-elevated);
+  color: var(--tl-content-secondary);
 }}
 .tl-chip-row {{
   display: flex;
@@ -1439,7 +1424,7 @@ def build_css() -> str:
   display: block;
   width: 20px;
   height: 2px;
-  background: var(--tl-action);
+  background: var(--tl-accent-action);
   margin-bottom: var(--tl-space-2);
 }}
 [data-testid="stAppViewContainer"] .tl-section-title {{
@@ -1449,12 +1434,12 @@ def build_css() -> str:
   line-height: 42px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
 }}
 [data-testid="stAppViewContainer"] .tl-section-subtitle {{
   font-size: 14px;
   line-height: 20px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin-top: 2px;
 }}
 /* Chart card title (analytics) — one quiet weight below section titles. */
@@ -1462,21 +1447,21 @@ def build_css() -> str:
   font-size: 14px;
   font-weight: 500;
   letter-spacing: 0.01em;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin: 0 0 var(--tl-space-2) 0;
 }}
-.tl-chart-stage .tl-chart-title {{ color: var(--tl-text); }}
+.tl-chart-stage .tl-chart-title {{ color: var(--tl-content-primary); }}
 
 /* === ERROR BOX (components/ui.error_box) ===
    Red is reserved for errors, so this is one of the few places the danger
    hue is load-bearing. Same rule as the banners: ink copy on the danger
    wash with the hue as a border and mark, never as the text colour. */
 .tl-error-box {{
-  border: 1px solid var(--tl-danger-ink);
+  border: 1px solid var(--tl-danger);
   border-radius: var(--tl-radius-sm);
-  background: var(--tl-danger-wash);
+  background: var(--tl-danger-dim);
   padding: var(--tl-space-3) var(--tl-space-4);
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   font-size: 14px;
   line-height: 20px;
   white-space: pre-wrap;
@@ -1489,18 +1474,18 @@ def build_css() -> str:
   margin-right: var(--tl-space-2);
   vertical-align: 1px;
   border-radius: var(--tl-radius-full);
-  background: var(--tl-danger-ink);
+  background: var(--tl-danger);
 }}
 
 /* === BANNERS ===
    Same rule as badges: ink copy on a quiet ground, hue carried by a mark. */
 .tl-banner {{
   border-radius: var(--tl-radius-sm);
-  border: 1px solid var(--tl-hairline);
+  border: 1px solid var(--tl-line-hairline);
   padding: var(--tl-space-3) var(--tl-space-4);
   font-size: 14px;
   line-height: 20px;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin-bottom: var(--tl-space-4);
 }}
 .tl-banner::before {{
@@ -1511,14 +1496,14 @@ def build_css() -> str:
   margin-right: var(--tl-space-2);
   vertical-align: 1px;
   border-radius: var(--tl-radius-full);
-  background: var(--tl-muted);
+  background: var(--tl-content-secondary);
 }}
-.tl-banner-warning {{ background: var(--tl-warning-wash); }}
-.tl-banner-warning::before {{ background: var(--tl-warning-ink); }}
-.tl-banner-info {{ background: var(--tl-action-wash); }}
-.tl-banner-info::before {{ background: var(--tl-action); }}
-.tl-banner-danger {{ background: var(--tl-danger-wash); }}
-.tl-banner-danger::before {{ background: var(--tl-danger-ink); }}
+.tl-banner-warning {{ background: var(--tl-warning-dim); }}
+.tl-banner-warning::before {{ background: var(--tl-warning); }}
+.tl-banner-info {{ background: var(--tl-primary-dim); }}
+.tl-banner-info::before {{ background: var(--tl-accent-action); }}
+.tl-banner-danger {{ background: var(--tl-danger-dim); }}
+.tl-banner-danger::before {{ background: var(--tl-danger); }}
 
 /* === STEP INDICATOR === */
 .tl-stepper {{
@@ -1542,20 +1527,20 @@ def build_css() -> str:
   font-size: 13px;
   font-weight: 700;
 }}
-.tl-step-circle.done {{ background: var(--tl-action); color: var(--tl-paper); }}
+.tl-step-circle.done {{ background: var(--tl-accent-action); color: var(--tl-surface-panel); }}
 .tl-step-circle.active {{
-  background: var(--tl-action);
-  color: var(--tl-paper);
-  box-shadow: 0 0 0 3px var(--tl-action-wash);
+  background: var(--tl-accent-action);
+  color: var(--tl-surface-panel);
+  box-shadow: 0 0 0 3px var(--tl-primary-dim);
 }}
 .tl-step-circle.future {{
-  background: var(--tl-mist);
-  color: var(--tl-muted);
+  background: var(--tl-surface-elevated);
+  color: var(--tl-content-secondary);
 }}
 .tl-step-label {{
   font-size: 12px;
   line-height: 18px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin-top: 4px;
 }}
 .tl-step-connector {{
@@ -1563,18 +1548,18 @@ def build_css() -> str:
   height: 2px;
   margin-bottom: 16px;
 }}
-.tl-step-connector.done {{ background: var(--tl-action); }}
-.tl-step-connector.future {{ background: var(--tl-hairline); }}
+.tl-step-connector.done {{ background: var(--tl-accent-action); }}
+.tl-step-connector.future {{ background: var(--tl-line-hairline); }}
 
 /* === AI REVIEWS — the research note ===
    The note body is a focused DARK reading surface inside the light
    workspace (spec 7): filters and controls stay on the workspace, the
    thing being read gets its own plane. */
 .tl-note {{
-  background: var(--tl-chart-stage);
+  background: var(--tl-surface-chart);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-6);
-  color: var(--tl-text);
+  color: var(--tl-content-primary);
   max-width: 72ch;
 }}
 .tl-note-head {{
@@ -1584,7 +1569,7 @@ def build_css() -> str:
   gap: var(--tl-space-4);
   flex-wrap: wrap;
   padding-bottom: var(--tl-space-3);
-  border-bottom: 1px solid var(--tl-border);
+  border-bottom: 1px solid var(--tl-line-hairline);
 }}
 /* Two classes, not one: the global heading rule is
    `[data-testid="stAppViewContainer"] h2` (specificity 0,1,1), which beats
@@ -1595,14 +1580,14 @@ def build_css() -> str:
   font-size: 22px;
   line-height: 28px;
   font-weight: 700;
-  color: var(--tl-text);
+  color: var(--tl-content-primary);
   margin: 0;
 }}
 [data-testid="stAppViewContainer"] .tl-note-sample {{
   font-family: var(--tl-font-mono);
   font-size: 12px;
   line-height: 18px;
-  color: var(--tl-text-muted);
+  color: var(--tl-content-secondary);
   margin: 0;
 }}
 /* The thesis is the one sentence a reader must not miss, so it is the
@@ -1611,7 +1596,7 @@ def build_css() -> str:
 [data-testid="stAppViewContainer"] .tl-note-thesis {{
   font-size: 19px;
   line-height: 28px;
-  color: var(--tl-text);
+  color: var(--tl-content-primary);
   margin: var(--tl-space-4) 0 0 0;
 }}
 /* --- dark-surface repaint for the shared components ---
@@ -1624,28 +1609,28 @@ def build_css() -> str:
    caught only in the browser. test_dark_surface_overrides_name_both_reading_surfaces
    holds the pair together. */
 [data-testid="stAppViewContainer"] .tl-note .tl-finding,
-[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-finding {{ border-top-color: var(--tl-border); }}
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-finding {{ border-top-color: var(--tl-line-hairline); }}
 [data-testid="stAppViewContainer"] .tl-note .tl-finding-title,
 [data-testid="stAppViewContainer"] .tl-note .tl-finding-text,
 [data-testid="stAppViewContainer"] .tl-note .tl-evidence-claim,
 [data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-finding-title,
 [data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-finding-text,
-[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-claim {{ color: var(--tl-text); }}
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-claim {{ color: var(--tl-content-primary); }}
 [data-testid="stAppViewContainer"] .tl-note .tl-finding-number,
 [data-testid="stAppViewContainer"] .tl-note .tl-evidence-label,
 [data-testid="stAppViewContainer"] .tl-note .tl-evidence-facts dt,
 [data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-finding-number,
 [data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-label,
-[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-facts dt {{ color: var(--tl-text-muted); }}
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-facts dt {{ color: var(--tl-content-secondary); }}
 [data-testid="stAppViewContainer"] .tl-note .tl-evidence-facts dd,
-[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-facts dd {{ color: var(--tl-text); }}
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-facts dd {{ color: var(--tl-content-primary); }}
 [data-testid="stAppViewContainer"] .tl-note .tl-evidence-rail,
-[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-rail {{ border-left-color: var(--tl-border); }}
+[data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-rail {{ border-left-color: var(--tl-line-hairline); }}
 /* The confidence dot is a mark, so it needs the 3:1 non-text floor against
    the stage — the workspace's muted grey does not clear it. */
 [data-testid="stAppViewContainer"] .tl-note .tl-evidence-confidence::before,
 [data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-confidence::before {{
-  background: var(--tl-text-muted);
+  background: var(--tl-content-secondary);
 }}
 [data-testid="stAppViewContainer"] .tl-note .tl-evidence-confidence.conf-high::before,
 [data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-evidence-confidence.conf-high::before {{
@@ -1658,7 +1643,7 @@ def build_css() -> str:
 .tl-note-actions {{
   margin-top: var(--tl-space-6);
   padding-top: var(--tl-space-4);
-  border-top: 1px solid var(--tl-border);
+  border-top: 1px solid var(--tl-line-hairline);
 }}
 [data-testid="stAppViewContainer"] .tl-note .tl-note-actions-title,
 [data-testid="stAppViewContainer"] .st-key-tl_note_sheet .tl-note-actions-title {{
@@ -1667,7 +1652,7 @@ def build_css() -> str:
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--tl-text-muted);
+  color: var(--tl-content-secondary);
   margin: 0 0 var(--tl-space-2) 0;
 }}
 .tl-note-actions ul {{
@@ -1677,25 +1662,25 @@ def build_css() -> str:
 [data-testid="stAppViewContainer"] .tl-note-actions li {{
   font-size: 16px;
   line-height: 25px;
-  color: var(--tl-text);
+  color: var(--tl-content-primary);
   margin-bottom: var(--tl-space-1);
 }}
 [data-testid="stAppViewContainer"] .tl-note-limitation {{
   font-size: 14px;
   line-height: 20px;
-  color: var(--tl-text-muted);
+  color: var(--tl-content-secondary);
   margin: var(--tl-space-4) 0 0 0;
 }}
 /* Supporting detail, collapsed. A native <details> needs no script and is
    keyboard-reachable by default. */
 .tl-note-evidence {{
   margin-top: var(--tl-space-4);
-  border-top: 1px solid var(--tl-border);
+  border-top: 1px solid var(--tl-line-hairline);
   padding-top: var(--tl-space-3);
 }}
 [data-testid="stAppViewContainer"] .tl-note-evidence summary {{
   font-size: 14px;
-  color: var(--tl-text-muted);
+  color: var(--tl-content-secondary);
   cursor: pointer;
   min-height: 44px;
   display: flex;
@@ -1710,12 +1695,12 @@ def build_css() -> str:
   padding-left: var(--tl-space-4);
   font-size: 14px;
   line-height: 22px;
-  color: var(--tl-text-muted);
+  color: var(--tl-content-secondary);
 }}
 [data-testid="stAppViewContainer"] .tl-note-generated {{
   font-family: var(--tl-font-mono);
   font-size: 12px;
-  color: var(--tl-text-muted);
+  color: var(--tl-content-secondary);
   margin: var(--tl-space-4) 0 0 0;
 }}
 
@@ -1724,7 +1709,7 @@ def build_css() -> str:
 .tl-note-skeleton .tl-skeleton-line {{
   height: 16px;
   border-radius: 4px;
-  background: var(--tl-surface-2);
+  background: var(--tl-surface-elevated);
   margin-bottom: var(--tl-space-3);
 }}
 .tl-skeleton-line.w90 {{ width: 90%; }}
@@ -1748,13 +1733,13 @@ def build_css() -> str:
    a dark slab with prose down one edge — the surface should be the shape
    of the thing being read. */
 .st-key-tl_note_sheet {{
-  background: var(--tl-chart-stage);
+  background: var(--tl-surface-chart);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-6);
   max-width: 78ch;
 }}
 .st-key-tl_note_sheet [data-testid="stMarkdownContainer"] {{
-  color: var(--tl-text);
+  color: var(--tl-content-primary);
   max-width: 72ch;
 }}
 .st-key-tl_note_sheet [data-testid="stMarkdownContainer"] h1,
@@ -1762,7 +1747,7 @@ def build_css() -> str:
 .st-key-tl_note_sheet [data-testid="stMarkdownContainer"] h3,
 .st-key-tl_note_sheet [data-testid="stMarkdownContainer"] h4,
 .st-key-tl_note_sheet [data-testid="stMarkdownContainer"] strong {{
-  color: var(--tl-text);
+  color: var(--tl-content-primary);
 }}
 
 /* === STRATEGY PROFILE — the playbook summary ===
@@ -1775,8 +1760,8 @@ def build_css() -> str:
    the Evidence Rail: Streamlit sizes every p and h1-h4 it renders from a
    0,1,1 selector, which beats a lone class of ours. */
 .tl-playbook {{
-  background: var(--tl-paper);
-  border: 1px solid var(--tl-hairline);
+  background: var(--tl-surface-panel);
+  border: 1px solid var(--tl-line-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-5) var(--tl-space-6);
   margin-bottom: var(--tl-space-4);
@@ -1792,14 +1777,14 @@ def build_css() -> str:
   font-size: 20px;
   line-height: 28px;
   font-weight: 700;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin: 0;
 }}
 [data-testid="stAppViewContainer"] .tl-playbook-meta {{
   font-family: var(--tl-font-mono);
   font-size: 12px;
   line-height: 18px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: 0 0 0 auto;
 }}
 /* Completion. The figure is the message; the rule underneath is a second
@@ -1809,27 +1794,27 @@ def build_css() -> str:
   display: block;
   height: 3px;
   border-radius: var(--tl-radius-full);
-  background: var(--tl-hairline);
+  background: var(--tl-line-hairline);
   margin: var(--tl-space-3) 0 var(--tl-space-2) 0;
   overflow: hidden;
 }}
 .tl-playbook-progress span {{
   display: block;
   height: 100%;
-  background: var(--tl-action);
+  background: var(--tl-accent-action);
 }}
 [data-testid="stAppViewContainer"] .tl-playbook-count {{
   font-family: var(--tl-font-mono);
   font-size: 12px;
   line-height: 18px;
   letter-spacing: 0.04em;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: 0;
 }}
 [data-testid="stAppViewContainer"] .tl-playbook-why {{
   font-size: 14px;
   line-height: 21px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: var(--tl-space-2) 0 0 0;
   max-width: 68ch;
 }}
@@ -1841,7 +1826,7 @@ def build_css() -> str:
   gap: var(--tl-space-2);
   margin-top: var(--tl-space-4);
   padding-top: var(--tl-space-3);
-  border-top: 1px solid var(--tl-hairline);
+  border-top: 1px solid var(--tl-line-hairline);
 }}
 .tl-playbook-facet {{
   display: flex;
@@ -1855,7 +1840,7 @@ def build_css() -> str:
   line-height: 18px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: 0;
   flex: 0 0 5.5rem;
 }}
@@ -1892,7 +1877,7 @@ def build_css() -> str:
   font-size: 13px;
   line-height: 20px;
   font-weight: 500;
-  color: var(--tl-danger-ink);
+  color: var(--tl-danger);
   margin: var(--tl-space-1) 0 0 0;
 }}
 
@@ -1908,20 +1893,20 @@ def build_css() -> str:
   gap: var(--tl-space-4);
   flex-wrap: wrap;
   padding: var(--tl-space-3) 0;
-  border-bottom: 1px solid var(--tl-hairline);
+  border-bottom: 1px solid var(--tl-line-hairline);
 }}
 [data-testid="stAppViewContainer"] .tl-settings-label {{
   font-size: 14px;
   line-height: 21px;
   font-weight: 500;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin: 0;
 }}
 [data-testid="stAppViewContainer"] .tl-settings-value {{
   font-family: var(--tl-font-mono);
   font-size: 13px;
   line-height: 21px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: 0;
   text-align: right;
   overflow-wrap: anywhere;
@@ -1929,7 +1914,7 @@ def build_css() -> str:
 [data-testid="stAppViewContainer"] .tl-settings-note {{
   font-size: 13px;
   line-height: 20px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: var(--tl-space-2) 0 0 0;
   max-width: 68ch;
 }}
@@ -1956,13 +1941,13 @@ def build_css() -> str:
 /* Ink on the quiet ground, hue only in the dot — the wash-as-text-
    background pattern fails AA at every tint strength (measured, Task 1). */
 [data-testid="stAppViewContainer"] .tl-setting-status.ok {{
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
 }}
-.tl-setting-status.ok::before {{ background: var(--tl-success-ink); }}
+.tl-setting-status.ok::before {{ background: var(--tl-success); }}
 [data-testid="stAppViewContainer"] .tl-setting-status.fail {{
-  color: var(--tl-danger-ink);
+  color: var(--tl-danger);
 }}
-.tl-setting-status.fail::before {{ background: var(--tl-danger-ink); }}
+.tl-setting-status.fail::before {{ background: var(--tl-danger); }}
 
 /* Integration state. Not an error when it is unset — an optional key that
    has not been supplied is a state with an action attached, so it gets the
@@ -1970,7 +1955,7 @@ def build_css() -> str:
 [data-testid="stAppViewContainer"] .tl-settings-state {{
   font-size: 14px;
   line-height: 21px;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin: 0;
 }}
 .tl-settings-state::before {{
@@ -1980,10 +1965,10 @@ def build_css() -> str:
   height: 8px;
   margin-right: 10px;
   border-radius: var(--tl-radius-full);
-  background: var(--tl-muted);
+  background: var(--tl-content-secondary);
   vertical-align: middle;
 }}
-.tl-settings-state.on::before {{ background: var(--tl-success-ink); }}
+.tl-settings-state.on::before {{ background: var(--tl-success); }}
 
 /* The one bordered object on the page. A full border, not a red side
    stripe: the section is dangerous, so it is enclosed rather than
@@ -1994,7 +1979,7 @@ def build_css() -> str:
    the heading alone would enclose a title and leave both destructive
    actions outside the box it is supposed to be warning about. */
 .st-key-tl_danger_zone {{
-  border: 1px solid var(--tl-danger-ink);
+  border: 1px solid var(--tl-danger);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-5) var(--tl-space-6);
   margin-top: var(--tl-space-12);
@@ -2009,13 +1994,13 @@ def build_css() -> str:
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--tl-danger-ink);
+  color: var(--tl-danger);
   margin: 0;
 }}
 [data-testid="stAppViewContainer"] .tl-danger-zone-lede {{
   font-size: 14px;
   line-height: 21px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: var(--tl-space-2) 0 0 0;
   max-width: 68ch;
 }}
@@ -2023,12 +2008,12 @@ def build_css() -> str:
    carry the danger hue rather than the brand teal — which everywhere else
    in the product means "the useful thing to do next". */
 .st-key-tl_danger_zone .stButton button {{
-  border-color: var(--tl-danger-ink);
-  color: var(--tl-danger-ink);
+  border-color: var(--tl-danger);
+  color: var(--tl-danger);
 }}
 .st-key-tl_danger_zone .stButton button:disabled {{
-  border-color: var(--tl-hairline);
-  color: var(--tl-muted);
+  border-color: var(--tl-line-hairline);
+  color: var(--tl-content-secondary);
 }}
 
 /* === JOURNAL === */
@@ -2039,7 +2024,7 @@ def build_css() -> str:
   font-family: var(--tl-font-mono);
   font-size: 12px;
   line-height: 18px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   text-align: right;
   margin: 0;
 }}
@@ -2094,8 +2079,8 @@ def build_css() -> str:
   position: sticky;
   bottom: 0;
   z-index: var(--tl-z-raised);
-  background: var(--tl-canvas);
-  border-top: 1px solid var(--tl-hairline);
+  background: var(--tl-surface-canvas);
+  border-top: 1px solid var(--tl-line-hairline);
   padding: var(--tl-space-3) 0 var(--tl-space-2) 0;
   margin-top: var(--tl-space-6);
 }}
@@ -2103,7 +2088,7 @@ def build_css() -> str:
   font-family: var(--tl-font-mono);
   font-size: 12px;
   line-height: 18px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   text-align: center;
   margin: 0;
   padding-top: var(--tl-space-3);
@@ -2117,8 +2102,8 @@ def build_css() -> str:
 /* === QUICK ACTION CARD (rest, hover, focus-within states) === */
 .tl-action-card {{
   display: block;
-  background: var(--tl-paper);
-  border: 1px solid var(--tl-hairline);
+  background: var(--tl-surface-panel);
+  border: 1px solid var(--tl-line-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-4);
   cursor: pointer;
@@ -2126,11 +2111,11 @@ def build_css() -> str:
 }}
 @media (hover: hover) and (pointer: fine) {{
   .tl-action-card:hover {{
-    border-color: var(--tl-action);
+    border-color: var(--tl-accent-action);
   }}
 }}
 .tl-action-card:focus-within {{
-  border-color: var(--tl-action);
+  border-color: var(--tl-accent-action);
   box-shadow: var(--tl-shadow);
 }}
 
@@ -2140,11 +2125,11 @@ def build_css() -> str:
    light workspace — decoration behind figures is what made the old
    dashboard hard to read. */
 .tl-hero-wrap {{
-  border: 1px solid var(--tl-hairline);
+  border: 1px solid var(--tl-line-hairline);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-6);
   margin-bottom: var(--tl-space-4);
-  background-color: var(--tl-paper);
+  background-color: var(--tl-surface-panel);
 }}
 .tl-kpi-row {{
   display: flex;
@@ -2154,7 +2139,7 @@ def build_css() -> str:
 .tl-kpi-row .tl-kpi-card {{
   flex: 1 1 150px;
   min-width: 150px;
-  background: var(--tl-paper);
+  background: var(--tl-surface-panel);
 }}
 
 /* === DATA LEDGER (recent trades etc.) ===
@@ -2175,14 +2160,14 @@ def build_css() -> str:
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   padding: var(--tl-space-2) var(--tl-space-3);
-  border-bottom: 1px solid var(--tl-hairline);
+  border-bottom: 1px solid var(--tl-line-hairline);
 }}
 .tl-table td {{
   padding: var(--tl-space-3);
-  border-bottom: 1px solid var(--tl-hairline);
-  color: var(--tl-ink);
+  border-bottom: 1px solid var(--tl-line-hairline);
+  color: var(--tl-content-primary);
   transition: background var(--tl-dur-state) var(--tl-ease-out);
 }}
 .tl-table td.mono {{
@@ -2190,12 +2175,12 @@ def build_css() -> str:
   font-variant-numeric: tabular-nums;
 }}
 .tl-table th.num, .tl-table td.num {{ text-align: right; }}
-.tl-table td.pnl-pos {{ color: var(--tl-success-ink); }}
-.tl-table td.pnl-neg {{ color: var(--tl-danger-ink); }}
+.tl-table td.pnl-pos {{ color: var(--tl-success); }}
+.tl-table td.pnl-neg {{ color: var(--tl-danger); }}
 /* Gated: on a touch device :hover latches after a tap, leaving a row
    tinted as though it were selected. */
 @media (hover: hover) and (pointer: fine) {{
-  .tl-table tr:hover td {{ background: var(--tl-mist); }}
+  .tl-table tr:hover td {{ background: var(--tl-surface-elevated); }}
 }}
 
 /* === WELCOME (dashboard first-run empty state) === */
@@ -2213,13 +2198,13 @@ def build_css() -> str:
   font-size: 30px;
   line-height: 36px;
   font-weight: 700;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin: 0 0 var(--tl-space-2) 0;
 }}
 .tl-welcome-sub {{
   font-size: 16px;
   line-height: 25px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: 0 0 var(--tl-space-4) 0;
 }}
 .tl-welcome-cta-img {{
@@ -2244,20 +2229,20 @@ def build_css() -> str:
   display: block;
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
   margin-bottom: 2px;
 }}
 .tl-action-sub {{
   display: block;
   font-size: 12px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin-bottom: var(--tl-space-2);
 }}
 .tl-action-go {{
   display: block;
   font-size: 14px;
   font-weight: 500;
-  color: var(--tl-action);
+  color: var(--tl-accent-action);
 }}
 
 /* === STREAMLIT CHROME ===
@@ -2272,8 +2257,8 @@ def build_css() -> str:
    Ink on mist: the mono face already separates code from prose, so the
    span does not need a hue as well. */
 [data-testid="stAppViewContainer"] code {{
-  color: var(--tl-ink);
-  background: var(--tl-mist);
+  color: var(--tl-content-primary);
+  background: var(--tl-surface-elevated);
   border-radius: 4px;
 }}
 
@@ -2281,7 +2266,7 @@ def build_css() -> str:
    One visible ring everywhere, on both surface families. Focus is never
    removed; keyboard users navigate the whole product. */
 [data-testid="stAppViewContainer"] :focus-visible {{
-  outline: 2px solid var(--tl-action);
+  outline: 2px solid var(--tl-accent-action);
   outline-offset: 2px;
   border-radius: 2px;
 }}
@@ -2336,13 +2321,13 @@ def build_css() -> str:
   border-radius: var(--tl-radius-full);
   margin-right: 6px;
   vertical-align: 1px;
-  background: var(--tl-muted);
+  background: var(--tl-content-secondary);
 }}
 [class*="st-key-calday_"][class*="_positive"] button::before {{
-  background: var(--tl-success-ink);
+  background: var(--tl-success);
 }}
 [class*="st-key-calday_"][class*="_negative"] button::before {{
-  background: var(--tl-danger-ink);
+  background: var(--tl-danger);
 }}
 .tl-cal-legend {{
   display: flex;
@@ -2350,7 +2335,7 @@ def build_css() -> str:
   flex-wrap: wrap;
   gap: var(--tl-space-4);
   font-size: 12px;
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
   margin: var(--tl-space-2) 0 var(--tl-space-3) 0;
 }}
 .tl-cal-key {{
@@ -2362,11 +2347,11 @@ def build_css() -> str:
   width: 7px;
   height: 7px;
   border-radius: var(--tl-radius-full);
-  background: var(--tl-muted);
+  background: var(--tl-content-secondary);
   display: inline-block;
 }}
-.tl-cal-dot.positive {{ background: var(--tl-success-ink); }}
-.tl-cal-dot.negative {{ background: var(--tl-danger-ink); }}
+.tl-cal-dot.positive {{ background: var(--tl-success); }}
+.tl-cal-dot.negative {{ background: var(--tl-danger); }}
 
 /* === MOTION (accessibility — PRODUCT.md) ===
    Reduced motion means fewer and gentler, not zero: color feedback that
@@ -2440,7 +2425,7 @@ def build_css() -> str:
    1.05:1 — a control you cannot see is a control you do not have. */
 [data-testid="stSidebarCollapseButton"] button,
 [data-testid="stSidebarCollapseButton"] button * {{
-  color: var(--tl-text);
+  color: var(--tl-content-primary);
 }}
 [data-testid="stSidebarCollapseButton"] button,
 [data-testid="stExpandSidebarButton"] {{
@@ -2503,7 +2488,7 @@ def build_css() -> str:
 [data-testid="stFileUploader"] small,
 [data-testid="stFileUploaderDropzoneInstructions"] span,
 [data-baseweb="menu"] li {{
-  color: var(--tl-muted);
+  color: var(--tl-content-secondary);
 }}
 
 /* A multiselect shows chosen values as tags, so the plain text inside one
@@ -2514,7 +2499,7 @@ def build_css() -> str:
 [data-testid="stMultiSelect"] [data-baseweb="tag"],
 [data-testid="stMultiSelect"] [data-baseweb="tag"] div,
 [data-baseweb="popover"] [data-baseweb="menu"] li[aria-selected="true"] {{
-  color: var(--tl-ink);
+  color: var(--tl-content-primary);
 }}
 
 /* A data table must scroll inside its own frame rather than push the page
@@ -2538,8 +2523,8 @@ def build_css() -> str:
     right: 0;
     bottom: 0;
     z-index: var(--tl-z-nav);
-    background: var(--tl-rail);
-    border-top: 1px solid var(--tl-border);
+    background: var(--tl-surface-rail);
+    border-top: 1px solid var(--tl-line-hairline);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }}
   .tl-mobile-nav-item {{ position: relative; }}
@@ -2579,7 +2564,7 @@ def build_css() -> str:
   .tl-kpi-card {{ width: 100%; }}
   .tl-kpi-cell {{ flex: 1 1 50%; }}
   .tl-kpi-cell:nth-child(odd) {{ border-left-width: 0; }}
-  .tl-kpi-cell:nth-child(n+3) {{ border-top: 1px solid var(--tl-hairline); }}
+  .tl-kpi-cell:nth-child(n+3) {{ border-top: 1px solid var(--tl-line-hairline); }}
   .tl-kpi-figure {{ font-size: 22px; line-height: 28px; }}
   .tl-masthead {{ align-items: flex-start; flex-direction: column; gap: var(--tl-space-2); }}
   /* Anchored for the same reason as the desktop rule — unanchored, this
@@ -2782,10 +2767,17 @@ def render_empty_state(
         if action_label
         else ""
     )
+    # A ligature NAME, not a glyph: the icon is plain escaped text styled by
+    # the Material Symbols font, the same convention the mobile nav already
+    # proves in the browser. Emoji were the previous answer and are the wrong
+    # one — they are font-dependent, carry their own colour, and cannot be
+    # token-controlled (spec D9). An empty icon emits no element at all rather
+    # than an empty 32px box with a margin.
+    icon_html = f'<div class="icon">{escape(icon)}</div>' if str(icon).strip() else ""
     return (
         '<div class="tl-empty-card">'
         f"{img_html}"
-        f'<div class="icon">{escape(icon)}</div>'
+        f"{icon_html}"
         f"<h4>{escape(title)}</h4>"
         f"<p>{escape(body)}</p>"
         f"{action_html}</div>"

@@ -155,7 +155,7 @@ _ai_on = is_ai_enabled() or is_demo()
 if df.empty:
     st.markdown(
         render_empty_state(
-            "",
+            "psychology",
             "No trades yet",
             "Log a few trades and the AI will start reviewing your journal.",
         ),
@@ -323,7 +323,7 @@ def _render_patterns_lens() -> None:
     if not insights:
         st.markdown(
             render_empty_state(
-                "◆",
+                "pattern",
                 "No repeating patterns yet",
                 f"Journal {max(0, 5 - len(df))} more completed trades and the "
                 "recurring ones start to separate from noise.",
@@ -460,7 +460,7 @@ def _render_weekly_lens() -> None:
     if complete < TRADES_FOR_REVIEW and get_weekly_review(monday, uid) is None:
         st.markdown(
             render_empty_state(
-                "◆",
+                "rate_review",
                 f"Journal {TRADES_FOR_REVIEW - complete} more completed trades",
                 "A weekly review needs a sample it can say something true about.",
             ),

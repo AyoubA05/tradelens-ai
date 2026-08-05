@@ -268,7 +268,7 @@ def _render_recent_trades(recent: pd.DataFrame) -> None:
     if recent.empty:
         st.markdown(
             render_empty_state(
-                "📓",
+                "menu_book",
                 "No trades to show",
                 "Your latest trades will appear here.",
                 image_path="empty_trades.png",
@@ -467,7 +467,7 @@ with _chart_col:
             f"{_needed} more trading "
             f"{'day' if _needed == 1 else 'days'} will unlock the equity curve. "
             "The figures above already reflect every trade logged.",
-            "📈",
+            "show_chart",
         )
     elif not eq.empty:
         fig = equity_curve_chart(eq)
@@ -502,7 +502,9 @@ with _chart_col:
     else:
         st.markdown(
             render_empty_state(
-                "📈", "No equity data yet", "Log trades to build your equity curve."
+                "show_chart",
+                "No equity data yet",
+                "Log trades to build your equity curve.",
             ),
             unsafe_allow_html=True,
         )

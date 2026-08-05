@@ -221,3 +221,171 @@ def test_no_css_variable_is_used_without_being_defined():
     used = set(re.findall(r"var\((--tl-[a-z0-9-]+)", css))
     dangling = sorted(used - defined)
     assert not dangling, f"var() references with no definition: {dangling}"
+
+
+def test_rail_and_canvas_are_separated_by_a_line_not_by_tone():
+    """D4: rail vs canvas is 1.02:1. Tone alone cannot carry the boundary,
+    so the rail must draw an explicit strong edge."""
+    css = ds.build_css()
+    rail_rules = [
+        block
+        for block in css.split("}")
+        if "stSidebar" in block and "border-right" in block
+    ]
+    assert rail_rules, "the rail declares no right edge"
+    assert any("--tl-line-strong" in block for block in rail_rules)
+
+
+def test_shell_surfaces_use_role_variables_not_literals():
+    css = ds.build_css()
+    body = css.split(":root", 1)[1].split("}", 1)[1]
+    literals = re.findall(r"(?<!-)#[0-9A-Fa-f]{6}\b", body)
+    assert not literals, f"raw colours outside :root: {sorted(set(literals))[:10]}"
+
+
+def test_the_compatibility_bridge_is_gone():
+    """Task 1 aliased the old CSS variable names to the new roles so the
+    product kept rendering between the two tasks. Task 2 retargets the rules,
+    so the aliases must go — a bridge nobody crosses is just a second name for
+    everything, which is the state Task 1 existed to end."""
+    css = ds.build_css()
+    retired = (
+        "--tl-canvas",
+        "--tl-paper",
+        "--tl-mist",
+        "--tl-ink",
+        "--tl-muted",
+        "--tl-hairline",
+        "--tl-action",
+        "--tl-action-hover",
+        "--tl-success-ink",
+        "--tl-danger-ink",
+        "--tl-warning-ink",
+        "--tl-success-wash",
+        "--tl-danger-wash",
+        "--tl-warning-wash",
+        "--tl-action-wash",
+        "--tl-rail",
+        "--tl-chart-stage",
+        "--tl-bg",
+        "--tl-surface",
+        "--tl-surface-2",
+        "--tl-border",
+        "--tl-border-subtle",
+        "--tl-text",
+        "--tl-text-muted",
+        "--tl-text-faint",
+    )
+    found = sorted(
+        name for name in retired if re.search(re.escape(name) + r"(?![-a-z0-9])", css)
+    )
+    assert not found, f"compatibility bridge still present: {found}"
+
+
+def test_no_structural_icon_is_an_emoji():
+    """D9: emoji are font-dependent, carry their own colour, and cannot be
+    token-controlled. Structural icons are Material ligature names — plain
+    text styled by the font the mobile nav already proves in the browser.
+
+    Scans every icon-taking renderer across the live UI, not one call form:
+    the first version of this test only matched `render_empty_state("x"` on
+    the following line and silently missed six emoji, including a whole page
+    that routes through a local `_empty()` helper.
+
+    Typographic VALUES are not icons and are deliberately out of scope — the
+    infinity sign for an undefined profit factor, delta arrows, the stepper
+    tick, and em-dash placeholders all carry meaning as text.
+    """
+    ui = Path("src/tradelens/ui")
+    renderers = ("render_empty_state", "render_data_state", "_empty")
+    pattern = re.compile(r"\b(" + "|".join(renderers) + r")\(", re.M)
+    offenders = []
+    for path in sorted(ui.rglob("*.py")):
+        if "_archive" in path.parts:
+            continue
+        source = path.read_text(encoding="utf-8")
+        for match in pattern.finditer(source):
+            # Every string literal in this call's argument list.
+            window = source[match.end() : match.end() + 400]
+            depth, end = 1, 0
+            for i, ch in enumerate(window):
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            args = window[:end]
+            for literal in re.findall(r'"([^"\n]*)"', args):
+                if not literal:
+                    continue
+                if re.fullmatch(r"[a-z0-9_]+", literal):
+                    continue  # a ligature name
+                if len(literal) <= 2 and not literal.isascii():
+                    line = source[: match.start()].count("\n") + 1
+                    offenders.append(f"{path.name}:{line} {literal!r}")
+    assert not offenders, f"non-ligature structural icons: {offenders}"
+
+
+def test_the_empty_state_icon_uses_the_material_font():
+    css = ds.build_css()
+    block = [b for b in css.split("}") if ".tl-empty-card .icon" in b]
+    assert block, "no rule styles the empty-state icon"
+    assert "Material Symbols Rounded" in block[0]
+
+
+def test_an_absent_icon_emits_no_element():
+    """An empty icon used to render a 32px box with a margin and nothing in
+    it — a hole in the layout where a mark was supposed to be."""
+    assert '<div class="icon">' not in ds.render_empty_state("", "T", "B")
+    assert '<div class="icon">' in ds.render_empty_state("insights", "T", "B")
+
+
+def test_no_ui_module_references_a_retired_css_variable():
+    """The bridge deletion had to reach page-level CSS too.
+
+    design_system.py is not the only file that emits `var(--tl-*)`: pages
+    build inline styles for money colours and captions. Retargeting only the
+    stylesheet left nine references pointing at variables that no longer
+    exist, which resolve to nothing and silently inherit.
+    """
+    retired = (
+        "--tl-canvas",
+        "--tl-paper",
+        "--tl-mist",
+        "--tl-ink",
+        "--tl-muted",
+        "--tl-hairline",
+        "--tl-action",
+        "--tl-action-hover",
+        "--tl-action-wash",
+        "--tl-success-ink",
+        "--tl-danger-ink",
+        "--tl-warning-ink",
+        "--tl-success-wash",
+        "--tl-danger-wash",
+        "--tl-warning-wash",
+        "--tl-rail",
+        "--tl-chart-stage",
+        "--tl-bg",
+        "--tl-surface",
+        "--tl-surface-2",
+        "--tl-border",
+        "--tl-border-subtle",
+        "--tl-text",
+        "--tl-text-muted",
+        "--tl-text-faint",
+    )
+    pattern = re.compile(
+        "(" + "|".join(sorted(retired, key=len, reverse=True)) + r")(?![-a-z0-9])"
+    )
+    offenders = []
+    for path in sorted(Path("src/tradelens/ui").rglob("*.py")):
+        if "_archive" in path.parts:
+            continue
+        source = path.read_text(encoding="utf-8")
+        for match in pattern.finditer(source):
+            line = source[: match.start()].count("\n") + 1
+            offenders.append(f"{path.name}:{line} {match.group(1)}")
+    assert not offenders, f"retired CSS variables still referenced: {offenders}"

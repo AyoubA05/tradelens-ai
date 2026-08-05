@@ -263,11 +263,12 @@ def test_css_has_no_semantic_colored_side_borders():
     side border must resolve to a neutral structural token.
     """
     css = ds.build_css()
+    # Structural tokens only. TL_LINE_STRONG belongs here: it is the rail's
+    # load-bearing edge, and "strong" describes its weight, not a hue.
     neutral = {
-        "var(--tl-hairline)",
-        "var(--tl-mist)",
-        "var(--tl-border)",
-        "var(--tl-border-subtle)",
+        "var(--tl-line-hairline)",
+        "var(--tl-line-strong)",
+        "var(--tl-surface-elevated)",
         "var(--tl-rule)",
     }
     declarations = re.findall(r"border-(?:left|right):\s*([^;]+);", css)
@@ -593,8 +594,8 @@ def test_error_box_copy_is_legible_on_its_own_composited_surface():
 def test_error_box_is_styled_by_the_design_system():
     css = ds.build_css()
     block = css[css.index(".tl-error-box {") :][:400]
-    assert "var(--tl-danger-wash)" in block
-    assert "color: var(--tl-ink)" in block
+    assert "var(--tl-danger-dim)" in block
+    assert "color: var(--tl-content-primary)" in block
     assert "white-space: pre-wrap" in block
 
 
@@ -621,9 +622,12 @@ def test_semantic_tints_carry_primary_copy_and_a_hue_mark():
             assert mark_ratio >= 3.0, f"{name} mark is {mark_ratio:.2f}:1"
 
 
-def test_no_semantic_hue_is_used_as_text_on_a_wash_or_mist():
+def test_no_semantic_hue_is_used_as_text_on_its_own_tint():
     """Guards the rule at the CSS level, not just in the token maths: a
-    variant that sets a wash background must not also set a semantic color.
+    variant that sets a tinted background must not also set a semantic color.
+
+    The quiet grounds are the *_DIM tokens now; the light-workspace *_WASH
+    set was deleted with the rest of that palette.
     """
     css = ds.build_css()
     for variant in (
@@ -640,7 +644,7 @@ def test_no_semantic_hue_is_used_as_text_on_a_wash_or_mist():
         rule = re.search(rf"{re.escape(variant)} \{{([^}}]*)\}}", css)
         assert rule, f"{variant} has no rule"
         body = rule.group(1)
-        assert "wash" in body, f"{variant} should sit on a quiet ground"
+        assert "-dim)" in body, f"{variant} should sit on a quiet ground"
         assert "color:" not in body, f"{variant} tints its own copy"
 
 
@@ -740,15 +744,15 @@ def test_focus_ring_meets_non_text_contrast():
 def test_css_declares_the_hybrid_surface_variables():
     css = ds.build_css()
     for var in (
-        "--tl-canvas",
-        "--tl-paper",
-        "--tl-mist",
-        "--tl-ink",
-        "--tl-muted",
-        "--tl-hairline",
-        "--tl-rail",
-        "--tl-chart-stage",
-        "--tl-action",
+        "--tl-surface-canvas",
+        "--tl-surface-panel",
+        "--tl-surface-elevated",
+        "--tl-content-primary",
+        "--tl-content-secondary",
+        "--tl-line-hairline",
+        "--tl-surface-rail",
+        "--tl-surface-chart",
+        "--tl-accent-action",
         "--tl-focus",
     ):
         assert f"{var}:" in css, f"{var} not declared"
@@ -792,8 +796,8 @@ def test_type_roles_do_not_reintroduce_the_retired_face():
 def test_navigation_rail_is_dark_and_workspace_is_light():
     css = ds.build_css()
     rail = css[css.index('[data-testid="stSidebar"] {') :][:240]
-    assert "var(--tl-rail)" in rail
-    assert "background: var(--tl-canvas)" in css
+    assert "var(--tl-surface-rail)" in rail
+    assert "background: var(--tl-surface-canvas)" in css
 
 
 def test_css_styles_the_premium_primitives():

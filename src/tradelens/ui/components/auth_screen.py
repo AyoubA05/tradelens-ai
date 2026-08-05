@@ -87,15 +87,26 @@ def auth_css() -> str:
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
 }}
 /* --- native Streamlit widgets inside the auth card ---
-   These rules were written when the workspace base was light: Streamlit
-   painted labels and captions in dark ink on white, which vanished against
-   the one dark surface in the product. The base is now dark everywhere, so
-   the framework's own chrome should already agree with the card — which
-   means most of this block may now be redundant.
-   It is left in place deliberately. Removing widget styling is a visual
-   change that needs a browser to confirm, and Task 1 is a token change with
-   no browser evidence. Task 2 retargets the shell and should delete whatever
-   it can prove is unnecessary.
+   These rules were written when the workspace base was light. The base is now
+   dark everywhere, so most of this block was expected to be redundant — and
+   measured in a real browser, most of it is. With the block removed, the card,
+   inputs, labels and expander summary render *identically*: same
+   rgb(236,245,244) on rgb(16,27,32), 15.78:1, zero exceptions.
+
+   Two rules still do work, which is why the block stays:
+
+     button text   with: rgb(145,163,167)   without: rgb(236,245,244)
+     placeholder   with: rgb(145,163,167)   without: rgba(236,245,244,0.6)
+
+   The button one is load-bearing, not cosmetic. Sign-in has one filled primary
+   action; the secondary control has to stay quieter than it. Without the
+   override Streamlit paints both at full content weight and the card reads as
+   two primaries — the exact failure the rail's one-primary rule exists to
+   prevent.
+
+   Narrowing this to those two rules is a change to the auth surface, which
+   Task 13 owns; Task 2 owns the shell. Left intact deliberately rather than
+   deleted on a partial result.
    Selectors use the data-testid values verified in the browser against the
    pinned streamlit==1.50.0 DOM, not guessed class names. */
 .st-key-tl_auth_card [data-testid="stWidgetLabel"],

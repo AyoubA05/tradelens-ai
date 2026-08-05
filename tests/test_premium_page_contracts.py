@@ -186,21 +186,29 @@ def test_journal_preserves_edit_and_delete_with_confirmation():
     assert "delete_confirm" in src
 
 
-def test_trade_detail_uses_light_surface_tokens():
-    """The detail card is white paper. The dark-instrument text tokens are
-    near-white by design, so a P&L rendered with them was invisible on it —
-    seen in the browser, not in any assertion."""
+def test_trade_detail_uses_the_dark_surface_tokens():
+    """The detail card is a dark panel now, not white paper.
+
+    This test used to assert the opposite — that the near-white content
+    tokens must NOT appear here, because a P&L rendered with them was
+    invisible on a light card (found in the browser, not in an assertion).
+    The card turned dark with the rest of the product, so the same reasoning
+    now points the other way: the content tokens are exactly what belongs,
+    and the deleted light-workspace tokens are what must not come back.
+    """
     src = _src("2_Trades.py")
-    for dark in (
-        "var(--tl-text)",
-        "var(--tl-text-muted)",
-        "var(--tl-text-faint)",
-        "var(--tl-success)",
-        "var(--tl-danger)",
+    for retired in (
+        "TL_INK",
+        "TL_MUTED",
+        "TL_PAPER",
+        "TL_SUCCESS_INK",
+        "TL_DANGER_INK",
+        "var(--tl-ink)",
+        "var(--tl-paper)",
     ):
-        assert dark not in src, f"{dark} is a dark-surface token on a light card"
-    assert "var(--tl-ink)" in src
-    assert "var(--tl-muted)" in src
+        assert retired not in src, f"{retired} was deleted with the light workspace"
+    assert "TL_CONTENT_PRIMARY" in src or "var(--tl-content-primary)" in src
+    assert "TL_SUCCESS" in src and "TL_DANGER" in src
 
 
 def test_journal_never_shows_generation_cost():
@@ -705,7 +713,7 @@ def test_the_note_body_gets_the_dark_reading_surface():
     css = ds.build_css()
     assert ".st-key-tl_note_sheet" in css
     block = css[css.index(".st-key-tl_note_sheet {") :][:220]
-    assert "var(--tl-chart-stage)" in block
+    assert "var(--tl-surface-chart)" in block
 
 
 def test_confidence_is_stated_once_per_finding_not_as_a_footer():
@@ -1394,7 +1402,7 @@ def test_the_danger_zone_border_encloses_the_whole_container():
     css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
     keyed = re.search(r"\.st-key-tl_danger_zone \{([^{}]*)\}", css)
     assert keyed, "the keyed container carries no rule"
-    assert "border: 1px solid var(--tl-danger-ink)" in keyed.group(1)
+    assert "border: 1px solid var(--tl-danger)" in keyed.group(1)
     # …and the heading markup does not draw its own box
     heading = re.search(r"(?<![\w-])\.tl-danger-zone \{([^{}]*)\}", css)
     if heading:
@@ -1651,7 +1659,7 @@ def test_disabled_controls_keep_streamlits_dimming():
             continue
         # the only permitted disabled recolour is the danger zone stepping
         # its own buttons DOWN to the muted token, never up to ink
-        assert "var(--tl-ink)" not in body, selector.strip()
+        assert "var(--tl-content-primary)" not in body, selector.strip()
 
 
 def test_baseline_legibility_never_sits_inside_a_hover_query():

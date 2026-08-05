@@ -168,7 +168,7 @@ def enough_categories(
     return int(df[column].dropna().nunique()) >= minimum
 
 
-def render_data_state(title: str, body: str, icon: str = "◆") -> None:
+def render_data_state(title: str, body: str, icon: str = "insights") -> None:
     """Render the shared low-data explanation in place of a chart.
 
     Deliberately compact: an explanation should not occupy the canvas the

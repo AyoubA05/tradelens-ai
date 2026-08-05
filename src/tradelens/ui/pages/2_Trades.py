@@ -597,13 +597,13 @@ if selected_id not in ids:
 def _detail_header_html(trade) -> str:
     pnl = trade.pnl
     if pnl is None:
-        pnl_color = "var(--tl-muted)"
+        pnl_color = "var(--tl-content-secondary)"
     elif pnl > 0:
-        pnl_color = "var(--tl-success-ink)"
+        pnl_color = "var(--tl-success)"
     elif pnl < 0:
-        pnl_color = "var(--tl-danger-ink)"
+        pnl_color = "var(--tl-danger)"
     else:
-        pnl_color = "var(--tl-ink)"
+        pnl_color = "var(--tl-content-primary)"
     chips = render_badge(humanize(trade.session) or "—", "neutral")
     chips += _result_badge_html(trade.result)
     return (
@@ -626,12 +626,12 @@ def _price_grid_html(trade) -> str:
             f"<span style='font-family:var(--tl-font-mono)'>{escape(str(value))}"
             "</span>"
             if value is not None
-            else "<span style='color:var(--tl-muted)'>—</span>"
+            else "<span style='color:var(--tl-content-secondary)'>—</span>"
         )
         return (
             '<div style="display:flex;justify-content:space-between;'
             'gap:16px;padding:3px 0">'
-            f'<span style="color:var(--tl-muted)">{escape(label)}</span>'
+            f'<span style="color:var(--tl-content-secondary)">{escape(label)}</span>'
             f"{shown}</div>"
         )
 

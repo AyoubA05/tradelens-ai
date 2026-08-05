@@ -666,7 +666,7 @@ def _planned_r() -> "float | None":
     return None
 
 
-_FAINT = "color:var(--tl-text-faint)"
+_FAINT = "color:var(--tl-content-secondary)"
 
 
 def _r_readout(label: str, value: "float | None") -> str:
@@ -932,7 +932,7 @@ def _ticket_section(title: str, rows: list) -> tuple:
     body = "".join(
         '<div style="display:flex;justify-content:space-between;gap:16px;'
         'padding:3px 0">'
-        f'<span style="color:var(--tl-muted);font-size:12px;'
+        f'<span style="color:var(--tl-content-secondary);font-size:12px;'
         f'text-transform:uppercase;letter-spacing:0.04em">{escape(label)}</span>'
         f'<span style="text-align:right">{value}</span></div>'
         for label, value in filled
@@ -1062,7 +1062,7 @@ def _ticket_html(data: dict) -> str:
     summary = []
     if missing:
         summary.extend(
-            f'<div style="padding:3px 0;color:var(--tl-warning-ink)">{escape(m)}</div>'
+            f'<div style="padding:3px 0;color:var(--tl-warning)">{escape(m)}</div>'
             for m in missing
         )
     if blanks:

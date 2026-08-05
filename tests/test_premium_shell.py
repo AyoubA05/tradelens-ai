@@ -375,7 +375,7 @@ def test_mobile_bar_outranks_streamlits_markdown_anchor_rule():
         :520
     ]
     assert "text-decoration: none" in block
-    assert "color: var(--tl-text-muted)" in block
+    assert "color: var(--tl-content-secondary)" in block
 
 
 def test_the_rail_holds_exactly_one_filled_action():
@@ -507,7 +507,7 @@ def test_settings_stays_visually_secondary_inside_more():
     css = ds.build_css()
     quiet = css[css.index(".tl-mobile-more-item.is-quiet") :]
     quiet = quiet[: quiet.index("}")]
-    assert "var(--tl-text-muted)" in quiet
+    assert "var(--tl-content-secondary)" in quiet
     assert "border-top" in quiet, "the utility is separated, not just dimmed"
 
 
