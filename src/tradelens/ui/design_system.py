@@ -2597,6 +2597,81 @@ def build_css() -> str:
   }}
 }}
 
+/* === OVERVIEW BAND 4 — ranked performance lists ===
+   A third form again: not a strip, not a panel of figures, but a short
+   ordered list where the rank marker only appears when ranking is earned.
+   Ranked lists rather than pie charts — a trader comparing session P&L needs
+   to read magnitudes, not compare silhouettes.
+
+   The ordinal is drawn from data-rank rather than <ol>'s own numbering, so a
+   list that may not be ranked simply carries no marker and CSS never has to
+   hide one. */
+.tl-ranked {{
+  background: var(--tl-surface-panel);
+  border: 1px solid var(--tl-line-hairline);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-4) var(--tl-space-5);
+}}
+.tl-ranked-title {{
+  margin: 0 0 var(--tl-space-3) 0;
+  font-family: var(--tl-font-ui);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tl-content-secondary);
+}}
+.tl-ranked-rows {{
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: none;
+}}
+.tl-ranked-row {{
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "label value" "sample value";
+  gap: 0 var(--tl-space-4);
+  padding: var(--tl-space-3) 0;
+  border-bottom: 1px solid var(--tl-line-hairline);
+}}
+.tl-ranked-row:last-child {{
+  border-bottom: none;
+}}
+.tl-ranked-label {{
+  grid-area: label;
+  color: var(--tl-content-primary);
+  font-size: 14px;
+}}
+/* The leader is marked with a rule, not a medal: this is a ranking of
+   evidence, not a scoreboard. */
+.tl-ranked-row[data-rank="1"] .tl-ranked-label {{
+  font-weight: 600;
+}}
+.tl-ranked-row[data-rank="1"] .tl-ranked-label::before {{
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 12px;
+  margin-right: var(--tl-space-2);
+  vertical-align: -1px;
+  background: var(--tl-accent-action);
+}}
+.tl-ranked-value {{
+  grid-area: value;
+  align-self: center;
+  font-family: var(--tl-font-mono);
+  font-size: 15px;
+  color: var(--tl-content-primary);
+  font-variant-numeric: tabular-nums;
+}}
+.tl-ranked-sample {{
+  grid-area: sample;
+  font-family: var(--tl-font-mono);
+  font-size: 11px;
+  color: var(--tl-content-secondary);
+  font-variant-numeric: tabular-nums;
+}}
+
 /* === CONTROLS — the eight interaction states (spec 10) ===
    Every selector below was observed in the live DOM on streamlit==1.50.0
    before it was written. Controls this product never renders — tabs,

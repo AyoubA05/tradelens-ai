@@ -21,8 +21,10 @@ import pandas as pd
 
 from src.tradelens.services.metrics import (
     _MIN_TRADES_FOR_CONSISTENCY,
+    compute_basic_metrics,
     compute_equity_curve,
     compute_max_drawdown,
+    compute_streaks,
     consistency_score,
     edge_leak_summary,
     rule_adherence_rate,
@@ -176,3 +178,167 @@ def discipline_measures(df) -> List[DisciplineMeasure]:
         DisciplineMeasure("Edge leak", leak_value, leak_sample, note=leak_note),
         DisciplineMeasure("Consistency", consistency_value, consistency_sample),
     ]
+
+
+@dataclass(frozen=True)
+class RankedRow:
+    """One row of a ranked performance list. Values arrive pre-formatted.
+
+    ``sample`` is per row, not per list: a session with fourteen trades and one
+    with two do not deserve the same weight in a reader's head, and the only
+    way to say so is to put both counts on the page.
+    """
+
+    label: str
+    value: str
+    sample: str
+
+
+def render_ranked_list(title: str, rows: Sequence[RankedRow], *, rankable: bool) -> str:
+    """Band 4: what repeats, as a ranked list rather than a pie.
+
+    Ranked lists, not pie charts — a trader comparing session P&L needs to read
+    magnitudes, not compare silhouettes. A radar was considered and rejected for
+    the same reason: its own guidance sends precise comparison to a bar.
+
+    ``rankable=False`` suppresses every ordinal marker. The caller passes
+    ``not leading.is_only_category``, because with one category present nothing
+    may be called strongest or weakest — a single bar proves nothing, and
+    dressing it as a finding is the trust failure the 2026-07-21 audit scored
+    4.5/10.
+    """
+    if not rows:
+        return ""
+
+    items = []
+    for index, row in enumerate(rows, start=1):
+        rank = f' data-rank="{index}"' if rankable else ""
+        items.append(
+            f'<li class="tl-ranked-row"{rank}>'
+            f'<span class="tl-ranked-label">{escape(str(row.label))}</span>'
+            f'<span class="tl-ranked-value">{escape(str(row.value))}</span>'
+            f'<span class="tl-ranked-sample">{escape(str(row.sample))}</span>'
+            "</li>"
+        )
+    return (
+        '<div class="tl-ranked">'
+        f'<h4 class="tl-ranked-title">{escape(str(title))}</h4>'
+        f'<ol class="tl-ranked-rows">{"".join(items)}</ol>'
+        "</div>"
+    )
+
+
+@dataclass(frozen=True)
+class FlankFigure:
+    """One figure beside the equity curve. Pre-formatted, like the rest."""
+
+    label: str
+    value: str
+    detail: str
+
+
+def render_flanking_figures(figures: Sequence[FlankFigure]) -> str:
+    """Band 3's supporting form: a quiet vertical stack beside the chart.
+
+    Not a KPI strip and not the discipline panel — those are bands 1 and 2, and
+    reusing either here would collapse three bands into one rhythm. These
+    describe the SHAPE of the sequence the curve draws rather than restating
+    band 1's totals, which is why streaks and averages live here and net P&L
+    does not.
+    """
+    if not figures:
+        return ""
+    rows = "".join(
+        '<div class="tl-flank-row">'
+        f'<span class="tl-flank-label">{escape(str(f.label))}</span>'
+        f'<span class="tl-flank-value">{escape(str(f.value))}</span>'
+        f'<span class="tl-flank-detail">{escape(str(f.detail))}</span>'
+        "</div>"
+        for f in figures
+    )
+    return f'<div class="tl-flank">{rows}</div>'
+
+
+def trajectory_figures(df) -> List[FlankFigure]:
+    """Band 3: how did this standing come about?
+
+    Streaks carry their own word — "winning" / "losing" — so the meaning does
+    not depend on a colour a reader may not perceive.
+
+    Average win and average loss return 0.0 from the service when there are no
+    wins or no losses (spec D10). A zero average win is not an average of zero;
+    it is the absence of any win, and saying "$0.00" would report a result the
+    trader never had.
+    """
+    if df is None or df.empty:
+        return []
+
+    streaks = compute_streaks(df)
+    metrics = compute_basic_metrics(df)
+
+    # current_streak is SIGNED: -1 means one loss, not minus one trade. The
+    # magnitude is the run length and streak_type carries the direction, so
+    # the word does the work a colour would otherwise have to.
+    current = int(streaks.get("current_streak") or 0)
+    kind = {"win": "winning", "loss": "losing"}.get(
+        str(streaks.get("streak_type") or "").strip().lower(), ""
+    )
+    if current and kind:
+        current_value = f"{abs(current)} {kind}"
+        current_detail = "in a row, most recent first"
+    else:
+        current_value = "None"
+        current_detail = "no run in progress"
+
+    wins = int(metrics.get("wins") or 0)
+    losses = int(metrics.get("losses") or 0)
+
+    return [
+        FlankFigure("Current streak", current_value, current_detail),
+        FlankFigure(
+            "Best run",
+            f"{int(streaks.get('max_win_streak') or 0)} winning",
+            f"longest losing run {int(streaks.get('max_loss_streak') or 0)}",
+        ),
+        FlankFigure(
+            "Average win",
+            money(metrics.get("avg_win")) if wins else "No wins yet",
+            f"{wins} winning trade{'s' if wins != 1 else ''}",
+        ),
+        FlankFigure(
+            "Average loss",
+            money(metrics.get("avg_loss")) if losses else "No losses yet",
+            f"{losses} losing trade{'s' if losses != 1 else ''}",
+        ),
+    ]
+
+
+def ranked_rows(breakdown, *, label_column: str, labels=None) -> List[RankedRow]:
+    """Turn a services breakdown frame into ranked rows, richest first.
+
+    The breakdown decides the numbers; this only words them. Rows with no
+    category label are dropped rather than rendered as a blank rank — an
+    unlabelled row is a data gap, not a category.
+    """
+    if breakdown is None or getattr(breakdown, "empty", True):
+        return []
+    if label_column not in breakdown.columns or "total_pnl" not in breakdown.columns:
+        return []
+
+    frame = breakdown.copy()
+    frame = frame[frame[label_column].notna()]
+    frame = frame[frame[label_column].astype(str).str.strip() != ""]
+    if frame.empty:
+        return []
+
+    frame = frame.sort_values("total_pnl", ascending=False)
+    rows = []
+    for _, row in frame.iterrows():
+        count = int(row["trades"]) if "trades" in frame.columns else 0
+        raw = str(row[label_column])
+        # Stored keys are machine-shaped ("ny_am"). A trader reads sessions by
+        # their names, so a caller may pass the same label map the ledger uses
+        # rather than have two vocabularies for one dimension.
+        label = (labels or {}).get(raw, raw)
+        rows.append(RankedRow(label, money(row["total_pnl"]), f"n={count}"))
+    return rows

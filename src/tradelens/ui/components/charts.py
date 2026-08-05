@@ -693,7 +693,19 @@ def session_dow_heatmap(df: pd.DataFrame) -> go.Figure:
             ),
             xgap=3,
             ygap=3,
-            colorbar=dict(title="Net $"),
+            # Numeric ticks, not a bare ramp: a reader has to be able to map
+            # a cell back to a magnitude rather than guess from intensity.
+            colorbar=dict(
+                title="Net $",
+                tickvals=[-cmax, -cmax / 2, 0, cmax / 2, cmax],
+                ticktext=[
+                    f"-${cmax:,.0f}",
+                    f"-${cmax / 2:,.0f}",
+                    "$0",
+                    f"+${cmax / 2:,.0f}",
+                    f"+${cmax:,.0f}",
+                ],
+            ),
         )
     )
     fig.update_layout(
@@ -726,7 +738,19 @@ def calendar_heatmap_chart(daily: pd.DataFrame, year: int, month: int) -> go.Fig
             elif day in pnl_by_day:
                 pnl, trades = pnl_by_day[day]
                 zr.append(pnl)
-                tr.append(f"<b>{day}</b><br>${pnl:,.0f}<br>{trades}t")
+                # A sign glyph, not just a colour. The heatmap form is graded
+                # only B for accessibility precisely because colour usually
+                # carries everything, so win / loss / breakeven each get a mark
+                # that survives greyscale and colour-blindness. A no-trade day
+                # gets no figure at all — an empty day is information, and
+                # printing $0 there would invent a breakeven.
+                if pnl > 0:
+                    mark = "+"
+                elif pnl < 0:
+                    mark = "\u2212"  # true minus sign, not a hyphen
+                else:
+                    mark = "="
+                tr.append(f"<b>{day}</b><br>{mark}${abs(pnl):,.0f}<br>{trades}t")
             else:
                 zr.append(None)
                 tr.append(f"<b>{day}</b>")
@@ -750,7 +774,21 @@ def calendar_heatmap_chart(daily: pd.DataFrame, year: int, month: int) -> go.Fig
             hoverinfo="text",
             xgap=3,
             ygap=3,
-            colorbar=dict(title="Net $"),
+            # Numeric ticks, not a bare ramp: a reader has to be able to map a
+            # cell back to a magnitude rather than guess from intensity. The
+            # session heatmap above carries the same legend for the same
+            # reason — one rule, both grids.
+            colorbar=dict(
+                title="Net $",
+                tickvals=[-cmax, -cmax / 2, 0, cmax / 2, cmax],
+                ticktext=[
+                    f"-${cmax:,.0f}",
+                    f"-${cmax / 2:,.0f}",
+                    "$0",
+                    f"+${cmax / 2:,.0f}",
+                    f"+${cmax:,.0f}",
+                ],
+            ),
         )
     )
     fig.update_yaxes(autorange="reversed")

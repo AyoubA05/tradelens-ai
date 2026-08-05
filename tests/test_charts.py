@@ -267,3 +267,76 @@ def test_a_plain_staged_chart_keeps_the_tight_bottom_margin():
     from src.tradelens.ui.components.charts import apply_chart_stage
 
     assert apply_chart_stage(go.Figure()).layout.margin.b == 8
+
+
+# ---------------------------------------------------------------------------
+# Task 6 — calendar heatmap rules (spec §5.5)
+# ---------------------------------------------------------------------------
+def _daily_frame(values):
+    """calendar_daily_pnl's real shape: day, net_pnl, trades. A None value
+    means a day with no trade, which the grid must render as its own state
+    rather than as a zero."""
+    import pandas as pd
+
+    rows = [
+        {
+            "trade_date": f"2026-08-{i + 1:02d}",
+            "day": i + 1,
+            "net_pnl": 0.0 if v is None else v,
+            "trades": 0 if v is None else 1,
+        }
+        for i, v in enumerate(values)
+        if v is not None
+    ]
+    return pd.DataFrame(rows, columns=["trade_date", "day", "net_pnl", "trades"])
+
+
+def test_the_calendar_heatmap_uses_a_divergent_scale_with_a_neutral_zero():
+    """Signed data cannot use a one-directional gradient: it makes a large
+    loss and a large gain read as the same intensity (spec §5.5)."""
+    from src.tradelens.ui.components.charts import calendar_heatmap_chart
+
+    fig = calendar_heatmap_chart(_daily_frame([-300.0, 0.0, 250.0]), 2026, 8)
+    trace = fig.data[0]
+    assert trace.zmid == 0
+    assert len(trace.colorscale) >= 3
+
+
+def test_the_heatmap_legend_carries_numeric_ticks_not_a_bare_ramp():
+    """A reader must be able to map a cell back to a magnitude."""
+    from src.tradelens.ui.components.charts import calendar_heatmap_chart
+
+    fig = calendar_heatmap_chart(_daily_frame([-300.0, 250.0]), 2026, 8)
+    bar = fig.data[0].colorbar
+    assert bar.tickvals is not None and len(bar.tickvals) >= 3
+
+
+def test_every_day_kind_carries_a_non_colour_cue():
+    """The heatmap form is graded only B for accessibility precisely because
+    colour usually carries everything. Positive, negative, breakeven and
+    no-trade each need a cue that survives greyscale."""
+    from src.tradelens.ui.components.charts import calendar_heatmap_chart
+
+    fig = calendar_heatmap_chart(_daily_frame([120.0, -80.0, 0.0]), 2026, 8)
+    text = " ".join(str(t) for row in fig.data[0].text for t in row)
+    assert "+" in text, "no cue for a winning day"
+    assert "−" in text, "no cue for a losing day"
+    assert "=" in text, "no cue for a breakeven day"
+
+
+def test_exact_values_are_reachable_without_hover():
+    from src.tradelens.ui.components.charts import calendar_heatmap_chart
+
+    fig = calendar_heatmap_chart(_daily_frame([120.0]), 2026, 8)
+    assert fig.data[0].texttemplate or fig.data[0].text is not None
+
+
+def test_a_no_trade_day_is_not_rendered_as_a_zero():
+    """An empty calendar day means no trade was taken. Showing $0 there would
+    invent a breakeven the trader never had."""
+    from src.tradelens.ui.components.charts import calendar_heatmap_chart
+
+    fig = calendar_heatmap_chart(_daily_frame([120.0]), 2026, 8)
+    flat = [t for row in fig.data[0].text for t in row]
+    day_two = [t for t in flat if t.startswith("<b>2</b>")]
+    assert day_two and "$" not in day_two[0]

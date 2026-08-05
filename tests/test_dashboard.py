@@ -273,9 +273,51 @@ def test_todays_and_weekly_pnl_survive_in_the_brief():
     assert "_render_today_brief" in src
 
 
-def test_overview_is_a_two_column_composition():
+def test_the_overview_reads_as_five_bands_in_the_spec_order():
+    """Spec §5.1. The Overview is a fixed editorial composition, and the
+    reading order IS the argument: where do I stand, can I trust it, how did I
+    get here, what repeats, what do I do about it.
+
+    This replaces a test that pinned the old two-column layout. That layout put
+    the calendar beside the curve and had no place for discipline or recurring
+    edge, so it could not express the argument.
+    """
     src = APP_PATH.read_text(encoding="utf-8")
-    assert "_brief_col" in src and "_chart_col" in src
+    bands = [
+        "render_kpi_strip(_overview_metrics(df))",  # 1 current standing
+        "render_discipline_panel(discipline_measures(df))",  # 2 risk/discipline
+        "render_flanking_figures(trajectory_figures(df))",  # 3 trajectory
+        "render_ranked_list(",  # 4 recurring edge
+        "render_editorial_readout(",  # 5 next review action
+    ]
+    positions = []
+    for marker in bands:
+        assert marker in src, f"band marker missing: {marker}"
+        positions.append(src.index(marker))
+    assert positions == sorted(positions), "the five bands are out of reading order"
+
+
+def test_each_band_uses_a_different_form():
+    """The anti-grid rule is structural: five bands, five forms. If two bands
+    shared a builder the Overview would become the wall of equal cards the
+    direction forbids."""
+    src = APP_PATH.read_text(encoding="utf-8")
+    builders = (
+        "render_kpi_strip",
+        "render_discipline_panel",
+        "render_flanking_figures",
+        "render_ranked_list",
+        "render_editorial_readout",
+    )
+    assert len(set(builders)) == 5
+    for builder in builders:
+        assert builder in src
+
+
+def test_the_calendar_survived_the_recomposition():
+    """Trading days moved into band 4 with the rest of what repeats — it must
+    not have been dropped on the way."""
+    src = APP_PATH.read_text(encoding="utf-8")
     assert "render_trade_calendar" in src
 
 

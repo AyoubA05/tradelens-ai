@@ -29,6 +29,7 @@ from src.tradelens.services.metrics import (  # noqa: E402
     compute_expectancy,
     compute_profit_factor_raw,
     current_week_pnl,
+    compute_breakdown,
     daily_equity_curve,
     get_last_n_trades,
     today_pnl,
@@ -48,13 +49,19 @@ from src.tradelens.ui.components.auth import (  # noqa: E402
 )
 from src.tradelens.ui.components.charts import equity_curve_chart  # noqa: E402
 from src.tradelens.ui.components.data_state import (  # noqa: E402
+    MIN_DATED_POINTS,
     leading_category,
     render_data_state,
     sample_state,
+    show_dated_instrument,
 )
 from src.tradelens.ui.components.overview_bands import (  # noqa: E402
     discipline_measures,
+    ranked_rows,
     render_discipline_panel,
+    render_flanking_figures,
+    render_ranked_list,
+    trajectory_figures,
 )
 from src.tradelens.ui.components.sidebar import (  # noqa: E402
     render_sidebar,
@@ -411,6 +418,11 @@ st.markdown(
 # ── Band 1: current standing. One ruled KPI strip, not six cards ──
 st.markdown(render_kpi_strip(_overview_metrics(df)), unsafe_allow_html=True)
 
+# Today / this week demote to a quieter second strip inside band 1 — they
+# answer a different question from the five headline measures above.
+if not df.empty:
+    _render_today_brief(df)
+
 # ── Band 2: can this standing be trusted? ─────────────────────────
 # A different FORM from band 1 on purpose — figure above sample, one ruled
 # panel. Five bands, five forms is what keeps the Overview an argument
@@ -463,87 +475,149 @@ if uid is not None:
 # Two columns, deliberately unequal. The chart is the dominant instrument;
 # the brief and calendar are the context you read it against.
 _state = sample_state(df)
-_brief_col, _chart_col = st.columns([1, 1.6], gap="large")
 
-with _brief_col:
-    # "Where you stand", not "Today": the cells below are already labelled
-    # TODAY and THIS WEEK, and a heading that repeats its own first cell is
-    # chrome, not structure.
-    st.markdown(render_section_header("Where you stand"), unsafe_allow_html=True)
-    _render_today_brief(df)
+# ── Band 3: how did this standing come about? ─────────────────────
+# The dominant instrument on the page, flanked by figures that describe the
+# SHAPE of the sequence rather than restating band 1's totals. A third form
+# again — chart plus a quiet stack, not a strip and not a panel.
+if not df.empty:
+    st.markdown(
+        render_section_header(
+            "Performance trajectory",
+            "The path the account took to get here.",
+        ),
+        unsafe_allow_html=True,
+    )
+    _chart_col, _flank_col = st.columns([2.4, 1], gap="large")
+
+    with _chart_col:
+        eq = daily_equity_curve(df)
+        if not show_dated_instrument(_state):
+            # Below four populated trading days there is no shape to read, and
+            # a dominant chart drawn through two dots claims a trend the sample
+            # has not earned. State the standing and say what unlocks it.
+            _needed = max(0, MIN_DATED_POINTS - _state.dated_points)
+            render_data_state(
+                "Not enough dated trades for a curve",
+                f"{_needed} more trading "
+                f"{'day' if _needed == 1 else 'days'} will unlock the equity "
+                "curve. The figures above already reflect every trade logged.",
+                "show_chart",
+            )
+        elif not eq.empty:
+            fig = equity_curve_chart(eq)
+            fig.update_layout(
+                template=PLOTLY_TEMPLATE,
+                height=360,
+                margin=dict(l=8, r=8, t=8, b=8),
+            )
+            _day_counts = df.groupby("trade_date").size()
+            fig.update_traces(
+                customdata=eq["trade_date"].map(_day_counts).fillna(0).astype(int),
+                hovertemplate=(
+                    "%{x}<br>Cumulative P&L: $%{y:,.2f}"
+                    "<br>Trades: %{customdata}<extra></extra>"
+                ),
+            )
+            with st.container(border=True):
+                # theme=None keeps the TradeLens template's chart stage; the
+                # default repaints the figure in Streamlit's own theme.
+                st.plotly_chart(
+                    fig,
+                    use_container_width=True,
+                    theme=None,
+                    config={"displayModeBar": False},
+                )
+        else:
+            st.markdown(
+                render_empty_state(
+                    "show_chart",
+                    "No equity data yet",
+                    "Log trades to build your equity curve.",
+                ),
+                unsafe_allow_html=True,
+            )
+
+    with _flank_col:
+        st.markdown(
+            render_flanking_figures(trajectory_figures(df)), unsafe_allow_html=True
+        )
+
+# ── Band 4: what keeps repeating? ─────────────────────────────────
+# Ranked lists, not pie charts: a trader comparing session P&L reads
+# magnitudes, not silhouettes. Nothing may be called strongest while only one
+# category is present — leading_category owns that decision.
+if not df.empty:
+    st.markdown(
+        render_section_header(
+            "Recurring edge",
+            "Where the account repeats itself, and how large the sample is.",
+        ),
+        unsafe_allow_html=True,
+    )
+    _session_col, _setup_col = st.columns(2, gap="large")
+
+    with _session_col:
+        # compute_breakdown, not by_session/by_setup_type: those are documented
+        # as outcome-composition helpers with no P&L column, and the spec
+        # ranks these lists by net P&L. compute_breakdown returns exactly
+        # that, already sorted, for any column.
+        # "killzone" is what this product records — there is no `session`
+        # column on the Overview frame, and the spec names killzone_performance
+        # as the alternative for exactly this reason. Labels come from the same
+        # map the ledger uses so one dimension does not get two vocabularies.
+        _session_rows = ranked_rows(
+            compute_breakdown(df, "killzone"),
+            label_column="killzone",
+            labels=KILLZONE_LABELS,
+        )
+        _session_lead = leading_category(df, "killzone")
+        st.markdown(
+            render_ranked_list(
+                "Session performance",
+                _session_rows,
+                rankable=bool(_session_lead) and not _session_lead.is_only_category,
+            )
+            or render_empty_state(
+                "schedule",
+                "No session data yet",
+                "Tag a killzone when logging to compare sessions.",
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with _setup_col:
+        _setup_rows = ranked_rows(
+            compute_breakdown(df, "setup_type"), label_column="setup_type"
+        )
+        _setup_lead = leading_category(df, "setup_type")
+        st.markdown(
+            render_ranked_list(
+                "Setup performance",
+                _setup_rows,
+                rankable=bool(_setup_lead) and not _setup_lead.is_only_category,
+            )
+            or render_empty_state(
+                "extension",
+                "No setup data yet",
+                "Record a setup type to see which ones repeat.",
+            ),
+            unsafe_allow_html=True,
+        )
+
     st.markdown(render_section_header("Trading days"), unsafe_allow_html=True)
     render_trade_calendar(df, compact=True)
     st.page_link("pages/2_Trades.py", label="Open the full journal →")
 
-with _chart_col:
-    st.markdown(render_section_header("Equity curve"), unsafe_allow_html=True)
-    eq = daily_equity_curve(df)
-    if not _state.show_dominant_series:
-        # Below four dated points there is no shape to read, and a dominant
-        # chart drawn through two dots claims a trend the sample has not
-        # earned. State the standing instead, and say what unlocks the curve.
-        _needed = max(0, 4 - _state.dated_points)
-        render_data_state(
-            "Not enough dated trades for a curve",
-            f"{_needed} more trading "
-            f"{'day' if _needed == 1 else 'days'} will unlock the equity curve. "
-            "The figures above already reflect every trade logged.",
-            "show_chart",
-        )
-    elif not eq.empty:
-        fig = equity_curve_chart(eq)
-        # Colors/grid/fonts come from the shared template (plotly default);
-        # only size and margins are page-specific.
-        fig.update_layout(
-            template=PLOTLY_TEMPLATE,
-            height=360,
-            margin=dict(l=8, r=8, t=8, b=8),
-        )
-        # Hover: date, cumulative P&L, and how many trades that day.
-        _day_counts = df.groupby("trade_date").size()
-        fig.update_traces(
-            customdata=eq["trade_date"].map(_day_counts).fillna(0).astype(int),
-            hovertemplate=(
-                "%{x}<br>Cumulative P&L: $%{y:,.2f}"
-                "<br>Trades: %{customdata}<extra></extra>"
-            ),
-        )
-        with st.container(border=True):
-            # plotly_chart has no width= on streamlit 1.50 — use_container_width
-            # stays here until the pin bumps (unlike buttons/images/dataframes).
-            # theme=None keeps the TradeLens template's dark chart stage; the
-            # default theme="streamlit" repaints the figure in the app's own
-            # (now light) theme, which put bright teal marks on near-white.
-            st.plotly_chart(
-                fig,
-                use_container_width=True,
-                theme=None,
-                config={"displayModeBar": False},
-            )
-    else:
-        st.markdown(
-            render_empty_state(
-                "show_chart",
-                "No equity data yet",
-                "Log trades to build your equity curve.",
-            ),
-            unsafe_allow_html=True,
-        )
+# One editorial reading of the period, with its own evidence.
+_observation = _overview_observation(df)
+if _observation:
+    _title, _body, _evidence = _observation
+    st.markdown(
+        render_editorial_readout(_title, _body, _evidence),
+        unsafe_allow_html=True,
+    )
 
-    # One editorial reading of the period, with its own evidence.
-    _observation = _overview_observation(df)
-    if _observation:
-        _title, _body, _evidence = _observation
-        st.markdown(
-            render_editorial_readout(_title, _body, _evidence),
-            unsafe_allow_html=True,
-        )
-
-
-# ── Recent trades — a quiet ledger beneath the primary panel ──────
-# bottom alignment: the section header carries a top margin the bare link
-# does not, so a default top-aligned row leaves the link floating above the
-# heading it belongs to.
 _rt_head, _rt_link = st.columns([5, 1], vertical_alignment="bottom")
 _rt_head.markdown(render_section_header("Recent trades"), unsafe_allow_html=True)
 _rt_link.page_link("pages/2_Trades.py", label="View all →")

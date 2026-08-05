@@ -116,3 +116,147 @@ def test_a_flat_curve_reports_no_drawdown_rather_than_negative_zero():
     df = pd.DataFrame({"trade_date": ["2026-08-01"], "pnl": [5.0]})
     drawdown = [m for m in discipline_measures(df) if m.label == "Max drawdown"][0]
     assert drawdown.value == "$0.00"
+
+
+# ---------------------------------------------------------------------------
+# Task 6 — band 4's ranked lists
+# ---------------------------------------------------------------------------
+from src.tradelens.ui.components.overview_bands import (  # noqa: E402
+    RankedRow,
+    render_ranked_list,
+)
+
+
+def test_each_row_carries_its_own_sample_size():
+    html = render_ranked_list(
+        "Session performance",
+        [RankedRow("London", "+$820.00", "n=14"), RankedRow("NY", "-$110.00", "n=6")],
+        rankable=True,
+    )
+    assert "n=14" in html and "n=6" in html
+
+
+def test_one_category_is_never_called_strongest():
+    """leading_category.is_only_category owns this decision (spec §5.5). One
+    bar proves nothing, and saying so in an editorial voice is how an
+    interface starts overstating what the journal knows."""
+    html = render_ranked_list(
+        "Setup performance",
+        [RankedRow("FVG", "+$420.00", "n=9")],
+        rankable=False,
+    )
+    lowered = html.lower()
+    for word in ("strongest", "weakest", "best", "worst", "top"):
+        assert word not in lowered
+
+
+def test_a_rankable_list_marks_its_leader():
+    html = render_ranked_list(
+        "Session performance",
+        [RankedRow("London", "+$820.00", "n=14"), RankedRow("NY", "-$110.00", "n=6")],
+        rankable=True,
+    )
+    assert 'data-rank="1"' in html
+
+
+def test_an_unrankable_list_carries_no_ordinal_marker():
+    html = render_ranked_list(
+        "Setup performance", [RankedRow("FVG", "+$420.00", "n=9")], rankable=False
+    )
+    assert "data-rank" not in html
+
+
+def test_ranked_rows_escape_caller_values():
+    html = render_ranked_list("S", [RankedRow("<b>x</b>", "1", "n=1")], rankable=False)
+    assert "<b>x</b>" not in html
+    assert "&lt;b&gt;" in html
+
+
+def test_an_empty_ranked_list_renders_nothing():
+    assert render_ranked_list("Session performance", [], rankable=True) == ""
+
+
+# ---------------------------------------------------------------------------
+# Task 6 — band 3's flanking figures
+# ---------------------------------------------------------------------------
+def _streak_frame():
+    import pandas as pd
+
+    return pd.DataFrame(
+        {
+            "trade_date": [f"2026-08-{d:02d}" for d in range(1, 6)],
+            "pnl": [10.0, -4.0, 2.0, 8.0, -1.0],
+            "result": ["Win", "Loss", "Win", "Win", "Loss"],
+        }
+    )
+
+
+def _flank(df):
+    from src.tradelens.ui.components.overview_bands import trajectory_figures
+
+    return {f.label: f for f in trajectory_figures(df)}
+
+
+def test_a_streak_carries_its_direction_as_a_word_not_only_a_sign():
+    """current_streak is signed — -1 is one loss, not minus one trade. Colour
+    may not be the only cue, so the word carries it."""
+    current = _flank(_streak_frame())["Current streak"]
+    assert current.value == "1 losing"
+
+
+def test_a_winning_streak_reads_as_winning():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "trade_date": ["2026-08-01", "2026-08-02"],
+            "pnl": [5.0, 6.0],
+            "result": ["Win", "Win"],
+        }
+    )
+    assert _flank(df)["Current streak"].value == "2 winning"
+
+
+def test_no_wins_reads_as_no_wins_yet_never_as_zero():
+    """avg_win returns 0.0 with no wins (spec D10). A zero average win is not
+    an average of zero — it is the absence of any win."""
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "trade_date": ["2026-08-01", "2026-08-02"],
+            "pnl": [-5.0, -6.0],
+            "result": ["Loss", "Loss"],
+        }
+    )
+    figures = _flank(df)
+    assert figures["Average win"].value == "No wins yet"
+    assert figures["Average loss"].value.startswith("-$")
+
+
+def test_no_losses_reads_as_no_losses_yet():
+    import pandas as pd
+
+    df = pd.DataFrame(
+        {
+            "trade_date": ["2026-08-01"],
+            "pnl": [5.0],
+            "result": ["Win"],
+        }
+    )
+    assert _flank(df)["Average loss"].value == "No losses yet"
+
+
+def test_band_three_does_not_restate_band_one():
+    """Flanking figures describe the SHAPE of the sequence. Net P&L, win rate
+    and trade count belong to band 1 and must not appear again."""
+    labels = set(_flank(_streak_frame()))
+    assert labels == {"Current streak", "Best run", "Average win", "Average loss"}
+
+
+def test_flanking_figures_are_empty_for_an_empty_frame():
+    import pandas as pd
+
+    from src.tradelens.ui.components.overview_bands import trajectory_figures
+
+    assert trajectory_figures(pd.DataFrame()) == []
