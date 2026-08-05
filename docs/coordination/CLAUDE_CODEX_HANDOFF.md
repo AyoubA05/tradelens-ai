@@ -20,33 +20,20 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `TASK 3 COMPLETE AND AMENDED — BLOCKED ON TASK 4 (CODEX)`
-- Last completed work: **Task 3 accuracy amendment** (`16a81ee`) — test naming
-  and comments only; the control CSS is byte-identical to Task 3's `5a03834`.
-  The Task 1 compatibility bridge is deleted, 274 CSS variable references are
-  repointed at the role tokens, the rail draws a strong edge, and every Phase 1
-  D9 empty-state call site uses a Material ligature. Task 1 is `dbae906` + `0b40b2e`.
+- Current phase: `PHASE 2 TASK 4 COMPLETE — CLAUDE UNBLOCKED FOR TASKS 5–17`
+- Last completed work: **Task 4 service additions** (`3aa9e36`) — honest
+  rule-adherence and edge-leak summaries plus a bounded, tenant-scoped global
+  Partner context adapter. Task 3 is `5a03834` + accuracy amendment `16a81ee`.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification: `1711 passed, 7 skipped` · Ruff clean · Black clean (177 files)
-  · `git diff --check` clean · 28/28 browser combinations · no undersized
-  targets at any of the four widths · 29 controls tabbed, every one ≥3:1.
-- Next owner: **`CODEX` — to implement Task 4.**
-- Next work: **Task 4 (Codex-owned).** `RuleAdherenceSummary`,
-  `rule_adherence_rate`, `EdgeLeakSummary`, `edge_leak_summary`,
-  `PartnerContext`, `PartnerEvidenceSource`, `build_global_partner_context`,
-  and their tests. Complete implementations and test suites are written out in
-  the plan's Task 4, verified against the real `metrics.py`.
-- **Claude is blocked and has stopped.** The master directive authorises Tasks
-  5–17 continuously, but only after the handoff records Task 4 as implemented,
-  verified, committed, and released by Codex. Verified in the tree just now:
-  `src/tradelens/services/partner_context.py` does not exist, `metrics.py`
-  contains zero occurrences of the four metrics names, and
-  `tests/test_partner_context.py` does not exist. Task 5's band 2 consumes
-  `rule_adherence_rate` and `edge_leak_summary` directly, and the directive
-  forbids a UI-side substitute or duplicating the calculation in page code —
-  so there is no correct way to start Task 5 first.
+- Verification: `1757 passed, 7 skipped` · Task 4 focused `129 passed` · Ruff
+  clean · Black clean (82 source/script files) · `git diff --check` clean.
+- Next owner: **`CLAUDE` — resume the approved master directive at Task 5.**
+- Next work: execute Tasks 5–17 continuously, one scoped commit and verification
+  record per task, then release to Codex for the comprehensive Phase 2 review.
+- Task 4 interfaces are present exactly as planned. Claude must consume them,
+  not reproduce their calculations or data access in UI code.
 - Spec/plan agreement: resolved. `TL_LINE_STRONG` is `#5C6E77` in both, and the
   spec now carries the measured all-six-surface contract (§4.4, amendment C6 in
   §15.3).
@@ -196,6 +183,54 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-05 — Phase 2 Task 4: service additions (Codex)
+
+**Commit:** `3aa9e36`. Task 4 only. No UI, AI routing, authentication,
+database-schema, secret, or model-service file changed.
+
+**Produced interfaces:**
+
+- `RuleAdherenceSummary(followed, recorded, rate)` and
+  `rule_adherence_rate(trades)`;
+- `EdgeLeakSummary(net_pnl, qualifying_trades, recorded_trades)` and
+  `edge_leak_summary(trades)`;
+- `PartnerEvidenceSource`, `PartnerContext`, and
+  `build_global_partner_context(*, user_id)`;
+- `MAX_CONTEXT_CHARS = 12000`, `MAX_EVIDENCE_SOURCES = 40`,
+  `JOURNAL_HEADING`, `TRADES_HEADING`, and `STRATEGY_HEADING`.
+
+The metrics distinguish unknown samples from known zero values without
+changing `total_edge_leak()` for existing callers. The context adapter rejects
+invalid owners before opening a session, repeats the owner predicate at every
+trade hydration, reads the active profile through `get_active_strategy`, and
+never calls the model or logs usage.
+
+Prompt lines and evidence descriptors are admitted atomically under both
+budgets. Oversized records are skipped rather than allowed to starve later
+sections. Journal counts use the same stripped fallback logic as admitted
+journal text, so whitespace-only process notes cannot hide a meaningful
+fallback note or inflate the count.
+
+**Plan hardening:** the plan did not cover embedded newlines in user-authored
+notes, asset names, or Strategy Profile names. Those values are collapsed to
+one line before prompt or evidence-label admission. A regression test proves
+they cannot forge headings or extra evidence-looking bullet lines.
+
+**Mutation checks:** removing the hydration owner predicate exposes the foreign
+row and fails its dedicated test; restoring the truthiness note chain loses
+fallback notes; counting SQL-prefiltered rows includes exotic whitespace. Each
+mutation failed before the correct implementation was restored.
+
+**Verification:** `38 passed` in `test_partner_context.py`; `91 passed` in
+`test_metrics.py`; combined Task 4 `129 passed`; full suite `1757 passed, 7
+skipped`; Ruff clean; Black clean (82 source/script files); `git diff --check`
+clean. The development database was not used or modified; database tests used
+an isolated in-memory SQLite database with `StaticPool`.
+
+Ownership returned to `NONE`. Tasks 5, 14, and 15 are unblocked. Per the
+user-approved master directive, Claude may now execute Tasks 5–17 continuously
+and stop only for a genuine blocker or Codex-owned change.
 
 ### 2026-08-05 — Task 3 accuracy amendment; blocked on Task 4 (Claude)
 
