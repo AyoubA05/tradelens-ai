@@ -13,6 +13,8 @@ from html import escape
 
 from src.tradelens.ui.design_system import (
     TL_SURFACE_CANVAS,
+    TL_Z_BASE,
+    TL_Z_RAISED,
     TL_LINE_HAIRLINE,
     TL_DANGER,
     TL_DANGER_DIM,
@@ -47,13 +49,13 @@ def auth_css() -> str:
     return f"""<style>
 /* SP3 auth screen — scoped .tl-auth-* only. */
 .tl-auth-bg {{
-  position: fixed; inset: 0; z-index: 0;
+  position: fixed; inset: 0; z-index: {TL_Z_BASE};
   {backdrop}
   background-size: cover; background-position: 62% center;
   opacity: 0.28;
 }}
 .tl-auth-scrim {{
-  position: fixed; inset: 0; z-index: 0;
+  position: fixed; inset: 0; z-index: {TL_Z_BASE};
   /* Token-derived, not the marketing site's #0d1117 — the app palette is
      TL_SURFACE_CANVAS. Mixing the two palettes is exactly the drift SP3 removes. */
   background: linear-gradient(180deg, {TL_SURFACE_CANVAS}d1, {TL_SURFACE_CANVAS} 92%);
@@ -73,7 +75,10 @@ def auth_css() -> str:
    the semantic alias kept for markup and tests. */
 .st-key-tl_auth_card,
 .tl-auth-card {{
-  position: relative; z-index: 1;
+  /* The card sits above the photograph and its scrim, both of which are at
+     the base tier. Raised, not a bare 1: the ordering is the same, but it is
+     now stated in the one scale every other layer is measured against. */
+  position: relative; z-index: {TL_Z_RAISED};
   max-width: 420px; margin: 6vh auto 0;
   background: {TL_SURFACE_PANEL};
   border: 1px solid {TL_LINE_HAIRLINE};
@@ -81,13 +86,16 @@ def auth_css() -> str:
   padding: 30px 30px 22px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
 }}
-/* --- native Streamlit widgets inside the dark card ---
-   The workspace base is light, so Streamlit paints labels, expander
-   summaries and captions in ink (#132125) and text inputs on white. On the
-   dark auth card that renders the labels invisible against their own
-   background. Every rule below is scoped to .st-key-tl_auth_card: the card
-   is the one dark surface in a light product, and widgets everywhere else
-   must keep the framework's own chrome.
+/* --- native Streamlit widgets inside the auth card ---
+   These rules were written when the workspace base was light: Streamlit
+   painted labels and captions in dark ink on white, which vanished against
+   the one dark surface in the product. The base is now dark everywhere, so
+   the framework's own chrome should already agree with the card — which
+   means most of this block may now be redundant.
+   It is left in place deliberately. Removing widget styling is a visual
+   change that needs a browser to confirm, and Task 1 is a token change with
+   no browser evidence. Task 2 retargets the shell and should delete whatever
+   it can prove is unnecessary.
    Selectors use the data-testid values verified in the browser against the
    pinned streamlit==1.50.0 DOM, not guessed class names. */
 .st-key-tl_auth_card [data-testid="stWidgetLabel"],

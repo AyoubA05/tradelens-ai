@@ -179,7 +179,7 @@ def test_plotly_template_paints_the_dark_chart_stage():
 def test_charts_pin_the_stage_explicitly_so_streamlit_cannot_repaint_it():
     """Streamlit's frontend injects the app theme's colours into every
     figure as EXPLICIT layout values, which beat template ones. A
-    template-only stage therefore resolved to the light workspace on screen
+    template-only stage therefore resolved to the app background on screen
     even though the template was correct. These keys are what survive."""
     from src.tradelens.ui import design_system as ds
     from src.tradelens.ui.components import charts
@@ -187,8 +187,15 @@ def test_charts_pin_the_stage_explicitly_so_streamlit_cannot_repaint_it():
     assert charts._BASE_LAYOUT["plot_bgcolor"] == ds.TL_SURFACE_CHART
     assert charts._BASE_LAYOUT["paper_bgcolor"] == ds.TL_SURFACE_CHART
     assert charts._BASE_LAYOUT["font"]["color"] == ds.TL_CONTENT_PRIMARY
-    # never a literal — the stage has exactly one definition
-    assert "rgba(0,0,0,0)" not in repr(charts._BASE_LAYOUT)
+    # The stage keys are opaque tokens, never a transparent literal that would
+    # let the surface behind them show through. Asserted on the keys rather
+    # than on repr(_BASE_LAYOUT): the layout now carries the template object,
+    # whose own repr legitimately contains transparent values.
+    for key in ("plot_bgcolor", "paper_bgcolor"):
+        assert "rgba" not in charts._BASE_LAYOUT[key]
+    # And the template travels with the layout, so a figure does not depend on
+    # pio.templates.default being whatever we last set it to.
+    assert charts._BASE_LAYOUT["template"] is ds.PLOTLY_TEMPLATE
 
 
 def test_every_plotly_call_site_opts_out_of_streamlits_own_theme():
@@ -214,14 +221,20 @@ def test_every_plotly_call_site_opts_out_of_streamlits_own_theme():
         ), f"{path.name} renders a chart without theme=None"
 
 
-def test_rendered_figures_resolve_to_the_dark_stage():
-    """End-to-end on a real figure, not just the constants.
+def test_rendered_figures_carry_the_tradelens_template_whatever_the_global_default():
+    """End-to-end on a real figure, with the global default hostile.
 
-    A figure that never sets the background resolves it from the registered
-    default template at render time, so the contract is: the chart leaves
-    the key unset, and the template it resolves against paints the stage.
+    The previous version asserted against pio.templates.default and therefore
+    proved nothing about the figure: it passed only because some earlier import
+    had set the default, and failed when run alone. Streamlit sets its own
+    default, and any test may swap it, so a figure that resolves correctly
+    *because of process state* is a figure that will eventually resolve wrong.
+
+    This sets the default to a foreign template first, then builds a chart, and
+    requires the figure to embed the TradeLens stage regardless.
     """
     import pandas as pd
+    import plotly.io as pio
 
     from src.tradelens.ui import design_system as ds
     from src.tradelens.ui.components import charts
@@ -233,12 +246,29 @@ def test_rendered_figures_resolve_to_the_dark_stage():
             "cumulative_pnl": [120.0, 75.0, 155.0],
         }
     )
-    fig = charts.equity_curve_chart(df)
-    assert fig.layout.paper_bgcolor == ds.TL_SURFACE_CHART
-    assert fig.layout.plot_bgcolor == ds.TL_SURFACE_CHART
-    assert fig.layout.template.layout.paper_bgcolor == ds.TL_SURFACE_CHART
-    # and the trace drawn on it is a bright mark, not a light-surface one
-    assert fig.data[0].line.color == ds.TL_PRIMARY
+
+    previous = pio.templates.default
+    try:
+        pio.templates.default = "plotly_white"
+        assert pio.templates.default == "plotly_white"
+
+        fig = charts.equity_curve_chart(df)
+        staged = charts.apply_chart_stage(charts.equity_curve_chart(df))
+
+        for name, candidate in (("chart", fig), ("staged chart", staged)):
+            embedded = candidate.layout.template.layout
+            assert (
+                embedded.paper_bgcolor == ds.TL_SURFACE_CHART
+            ), f"{name} resolved its template against the global default"
+            assert embedded.plot_bgcolor == ds.TL_SURFACE_CHART
+            # The explicit layout values survive the hostile default too.
+            assert candidate.layout.paper_bgcolor == ds.TL_SURFACE_CHART
+            assert candidate.layout.plot_bgcolor == ds.TL_SURFACE_CHART
+    finally:
+        pio.templates.default = previous
+
+    # Global state restored, so this test cannot change another one's result.
+    assert pio.templates.default == previous
 
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from src.tradelens.ui.design_system import (
+    PLOTLY_TEMPLATE,
     TL_SURFACE_CHART,
     TL_FONT_MONO,
     TL_DANGER,
@@ -48,9 +49,17 @@ _REF_LINE = TL_CONTENT_SECONDARY
 # near-white. `theme=None` at the call site stops the template swap; these
 # keys are what survive the colour injection. Values stay tokenised, so the
 # template and the layout cannot drift apart.
+#
+# `template` is pinned here too, rather than left to pio.templates.default.
+# The global default is process state: whoever imported last wins, a test that
+# swaps it leaks into the next one, and Streamlit is free to set its own. A
+# figure that carries its own template is correct no matter what the global
+# says — which is the difference between a chart that is right and a chart
+# that happens to be right.
 # hovermode is NOT set here — each chart picks the appropriate mode.
 _BASE_LAYOUT = dict(
     margin=dict(l=0, r=0, t=32, b=0),
+    template=PLOTLY_TEMPLATE,
     plot_bgcolor=TL_SURFACE_CHART,
     paper_bgcolor=TL_SURFACE_CHART,
     font=dict(color=TL_CONTENT_PRIMARY),
@@ -70,22 +79,27 @@ _SAMPLE_MARGIN = 48
 
 
 def apply_chart_stage(fig, *, title: Optional[str] = None, compact: bool = False):
-    """Frame a figure as a dark instrument on the light workspace.
+    """Frame a figure as an instrument on its own stage.
 
     Every Plotly figure on an analytical surface goes through here, so grid,
     typography, margins, background and height come from one place rather
     than from whichever call site drew the chart. Mutates and returns the
     same figure, so it composes: ``apply_chart_stage(build(df))``.
 
-    The backgrounds are set explicitly, not left to the template: Streamlit's
-    frontend injects the app theme's colours into every figure as EXPLICIT
-    layout values, and an explicit value beats a template one.
+    Two things are pinned rather than inherited. The backgrounds are set
+    explicitly because Streamlit's frontend injects the app theme's colours
+    into every figure as EXPLICIT layout values, and an explicit value beats a
+    template one. The template itself is set explicitly because
+    pio.templates.default is process-wide mutable state — import order, a test
+    that swaps it, or Streamlit itself can change what a figure resolves
+    against.
     """
     # Never shrink a bottom margin another helper already reserved:
     # add_sample_annotation books space for its caption, and the two may be
     # applied in either order.
     existing_bottom = getattr(fig.layout.margin, "b", None) or 0
     fig.update_layout(
+        template=PLOTLY_TEMPLATE,
         paper_bgcolor=TL_SURFACE_CHART,
         plot_bgcolor=TL_SURFACE_CHART,
         font=dict(color=TL_CONTENT_PRIMARY),

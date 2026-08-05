@@ -134,14 +134,42 @@ def test_navigation_always_outranks_the_partner():
 
 
 def test_css_declares_no_z_index_outside_the_scale():
-    css = ds.build_css()
-    allowed = {"0", "10", "20", "30", "40", "50"}
-    found = re.findall(r"z-index:\s*([^;]+);", css)
-    for raw in found:
-        value = raw.strip()
-        assert (
-            value.startswith("var(--tl-z-") or value in allowed
-        ), f"raw z-index {value!r} outside the scale — see §4.5"
+    """Every stylesheet the product injects, not just the main one.
+
+    auth_screen.py builds its own <style> block and was the one place still
+    carrying a bare `z-index: 1` for the sign-in card. A scale that only one
+    file is measured against is a convention, not a contract.
+    """
+    from src.tradelens.ui.components.auth_screen import auth_css
+
+    allowed = {str(v) for _n, v in Z_SCALE}
+    for name, css in (("build_css", ds.build_css()), ("auth_css", auth_css())):
+        for raw in re.findall(r"z-index:\s*([^;]+);", css):
+            value = raw.strip()
+            assert (
+                value.startswith("var(--tl-z-") or value in allowed
+            ), f"{name}: raw z-index {value!r} outside the scale — see §4.5"
+
+
+def test_the_auth_card_still_sits_above_its_background_and_scrim():
+    """Tokenising the layering must not reorder it."""
+    from src.tradelens.ui.components import auth_screen
+
+    css = auth_screen.auth_css()
+    bg = _z_for(css, ".tl-auth-bg")
+    scrim = _z_for(css, ".tl-auth-scrim")
+    card = _z_for(css, ".tl-auth-card")
+    assert bg == scrim == ds.TL_Z_BASE
+    assert card == ds.TL_Z_RAISED
+    assert card > scrim >= bg
+
+
+def _z_for(css: str, selector: str) -> int:
+    """The z-index declared in the block that names `selector`."""
+    block = css.split(selector, 1)[1].split("}", 1)[0]
+    match = re.search(r"z-index:\s*(\d+)\s*;", block)
+    assert match, f"no z-index in the {selector} block"
+    return int(match.group(1))
 
 
 def test_css_exposes_every_role_as_a_custom_property():
