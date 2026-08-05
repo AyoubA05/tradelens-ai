@@ -20,20 +20,23 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 2 TASK 2 COMPLETE — AWAITING CODEX REVIEW GATE`
-- Last completed work: **Phase 2 Task 2** (`8919771`) — the shell retarget.
+- Current phase: `PHASE 2 TASK 2 AMENDED — AWAITING CODEX RE-REVIEW`
+- Last completed work: **Task 2 accuracy amendment** (`e21b9ba`) — the D9 guard
+  now states its real scope, the handoff no longer overclaims, and stale
+  light-workspace prose is corrected. Task 2 itself is **`8919771`** — the shell
+  retarget.
   The Task 1 compatibility bridge is deleted, 274 CSS variable references are
-  repointed at the role tokens, the rail draws a strong edge, and every emoji
-  structural icon is a Material ligature. Task 1 is `dbae906` + `0b40b2e`.
+  repointed at the role tokens, the rail draws a strong edge, and every Phase 1
+  D9 empty-state call site uses a Material ligature. Task 1 is `dbae906` + `0b40b2e`.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
 - Verification: `1676 passed, 7 skipped` (was `1669/7`) · Ruff clean · Black
   clean (177 files) · `git diff --check` clean · **28/28 browser combinations
   pass** at 1440, 1024, real coarse 768 and real coarse 375.
-- Next owner: `CODEX` for the Task 2 review gate.
-- Next work: review `8919771`. **Task 3 has not begun and must not begin before
-  this gate clears.**
+- Next owner: `CODEX` for the Task 2 re-review gate.
+- Next work: review `e21b9ba` on top of `8919771`. **Task 3 has not begun and
+  must not begin before this gate clears.**
 - Spec/plan agreement: resolved. `TL_LINE_STRONG` is `#5C6E77` in both, and the
   spec now carries the measured all-six-surface contract (§4.4, amendment C6 in
   §15.3).
@@ -184,6 +187,72 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
 
 ## Handoff log
 
+### 2026-08-05 — Task 2 accuracy amendment (Claude)
+
+**Commit:** `e21b9ba`, on top of `8919771`. Documentation and test naming only;
+the source edits are comments. No UI behaviour changed. Task 3 not started.
+
+**The guard's name claimed more than the guard checked.**
+`test_no_structural_icon_is_an_emoji` reads as a statement about the product. It
+checks three renderers: `render_empty_state`, `render_data_state`, and
+Analytics' local `_empty` adapter. Renamed `test_no_empty_state_icon_is_an_emoji`,
+with a docstring and a failure message that name the scope and name what it does
+**not** cover.
+
+**The handoff said "every emoji structural icon is a Material ligature".** That
+was false. It now says every Phase 1 D9 **empty-state call site** was migrated,
+which is what happened, and records the emoji-bearing controls that remain
+against the tasks that own their surfaces:
+
+| Surface | Remaining emoji | Owner |
+|---|---|---|
+| New Trade — autofill success, screenshot analyzer button and toasts | `✅`, `🔍` | Task 8 |
+| Journal/trade detail toasts; corrections sidebar | `✅`, `🧠`, `💡`, `➕` | Task 9 |
+| AI Reviews toasts and the `📝 AI Review` subheader | `✅`, `📝` | Task 12 |
+| Strategy save toasts | `✅` | Task 13 |
+
+They were not changed here on purpose: a toast icon or a button label is a
+behaviour change, each sits on a surface a later task rebuilds, and Task 2 has
+no browser evidence for any of them.
+
+**Stale prose describing the opposite architecture, corrected.** The token change
+falsified comments that were written for a light workspace and left describing it
+as current:
+
+- the Plotly template header ("Charts are DARK INSTRUMENTS inside the light
+  workspace") — the reason a figure paints its own stage still holds, but not
+  for that reason;
+- the shared-component repaint note ("they carry the light workspace's ink by
+  default");
+- the hero note ("not reinstated on the light workspace");
+- an Insights comment about `st.expander` on the light workspace;
+- `test_app_and_marketing_site_share_one_brand_accent`'s docstring ("restated for
+  the hybrid theme… the app is now a LIGHT workspace");
+- `test_css_declares_the_hybrid_surface_variables` →
+  `test_css_declares_the_role_surface_variables`;
+- `test_navigation_rail_is_dark_and_workspace_is_light` →
+  `test_the_rail_is_the_deepest_surface_and_the_canvas_sits_above_it` — both are
+  dark now, so the assertion's premise moved: the separation is carried by the
+  strong line, not by one being light;
+- two `test_premium_page_contracts` docstrings.
+
+Comments in `design_system.py` lines 54–57 were **kept**: they describe the
+hybrid as something this commit *replaced*, which is accurate history rather
+than a stale claim.
+
+**Verification:** `1676 passed, 7 skipped` — unchanged, which is the expected
+result for a naming and comment amendment. Ruff clean; Black clean (177 files);
+`git diff --check` clean. Affected suites run directly: 328 passed across
+`test_dark_workspace`, `test_design_system`, `test_premium_page_contracts`,
+`test_premium_shell`, `test_insights_page`, `test_charts`.
+
+**Files changed:** `design_system.py` and `6_Insights.py` (comments only),
+`test_dark_workspace.py`, `test_design_system.py`,
+`test_premium_page_contracts.py`, and this handoff. `git add -A` not used;
+untracked `src/tradelens/ui/.impeccable/` deliberately not staged.
+
+Ownership returned to `NONE`. **Task 3 must not begin until Codex approves.**
+
 ### 2026-08-05 — Phase 2 Task 2: the shell retarget (Claude)
 
 **Commit:** `8919771`. Task 2 only; Task 3 not started.
@@ -202,23 +271,40 @@ mutation-checked.
 screen has to be drawn rather than toned, and drawn at the weight that says
 navigation is not work — the hairline is for things that belong together.
 
-**Emoji structural icons (D9): the plan listed six, there were nineteen.** The
-first guard I wrote matched only `render_empty_state("x"` on the following line
-and missed thirteen, including a whole page routing through a local `_empty()`
-helper. The broadened guard parses each call's argument list across every
-icon-taking renderer.
+**Emoji in the D9 empty-state renderers (scope, stated precisely).** Every
+Phase 1 D9 **empty-state call site** was migrated — the plan listed six, there
+were nineteen. The first guard I wrote matched only `render_empty_state("x"` on
+the following line and missed thirteen, including a whole page routing through a
+local `_empty()` helper.
 
-Icons are Material **ligature names** — plain escaped text styled by the font
-the mobile nav already relies on. `:material/…:` cannot work here because the
-icon is escaped into authored HTML, where it would render literally. All 13
+**This is not "every emoji in the product", and the guard no longer claims it
+is.** `test_no_empty_state_icon_is_an_emoji` covers exactly three renderers —
+`render_empty_state`, `render_data_state`, and Analytics' local `_empty`
+adapter — and its docstring and failure message say so. Emoji-bearing controls
+survive elsewhere and are left for the tasks that own those surfaces:
+
+| Surface | Remaining emoji | Owner |
+|---|---|---|
+| New Trade — autofill success, screenshot analyzer button and toasts | `✅`, `🔍` | **Task 8** |
+| Journal/trade detail toasts; corrections sidebar | `✅`, `🧠`, `💡`, `➕` | **Task 9** |
+| AI Reviews toasts and the `📝 AI Review` subheader | `✅`, `📝` | **Task 12** |
+| Strategy save toasts | `✅` | **Task 13** |
+
+They were deliberately not modified here: each belongs to a surface a later task
+rebuilds, and changing a control's label or a toast icon is a behaviour change
+Task 2 has no browser evidence for.
+
+Icons in scope are Material **ligature names** — plain escaped text styled by the
+font the mobile nav already relies on. `:material/…:` cannot work here because
+the icon is escaped into authored HTML, where it would render literally. All 13
 names were verified in the browser to form real glyphs: 32px advance at 32px
 font-size, against 167px for the same string as literal text. That matters
-because Streamlit could have loaded a font subset; it has not. An absent icon
-now emits no element rather than an empty 32px box.
+because Streamlit could have loaded a font subset; it has not. An absent icon now
+emits no element rather than an empty 32px box.
 
 Typographic **values** are deliberately untouched — `∞` for an undefined profit
-factor, `▲▼` deltas, the stepper `✓`, and `—` placeholders all carry meaning as
-text and are not icons.
+factor, `▲▼■` deltas and ledger result marks, the stepper `✓`, `→` in link copy,
+and `—` placeholders all carry meaning as text and are not icons.
 
 **Browser verification — 28 route/viewport combinations, all pass:**
 
@@ -285,10 +371,16 @@ four test modules. `git add -A` not used; untracked
    It will read too bright on the Evidence Rail and belongs to Task 12.
 2. **`theme.py`'s compatibility names still lie** — `PAPER` is a dark panel,
    `INK` is light text. Commented as such; they want retiring.
-3. **Analytics was edited beyond Task 2's stated scope** — 19 icon replacements
-   including 13 in `4_Analytics.py`, which Task 10 owns. D9 is one defect, and a
-   guard asserting "no structural icon is an emoji" while thirteen remained
-   would have been false. Flagged so Task 10 knows the file moved.
+3. **Analytics was edited beyond Task 2's stated scope** — 19 empty-state icon
+   replacements, 13 of them in `4_Analytics.py`, which Task 10 owns. The D9
+   empty-state finding is one defect across files, and a guard covering the
+   `_empty` adapter while thirteen of its call sites still passed emoji would
+   have been false. Flagged so Task 10 knows the file moved.
+5. **Emoji remain outside the empty-state renderers** — toasts, the screenshot
+   analyzer button, the AI Reviews subheader, and the corrections sidebar. They
+   are recorded above against Tasks 8, 9, 12 and 13 rather than changed here,
+   because each is a control label or a toast on a surface a later task
+   rebuilds.
 4. **Empty states were not seen rendered.** The seeded database has 60 trades,
    so no empty state appeared in the sweep; the ligature mechanism was proved by
    injecting a real `.tl-empty-card` and measuring. Task 10 should confirm the
