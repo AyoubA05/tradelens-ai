@@ -19,8 +19,8 @@ the same time.
 
 ## Current handoff state
 
-- Active writer: `NONE`
-- Current phase: `PHASE 2 TASK 4 COMPLETE — CLAUDE UNBLOCKED FOR TASKS 5–17`
+- Active writer: `CLAUDE`
+- Current phase: `PHASE 2 TASKS 5–7 COMPLETE — 8–17 NOT STARTED`
 - Last completed work: **Task 4 service additions** (`3aa9e36`) — honest
   rule-adherence and edge-leak summaries plus a bounded, tenant-scoped global
   Partner context adapter. Task 3 is `5a03834` + accuracy amendment `16a81ee`.
@@ -183,6 +183,88 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-05 — Phase 2 Tasks 5–7: the Overview recomposed (Claude)
+
+**Commits:** `243d0c9` (Task 5), `25616f9` (Task 6), `00d2359` (Task 7).
+Tasks 8–17 not started.
+
+Task 4's interfaces were verified against the plan before anything consumed
+them — `RuleAdherenceSummary(followed, recorded, rate)`,
+`EdgeLeakSummary(net_pnl, qualifying_trades, recorded_trades)`,
+`PartnerContext`, `PartnerEvidenceSource`,
+`build_global_partner_context(*, user_id)`, no Streamlit or Anthropic import —
+and `tests/test_metrics.py` + `tests/test_partner_context.py` run green at
+129 passed.
+
+**The Overview is now five bands in five distinct forms**, in the spec's
+reading order: a ruled KPI strip, a discipline panel, a dominant chart with
+flanking figures, two ranked lists plus the calendar, and one editorial
+readout. The anti-grid rule is enforced by a test asserting no two bands share
+a builder, and by a second asserting the five appear in order.
+
+**Honest-zero handling is the through-line.** Every band-2 measure has a way of
+being unknown that is not zero: "Not recorded" adherence is distinct from a
+real 0%; edge leak separates unknown, a clean sample, and rule-breaking that
+netted exactly zero; consistency states how many more trades unlock it. Band 3
+reads "No wins yet" rather than $0.00 when there are none. A positive edge leak
+carries an explicit warning — verified in the browser on seeded data where
+rule-breaking netted +$92,047.66.
+
+**Four plan deviations, all forced by observed runtime behaviour**, all using
+existing public services and all approved or recorded:
+
+1. **`by_setup_type` cannot rank by P&L.** It is documented "No PnL or
+   R-multiple metrics" and powers a stacked bar. Both ranked lists use
+   `compute_breakdown`, which returns `total_pnl` already sorted. *(Approved.)*
+2. **There is no `session` column** on the Overview frame. The product records
+   `killzone`, which the spec names as the alternative; labels come from the
+   same `KILLZONE_LABELS` map the ledger uses. *(Approved.)*
+3. **`ActivationStatus` differs from the plan's sketch** — `is_activated` /
+   `next_key` / `completed` / `total`, not a nested step object with
+   `is_complete`. The plan says to adapt the caller, so the caller adapted.
+4. **Max drawdown is signed in presentation.** `compute_max_drawdown` returns a
+   positive magnitude by documented contract, which sat unsigned beside a
+   positive edge leak and read as money made. The Codex-owned service is
+   untouched; the sign is applied in the UI and pinned by its own test.
+
+**A real gap found and closed:** the 0-trade welcome runs *before* the asset
+filter, so a filter matching nothing rendered band 1 as a strip of zeros —
+figures that read as a flat account rather than an empty scope. The bands are
+now suppressed with the scope named and one control back.
+
+**Three activation contracts were migrated, not weakened.** The
+tenant-isolation guard still requires every activation input to be user-scoped
+and now additionally asserts the whole computation is gated on an
+authenticated user. The card-hiding test moved from grepping `app.py` for a
+literal to exercising `next_review_action`, which is where the decision now
+lives.
+
+**Architecture note.** All band logic lives in the pure
+`components/overview_bands.py`, not in `app.py`. `app.py` runs its entire
+Streamlit script at module scope, so a unit test importing it boots a page and
+needs a database — which is exactly what happened on the first attempt.
+
+**Browser evidence, per task, at 1440 / 1024 / coarse 768 / coarse 375 with the
+pointer state asserted at each coarse width:**
+
+| Task | Result |
+|---|---|
+| 5 | Band 2 renders 4 untoned rows on the panel surface; 0 overflow, 0 exceptions |
+| 6 | Bands 1–4 in order; two ranked lists with human-readable killzone labels, leader marked, chart present |
+| 7 | All five bands in strict reading order |
+
+**Verification:** `1813 passed, 7 skipped` (was `1711/7` after Task 3); Ruff
+clean; Black clean (181 files); `git diff --check` clean; page boot checks 64
+passed. Dev database untouched (`Jul 31`); all app and browser processes
+stopped; no capture artifact entered the worktree; `.impeccable/` untouched.
+
+**Remaining: Tasks 8–17.** New Trade, Journal, Analytics, the pure review
+document model, AI Reviews, Strategy/Settings, both AI Partner surfaces, the
+cross-page audit, and the 10K re-score. None started. The plan's Task 4
+interfaces they depend on are verified present and green.
+
+Ownership remains `CLAUDE`.
 
 ### 2026-08-05 — Phase 2 Task 4: service additions (Codex)
 
