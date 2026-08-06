@@ -19,21 +19,42 @@ the same time.
 
 ## Current handoff state
 
-- Active writer: `CLAUDE`
-- Current phase: `PHASE 2 TASKS 5–7 COMPLETE — 8–17 NOT STARTED`
-- Last completed work: **Task 4 service additions** (`3aa9e36`) — honest
-  rule-adherence and edge-leak summaries plus a bounded, tenant-scoped global
-  Partner context adapter. Task 3 is `5a03834` + accuracy amendment `16a81ee`.
+- Active writer: `NONE`
+- Current phase: `PHASE 2 TASKS 5–7 COMPLETE — RESUME AT TASK 8`
+- Last completed work: **Tasks 5, 6 and 7** — the Overview recomposed into its
+  five bands: `243d0c9` (bands 1–2 and the shared date policy), `25616f9`
+  (bands 3–4, trajectory and recurring edge), `00d2359` (band 5 and the state
+  matrix). Task 4 is `3aa9e36`; Task 3 is `5a03834` + `16a81ee`.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification: `1757 passed, 7 skipped` · Task 4 focused `129 passed` · Ruff
-  clean · Black clean (82 source/script files) · `git diff --check` clean.
-- Next owner: **`CLAUDE` — resume the approved master directive at Task 5.**
-- Next work: execute Tasks 5–17 continuously, one scoped commit and verification
-  record per task, then release to Codex for the comprehensive Phase 2 review.
-- Task 4 interfaces are present exactly as planned. Claude must consume them,
-  not reproduce their calculations or data access in UI code.
+- Verification at `00d2359`: `1813 passed, 7 skipped` · Ruff clean · Black
+  clean (181 files) · `git diff --check` clean · page boot checks 64 passed ·
+  five bands in spec reading order at 1440, 1024, coarse 768 and coarse 375
+  with the pointer state asserted at each coarse width, zero overflow, zero
+  exceptions.
+- Next owner: **`CLAUDE`**.
+- Next action: **resume the approved Phase 2 master directive at Task 8** (New
+  Trade on the dark workspace) and continue through Task 17 — one scoped
+  commit and verification record per task — then release the lock to `NONE`
+  and hand the complete Phase 2 diff to Codex.
+- **No interim Codex review is requested.** The comprehensive Codex review
+  remains scheduled after Task 17.
+- Tasks 8–17 remain: New Trade, Journal, Analytics, the pure review document
+  model, AI Reviews, Strategy Profile and Settings, the AI Partner desktop
+  drawer and mobile destination, the cross-page audit, and the 10K re-score.
+- Task 4 interfaces are present exactly as planned and verified green
+  (`tests/test_metrics.py` + `tests/test_partner_context.py`, 129 passed).
+  Claude must consume them, never reproduce their calculations or open a
+  second data-access path in UI code.
+- Deviations already approved by the user and in force for the remaining
+  tasks: use `compute_breakdown` for P&L-ranked breakdowns because
+  `by_setup_type` carries no P&L; use `killzone` as the session dimension with
+  labels from `KILLZONE_LABELS`, because the Overview frame has no `session`
+  column.
+- Band logic lives in the pure `components/overview_bands.py`, not `app.py`:
+  `app.py` runs its whole Streamlit script at module scope, so importing it in
+  a unit test boots a page and needs a database.
 - Spec/plan agreement: resolved. `TL_LINE_STRONG` is `#5C6E77` in both, and the
   spec now carries the measured all-six-surface contract (§4.4, amendment C6 in
   §15.3).
@@ -183,6 +204,35 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-05 — Session boundary: paused at Task 8, lock released (Claude)
+
+Documentation only. No product code changed in this entry — the last code
+commit is `00d2359` (Task 7) and the tree is clean apart from the untracked
+`src/tradelens/ui/.impeccable/`.
+
+**Why the pause.** Tasks 5–7 each turned up a contract the plan had wrong, and
+each was resolved and recorded rather than escalated. Tasks 8–17 are roughly
+ten times the remaining work — New Trade, Journal, Analytics, the document
+model, AI Reviews, Strategy and Settings, both Partner surfaces, the audit and
+the re-score — and every one needs the same treatment: read the task,
+test-first, discover the real runtime contracts, implement, browser-verify at
+four widths, full suite, commit, log. Continuing in one stretch would have
+produced exactly the thin commits the directive rules out.
+
+**This is a session boundary, not a review gate.** No interim Codex review is
+requested; the comprehensive review stays scheduled after Task 17. The lock is
+`NONE` only so a fresh Claude session can claim it cleanly.
+
+**What the next session needs, all recorded above rather than in context:**
+the three Task 5–7 commits, the verified-green Task 4 interfaces, the two
+user-approved deviations still in force (`compute_breakdown` for P&L-ranked
+breakdowns; `killzone` as the session dimension with `KILLZONE_LABELS`), and
+the architectural note that band logic belongs in the pure
+`overview_bands.py` because `app.py` boots a page at import.
+
+**Resume at Task 8.** Claim `Active writer: CLAUDE`, then follow the master
+directive through Task 17.
 
 ### 2026-08-05 — Phase 2 Tasks 5–7: the Overview recomposed (Claude)
 
