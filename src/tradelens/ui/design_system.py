@@ -2080,8 +2080,9 @@ def build_css() -> str:
 /* A calendar day is a button a thumb has to hit, so it carries the same
    44px floor as every other control — at every width, not just on a phone.
    Descendant combinator, not `>`: these buttons pass `help=`, which wraps
-   them in a tooltip div, so `.stButton > button` never matches them. */
-.st-key-tl_journal_calendar [data-testid="stColumn"] .stButton button {{
+   them in a tooltip div, so `.stButton > button` never matches them.
+   Keyed on the calendar form so every page mounting it inherits one rule. */
+.st-key-tl_full_calendar [data-testid="stColumn"] .stButton button {{
   min-height: 44px;
 }}
 
@@ -2884,23 +2885,23 @@ def build_css() -> str:
   /* The numbered rail wraps into two rows of circles at this width; the
      masthead's "Step N of 5" carries the position instead. */
   .tl-wizard-progress {{ display: none; }}
-  /* Journal calendar: st.columns wrap at this width, which turns a month
-     into a 31-row list. Measured at 375px. The columns are told not to
-     wrap and to share the row instead, so it stays a calendar. Scoped to
-     the Journal — Overview uses its own compact grid and Analytics keeps
-     the behaviour it already had. */
-  .st-key-tl_journal_calendar [data-testid="stHorizontalBlock"] {{
+  /* Full calendar: st.columns wrap at this width, which turns a month into
+     a 31-row list. Measured at 375px. The columns are told not to wrap and
+     to share the row instead, so it stays a calendar. The key is the form,
+     not the page — Journal and Analytics both mount the full calendar and
+     both need this. Overview uses its own compact CSS grid instead. */
+  .st-key-tl_full_calendar [data-testid="stHorizontalBlock"] {{
     flex-wrap: nowrap;
     gap: 2px;
   }}
-  .st-key-tl_journal_calendar [data-testid="stColumn"] {{
+  .st-key-tl_full_calendar [data-testid="stColumn"] {{
     flex: 1 1 0;
     min-width: 0;
   }}
   /* Only the horizontal padding is surrendered to fit seven columns across
      — at 375px each column is ~47px wide. The height is set outside this
      media query, because a day cell is a touch target at every width. */
-  .st-key-tl_journal_calendar [data-testid="stColumn"] .stButton button {{
+  .st-key-tl_full_calendar [data-testid="stColumn"] .stButton button {{
     padding-left: 0;
     padding-right: 0;
     font-size: 12px;

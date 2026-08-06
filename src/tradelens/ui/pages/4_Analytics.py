@@ -29,7 +29,9 @@ from src.tradelens.services.metrics import (  # noqa: E402
 from src.tradelens.services.strategy import get_active_strategy  # noqa: E402
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
 from src.tradelens.ui.components.auth import current_user_id, require_auth  # noqa: E402
-from src.tradelens.ui.components.calendar_view import render_calendar  # noqa: E402
+from src.tradelens.ui.components.trade_calendar import (  # noqa: E402
+    render_trade_calendar,
+)
 from src.tradelens.ui.components.data_state import (  # noqa: E402
     enough_categories,
     has_variation,
@@ -142,14 +144,25 @@ def _tone(value) -> str:
     return "positive" if v > 0 else "negative" if v < 0 else "neutral"
 
 
-def _chart(fig, key: str, title: str = "", *, compact: bool = False) -> None:
+def _chart(fig, key: str, title: str = "", *, summary: str, compact: bool = False):
     """Render one figure on the shared dark instrument stage.
 
     Framing lives in charts.apply_chart_stage, so every figure on the page —
     and on any future page — gets the same grid, typography, margins and
     height rather than whatever its call site happened to set.
+
+    ``summary`` is required, not optional. Plotly paints into a canvas and an
+    SVG of unlabelled paths: a screen reader gets the title and nothing about
+    what the chart shows, and hover tooltips need a pointer. Spec §12 asks
+    every chart to carry a text summary of its key insight, and a keyword
+    that can be forgotten is one that will be — so the signature refuses a
+    figure that has no sentence describing it.
     """
     with st.container(border=True):
+        st.markdown(
+            f'<p class="tl-visually-hidden">{escape(summary)}</p>',
+            unsafe_allow_html=True,
+        )
         # plotly_chart has no width= on streamlit 1.50 — use_container_width
         # stays here until the pin bumps (unlike buttons/images/dataframes).
         # theme=None keeps the dark chart stage; the default
@@ -403,6 +416,11 @@ def _render_performance_lens(frame: pd.DataFrame) -> None:
             ),
             "an_eq",
             "Equity curve",
+            summary=(
+                f"Equity curve. Cumulative profit and loss across "
+                f"{len(eq_df)} trading dates, ending at "
+                f"{_money(m['total_pnl'])} from {int(m['total_trades'])} trades."
+            ),
         )
     else:
         _empty(
@@ -480,6 +498,11 @@ def _render_risk_lens(frame: pd.DataFrame) -> None:
             ),
             "an_dd",
             "Drawdown",
+            summary=(
+                f"Drawdown. Distance below each running equity peak, in "
+                f"dollars, in date order. Worst peak-to-trough "
+                f"{_money(max_dd)}."
+            ),
         )
     else:
         _empty(
@@ -514,6 +537,11 @@ def _render_risk_lens(frame: pd.DataFrame) -> None:
                 risk_over_time_chart(frame),
                 "an_risk",
                 "Risk ($) per trade",
+                summary=(
+                    "Risk per trade. Dollars committed on each trade, in date "
+                    "order, so sizing that drifts is visible as a trend rather "
+                    "than a single number."
+                ),
                 compact=True,
             )
     with rc2:
@@ -545,6 +573,13 @@ def _render_risk_lens(frame: pd.DataFrame) -> None:
                 ),
                 "an_rules",
                 "Win rate — rules followed vs broken",
+                summary=(
+                    "Win rate with rules followed versus broken. "
+                    f"{float(win[foll_mask].mean()):.1%} across {foll_n} "
+                    f"trades that followed the rules, "
+                    f"{float(win[broke_mask].mean()):.1%} across {broke_n} "
+                    "that broke them."
+                ),
                 compact=True,
             )
 
@@ -611,6 +646,13 @@ def _render_timing_lens(frame: pd.DataFrame) -> None:
             ),
             "an_heat",
             "Net P&L — session × day of week",
+            summary=(
+                "Net profit and loss by session against day of week, as a "
+                f"grid of {int(len(sess_df))} sessions by {int(len(dow_df))} "
+                "weekdays. Each cell carries a plus, minus or equals sign "
+                "beside its amount, and the ranked day table below this chart "
+                "lists the same weekday figures as text."
+            ),
         )
     else:
         render_data_state(
@@ -631,7 +673,21 @@ def _render_timing_lens(frame: pd.DataFrame) -> None:
             _one_category_note(sess_df, "session", "session")
         else:
             _chart(
-                pnl_by_session_chart(sess_df), "an_sess", "P&L by session", compact=True
+                pnl_by_session_chart(sess_df),
+                "an_sess",
+                "P&L by session",
+                summary=(
+                    "Net profit and loss by session across "
+                    f"{int(len(sess_df))} sessions, highest first: "
+                    + ", ".join(
+                        f"{r.session} {_money(r.total_pnl)}"
+                        for r in sess_df.sort_values(
+                            "total_pnl", ascending=False
+                        ).itertuples(index=False)
+                    )
+                    + "."
+                ),
+                compact=True,
             )
     with ts2:
         if dow_df.empty:
@@ -644,7 +700,15 @@ def _render_timing_lens(frame: pd.DataFrame) -> None:
             _one_category_note(dow_df, "day_of_week", "day")
         else:
             _chart(
-                pnl_by_dow_chart(dow_df), "an_dow", "P&L by day of week", compact=True
+                pnl_by_dow_chart(dow_df),
+                "an_dow",
+                "P&L by day of week",
+                summary=(
+                    "Net profit and loss by weekday across "
+                    f"{int(len(dow_df))} weekdays. The ranked day table below "
+                    "lists the same figures as text."
+                ),
+                compact=True,
             )
 
     if _dow_comparable:
@@ -662,8 +726,19 @@ def _render_timing_lens(frame: pd.DataFrame) -> None:
             )
         _ranked_table(["Day", "Trades", "Win rate", "Net P&L"], rows)
 
-    st.markdown(render_section_header("Daily P&L"), unsafe_allow_html=True)
-    render_calendar(frame)
+    st.markdown(
+        render_section_header(
+            "Daily P&L",
+            "One month at a time — the range above still governs everything else "
+            "on this lens.",
+        ),
+        unsafe_allow_html=True,
+    )
+    # The one full-calendar component, the same one the Journal mounts. This
+    # page used to carry a second implementation whose day tint was the brand
+    # teal — the colour reserved for actions — for a money-positive day.
+    with st.container(key="tl_full_calendar"):
+        render_trade_calendar(frame, show_month_summary=True)
 
     _readout(
         "When the edge showed up",
@@ -769,6 +844,15 @@ def _render_setups_lens(frame: pd.DataFrame) -> None:
             pnl_by_emotion_chart(emo_df),
             "an_emo",
             "P&L by emotional state going in",
+            summary=(
+                "Net profit and loss by the emotional state recorded before "
+                f"entry, across {int(len(emo_df))} states, highest first: "
+                + ", ".join(
+                    f"{r.emotions_before} {_money(r.total_pnl)}"
+                    for r in emo_df.itertuples(index=False)
+                )
+                + "."
+            ),
             compact=True,
         )
 

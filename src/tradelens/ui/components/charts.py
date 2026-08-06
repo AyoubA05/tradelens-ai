@@ -708,9 +708,10 @@ def session_dow_heatmap(df: pd.DataFrame) -> go.Figure:
             ),
         )
     )
-    fig.update_layout(
-        **_BASE_LAYOUT, height=320, xaxis=dict(title=None), yaxis=dict(title=None)
-    )
+    # No height here. Every figure's height is the stage's decision — a
+    # builder that sets its own is either overridden (and lying about what it
+    # controls) or is the one chart on the page at a fourth size.
+    fig.update_layout(**_BASE_LAYOUT, xaxis=dict(title=None), yaxis=dict(title=None))
     return fig
 
 
@@ -794,7 +795,6 @@ def calendar_heatmap_chart(daily: pd.DataFrame, year: int, month: int) -> go.Fig
     fig.update_yaxes(autorange="reversed")
     fig.update_layout(
         **_BASE_LAYOUT,
-        height=380,
         title=f"{_calendar.month_name[month]} {year}",
     )
     return fig

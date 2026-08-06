@@ -19,31 +19,34 @@ the same time.
 
 ## Current handoff state
 
-- Active writer: `NONE`
-- Current phase: `PHASE 2 TASKS 8–9 COMPLETE — RESUME AT TASK 10`
-- Last completed work: **Tasks 8 and 9** — New Trade on the dark workspace
-  (`f2eb1df`) and the dark Journal (this commit). Before them: Tasks 5–7, the
+- Active writer: `CLAUDE`
+- Current phase: `PHASE 2 IN PROGRESS — TASK 10 DONE, RESUME AT TASK 11`
+- Last completed work: **Task 10** — Analytics on one instrument shape (this
+  commit). Before it: Tasks 8 and 9 — New Trade on the dark workspace
+  (`f2eb1df`) and the dark Journal (`9d571d3`). Before them: Tasks 5–7, the
   Overview's five bands — `243d0c9`, `25616f9`, `00d2359`. Task 4 is
   `3aa9e36`; Task 3 is `5a03834` + `16a81ee`.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification at Task 9: `1833 passed, 7 skipped` · Ruff clean · Black clean
-  (84 files) · `git diff --check` clean · Journal ledger and calendar verified
-  at 1440, 1024, coarse 768 and coarse 375 with the pointer state asserted at
-  each coarse width — zero overflow, zero undersized targets, zero exceptions,
-  dataframe toolbar 44x44, rail and bottom bar never both on screen.
+- Verification at Task 10: `1842 passed, 7 skipped` · Ruff clean · Black clean
+  · `git diff --check` clean · all four Analytics lenses verified at 1440,
+  1024, coarse 768 and coarse 375 plus reduced motion, with the pointer state
+  and the reduced-motion state asserted from the page at every applicable row
+  — zero overflow, zero undersized targets, zero exceptions, chart heights
+  only ever 360 or 240, calendar 7-across with 47x44 cells at coarse 375, rail
+  and bottom bar never both on screen. The Journal calendar was re-verified
+  after the shared key rename.
 - Next owner: **`CLAUDE`**.
-- Next action: **resume the approved Phase 2 master directive at Task 10**
-  (Analytics — four lenses, one shape) and continue through Task 17 — one
-  scoped commit and verification record per task — then release the lock to
-  `NONE` and hand the complete Phase 2 diff to Codex. Task 10's audit is
-  already recorded in the Task 9 handoff-log entry.
+- Next action: **continue the approved Phase 2 master directive at Task 11**
+  (the pure AI review document model) and run through Task 17 — one scoped
+  commit and verification record per task — then release the lock to `NONE`
+  and hand the complete Phase 2 diff to Codex.
 - **No interim Codex review is requested.** The comprehensive Codex review
   remains scheduled after Task 17.
-- Tasks 10–17 remain: Analytics, the pure review document model, AI Reviews,
-  Strategy Profile and Settings, the AI Partner desktop drawer and mobile
-  destination, the cross-page audit, and the 10K re-score.
+- Tasks 11–17 remain: the pure review document model, AI Reviews, Strategy
+  Profile and Settings, the AI Partner desktop drawer and mobile destination,
+  the cross-page audit, and the 10K re-score.
 - Task 4 interfaces are present exactly as planned and verified green
   (`tests/test_metrics.py` + `tests/test_partner_context.py`, 129 passed).
   Claude must consume them, never reproduce their calculations or open a
@@ -205,6 +208,154 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-06 — Phase 2 Task 10: Analytics, one instrument shape (Claude)
+
+**Commit:** see `feat(ui): one dark instrument shape across the four Analytics
+lenses`. Task 10 only; Task 11 not started.
+
+**Three of the plan's four tests passed against the unchanged page**, as the
+Task 9 recon predicted. Transcribed verbatim and run before anything changed:
+
+| Plan test | Result | Why |
+|---|---|---|
+| every figure staged | passed | true, and the string count would also pass a page with zero charts |
+| exactly two heights | **failed** | the one real finding: `height=320` and `height=380` |
+| selector secondary to the question | passed **for the wrong reason** | `source.index("render_section_header")` finds the `_section` helper 600 lines above the selector. The header that states the question is rendered *after* the radio, so the assertion would have held whichever way round the page ran |
+| sparse data compact | passed | genuinely already true |
+
+**The heights were both real, and the more interesting one was already dead.**
+`session_dow_heatmap` set `height=320` while measuring **360** in the browser,
+because `apply_chart_stage` overrides it — source and screen disagreeing, which
+is worse than a wrong number because nothing can catch it by looking. The new
+contract asserts the mechanism through the AST (no builder sets a height at
+all) rather than accepting any file whose literals happen to read 360 or 240.
+`calendar_heatmap_chart`'s `height=380` has one call site and it is the
+archived, unrouted `_archive/6_Calendar.py`; its literal is gone and the call
+is now staged, so un-archiving it cannot land on Plotly's default 450.
+
+**The real finding of this task was a second calendar.** Analytics did not
+mount the calendar the Journal mounts — it had its own `calendar_view.py`,
+which predated the dark retarget and never received it:
+
+- a money-positive day was tinted with **the brand teal**, the colour §4.1
+  reserves for actions and focus, while the KPI strip and the ledger use green
+  for exactly that meaning;
+- the rest of its colours were literal pre-redesign hexes (`#8E9196`,
+  `#B4B8BD`, `rgba(168,75,47,0.18)`), not role tokens;
+- **no textual legend**, which §6.3 requires. Measured: `.tl-cal-legend` count
+  **0** on the Timing lens at 1440 and at coarse 375;
+- five raw `st.metric` cards — a second, undesigned KPI system inside a lens
+  that already opens with the ruled strip. Measured: **5 `stMetric` nodes** on
+  screen.
+
+Those five cards are the sharpest lesson here. `test_analytics_has_no_giant_
+one_off_metric_cards` asserts `"st.metric(" not in src` and was green the whole
+time, because the cards were not in the page — they were in what the page
+imported. That contract now follows the page's component imports.
+
+Analytics mounts `render_trade_calendar` and `calendar_view.py` is deleted. The
+month figures are preserved rather than dropped, through the designed strip and
+a new pure `month_summary()` on the calendar component — not in page code,
+because the calendar owns which month is open. It is opt-in and **off for the
+Journal**, so Task 9's surface is unchanged (measured: `kpiStrips` 0 there).
+`winning_days` is named in days, not "win rate", because `daily_outcomes`
+carries no per-trade outcome and the old label was a different measure wearing
+the same word.
+
+**The 375px calendar measurement, taken before anything was changed**, as
+directed. The legacy grid measured **49×62 at coarse 375, 7 per row** — already
+compliant, so nothing was forced smaller to match a number. After the swap the
+day cells measure **47×44** at coarse 375, still 7 across in one row.
+
+**One rule, not a Journal rule.** The container key is renamed
+`tl_journal_calendar` → `tl_full_calendar` (page, four CSS selectors, four test
+assertions). The 7-column and 44px rules were never Journal-specific; Analytics
+mounted the same form and would otherwise have wrapped into a 31-row list at
+375. Re-verified in the browser on **both** pages.
+
+**Charts had no text alternative at all.** Spec §12 asks every chart for a text
+summary of its key insight; Plotly gives a screen reader a canvas and unlabelled
+SVG paths, and its tooltips need a pointer. `_chart` now takes a **required**
+keyword-only `summary` — a keyword that can be forgotten is one that will be —
+rendered as `.tl-visually-hidden` text inside the stage. Eight call sites carry
+data-derived sentences.
+
+**Every new guard was mutation-checked.** One mutation (removing a single
+`summary=`) reported green on the first attempt; the mutation had not applied,
+not the test. Re-run with an AST-guided edit it failed correctly. Recorded
+because a mutation check that silently no-ops is the same false-confidence
+shape this file exists to catch. Six guards, six confirmed failures:
+reintroducing `height=320`; removing one `summary=`; giving `summary` a
+default; restoring `calendar_view.py`; a component sneaking in `st.metric`;
+removing the radio's collapsed label.
+
+**Not changed, because measurement said so.** The lens selector is already
+secondary to its question — measured at 1440, the question is **36px/700** and
+a lens option **16px/400**. The plan's source-order proxy was replaced with the
+runtime order plus the collapsed-label assertion.
+
+**Browser evidence — 12 combinations, all clean.** Coarse-pointer emulation was
+asserted at every coarse row (`pointer: coarse` true **and** `pointer: fine`
+false); a width-only viewport was never accepted as coarse. Lens switches were
+asserted to have taken effect by reading back the rendered question.
+
+| Lens | Widths | Overflow | Undersized | Exceptions | Rail/bottom | Plot heights |
+|---|---|---|---|---|---|---|
+| Timing | 1440, 1024, coarse 768, coarse 375 | 0 | 0 | 0 | never both | 360/240/240 |
+| Performance | 1440, coarse 375 | 0 | 0 | 0 | never both | 360 |
+| Risk | 1440, coarse 375 | 0 | 0 | 0 | never both | 360/240 |
+| Setups | 1440, coarse 375 | 0 | 0 | 0 | never both | 240 |
+| Timing, reduced motion | coarse 375 | 0 | 0 | 0 | never both | 360/240/240 |
+| Performance, reduced motion | 1440 | 0 | 0 | 0 | never both | 360 |
+
+Reduced motion was asserted from the page (`prefers-reduced-motion` matched),
+not assumed from the Chrome flag.
+
+**A fourth measurement correction, recorded with the other three.** The
+undersized probe found 26 calendar day buttons of which 13 measured 0×0.
+Streamlit retains a copy of a swapped container inside a `display:none` parent,
+so every day button appears twice. `offsetParent === null` separates the
+rendered calendar from the retained one; the rendered cells measure 133×44 at
+1440 and 47×44 at coarse 375. The existing 0×0 skip already excluded them, so
+no false positive reached a report — but the probe now says *why*.
+
+**Files changed:** `4_Analytics.py`, `components/charts.py`,
+`components/trade_calendar.py`, `design_system.py`, `2_Trades.py` (key rename
+only), `_archive/6_Calendar.py`, deleted `components/calendar_view.py`,
+`tests/test_charts.py`, `tests/test_premium_page_contracts.py`, and this
+handoff. `git add -A` not used; untracked `src/tradelens/ui/.impeccable/`
+deliberately not staged.
+
+**Verification:** `1842 passed, 7 skipped` (was `1833/7`); Ruff clean; Black
+clean (83 files in `src/`+`scripts/`, plus the two touched test files);
+`git diff --check` clean. The dev database is byte-identical
+(`md5 dffdb781…`, `Jul 31`) — the browser ran against a scratchpad **copy**
+pointed at by `DATABASE_URL`, seeded and re-owned there only, and the app
+process's cwd was read to confirm which worktree it served.
+
+**Deviations from the plan, all recorded above:** the plan's Task 10 file list
+named only `4_Analytics.py` and `charts.py`. Deleting the duplicate calendar,
+sharing its responsive rule, and adding the pure `month_summary` reach three
+more UI files. No service, prompt, model-routing, auth, tenant-scoping, schema
+or secret path was touched, and no second data path was opened —
+`month_summary` reads the same `daily_outcomes` map the grid already draws
+from.
+
+**Carried forward for the Codex Phase 2 review (from Task 9, unchanged):**
+
+1. `aria-sort` is `null` on Streamlit's dataframe column headers. §6.3 requires
+   it. The markup is Streamlit's; setting it needs JavaScript injection, which
+   the spec forbids, or replacing the ledger with an authored table. Task 10
+   did **not** expand to replace the ledger. No in-scope, non-JavaScript fix
+   exists.
+2. The dataframe toolbar's four controls have no accessible name — `aria-label`
+   and `title` both absent, tooltip only. §12 requires names on icon-only
+   controls. Same ownership question.
+3. Tabular numerals cannot reach the ledger; it is canvas-rendered.
+4. `TL_RULE = #AFBEC0` is still a light-surface value (Task 12); `theme.py`
+   compatibility names still lie; emoji remain on AI Reviews and Strategy
+   surfaces (Tasks 12, 13).
 
 ### 2026-08-06 — Session boundary: Tasks 8 and 9 done, resume at Task 10 (Claude)
 

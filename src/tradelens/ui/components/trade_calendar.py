@@ -37,6 +37,39 @@ def day_key(year: int, month: int, day: int) -> str:
     return f"{year:04d}-{month:02d}-{day:02d}"
 
 
+def month_summary(year: int, month: int, daily: dict) -> dict | None:
+    """The month's standing, read off the same `daily_outcomes` map the grid
+    draws from.
+
+    Pure, and deliberately not in page code: the calendar owns which month is
+    open, so the figures that describe that month belong beside it rather than
+    recomputed by whichever page mounted it. Returns None for a month with no
+    trading days — there is nothing to state, and a row of zeros would invent
+    a flat month out of an untraded one.
+
+    `winning_days` is counted in days, not trades, and is named that way. The
+    map has no per-trade outcome, so a trade win rate is not derivable here,
+    and labelling a day count "win rate" would be a different measure wearing
+    the same word.
+    """
+    prefix = f"{year:04d}-{month:02d}-"
+    days = {d: info for d, info in daily.items() if d.startswith(prefix)}
+    if not days:
+        return None
+    best = max(days.items(), key=lambda kv: kv[1]["pnl"])
+    worst = min(days.items(), key=lambda kv: kv[1]["pnl"])
+    return {
+        "net_pnl": sum(i["pnl"] for i in days.values()),
+        "trades": sum(i["trades"] for i in days.values()),
+        "trading_days": len(days),
+        "winning_days": sum(1 for i in days.values() if i["outcome"] == "positive"),
+        "best_day": best[0],
+        "best_pnl": best[1]["pnl"],
+        "worst_day": worst[0],
+        "worst_pnl": worst[1]["pnl"],
+    }
+
+
 def compact_month_html(year: int, month: int, daily: dict) -> str:
     """A month preview as one HTML grid.
 
@@ -89,6 +122,7 @@ def render_trade_calendar(
     *,
     compact: bool = False,
     selected_date: str | None = None,
+    show_month_summary: bool = False,
 ) -> "str | None":
     """Render the monthly calendar for `df` trades.
 
@@ -106,6 +140,14 @@ def render_trade_calendar(
 
     ``selected_date`` pre-selects a day, letting a caller drive the panel
     without reaching into session state.
+
+    ``show_month_summary`` states the open month's standing above the grid,
+    through the shared ruled strip. Off by default: the Journal reaches the
+    calendar from a ledger that already carries the range's figures, so a
+    second strip there would restate them for a different window under the
+    same headings. Analytics turns it on, because the month the calendar has
+    open is not the range its filters describe, and leaving that unstated is
+    what made the old page's month figures read as range figures.
     """
     import streamlit as st
 
@@ -142,6 +184,47 @@ def render_trade_calendar(
             )
             return selected
         return None
+
+    if show_month_summary:
+        from src.tradelens.ui.components.overview_bands import money
+        from src.tradelens.ui.components.workspace import MetricItem, render_kpi_strip
+
+        summary = month_summary(year, month, daily)
+        if summary:
+            st.markdown(
+                render_kpi_strip(
+                    [
+                        MetricItem(
+                            f"{month_label(picked)} net",
+                            money(summary["net_pnl"]),
+                            detail=f"{summary['trades']} trades",
+                            tone=(
+                                "positive"
+                                if summary["net_pnl"] > 0
+                                else "negative" if summary["net_pnl"] < 0 else "neutral"
+                            ),
+                        ),
+                        MetricItem(
+                            "Winning days",
+                            f"{summary['winning_days']}/{summary['trading_days']}",
+                            detail="days traded this month",
+                        ),
+                        MetricItem(
+                            "Best day",
+                            money(summary["best_pnl"]),
+                            detail=summary["best_day"],
+                            tone="positive" if summary["best_pnl"] > 0 else "neutral",
+                        ),
+                        MetricItem(
+                            "Worst day",
+                            money(summary["worst_pnl"]),
+                            detail=summary["worst_day"],
+                            tone="negative" if summary["worst_pnl"] < 0 else "neutral",
+                        ),
+                    ]
+                ),
+                unsafe_allow_html=True,
+            )
 
     header = st.columns(7)
     for i, name in enumerate(_WEEKDAYS):

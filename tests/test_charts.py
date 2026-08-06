@@ -6,6 +6,8 @@ never raising. Inputs are produced through the real metrics pipeline so the
 shapes match what the pages pass.
 """
 
+from pathlib import Path
+
 import pandas as pd
 import plotly.graph_objects as go
 
@@ -180,6 +182,78 @@ def test_compact_stage_is_shorter_than_the_dominant_one():
     dominant = apply_chart_stage(go.Figure())
     compact = apply_chart_stage(go.Figure(), compact=True)
     assert compact.layout.height < dominant.layout.height
+
+
+def test_no_chart_builder_sets_a_height_of_its_own():
+    """Two heights on the workspace — 360 dominant, 240 supporting — and the
+    stage is the only thing that decides which.
+
+    The plan's version scanned for `height=(\\d+)` and accepted any file whose
+    literals were 360 or 240, which would have passed a builder hardcoding
+    360 while claiming the stage owned it. This asserts the mechanism: the
+    only heights in the module are the two stage constants, and every other
+    figure gets its height from `apply_chart_stage`.
+
+    Both offenders were real. `session_dow_heatmap` carried `height=320` and
+    `calendar_heatmap_chart` carried `height=380`. The first was already dead
+    — measured at 360 in the browser, because the stage overrode it — which
+    is worse than a wrong height, not better: the source said one thing and
+    the screen showed another.
+    """
+    import ast
+
+    src = (
+        Path(__file__).resolve().parents[1] / "src/tradelens/ui/components/charts.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    stage_constants = {"_STAGE_HEIGHT", "_STAGE_HEIGHT_COMPACT"}
+    offenders = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.keyword) or node.arg != "height":
+            continue
+        value = node.value
+        if isinstance(value, ast.Name) and value.id in stage_constants:
+            continue
+        if isinstance(value, ast.IfExp):  # the stage's own compact ternary
+            continue
+        offenders.append(f"line {value.lineno}: {ast.dump(value)[:60]}")
+    assert not offenders, f"builders setting their own height: {offenders}"
+
+    # And the two constants are still the two the spec names.
+    from src.tradelens.ui.components import charts
+
+    assert charts._STAGE_HEIGHT == 360
+    assert charts._STAGE_HEIGHT_COMPACT == 240
+
+
+def test_the_heatmaps_take_their_height_from_the_stage():
+    """The behavioural half of the contract above: a builder that sets no
+    height must still arrive at a staged one."""
+    from src.tradelens.ui.components.charts import (
+        apply_chart_stage,
+        calendar_heatmap_chart,
+        session_dow_heatmap,
+    )
+
+    for fig in (
+        session_dow_heatmap(_DF),
+        calendar_heatmap_chart(calendar_daily_pnl(_DF, 2026, 6), 2026, 6),
+    ):
+        assert fig.layout.height is None, "a builder decided its own height"
+        assert apply_chart_stage(fig).layout.height == 360
+
+
+def test_the_archived_calendar_page_stages_its_figure():
+    """`calendar_heatmap_chart` has one call site and it is on an archived,
+    unrouted page — so nothing on a live surface was measuring it. Its height
+    literal is gone, which means that page now depends on the stage; if it is
+    ever un-archived it must not arrive at Plotly's default 450."""
+    page = (
+        Path(__file__).resolve().parents[1]
+        / "src/tradelens/ui/pages/_archive/6_Calendar.py"
+    ).read_text(encoding="utf-8")
+    assert "apply_chart_stage(calendar_heatmap_chart(" in page
 
 
 def test_apply_chart_stage_keeps_axis_labels_off_the_stage_edge():

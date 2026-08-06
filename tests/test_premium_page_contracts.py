@@ -444,20 +444,20 @@ def test_trade_detail_reveal_respects_reduced_motion():
     assert ".st-key-tl_trade_detail" in reduced
 
 
-def test_journal_calendar_stays_a_grid_on_a_phone():
+def test_the_full_calendar_stays_a_grid_on_a_phone():
     """Measured at 375px: st.columns wrap at that width, turning a month
-    into a 31-row list. Scoped to the Journal so Overview and Analytics keep
-    the calendar behaviour they already had."""
+    into a 31-row list. Keyed on the calendar form, not on the Journal, so
+    every page that mounts the full calendar inherits the one rule."""
     from src.tradelens.ui import design_system as ds
 
     src = _src("2_Trades.py")
-    assert 'st.container(key="tl_journal_calendar")' in src
+    assert 'st.container(key="tl_full_calendar")' in src
 
     css = ds.build_css()
     # The GRID rule is the phone-only one; find it by its own declaration so
     # the 44px height rule (which is deliberately global) cannot be mistaken
     # for it.
-    at = css.index('.st-key-tl_journal_calendar [data-testid="stHorizontalBlock"]')
+    at = css.index('.st-key-tl_full_calendar [data-testid="stHorizontalBlock"]')
     # it must sit inside a narrow-screen media query, whatever the project's
     # mobile breakpoint currently is
     enclosing = css.rindex("@media", 0, at)
@@ -470,7 +470,7 @@ def test_journal_calendar_stays_a_grid_on_a_phone():
     # never the height of the target. A day cell is a button a thumb has to
     # hit, so it holds the same 44px floor as every other control — and at
     # every width, so the rule lives OUTSIDE the mobile media query.
-    marker = '.st-key-tl_journal_calendar [data-testid="stColumn"] .stButton button'
+    marker = '.st-key-tl_full_calendar [data-testid="stColumn"] .stButton button'
     assert marker in css, "no rule sizes the calendar day cells"
     height_rule = css[css.index(marker) : css.index(marker) + 200]
     assert "min-height: 44px" in height_rule, height_rule
@@ -480,7 +480,7 @@ def test_journal_calendar_stays_a_grid_on_a_phone():
     # child combinator used elsewhere silently matches nothing here.
     assert f"{marker} {{" in css
     assert (
-        '.st-key-tl_journal_calendar [data-testid="stColumn"] .stButton > button'
+        '.st-key-tl_full_calendar [data-testid="stColumn"] .stButton > button'
         not in css
     ), "child combinator does not reach a button wrapped by help="
 
@@ -525,6 +525,78 @@ def test_every_lens_follows_the_same_composition():
     assert src.count("    _readout(") == 4
 
 
+def test_every_analytics_figure_carries_a_screen_reader_summary():
+    """Spec §12: charts carry a text summary of the key insight.
+
+    The plan's version of this task tested nothing of the sort, and Plotly
+    gives a screen reader a canvas plus unlabelled SVG paths — the title and
+    then silence. Hover tooltips need a pointer, so the numbers are not
+    reachable that way either.
+
+    Asserted through the AST rather than a substring count: `summary=` has to
+    be present on each individual call, and a page with eight charts and
+    eight of the word `summary` somewhere in it is not the same claim.
+    """
+    import ast
+
+    tree = ast.parse(_src("4_Analytics.py"))
+    calls = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "_chart"
+    ]
+    assert len(calls) >= 8, f"expected every lens's figures, found {len(calls)}"
+    for call in calls:
+        kwargs = {k.arg for k in call.keywords}
+        assert "summary" in kwargs, (
+            f"_chart call at line {call.lineno} renders a figure with no text "
+            "alternative"
+        )
+
+
+def test_the_chart_helper_refuses_a_figure_with_no_summary():
+    """Keyword-only and with no default, so the guard above cannot be
+    satisfied by a helper that quietly accepts None."""
+    import ast
+
+    tree = ast.parse(_src("4_Analytics.py"))
+    fn = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "_chart"
+    )
+    assert "summary" in [a.arg for a in fn.args.kwonlyargs]
+    idx = [a.arg for a in fn.args.kwonlyargs].index("summary")
+    assert fn.args.kw_defaults[idx] is None, "summary must stay required"
+
+
+def test_the_lens_selector_is_secondary_to_the_question_it_answers():
+    """Spec §6.4: the selector is visually secondary to the current
+    question's section header.
+
+    The plan proposed `source.index("render_section_header") < source.index(
+    "st.radio")`, which passes on this page for the wrong reason — the first
+    `render_section_header` in the file is the `_section` helper's body at
+    the top, hundreds of lines above the selector, and the header that
+    actually states the question is rendered *after* the radio. The test
+    would have reported success no matter which way round the page ran.
+
+    What is asserted instead is what a reader gets: the radio carries no
+    label of its own to compete with the heading, and the question header is
+    the last thing rendered before the lens body. Measured at 1440: the
+    question is 36px/700, a lens option 16px/400.
+    """
+    src = _src("4_Analytics.py")
+    radio_at = src.index("st.radio(")
+    question_at = src.index("render_section_header(lens,")
+    assert radio_at < question_at, "the question must land after the selector"
+    assert 'label_visibility="collapsed"' in src[radio_at:question_at]
+    # The lens body follows the question, so nothing separates the two.
+    assert src.index("_LENS_BODIES[lens](df)") > question_at
+
+
 def test_analytics_uses_the_shared_chart_stage_everywhere():
     """A chart that skips the stage arrives with different margins, a
     different height, and light text on a dark ground."""
@@ -542,6 +614,26 @@ def test_analytics_has_no_giant_one_off_metric_cards():
     assert "st.metric(" not in src
     assert "Best Session" not in src
     assert "Worst Session" not in src
+
+
+def test_no_raw_metric_card_reaches_analytics_through_a_component():
+    """The contract above reads the page file, and for five raw metric cards
+    that was not where they lived.
+
+    The retired `calendar_view` rendered `st.columns(5)` of `st.metric` — a
+    second, undesigned KPI system inside a lens that already opens with the
+    ruled strip. Measured on the Timing lens at 1440: five `stMetric` nodes
+    on screen while this file reported the page clean. A source scan that
+    stops at the page cannot see what the page imports, so it follows them.
+    """
+    src = _src("4_Analytics.py")
+    imported = re.findall(r"from src\.tradelens\.ui\.components\.(\w+) import", src)
+    for module in imported:
+        text = _src_component(f"{module}.py")
+        assert "st.metric(" not in text, (
+            f"components/{module}.py renders a raw metric card onto Analytics — "
+            "the ruled strip is the page's one KPI system"
+        )
 
 
 def test_analytics_keeps_every_calculation():
@@ -582,9 +674,53 @@ def test_analytics_keeps_the_calendar_under_timing():
     """Daily P&L across a month IS a timing question, so the calendar keeps
     a home rather than being dropped in the regrouping."""
     src = _src("4_Analytics.py")
-    assert "render_calendar(" in src
+    assert "render_trade_calendar(" in src
     timing = src[src.index("def _render_timing_lens(") :]
-    assert "render_calendar(" in timing[: timing.index("def _render_setups_lens(")]
+    body = timing[: timing.index("def _render_setups_lens(")]
+    assert "render_trade_calendar(" in body
+
+
+def test_there_is_one_full_calendar_implementation():
+    """Analytics carried a second calendar of its own.
+
+    `calendar_view.py` predated the dark retarget and never got it: a
+    money-positive day was tinted with the brand teal — the colour §4.1
+    reserves for actions and focus — while the KPI strip and the ledger use
+    green for exactly that meaning, and its remaining colours were literal
+    pre-redesign hexes rather than role tokens. It also shipped no textual
+    legend, which §6.3 requires of a calendar. Measured on the Timing lens:
+    `.tl-cal-legend` count 0 at 1440 and at coarse 375.
+
+    Two implementations is why one of them could rot unnoticed, so the fix
+    is one component, not a second retarget.
+    """
+    components = PAGES.parent / "components"
+    assert not (components / "calendar_view.py").exists()
+    # A month grid that RENDERS — charts.py also lays out a month, but it
+    # returns a Plotly figure and never touches Streamlit, so it cannot be a
+    # second mounted calendar.
+    owners = set()
+    for path in components.glob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if "monthcalendar(" in text and "import streamlit" in text:
+            owners.add(path.name)
+    assert owners == {
+        "trade_calendar.py"
+    }, f"more than one component mounts a month grid: {sorted(owners)}"
+
+
+def test_the_analytics_calendar_states_which_month_it_is_describing():
+    """The page's date filter says one thing and the calendar's month says
+    another. The old month figures were five bare `st.metric` cards headed
+    'Month Net P&L', sitting under a page filtered to 90 days — two windows
+    labelled alike. The summary now names the month it belongs to."""
+    src = _src("4_Analytics.py")
+    assert "show_month_summary=True" in src
+    comp = _src_component("trade_calendar.py")
+    assert "def month_summary(" in comp
+    # Named in days, because the map it reads has no per-trade outcome.
+    assert "winning_days" in comp
+    assert "win_rate" not in comp
 
 
 def test_analytics_states_its_sample_on_the_panel_not_per_chart():
@@ -633,8 +769,8 @@ def test_timing_calendar_uses_the_filtered_frame():
     calendar built from df_raw would quietly disagree with the strip and the
     heatmap directly above it."""
     src = _src("4_Analytics.py")
-    assert "render_calendar(frame)" in src
-    assert "render_calendar(df_raw)" not in src
+    assert "render_trade_calendar(frame" in src
+    assert "render_trade_calendar(df_raw" not in src
 
 
 def test_a_single_category_is_never_labelled_strongest():

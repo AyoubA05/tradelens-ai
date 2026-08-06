@@ -454,9 +454,10 @@ if view == "Calendar":
         ]
     )
     # Keyed so the design system can keep this month a real 7-across grid at
-    # phone widths. Scoped to the Journal on purpose: Overview and Analytics
-    # keep exactly the calendar behaviour they already had.
-    with st.container(key="tl_journal_calendar"):
+    # phone widths. The key names the calendar form, not this page: Analytics
+    # mounts the same component and needs the same rule. Overview's preview is
+    # its own CSS grid and is unaffected.
+    with st.container(key="tl_full_calendar"):
         _day = render_trade_calendar(_cal_df)
     if _day:
         _day_trades = [t for t in trades if str(t.trade_date) == str(_day)]

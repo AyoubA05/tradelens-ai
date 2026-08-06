@@ -15,7 +15,10 @@ import streamlit as st  # noqa: E402
 from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
 from src.tradelens.services.metrics import calendar_daily_pnl  # noqa: E402
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
-from src.tradelens.ui.components.charts import calendar_heatmap_chart  # noqa: E402
+from src.tradelens.ui.components.charts import (  # noqa: E402
+    apply_chart_stage,
+    calendar_heatmap_chart,
+)
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import (  # noqa: E402
@@ -129,7 +132,10 @@ k3.metric("Win Rate", f"{win_rate:.1%}")
 
 # --- Heatmap ---
 st.plotly_chart(
-    calendar_heatmap_chart(daily, year, month),
+    # The builder no longer carries a height of its own, so the stage is what
+    # sizes it. This page is archived and unrouted; the call is staged so the
+    # figure cannot arrive at a third height if it is ever brought back.
+    apply_chart_stage(calendar_heatmap_chart(daily, year, month)),
     use_container_width=True,
     key="cal_heatmap",
 )
