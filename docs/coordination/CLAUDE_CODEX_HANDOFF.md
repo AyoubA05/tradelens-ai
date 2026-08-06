@@ -209,6 +209,43 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
 
 ## Handoff log
 
+### 2026-08-06 — Phase 2 Task 11: the pure review document model (Claude)
+
+**Commit:** see `feat(ai-reviews): pure Markdown document model for generated
+notes`. Task 11 only; Task 12 not started.
+
+New `components/review_document.py`: `ReviewSection`, `ReviewDocument`,
+`parse_review_markdown` — the exact names Task 12 consumes. Standard library
+only; no Streamlit, no service, no model call, no database. Guarded.
+
+**The plan supplied a full implementation and said it was verified: "this exact
+source passes all 13 tests above plus 3 extra edge cases — 16 passed". That is
+true and it is not the same as correct.** Three real defects survive its own
+suite, each confirmed by reverting to the plan's source and watching the new
+tests fail:
+
+| Defect | Plan's behaviour | Why it matters |
+|---|---|---|
+| **Colliding ids** | `_slug` counts per base, so "Risk 2" takes `risk-2`, and a later second "Risk" — numbered on its own counter — takes `risk-2` as well | Task 12 selects a section by id. Two sections with one id means the reader opens the wrong one. The plan's uniqueness test compares two *identical* headings and never reaches this |
+| **Length-blind fences** | a fence closes on any equal marker, and an info string closes one too | A model quoting Markdown emits a ```` block containing ``` blocks. The parser toggles out on the inner fence and reads the rest of the quoted code as headings |
+| **ATX closing hashes** | `## Findings ##` is titled `Findings ##` | The hashes render in the section title and ride into its id |
+
+Fixed by checking uniqueness against the ids actually issued rather than a
+per-base count, by capturing the fence's marker run and requiring a closing run
+of the same character, at least as long, with no info string, and by stripping
+the ATX closing sequence.
+
+The plan's `test_no_section_content_is_ever_dropped` checks that three tokens
+appear somewhere in the rebuilt text. The replacement asserts the property it
+names: every non-heading line survives the round trip.
+
+**Verification:** `1867 passed, 7 skipped` (was `1842/7`; +25); Ruff clean;
+Black clean; `git diff --check` clean. No browser work — this task renders
+nothing. Dev database untouched (`md5 dffdb781…`).
+
+**Files changed:** new `components/review_document.py`, new
+`tests/test_review_document.py`, and this handoff.
+
 ### 2026-08-06 — Phase 2 Task 10: Analytics, one instrument shape (Claude)
 
 **Commit:** see `feat(ui): one dark instrument shape across the four Analytics
