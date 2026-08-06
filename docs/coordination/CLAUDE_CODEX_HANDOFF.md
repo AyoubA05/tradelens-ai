@@ -19,17 +19,18 @@ the same time.
 
 ## Current handoff state
 
-- Active writer: `CLAUDE`
-- Current phase: `PHASE 2 IN PROGRESS — TASK 10 DONE, RESUME AT TASK 11`
-- Last completed work: **Task 10** — Analytics on one instrument shape (this
-  commit). Before it: Tasks 8 and 9 — New Trade on the dark workspace
+- Active writer: `NONE`
+- Current phase: `PHASE 2 TASKS 10–11 COMPLETE — RESUME AT TASK 12`
+- Last completed work: **Tasks 10 and 11** — Analytics on one instrument
+  shape (`eaeca32`) and the pure review document model (`df07a11`). Before
+  them: Tasks 8 and 9 — New Trade on the dark workspace
   (`f2eb1df`) and the dark Journal (`9d571d3`). Before them: Tasks 5–7, the
   Overview's five bands — `243d0c9`, `25616f9`, `00d2359`. Task 4 is
   `3aa9e36`; Task 3 is `5a03834` + `16a81ee`.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification at Task 10: `1842 passed, 7 skipped` · Ruff clean · Black clean
+- Verification at Task 11: `1867 passed, 7 skipped` · Ruff clean · Black clean
   · `git diff --check` clean · all four Analytics lenses verified at 1440,
   1024, coarse 768 and coarse 375 plus reduced motion, with the pointer state
   and the reduced-motion state asserted from the page at every applicable row
@@ -38,15 +39,17 @@ the same time.
   and bottom bar never both on screen. The Journal calendar was re-verified
   after the shared key rename.
 - Next owner: **`CLAUDE`**.
-- Next action: **continue the approved Phase 2 master directive at Task 11**
-  (the pure AI review document model) and run through Task 17 — one scoped
+- Next action: **continue the approved Phase 2 master directive at Task 12**
+  (AI Reviews — one reading shell for three lenses; its audit is already
+  recorded in the session-boundary handoff-log entry below) and run through
+  Task 17 — one scoped
   commit and verification record per task — then release the lock to `NONE`
   and hand the complete Phase 2 diff to Codex.
 - **No interim Codex review is requested.** The comprehensive Codex review
   remains scheduled after Task 17.
-- Tasks 11–17 remain: the pure review document model, AI Reviews, Strategy
-  Profile and Settings, the AI Partner desktop drawer and mobile destination,
-  the cross-page audit, and the 10K re-score.
+- Tasks 12–17 remain: AI Reviews, Strategy Profile and Settings, the AI
+  Partner desktop drawer and mobile destination, the cross-page audit, and the
+  10K re-score.
 - Task 4 interfaces are present exactly as planned and verified green
   (`tests/test_metrics.py` + `tests/test_partner_context.py`, 129 passed).
   Claude must consume them, never reproduce their calculations or open a
@@ -208,6 +211,61 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-06 — Session boundary: Tasks 10 and 11 done, resume at Task 12 (Claude)
+
+Tasks 10 (`eaeca32`) and 11 (`df07a11`) are committed with full evidence.
+Tasks 12–17 are not started. This is a **context boundary, not a review
+gate** — no interim Codex review is requested, and the comprehensive review
+stays scheduled after Task 17. The lock is `NONE` only so a fresh session can
+claim it cleanly.
+
+**Resume at Task 12 (AI Reviews).** Its audit is done and recorded below, so
+the next session should not repeat it.
+
+**What a fresh session needs.** The CDP driver was rebuilt again this session
+from the four corrections in the Task 8/9 entries; all four held, and a
+**fifth** is now recorded in the Task 10 entry (Streamlit retains a copy of a
+swapped container inside a `display:none` parent, so every calendar day button
+appears twice — filter on `offsetParent !== null`). The driver lives in the
+session scratchpad, not the worktree. Also worth knowing: the dev database in
+this worktree has **no trades owned by user 1**, so the Journal stops at its
+demo branch before the view selector ever renders; seed a scratchpad copy and
+set `user_id = 1` there to reach the Journal calendar. Analytics does not need
+this because it falls back to `get_demo_df()`.
+
+**Task 12 reconnaissance — all three claimed defects are real, verified in the
+source, not assumed from the plan:**
+
+1. **D5 is real and is data loss.** `_render_daily_lens` (`6_Insights.py:576`)
+   pops `cache_key` *before* calling `_run_daily_debrief`. `_run_daily_debrief`
+   only writes `st.session_state[cache_key]` on success, so a `DebriefError`
+   leaves the note gone and only `_err` set — the next rerun takes the error
+   branch and the debrief the trader already had is destroyed. Weekly does the
+   opposite deliberately, and says so in a comment: "The existing note stays on
+   screen until a replacement succeeds." Daily must match Weekly.
+2. **D7 is real.** `_note_stats(` appears in `_render_weekly_lens` (476) and
+   `_render_daily_lens` (563) and **not once** in `_render_patterns_lens`
+   (319–394).
+3. **D8 is real.** There is no `disabled=` anywhere in `6_Insights.py`. Note
+   for whoever implements it: a Streamlit button cannot be disabled *during*
+   its own click handler, because the script run is blocking. This needs the
+   two-pass flag/rerun/render-disabled/run pattern, not a `disabled=` argument
+   bolted onto the existing call — budget for that.
+
+**One plan claim that is already satisfied, so do not "fix" it.** Step 5 says
+to demote the lens radio below the section header. `6_Insights.py` already
+renders the radio and then `render_section_header(lens, …)`, the same shape
+Task 10 measured on Analytics (question 36px/700, option 16px/400). Verify by
+measurement before changing it; the plan's Analytics version of this test
+passed for the wrong reason.
+
+**Verification at this boundary:** `1867 passed, 7 skipped`; Ruff clean; Black
+clean; `git diff --check` clean. Dev database byte-identical
+(`md5 dffdb781…`, `Jul 31`) — browser runs used a scratchpad **copy** pointed
+at by `DATABASE_URL`, and the app process's cwd was read to confirm the
+worktree it served. App and Chrome processes stopped. `.impeccable/` untouched
+and unstaged.
 
 ### 2026-08-06 — Phase 2 Task 11: the pure review document model (Claude)
 
