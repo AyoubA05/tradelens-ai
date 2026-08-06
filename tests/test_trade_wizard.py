@@ -842,3 +842,162 @@ def test_back_and_forward_across_every_step_does_not_raise():
         next(b for b in at.button if b.label == "← Back").click().run()
         assert not at.exception, f"Back into step {expected} raised: {at.exception}"
         assert at.session_state[WIZARD_STATE_KEY] == expected
+
+
+# ---------------------------------------------------------------------------
+# Task 8 — New Trade on the dark workspace (spec 6.2).
+#
+# The plan's three Step-2 tests are kept by name and their assertions are
+# retained, because they are the regression guards the plan intends. Two of
+# them passed against the unchanged wizard, so on their own they would have
+# licensed a no-op task:
+#
+#   * the progress-system test names `render_stepper`, and this page has
+#     always called `render_step_indicator` — so both its assertions were
+#     vacuous;
+#   * the review-step test passes because `_ticket_section` already drops
+#     blank rows, and "complete" already matched the word "Completeness" in
+#     a passive summary heading rather than an action;
+#   * the waiting-state test names the wrong file. The screenshot analysis,
+#     its spinner, and its pending state all live in `ai_autofill_review.py`;
+#     `1_NewTrade.py` only delegates to it.
+#
+# Each is therefore paired below with a test that asserts the property the
+# plan's prose actually requires.
+# ---------------------------------------------------------------------------
+
+_NEW_TRADE = Path("src/tradelens/ui/pages/1_NewTrade.py")
+_AUTOFILL = Path("src/tradelens/ui/components/ai_autofill_review.py")
+
+
+def test_the_wizard_has_exactly_one_progress_system():
+    """The prior audit found two — text tabs plus a numbered rail — and the
+    duplicate rail was removed. It must not return."""
+    source = _NEW_TRADE.read_text()
+    assert source.count("render_stepper") <= 1
+    assert "tl-wizard-rail" not in source
+    # What the plan's two assertions above cannot see: this page never called
+    # anything named `render_stepper`. Pin the emitter it does use, so a
+    # second progress system is caught whatever it is called.
+    assert source.count("render_step_indicator(") == 1
+
+
+def test_only_the_current_step_carries_the_action_colour():
+    """Quiet progress, never five bright pills (spec 6.2).
+
+    Completed and active circles both filled solid `--tl-accent-action`, so a
+    trader on step 5 saw five identical bright teal pills and four teal
+    connectors — plus the teal Continue button. Teal is the action and focus
+    colour (spec 4.1); spending it on four steps the trader has already left
+    is what item 03 of the 10K checklist means by unrestrained teal coverage.
+
+    Done is a finished state, not an action: it recedes. Exactly one circle
+    may carry the accent as its background, and that is the active one.
+    """
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+    circles = {
+        state: next(
+            (b for b in css.split("}") if f".tl-step-circle.{state}" in b),
+            "",
+        )
+        for state in ("done", "active", "future")
+    }
+    assert circles["active"], "no rule styles the active step"
+    assert circles["done"], "no rule styles a completed step"
+
+    accent_filled = [
+        state
+        for state, block in circles.items()
+        if re.search(r"background:[^;]*--tl-accent-action", block)
+    ]
+    assert accent_filled == ["active"], (
+        "exactly one step state may be filled with the action colour; "
+        f"filled: {accent_filled}"
+    )
+
+    connector_done = next(
+        (b for b in css.split("}") if ".tl-step-connector.done" in b), ""
+    )
+    assert connector_done, "no rule styles a completed connector"
+    assert "--tl-accent-action" not in connector_done, (
+        "a completed connector is a drawn boundary, not an action; "
+        "it uses a line token"
+    )
+
+
+def test_the_review_step_hides_empty_groups_instead_of_listing_them():
+    at = _wizard(new_trade_step=5, nt_asset="EURUSD", nt_entry_time="09:30")
+    body = " ".join(m.value for m in at.markdown)
+    assert body.count("Not entered yet") <= 1
+    assert "complete" in body.lower()
+
+
+def test_the_review_step_offers_one_action_to_complete_missing_fields():
+    """"Hide empty groups and offer one 'complete N fields' action" (spec 6.2).
+
+    The word "complete" already appeared in the passive heading
+    "Completeness", which is why the plan's assertion above passes on a review
+    step that offers the trader no way to go and fill anything in. Counting
+    what is missing and then providing no route to it is a dead end, not
+    progressive disclosure.
+    """
+    at = _wizard(new_trade_step=5, nt_asset="EURUSD", nt_entry_time="09:30")
+    assert not at.exception
+    actions = [b.label for b in at.button]
+    completers = [label for label in actions if re.match(r"Complete \d+ ", label)]
+    assert len(completers) == 1, (
+        f"expected exactly one 'Complete N …' action, found {completers} "
+        f"among {actions}"
+    )
+
+
+def test_the_screenshot_waiting_state_reserves_its_height():
+    """The plan asserts the literal `tl-analysis-pending` in `1_NewTrade.py`.
+
+    Two corrections, both forced by where the code actually is:
+
+    * the analysis, its spinner, and its pending state live in
+      `ai_autofill_review.py`; the page only delegates to it;
+    * the separator is `_`, not `-`. Authored HTML cannot wrap Streamlit
+      widgets, so the height is reserved by keying a real container — the
+      mechanism `tl_wizard_bar` and `tl_step_N` already use — and Streamlit
+      builds the selector as `.st-key-<key>` from that key.
+    """
+    from src.tradelens.ui.components import ai_autofill_review as ar
+
+    source = _NEW_TRADE.read_text() + _AUTOFILL.read_text()
+    assert "tl_analysis_pending" in source
+    assert ar.PENDING_CONTAINER_KEY == "tl_analysis_pending"
+
+
+def test_the_waiting_state_holds_its_height_so_results_do_not_jump():
+    """"Waiting state holds its height — no collapse-and-jump" (spec 6.2).
+
+    A class name in the source proves nothing about geometry. The pending
+    block is what stands where the detection panel will land, so it has to
+    reserve height rather than collapse to the height of a spinner line and
+    let the results shove the page down when they arrive.
+    """
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+    block = next((b for b in css.split("}") if "st-key-tl_analysis_pending" in b), "")
+    assert block, "no rule reserves the analysis pending state's height"
+    assert re.search(r"min-height:\s*\d", block), (
+        "the pending state must reserve a height, not collapse to its content"
+    )
+
+
+def test_no_wizard_surface_uses_an_emoji_as_an_icon():
+    """Handed to Task 8 by the Task 2 amendment.
+
+    Task 2 migrated the empty-state renderers and recorded the emoji that
+    survived on surfaces later tasks own. The autofill success message is
+    this task's share. Streamlit's own status widgets draw their icon, so a
+    literal check mark in the string is a second icon on one message.
+    """
+    for path in (_NEW_TRADE, _AUTOFILL):
+        found = re.findall(r"[✅\U0001F300-\U0001FAFF]", path.read_text())
+        assert not found, f"{path.name} still passes emoji as an icon: {found}"

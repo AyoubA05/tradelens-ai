@@ -19,8 +19,8 @@ the same time.
 
 ## Current handoff state
 
-- Active writer: `NONE`
-- Current phase: `PHASE 2 TASKS 5–7 COMPLETE — RESUME AT TASK 8`
+- Active writer: `CLAUDE`
+- Current phase: `PHASE 2 TASK 8 COMPLETE — TASK 9 IN PROGRESS`
 - Last completed work: **Tasks 5, 6 and 7** — the Overview recomposed into its
   five bands: `243d0c9` (bands 1–2 and the shared date policy), `25616f9`
   (bands 3–4, trajectory and recurring edge), `00d2359` (band 5 and the state
@@ -204,6 +204,115 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-06 — Phase 2 Task 8: New Trade on the dark workspace (Claude)
+
+**Commit:** see `feat(ui): New Trade on the dark workspace with one progress
+system`. Task 8 only; Task 9 not started.
+
+**Two of the plan's three Step-2 tests passed against the unchanged wizard.**
+Transcribed verbatim and run before anything was edited: the progress-system
+test names `render_stepper`, and this page has always called
+`render_step_indicator`, so both its assertions were vacuous; the review-step
+test passed because `_ticket_section` already drops blank rows and `"complete"`
+already matched the heading `Completeness`. Only the waiting-state test failed,
+and it names the wrong file. On their own the three would have licensed a no-op
+task, so each is now paired with a test asserting what the plan's prose
+actually requires.
+
+**The real finding: the wizard was five bright pills.** `.tl-step-circle.done`
+and `.active` both filled solid `--tl-accent-action`, and `.tl-step-connector.done`
+was accent too — so a trader on step 5 saw five identical teal circles and four
+teal connectors beside the teal `Continue` button. Teal is action and focus
+(spec §4.1); a step already left is neither, and this is exactly the
+unrestrained teal coverage 10K item 03 targets. Done now recedes to the
+elevated surface behind a `TL_LINE_STRONG` edge, keeping its check glyph;
+future keeps its number with no edge, so done and future differ by glyph and
+edge rather than by tone. Exactly one circle carries the accent, and it is
+always the active one. Contrast holds: secondary on elevated 6.13:1, strong
+line on elevated 3.03:1.
+
+**The waiting state now holds its height.** The screenshot analysis, its
+spinner, and its scanning video all live in `ai_autofill_review.py`, not in
+`1_NewTrade.py` where the plan looked. Both call sites — auto-trigger and
+manual re-run — render inside one keyed container whose rule reserves 320px, so
+the detection panel lands where the pending block stood instead of shoving the
+page down. Two corrections to the plan's literal are recorded in the test's own
+docstring: the file, and `tl_analysis_pending` rather than `tl-analysis-pending`
+— authored HTML cannot wrap Streamlit widgets, so the height is reserved by
+keying a real container, which is the mechanism `tl_wizard_bar` and `tl_step_N`
+already use, and Streamlit builds `.st-key-<key>` from that key.
+
+**The review step now offers the route it was only describing.** It counted
+blank optional fields and then gave the trader no way to reach them.
+`_ticket_html` returns `(html, blanks)` and the step renders one subordinate
+`Complete N optional fields` action — not one per empty group, and not styled
+to compete with Save, because none of those fields block saving. This moved
+`_jump_to_context` above the step bodies: callbacks are bound while
+`_STEP_BODIES[STEP]()` runs, which is before the action bar defines its own.
+
+**One emoji retired**, the share Task 2's amendment assigned to this task: the
+autofill success message carried a literal `✅` beside the icon `st.success`
+already draws.
+
+**Three guards mutation-checked**, each reverted in turn: the done circle back
+to accent fails the pill test; dropping `min-height` fails the geometry test;
+removing the action fails the completion test.
+
+**Browser evidence — real coarse-pointer emulation with the pointer state
+asserted at each coarse width:**
+
+| Check | 1440 | 1024 | coarse 768 | coarse 375 |
+|---|---|---|---|---|
+| `innerWidth` | 1440 | 1024 | 768 | 375 |
+| Rail on screen | yes | yes | no | no |
+| Bottom nav on screen | no | no | no | yes |
+| Both at once | **never** | never | never | never |
+| Horizontal overflow | 0 | 0 | 0 | 0 |
+| Undersized on-screen targets | 0 | 0 | 0 | 0 |
+| Exceptions | 0 | 0 | 0 | 0 |
+
+Round trip with a real 1200×700 PNG through `DOM.setFileInputFiles`, then
+Continue → Back → Continue, at 1440 and coarse 375: **the draft count held at
+`6 of 15` at every step**, matching the figure `8b35a6e` recorded, with zero
+exceptions and an identical retained-chart `src` after Back. The stepper was
+measured on step 4: **1 accent-filled circle, 0 accent connectors**, done
+circles `rgb(21,35,41)` behind `rgb(92,110,119)`.
+
+**Two driver corrections, both of which would have produced false evidence:**
+
+1. **`innerWidth` must be re-read after navigation.** Metrics applied while
+   `about:blank` is loaded describe `about:blank`, which has no viewport meta,
+   so mobile emulation reports 981 whatever width was requested. The first
+   coarse-375 pass reported 981 — it was measuring a desktop layout with a
+   touch pointer. Re-applying metrics after load gives a true 375, and the
+   driver now does this rather than leaving it to the caller.
+2. **The undersized-target probe must exclude clipped elements.** It reported
+   `stFileUploaderDropzoneInput` at 1×1 under `clip: rect(0,0,0,0)` at every
+   width. That is the visually-hidden pattern — the styled dropzone carries the
+   real target and the input stays keyboard-reachable. Excluding off-canvas,
+   clipped, and transparent elements takes every width to 0.
+
+**Verification:** `1820 passed, 7 skipped` (was `1813/7`); Ruff clean; Black
+clean (83 files); `git diff --check` clean. The +7 is this task's tests. App
+served from the canonical worktree, confirmed by reading the process's cwd
+rather than assuming it — Task 2 measured the old palette by not checking.
+
+**Files changed:** `design_system.py` (stepper tones, pending-state rule),
+`ai_autofill_review.py` (pending container, emoji), `1_NewTrade.py`
+(`_ticket_html` returns blanks, the complete action, `_jump_to_context` moved),
+`tests/test_trade_wizard.py`, and this handoff. `git add -A` not used;
+untracked `src/tradelens/ui/.impeccable/` deliberately not staged.
+
+**Unresolved concerns.**
+
+1. **`TL_RULE = #AFBEC0` is still a light-surface value** — carried from Tasks
+   1–3, still Task 12's.
+2. **`theme.py`'s compatibility names still lie** (`PAPER` is a dark panel).
+3. **Emoji remain on Journal, AI Reviews, and Strategy surfaces**, recorded by
+   the Task 2 amendment against Tasks 9, 12 and 13. This task took only its own.
+
+Ownership remains `CLAUDE`; continuing to Task 9 under the master directive.
 
 ### 2026-08-05 — Session boundary: paused at Task 8, lock released (Claude)
 

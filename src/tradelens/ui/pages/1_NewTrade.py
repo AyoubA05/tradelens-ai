@@ -940,8 +940,12 @@ def _ticket_section(title: str, rows: list) -> tuple:
     return f"<h3>{escape(title)}</h3>{body}", blanks
 
 
-def _ticket_html(data: dict) -> str:
-    """Structured trade ticket for Review & Save (Phase 4, .tl-form-card)."""
+def _ticket_html(data: dict) -> "tuple[str, int]":
+    """Structured trade ticket for Review & Save (Phase 4, .tl-form-card).
+
+    Returns (html, blanks) — the count of optional fields still empty, so the
+    review step can offer exactly one route back to them.
+    """
     mistakes = json.loads(data["mistake_tags"] or "[]")
     fr = {1: "Yes", 0: "No"}.get(data["followed_rules"])
 
@@ -1073,7 +1077,22 @@ def _ticket_html(data: dict) -> str:
         )
     if summary:
         rendered.append(f"<h3>Completeness</h3>{''.join(summary)}")
-    return f'<div class="tl-form-card">{"".join(rendered)}</div>'
+    # The blank count travels out with the markup so the review step can offer
+    # ONE route to those fields. Counting what is missing and then giving the
+    # trader no way to reach it is a dead end, not progressive disclosure.
+    return f'<div class="tl-form-card">{"".join(rendered)}</div>', blanks
+
+
+def _jump_to_context() -> None:
+    """Return to the first field step.
+
+    Defined above the step bodies, not beside the action bar's callbacks: the
+    review step wires it to its "Complete N optional fields" button, and that
+    button is created while `_STEP_BODIES[STEP]()` runs — before the action
+    bar below is reached.
+    """
+    st.session_state.pop("_nt_step_errors", None)
+    set_step(st.session_state, 2)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -1101,7 +1120,19 @@ def _step_review() -> None:
         st.stop()
 
     _data = _build_trade_data()
-    st.markdown(_ticket_html(_data), unsafe_allow_html=True)
+    _ticket, _blanks = _ticket_html(_data)
+    st.markdown(_ticket, unsafe_allow_html=True)
+
+    # One action, not one per empty group, and subordinate to Save — none of
+    # these fields block saving, so the route back must not compete with
+    # finishing. Step 2 is where the field steps begin; the trader continues
+    # forward from there through whichever groups they left blank.
+    if _blanks:
+        st.button(
+            f"Complete {_blanks} optional field{'s' if _blanks != 1 else ''}",
+            key="secondary_nt_complete_optional",
+            on_click=_jump_to_context,
+        )
 
     if st.session_state.get("_nt_dup_pending"):
         st.warning(
@@ -1154,11 +1185,6 @@ def _go_next() -> None:
         return
     st.session_state.pop("_nt_step_errors", None)
     next_step(st.session_state)
-
-
-def _jump_to_context() -> None:
-    st.session_state.pop("_nt_step_errors", None)
-    set_step(st.session_state, 2)
 
 
 _filled, _total = draft_completion(_FIELD_VALUES)

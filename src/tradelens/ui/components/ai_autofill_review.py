@@ -691,6 +691,23 @@ def _render_scanning_video() -> None:
         pass
 
 
+# The pending block stands where the two-panel detection review will land.
+# `tl_analysis_pending` keys a real Streamlit container, so the height is
+# reserved by `.st-key-tl_analysis_pending` in design_system.py — authored
+# HTML cannot wrap Streamlit widgets, and the container key is the mechanism
+# the rest of this product already uses for exactly that (`tl_wizard_bar`).
+PENDING_CONTAINER_KEY = "tl_analysis_pending"
+
+
+def _pending(st):
+    """The height-reserving container the waiting state renders inside.
+
+    Returned rather than used here so both call sites — the auto-trigger and
+    the manual re-run — hold the same geometry with no duplicated markup.
+    """
+    return st.container(key=PENDING_CONTAINER_KEY)
+
+
 def _identity_chips(result: AutofillResult) -> list:
     """Chart-identity chip texts (instrument + descriptive singles, no lists)."""
     chips = []
@@ -837,7 +854,9 @@ def render_autofill_review(
         names = ", ".join(
             _FIELD_LABELS.get(f, _OVERLAY_FIELD_LABELS.get(f, f)) for f in applied
         )
-        st.success(f"✅ Applied to the form: {names}. Edit them in the steps below.")
+        # No literal check mark: st.success draws its own icon, and a second
+        # one in the string is two icons on one message (Task 2 amendment).
+        st.success(f"Applied to the form: {names}. Edit them in the steps below.")
 
     # Auto-trigger (Item 2): analysis starts the moment a new source appears —
     # file drop, file browse, or committed URL paste — with no button press.
@@ -847,9 +866,12 @@ def render_autofill_review(
     sig = _source_signature(screenshot_file, screenshot_url)
     if sig is not None and st.session_state.get(_SRC_SIG_KEY) != sig:
         st.session_state[_SRC_SIG_KEY] = sig
-        _render_scanning_video()
-        with st.spinner("Analyzing your chart…"):
-            _analyze(screenshot_file, screenshot_url, strategy_profile, known_assets)
+        with _pending(st):
+            _render_scanning_video()
+            with st.spinner("Analyzing your chart…"):
+                _analyze(
+                    screenshot_file, screenshot_url, strategy_profile, known_assets
+                )
         st.rerun()
 
     # Manual re-run stays available once a result or error exists (e.g. after
@@ -858,9 +880,12 @@ def render_autofill_review(
         st.session_state.get(_RESULT_KEY), AutofillResult
     ) or st.session_state.get(_ERROR_KEY)
     if has_activity and st.button("Re-analyze screenshot", key="_nt_ai_analyze"):
-        _render_scanning_video()
-        with st.spinner("Analyzing your chart…"):
-            _analyze(screenshot_file, screenshot_url, strategy_profile, known_assets)
+        with _pending(st):
+            _render_scanning_video()
+            with st.spinner("Analyzing your chart…"):
+                _analyze(
+                    screenshot_file, screenshot_url, strategy_profile, known_assets
+                )
         st.rerun()
 
     # Analysis errors are stashed in session-state so they survive the rerun.

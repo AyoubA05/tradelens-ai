@@ -1549,12 +1549,24 @@ def build_css() -> str:
   font-size: 13px;
   font-weight: 700;
 }}
-.tl-step-circle.done {{ background: var(--tl-accent-action); color: var(--tl-surface-panel); }}
+/* Done recedes. Filling completed steps with the action colour put five
+   identical bright pills and four teal connectors on step 5, beside a teal
+   Continue button — teal is action and focus (4.1), and a step the trader
+   has already left is neither. A finished step is marked by its glyph and
+   its drawn edge, so exactly one circle on the rail carries the accent and
+   it is always the one the trader is standing on. */
+.tl-step-circle.done {{
+  background: var(--tl-surface-elevated);
+  color: var(--tl-content-secondary);
+  border: 1px solid var(--tl-line-strong);
+}}
 .tl-step-circle.active {{
   background: var(--tl-accent-action);
   color: var(--tl-surface-panel);
   box-shadow: 0 0 0 3px var(--tl-primary-dim);
 }}
+/* Future differs from done by glyph and edge, not by tone: done carries the
+   check behind a strong line, future carries its number with no edge. */
 .tl-step-circle.future {{
   background: var(--tl-surface-elevated);
   color: var(--tl-content-secondary);
@@ -1570,7 +1582,10 @@ def build_css() -> str:
   height: 2px;
   margin-bottom: 16px;
 }}
-.tl-step-connector.done {{ background: var(--tl-accent-action); }}
+/* Travelled ground is drawn, not accented — the strong line is the token for
+   a boundary that carries meaning (4.4), and it stays legible against the
+   hairline the untravelled segments use. */
+.tl-step-connector.done {{ background: var(--tl-line-strong); }}
 .tl-step-connector.future {{ background: var(--tl-line-hairline); }}
 
 /* === AI REVIEWS — the research note ===
@@ -2082,6 +2097,24 @@ def build_css() -> str:
 @keyframes tl-step-in {{
   from {{ opacity: 0; transform: translateY(4px); }}
   to {{ opacity: 1; transform: none; }}
+}}
+
+/* Screenshot analysis, waiting. This block stands exactly where the two-panel
+   detection review will land, so it reserves that height instead of
+   collapsing to a spinner line and letting the results shove the page down
+   when they arrive (spec 6.2, "no collapse-and-jump"). The height is the
+   reservation; nothing here moves, so there is no reduced-motion case. */
+.st-key-tl_analysis_pending {{
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--tl-space-3);
+  padding: var(--tl-space-5);
+  background: var(--tl-surface-panel);
+  border: 1px solid var(--tl-line-hairline);
+  border-radius: var(--tl-radius-md);
+  color: var(--tl-content-secondary);
 }}
 
 /* Progress. One system: the numbered rail on desktop, and the masthead
