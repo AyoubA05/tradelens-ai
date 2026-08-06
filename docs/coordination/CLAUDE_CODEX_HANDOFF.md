@@ -19,30 +19,31 @@ the same time.
 
 ## Current handoff state
 
-- Active writer: `CLAUDE`
-- Current phase: `PHASE 2 TASK 8 COMPLETE — TASK 9 IN PROGRESS`
-- Last completed work: **Tasks 5, 6 and 7** — the Overview recomposed into its
-  five bands: `243d0c9` (bands 1–2 and the shared date policy), `25616f9`
-  (bands 3–4, trajectory and recurring edge), `00d2359` (band 5 and the state
-  matrix). Task 4 is `3aa9e36`; Task 3 is `5a03834` + `16a81ee`.
+- Active writer: `NONE`
+- Current phase: `PHASE 2 TASKS 8–9 COMPLETE — RESUME AT TASK 10`
+- Last completed work: **Tasks 8 and 9** — New Trade on the dark workspace
+  (`f2eb1df`) and the dark Journal (this commit). Before them: Tasks 5–7, the
+  Overview's five bands — `243d0c9`, `25616f9`, `00d2359`. Task 4 is
+  `3aa9e36`; Task 3 is `5a03834` + `16a81ee`.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification at `00d2359`: `1813 passed, 7 skipped` · Ruff clean · Black
-  clean (181 files) · `git diff --check` clean · page boot checks 64 passed ·
-  five bands in spec reading order at 1440, 1024, coarse 768 and coarse 375
-  with the pointer state asserted at each coarse width, zero overflow, zero
-  exceptions.
+- Verification at Task 9: `1833 passed, 7 skipped` · Ruff clean · Black clean
+  (84 files) · `git diff --check` clean · Journal ledger and calendar verified
+  at 1440, 1024, coarse 768 and coarse 375 with the pointer state asserted at
+  each coarse width — zero overflow, zero undersized targets, zero exceptions,
+  dataframe toolbar 44x44, rail and bottom bar never both on screen.
 - Next owner: **`CLAUDE`**.
-- Next action: **resume the approved Phase 2 master directive at Task 8** (New
-  Trade on the dark workspace) and continue through Task 17 — one scoped
-  commit and verification record per task — then release the lock to `NONE`
-  and hand the complete Phase 2 diff to Codex.
+- Next action: **resume the approved Phase 2 master directive at Task 10**
+  (Analytics — four lenses, one shape) and continue through Task 17 — one
+  scoped commit and verification record per task — then release the lock to
+  `NONE` and hand the complete Phase 2 diff to Codex. Task 10's audit is
+  already recorded in the Task 9 handoff-log entry.
 - **No interim Codex review is requested.** The comprehensive Codex review
   remains scheduled after Task 17.
-- Tasks 8–17 remain: New Trade, Journal, Analytics, the pure review document
-  model, AI Reviews, Strategy Profile and Settings, the AI Partner desktop
-  drawer and mobile destination, the cross-page audit, and the 10K re-score.
+- Tasks 10–17 remain: Analytics, the pure review document model, AI Reviews,
+  Strategy Profile and Settings, the AI Partner desktop drawer and mobile
+  destination, the cross-page audit, and the 10K re-score.
 - Task 4 interfaces are present exactly as planned and verified green
   (`tests/test_metrics.py` + `tests/test_partner_context.py`, 129 passed).
   Claude must consume them, never reproduce their calculations or open a
@@ -204,6 +205,172 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-06 — Session boundary: Tasks 8 and 9 done, resume at Task 10 (Claude)
+
+Tasks 8 (`f2eb1df`) and 9 are committed with full evidence. Tasks 10–17 are
+not started. This is a **context boundary, not a review gate** — no interim
+Codex review is requested and the comprehensive review stays scheduled after
+Task 17. The lock is `NONE` only so a fresh session can claim it cleanly.
+
+**Resume at Task 10 (Analytics).** Its audit is already done and recorded in
+the Task 9 entry below under "Task 10 reconnaissance", including the one real
+finding: two chart heights bypass the stage.
+
+**What a fresh session needs.** A reusable CDP driver had to be rebuilt this
+session and its four measured corrections are the expensive part to
+rediscover; they are recorded in the Task 8 and Task 9 entries. The driver
+lives in the session scratchpad, not the worktree, so a new session should
+recreate it from those notes:
+
+1. `PUT /json/new`, not POST — Chrome answers 405 otherwise.
+2. Re-apply device metrics **after** navigation; metrics set on `about:blank`
+   report `innerWidth` 981 under mobile emulation whatever width was asked
+   for, which silently turns a "coarse 375" pass into a desktop layout.
+3. A fresh Chrome process per viewport; reusing one across four widths closes
+   the websocket after the first tab.
+4. The undersized-target probe must exclude three false-positive classes —
+   off-canvas, `clip`ped visually-hidden inputs, and BaseWeb's inner 2px caret
+   input — and must measure the `[data-baseweb]` wrapper, which is what a
+   trader actually hits.
+
+**Verification at this boundary:** `1833 passed, 7 skipped`; Ruff clean; Black
+clean (84 files); `git diff --check` clean. Dev database byte-identical
+(`md5 5c33284d…`, `Jul 28`) — browser runs used a scratchpad **copy**, never
+the dev database. App and browser processes stopped. `.impeccable/` untouched.
+
+### 2026-08-06 — Phase 2 Task 9: dark Journal, real ledger contracts (Claude)
+
+**Commit:** see `feat(ui): dark Journal, ledger rule extracted, honest icon
+guards`. Task 9 only; Task 10 not started.
+
+**All four of the plan's Task 9 tests passed against the unchanged page** —
+the third task running where this is true, so each was transcribed, run, and
+recorded before anything changed:
+
+| Plan test | Why it passed as written |
+|---|---|
+| toolbar ≥44px | Task 3 took this fix early and said so; confirmed still in place |
+| ledger neutral by row | **Its loop body never runs** — there is no `tl-ledger` class anywhere. The ledger is `st.dataframe` over a pandas Styler, so no CSS scan can see its row styling |
+| tabular numerals | Matches the string anywhere in 2858 lines of CSS; says nothing about the ledger, which is canvas-rendered and unreachable by `font-variant-numeric` |
+| Clear filters subordinate | Genuinely already true (`secondary_jf_clear`) |
+
+**The ledger rule moved out of the page so it can be tested for real.**
+`_ledger_styles` lived in `2_Trades.py`, which runs its whole script at module
+scope, so the existing contracts reached it by parsing the page's AST and
+exec'ing the extracted nodes **against invented token values** — `#167A47`
+and `#B53A43`, light-workspace colours deleted in Task 1. Those tests could
+never have caught the ledger pointing at a retired or wrong token; they only
+ever compared the fixture against itself. Proof: repointing them at the real
+tokens immediately failed on `assert '#B53A43' in 'color: #f56565'`.
+
+The rule is now `components/ledger.py` — pure, no Streamlit import, the same
+reasoning that put band logic in `overview_bands.py`. Six contracts migrated
+onto it and now assert `ds.TL_SUCCESS` / `ds.TL_DANGER` rather than literals.
+`_LEDGER_MARKS` and `_fmt_money` still live in the page, so the AST extraction
+stays for them.
+
+**A guard that could be evaded, found by evading it.** `test_all_toast_icons_
+are_valid` matches `st.toast(... icon="…")` by regex. Routing the Journal's
+three toasts through a module constant left that regex matching nothing on the
+page while the suite still reported green — the same shape of false pass that
+put an invalid `✓` icon into production and caused this file to exist. The
+icons are inlined, and a new test requires every toast icon to be an inline
+literal so the validator actually runs on it. Mutation-checked by reintroducing
+the indirection.
+
+`:material/check_circle:` was verified against Streamlit's real
+`validate_icon_or_emoji` before use — it validates, and a fabricated material
+name is rejected, so the validator genuinely checks the icon set. This is the
+opposite of Task 2's case: `:material/…:` is correct for Streamlit's own
+`icon=` parameter and wrong inside authored HTML, where it would be escaped.
+
+**One defect found in the browser.** The demo/empty-journal ledger — the first
+table a trader with no trades ever sees — listed raw database columns
+(`trade_date`, `setup_type`, `killzone`, `pnl`), visibly and through the data
+grid's ARIA table, while the real ledger beside it reads Date / Asset / Setup /
+Session / Result / P&L. Renamed to match.
+
+**Already correct, verified rather than changed:** the ledger is neutral by row
+with colour only on signed money and breakeven left uncoloured; the trade
+detail is a panel container with edit and delete behind separate disclosures
+and delete gated on an explicit confirmation; the calendar carries a textual
+legend; `Clear filters` is subordinate.
+
+**Interaction paths.** The plan says "in a browser". All three are covered by
+`tests/journal_flow_check.py`, which really clicks under AppTest in a
+subprocess and asserts the view, the selected trade's identity, and that Back
+does not bounce. That is the right instrument for a state transition — a CDP
+click on a Streamlit radio drove one transition and silently failed the next,
+which would have produced false evidence. The browser was used for what
+AppTest cannot see.
+
+**Browser evidence — 8 combinations, all clean:**
+
+| View | Width | innerW | Rail | Bottom | Both | Overflow | Undersized | Toolbar | Exceptions |
+|---|---|---|---|---|---|---|---|---|---|
+| Ledger | 1440 | 1440 | yes | no | never | 0 | 0 | 4×44×44 | 0 |
+| Ledger | 1024 | 1024 | yes | no | never | 0 | 0 | 4×44×44 | 0 |
+| Ledger | coarse 768 | 768 | no | no | never | 0 | 0 | 4×44×44 | 0 |
+| Ledger | coarse 375 | 375 | no | yes | never | 0 | 0 | 4×44×44 | 0 |
+| Calendar | all four | — | as above | — | never | 0 | 0 | — | 0 |
+
+The calendar's textual legend renders with all three keys at every width,
+including 375. **The preflight's 22.4×22.4 toolbar defect is closed** and
+measured at 44×44 at all four widths.
+
+**A third measurement correction, recorded because it nearly became a false
+report.** The undersized probe flagged five 2px inputs on the Journal. They are
+BaseWeb's inner caret input inside `[data-baseweb="select"]`; the wrapper a
+trader actually hits measures 501×44, 319×44 and 1024×44 — Task 3's floor
+working exactly as intended. The probe now measures the wrapper. Together with
+Task 8's two driver corrections that is three classes of false positive found
+by looking rather than assuming.
+
+**Verification:** `1833 passed, 7 skipped` (was `1820/7`); Ruff clean; Black
+clean (84 files); `git diff --check` clean. Dev database byte-identical
+(`md5 5c33284d…`) — the browser ran against a scratchpad **copy** pointed at by
+`DATABASE_URL`, and the app's serving directory was confirmed by reading the
+process's cwd.
+
+**Task 10 reconnaissance, so the next session does not repeat it.** Three of
+the plan's four Task 10 tests already pass: `st.plotly_chart` and
+`apply_chart_stage` are both 1 (all Analytics figures route through one
+`_chart()` helper), the section header precedes the radio, and
+`equity_curve_chart` on an empty frame already returns `xaxis.visible = False`.
+**The one that fails is real:** `charts.py` carries `height=320` in
+`session_dow_heatmap` and `height=380` in `calendar_heatmap_chart`, against the
+stage's `_STAGE_HEIGHT = 360` / `_STAGE_HEIGHT_COMPACT = 240`. Both are
+heatmaps setting their own height in `update_layout(**_BASE_LAYOUT, …)`. Note
+before changing them: `apply_chart_stage` overrides `height`, so on any staged
+path those literals are already dead — but the calendar's cell geometry and the
+44px day-cell rule in spec §5.5 must be **measured** at 375 before the month
+grid is forced to 360, not assumed.
+
+**Files changed:** `2_Trades.py` (toast icons, demo column labels, rule
+extracted), new `components/ledger.py`, `tests/test_page_polish.py`,
+`tests/test_premium_page_contracts.py`, `tests/test_toast_icons.py`, and this
+handoff. `git add -A` not used; untracked `src/tradelens/ui/.impeccable/`
+deliberately not staged.
+
+**Unresolved concerns.**
+
+1. **`aria-sort` is not achievable for the ledger.** Spec §6.3 requires it.
+   Streamlit's dataframe renders an ARIA table beside its canvases, and its
+   `th[role="columnheader"]` elements carry `aria-sort: null`; the markup is
+   Streamlit's, and adding the attribute needs JavaScript injection, which the
+   spec forbids outright. Recorded rather than silently skipped. Options for
+   Codex: accept as a framework limitation, or replace the ledger with an
+   authored table — a much larger change than Task 9's scope.
+2. **Tabular numerals cannot reach the ledger.** It is canvas-rendered, so
+   `font-variant-numeric` does not apply. The rule holds on every authored
+   surface; the plan's test only ever proved the string exists.
+3. **The dataframe toolbar's four controls have no accessible name** —
+   `aria-label` and `title` are both absent; they carry a tooltip only. Same
+   ownership question as (1). Spec §12 requires names on icon-only controls.
+4. `TL_RULE = #AFBEC0` still a light-surface value (Task 12); `theme.py`
+   compatibility names still lie; emoji remain on AI Reviews and Strategy
+   surfaces (Tasks 12, 13).
 
 ### 2026-08-06 — Phase 2 Task 8: New Trade on the dark workspace (Claude)
 

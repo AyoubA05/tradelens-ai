@@ -55,3 +55,28 @@ def test_at_least_one_page_uses_toast_icons():
     # Guards against the regex silently matching nothing if st.toast's call
     # style changes (a passing-by-vacuous-truth false negative).
     assert any(_icons_in(page) for page in ALL_PAGES)
+
+
+_TOAST_CALL_RE = re.compile(r"st\.toast\(([^)]*)\)")
+
+
+@pytest.mark.parametrize("page", ALL_PAGES)
+def test_every_toast_icon_is_a_literal_the_validator_can_see(page):
+    """An icon behind a constant is an icon this file cannot validate.
+
+    Found in Task 9. Routing the Journal's three toasts through a module
+    constant left `_TOAST_ICON_RE` matching nothing on that page, so all three
+    silently dropped out of `test_all_toast_icons_are_valid` while it kept
+    reporting green — the same shape of false pass the invalid `✓` icon caused
+    on Streamlit Cloud, which is why this file exists. Icons stay inline so the
+    validator above actually runs on them.
+    """
+    src = (PAGES_DIR / page).read_text(encoding="utf-8")
+    for call in _TOAST_CALL_RE.findall(src):
+        if "icon=" not in call:
+            continue
+        argument = call.split("icon=", 1)[1].strip()
+        assert argument.startswith(('"', "'")), (
+            f"{page}: st.toast icon must be an inline literal so it is "
+            f"validated, got icon={argument!r}"
+        )

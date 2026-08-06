@@ -24,6 +24,16 @@ def _src(name: str) -> str:
     return (PAGES / name).read_text(encoding="utf-8")
 
 
+def _src_component(name: str) -> str:
+    """Source of a `ui/components/` module.
+
+    Task 9 moved the ledger's row-styling rule out of the page and into
+    `components/ledger.py`, so contracts that used to read the page's text
+    read the component's instead.
+    """
+    return (PAGES.parent / "components" / name).read_text(encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
 # Journal — three views
 # ---------------------------------------------------------------------------
@@ -98,10 +108,23 @@ def test_ledger_has_no_full_row_result_tint():
 
 
 def test_ledger_keeps_colour_on_monetary_text_only():
-    src = _src("2_Trades.py")
-    assert "_ledger_styles" in src
-    # money keeps its sign colour; that is the one place red/green survives
-    assert "TL_DANGER" in src and "TL_SUCCESS" in src
+    """The rule moved to components/ledger.py in Task 9, so this follows it.
+
+    It used to look for the token NAMES in the page's source, which worked
+    only while the rule lived there. Reading the component's real behaviour is
+    a stronger check than reading either file's text: it proves the money
+    columns carry the semantic tokens rather than proving the words appear.
+    """
+    from src.tradelens.ui import design_system as ds
+    from src.tradelens.ui.components.ledger import MONEY_COLUMNS, ledger_row_styles
+
+    assert "_ledger_styles" in _src("2_Trades.py"), "the page still styles rows"
+    assert MONEY_COLUMNS == ("P&L", "R")
+    row = pd.Series({"Result": "Loss", "P&L": "-$314.00", "R": "-1.00R", "Asset": "NQ"})
+    styles = dict(zip(row.index, ledger_row_styles(row)))
+    assert ds.TL_DANGER in styles["P&L"]
+    win = pd.Series({"Result": "Win", "P&L": "$755.00", "R": "3.00R", "Asset": "NQ"})
+    assert ds.TL_SUCCESS in dict(zip(win.index, ledger_row_styles(win)))["P&L"]
 
 
 def test_ledger_marks_result_without_relying_on_colour():
@@ -208,7 +231,12 @@ def test_trade_detail_uses_the_dark_surface_tokens():
     ):
         assert retired not in src, f"{retired} was deleted with the light workspace"
     assert "TL_CONTENT_PRIMARY" in src or "var(--tl-content-primary)" in src
-    assert "TL_SUCCESS" in src and "TL_DANGER" in src
+    # The semantic pair moved with the ledger rule into components/ledger.py
+    # (Task 9). Asserting it there keeps the contract — the Journal still uses
+    # the semantic tokens — without demanding they sit in a file that no
+    # longer owns the decision.
+    ledger_src = _src_component("ledger.py")
+    assert "TL_SUCCESS" in ledger_src and "TL_DANGER" in ledger_src
 
 
 def test_journal_never_shows_generation_cost():
@@ -232,9 +260,15 @@ def _ledger_module():
     """
     import ast
 
+    from src.tradelens.ui import design_system as ds
+    from src.tradelens.ui.components.ledger import ledger_row_styles
+
     src = _src("2_Trades.py")
     tree = ast.parse(src)
-    wanted = {"_LEDGER_MARKS", "_ledger_styles", "_fmt_money"}
+    # `_ledger_styles` moved to components/ledger.py in Task 9, so it is
+    # imported rather than carved out. `_LEDGER_MARKS` and `_fmt_money` still
+    # live in the page, so they still need the AST extraction.
+    wanted = {"_LEDGER_MARKS", "_fmt_money"}
     kept = [
         node
         for node in tree.body
@@ -246,12 +280,17 @@ def _ledger_module():
         )
     ]
     module = ast.Module(body=kept, type_ignores=[])
+    # The real tokens, not invented ones. The previous version injected
+    # `#167A47` / `#B53A43` — light-workspace values that were deleted in
+    # Task 1 — so these tests could not have caught the ledger pointing at a
+    # retired or wrong token; they only ever saw the fixture's own strings.
     namespace = {
-        "TL_SUCCESS": "#167A47",
-        "TL_DANGER": "#B53A43",
-        "TL_CONTENT_SECONDARY": "#5B6A70",
+        "TL_SUCCESS": ds.TL_SUCCESS,
+        "TL_DANGER": ds.TL_DANGER,
+        "TL_CONTENT_SECONDARY": ds.TL_CONTENT_SECONDARY,
     }
     exec(compile(module, "<ledger>", "exec"), namespace)  # noqa: S102
+    namespace["_ledger_styles"] = ledger_row_styles
     return namespace
 
 
@@ -266,11 +305,20 @@ def test_ledger_styles_never_set_a_row_background():
 
 
 def test_ledger_styles_colour_only_the_money_columns():
+    """Asserts the token, not a literal.
+
+    This read `#B53A43` — a light-workspace danger value deleted in Task 1.
+    It passed only because the fixture injected that same string into the
+    exec namespace, so it could never have noticed the product had moved to
+    `TL_DANGER`. Naming the token is what makes it a real contract.
+    """
+    from src.tradelens.ui import design_system as ds
+
     ns = _ledger_module()
     row = pd.Series({"Result": "Loss", "P&L": "-$314.00", "R": "-1.00R", "Asset": "NQ"})
     styles = dict(zip(row.index, ns["_ledger_styles"](row)))
-    assert "#B53A43" in styles["P&L"]
-    assert "#B53A43" in styles["R"]
+    assert ds.TL_DANGER in styles["P&L"]
+    assert ds.TL_DANGER in styles["R"]
     assert styles["Asset"] == ""
 
 

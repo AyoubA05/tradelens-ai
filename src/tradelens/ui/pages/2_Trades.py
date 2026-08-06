@@ -35,6 +35,7 @@ from src.tradelens.ui.components.corrections_sidebar import (  # noqa: E402
     render_corrections_sidebar,
 )
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
+from src.tradelens.ui.components.ledger import ledger_row_styles  # noqa: E402
 from src.tradelens.ui.components.screenshot_analyzer import (  # noqa: E402
     render_screenshot_analyzer,
 )
@@ -51,8 +52,6 @@ from src.tradelens.ui.components.workspace import (  # noqa: E402
     render_workspace_header,
 )
 from src.tradelens.ui.design_system import (  # noqa: E402
-    TL_DANGER,
-    TL_SUCCESS,
     inject_design_system,
     render_badge,
     render_banner,
@@ -162,27 +161,10 @@ def _result_count_html(shown: int, total: int) -> str:
     return f'<p class="tl-journal-count">{shown}{suffix} {noun}</p>'
 
 
-def _ledger_styles(row) -> list:
-    """Per-cell styles for one ledger row.
-
-    Neutral rows by design (spec 11.3). Colour survives in exactly one
-    place — the monetary columns — because there the sign IS the meaning.
-    The result itself is carried by a glyph, so nothing depends on colour.
-    """
-    styles = [""] * len(row)
-    for column in ("P&L", "R"):
-        if column not in row.index:
-            continue
-        value = str(row[column])
-        if value.startswith("-"):
-            colour = TL_DANGER
-        elif value in ("—", "$0.00", "0.00R"):
-            colour = ""  # breakeven is neither a win nor a loss
-        else:
-            colour = TL_SUCCESS
-        if colour:
-            styles[row.index.get_loc(column)] = f"color: {colour}"
-    return styles
+# The rule itself moved to components/ledger.py so it can be tested without
+# booting this page; the name is kept here because the styler call reads
+# better with it and nothing else needs to change.
+_ledger_styles = ledger_row_styles
 
 
 def _sanitize_multiselect(key: str, options: list) -> None:
@@ -274,17 +256,23 @@ if not trades:
     if not trades_all and is_demo():
         ddf = get_demo_df()
         st.caption("Showing demo data (no trades logged yet).")
-        ddf = ddf[
-            [
-                "trade_date",
-                "asset",
-                "direction",
-                "setup_type",
-                "killzone",
-                "result",
-                "pnl",
-            ]
-        ]
+        # Named the way the real ledger names them. Measured in the browser:
+        # this table was the one surface still exposing raw column names —
+        # `trade_date`, `setup_type`, `killzone`, `pnl` — to sighted readers
+        # and, through the grid's ARIA table, to screen readers. The ledger
+        # below already reads Date / Asset / Setup / Session / Result / P&L,
+        # and a trader meeting the product on an empty journal should not be
+        # shown the schema.
+        _DEMO_COLUMNS = {
+            "trade_date": "Date",
+            "asset": "Asset",
+            "direction": "Direction",
+            "setup_type": "Setup",
+            "killzone": "Session",
+            "result": "Result",
+            "pnl": "P&L",
+        }
+        ddf = ddf[list(_DEMO_COLUMNS)].rename(columns=_DEMO_COLUMNS)
         st.dataframe(ddf, hide_index=True, width="stretch")
         st.stop()
     if trades_all:
@@ -745,7 +733,7 @@ if view == "Trade Detail":
             )
             if up is not None:
                 save_screenshot(trade.id, up)
-                st.toast("Screenshot added", icon="✅")
+                st.toast("Screenshot added", icon=":material/check_circle:")
                 st.rerun()
         render_screenshot_analyzer(
             trade, user_id=uid, strategy_profile=_strategy_profile
@@ -854,7 +842,7 @@ if view == "Trade Detail":
                 # would vanish before the trader could correct either one.
                 st.markdown(render_banner(str(exc), "danger"), unsafe_allow_html=True)
             else:
-                st.toast("Trade updated", icon="✅")
+                st.toast("Trade updated", icon=":material/check_circle:")
                 st.rerun()
 
     with st.expander("Delete trade"):
@@ -863,7 +851,7 @@ if view == "Trade Detail":
         if st.button("Delete trade", disabled=not confirm, key="secondary_delete_btn"):
             if delete_trade(trade.id, user_id=uid):
                 st.session_state.pop("selected_trade_id", None)
-                st.toast("Trade deleted", icon="✅")
+                st.toast("Trade deleted", icon=":material/check_circle:")
                 st.rerun()
             st.stop()
 

@@ -524,3 +524,76 @@ def test_the_starter_playbook_has_exactly_one_definition():
     # every playbook section is filled, which is what "6 of 6" depends on
     for field in ("entry_rules", "stop_rules", "risk_rules", "common_mistakes"):
         assert playbook[field].strip()
+
+
+# --- Task 9, the plan's tests transcribed verbatim to record their result ---
+
+def test_the_dataframe_toolbar_controls_are_lifted_to_the_target_floor():
+    """Live preflight measured these at 22.4x22.4 CSS px at 1440."""
+    from src.tradelens.ui import design_system as ds
+    css = ds.build_css()
+    toolbar = [b for b in css.split("}") if "stElementToolbarButton" in b]
+    assert toolbar, "no rule targets the dataframe toolbar buttons"
+    joined = " ".join(toolbar).replace(" ", "")
+    assert "min-height:44px" in joined and "min-width:44px" in joined
+
+
+def test_the_ledger_is_neutral_by_row():
+    """No full-row red/green, no per-row gradients, no heavy cell boxes."""
+    from src.tradelens.ui import design_system as ds
+    css = ds.build_css()
+    for block in css.split("}"):
+        if "tl-ledger" in block and "tr" in block:
+            assert "linear-gradient" not in block
+
+
+def test_no_css_rule_named_tl_ledger_exists():
+    """Why the test above proves nothing, stated rather than left implied.
+
+    Its loop body never runs: there is no `tl-ledger` class anywhere in the
+    product. The ledger is `st.dataframe` over a pandas Styler, so its row
+    styling is decided in Python, not CSS, and no CSS scan can see it. Kept
+    as a guard against someone reintroducing a CSS ledger and assuming this
+    file already covers it.
+    """
+    from src.tradelens.ui import design_system as ds
+    assert "tl-ledger" not in ds.build_css()
+
+
+def test_the_demo_ledger_shows_labels_not_database_columns():
+    """Measured in the browser at 1440: this table was the one surface still
+    exposing `trade_date` / `setup_type` / `killzone` / `pnl`, both visually
+    and through the data grid's ARIA table. It is the first ledger a trader
+    with an empty journal ever sees, so it must read like the real one.
+    """
+    source = Path("src/tradelens/ui/pages/2_Trades.py").read_text()
+    assert '"killzone": "Session"' in source
+    assert '"pnl": "P&L"' in source
+    # The raw names may still appear as rename KEYS, never as a bare column list.
+    assert '"trade_date",\n' not in source
+
+
+def test_the_journal_uses_no_emoji_as_an_icon():
+    """The Journal's share of the emoji handed forward by the Task 2 amendment.
+
+    `:material/...:` is used rather than a ligature string here because this is
+    Streamlit's own `icon=` parameter, which resolves the shortcode. That is
+    the opposite of the authored-HTML case, where Task 2 had to use ligature
+    names because a shortcode would have been escaped and rendered literally.
+    """
+    source = Path("src/tradelens/ui/pages/2_Trades.py").read_text()
+    found = re.findall(r"[✅\U0001F300-\U0001FAFF]", source)
+    assert not found, f"2_Trades.py still passes emoji as an icon: {found}"
+    assert 'icon=":material/' in source, "the toasts still need an icon"
+
+
+def test_money_and_dates_use_tabular_numerals():
+    from src.tradelens.ui import design_system as ds
+    css = ds.build_css()
+    assert "font-variant-numeric: tabular-nums" in css
+
+
+def test_clear_filters_is_subordinate_to_the_primary_action():
+    from tests.source_probe import near
+    source = Path("src/tradelens/ui/pages/2_Trades.py").read_text()
+    assert 'type="primary"' not in near(source, "Clear filters")
