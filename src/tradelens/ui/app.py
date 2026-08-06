@@ -36,10 +36,7 @@ from src.tradelens.services.metrics import (  # noqa: E402
 )
 from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
 from src.tradelens.services.sample_data import count_sample_trades  # noqa: E402
-from src.tradelens.services.activation import (  # noqa: E402
-    NEXT_STEP_COPY,
-    activation_status,
-)
+from src.tradelens.services.activation import activation_status  # noqa: E402
 from src.tradelens.services.strategy import get_active_strategy  # noqa: E402
 from src.tradelens.services.trade_service import get_trades  # noqa: E402
 from src.tradelens.services.weekly import get_weekly_review, week_bounds  # noqa: E402
@@ -57,6 +54,7 @@ from src.tradelens.ui.components.data_state import (  # noqa: E402
 )
 from src.tradelens.ui.components.overview_bands import (  # noqa: E402
     discipline_measures,
+    next_review_action,
     ranked_rows,
     render_discipline_panel,
     render_flanking_figures,
@@ -415,6 +413,25 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Filtered to empty. The 0-trade welcome above runs BEFORE the filter, so
+# without this a scope that matches nothing rendered band 1 as a strip of
+# zeros — figures that look like a flat account rather than an empty scope.
+# Suppress the bands, say what the scope is, and offer the way back.
+if df.empty:
+    st.markdown(
+        render_empty_state(
+            "filter_alt",
+            f"No trades for {asset_choice}",
+            "That is the filter, not the account. Clear it to see everything "
+            "you have logged.",
+        ),
+        unsafe_allow_html=True,
+    )
+    if st.button("Show all assets", key="secondary_dash_clear_filter"):
+        st.session_state["dash_asset"] = "All assets"
+        st.rerun()
+    st.stop()
+
 # ── Band 1: current standing. One ruled KPI strip, not six cards ──
 st.markdown(render_kpi_strip(_overview_metrics(df)), unsafe_allow_html=True)
 
@@ -440,36 +457,17 @@ if not df.empty:
         render_discipline_panel(discipline_measures(df)), unsafe_allow_html=True
     )
 
-# ── Next step, while the trader is still getting to first value ───
-# One action, not a checklist, and only until they've had a real review.
+# Activation is computed here but RENDERED in band 5 at the foot of the page:
+# the reading order is standing → trust → trajectory → what repeats → what to
+# do about it, and the action belongs at the end of that argument, not before
+# the trader has seen any of it.
+_activation = None
 if uid is not None:
     _activation = activation_status(
         strategy=_strategy,
         trades=get_trades(user_id=uid),
         weekly_review=get_weekly_review(week_bounds(datetime.date.today())[0], uid),
     )
-    if not _activation.is_activated and _activation.next_key:
-        _label, _target, _link = NEXT_STEP_COPY[_activation.next_key]
-        st.markdown(
-            render_next_step(
-                _label,
-                _activation.completed,
-                _activation.total,
-                (
-                    _activation.trades_until_review
-                    if _activation.next_key == "weekly_review"
-                    else 0
-                ),
-            ),
-            unsafe_allow_html=True,
-        )
-        try:
-            st.page_link(_NEXT_STEP_PAGES[_activation.next_key], label=f"{_link} →")
-        except Exception:  # noqa: BLE001 — registry-less boots (AppTest) raise
-            st.markdown(
-                f'<a href="{_target}" target="_self">{escape(_link)} →</a>',
-                unsafe_allow_html=True,
-            )
 
 # ── The composed panel: standing on the left, trajectory on the right
 # Two columns, deliberately unequal. The chart is the dominant instrument;
@@ -609,14 +607,49 @@ if not df.empty:
     render_trade_calendar(df, compact=True)
     st.page_link("pages/2_Trades.py", label="Open the full journal →")
 
-# One editorial reading of the period, with its own evidence.
-_observation = _overview_observation(df)
-if _observation:
-    _title, _body, _evidence = _observation
+# ── Band 5: what do I do about it? ────────────────────────────────
+# One editorial readout and exactly one link. Absorbs the activation card and
+# the period observation into a single band: which one appears is a state
+# question, decided in overview_bands, and the band is omitted entirely when
+# neither is earned — an empty band is worse than no band (spec 5.6).
+_band5 = next_review_action(df, _activation)
+if _band5 is not None:
     st.markdown(
-        render_editorial_readout(_title, _body, _evidence),
+        render_section_header(
+            "Next review action", "What to go and re-read, not what to trade."
+        ),
         unsafe_allow_html=True,
     )
+    if _band5.kind == "next_step":
+        st.markdown(
+            render_next_step(
+                _band5.title,
+                _activation.completed,
+                _activation.total,
+                (
+                    _activation.trades_until_review
+                    if _activation.next_key == "weekly_review"
+                    else 0
+                ),
+            ),
+            unsafe_allow_html=True,
+        )
+        try:
+            st.page_link(
+                _NEXT_STEP_PAGES[_activation.next_key],
+                label=f"{_band5.link_label} →",
+            )
+        except Exception:  # noqa: BLE001 — registry-less boots (AppTest) raise
+            st.markdown(
+                f'<a href="{escape(str(_band5.link_slug))}" target="_self">'
+                f"{escape(str(_band5.link_label))} →</a>",
+                unsafe_allow_html=True,
+            )
+    else:
+        st.markdown(
+            render_editorial_readout(_band5.title, _band5.body, _band5.evidence),
+            unsafe_allow_html=True,
+        )
 
 _rt_head, _rt_link = st.columns([5, 1], vertical_alignment="bottom")
 _rt_head.markdown(render_section_header("Recent trades"), unsafe_allow_html=True)

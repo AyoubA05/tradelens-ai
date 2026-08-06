@@ -29,11 +29,15 @@ from src.tradelens.services.metrics import (
     edge_leak_summary,
     rule_adherence_rate,
 )
+from src.tradelens.services.activation import NEXT_STEP_COPY
+from src.tradelens.services.sessions import KILLZONE_LABELS
 from src.tradelens.ui.components.data_state import (
     MIN_DATED_POINTS,
+    leading_category,
     sample_state,
     show_dated_instrument,
 )
+from src.tradelens.ui.components.workspace import EvidenceItem
 
 
 def money(value) -> str:
@@ -342,3 +346,103 @@ def ranked_rows(breakdown, *, label_column: str, labels=None) -> List[RankedRow]
         label = (labels or {}).get(raw, raw)
         rows.append(RankedRow(label, money(row["total_pnl"]), f"n={count}"))
     return rows
+
+
+@dataclass(frozen=True)
+class NextReviewAction:
+    """Band 5: the one thing to go and re-read. Never a trade action.
+
+    Two of the Overview's older elements collapse into this — the activation
+    next-step card and the period observation. Which one appears is a state
+    question, not a layout question, so it is decided here rather than in the
+    render path where it would be tangled with columns and headings.
+    """
+
+    kind: str  # "next_step" | "observation"
+    title: str
+    body: str
+    progress: Optional[str] = None  # "{completed} of {total}", next_step only
+    link_label: Optional[str] = None
+    link_slug: Optional[str] = None
+    evidence: Optional[EvidenceItem] = None  # observation only
+
+
+def _period_observation(df) -> Optional[NextReviewAction]:
+    """The editorial reading of the period, or None when it is not earned.
+
+    ``leading_category`` decides what is TRUE — it returns None below the
+    pattern threshold, because naming a leading session out of three trades
+    describes noise. This only words the finding, and every claim carries its
+    own sample, confidence and limitation so nothing has to be taken on trust.
+    """
+    leader = leading_category(df, "killzone")
+    if leader is None:
+        return None
+
+    label = KILLZONE_LABELS.get(leader.key, leader.key.replace("_", " ").title())
+    plural = "trade" if leader.count == 1 else "trades"
+
+    if leader.overall_total > 0 and leader.share >= 0.5:
+        body = (
+            f"{label} carried most of this period's result: "
+            f"{money(leader.total)} of {money(leader.overall_total)} net, "
+            f"across {leader.count} {plural}. Re-read those entries before "
+            "the next review."
+        )
+    else:
+        body = (
+            f"{label} recorded the strongest net result this period at "
+            f"{money(leader.total)}, across {leader.count} {plural}. "
+            "Re-read those entries before the next review."
+        )
+
+    return NextReviewAction(
+        kind="observation",
+        title="What this period recorded",
+        body=body,
+        evidence=EvidenceItem(
+            evidence=f"{label} · {money(leader.total)} net",
+            sample=f"n={leader.count} of {len(df)}",
+            confidence=(
+                "high"
+                if leader.count >= 12
+                else "medium" if leader.count >= 6 else "low"
+            ),
+            limitation=(
+                "Only one session is represented, so this ranks nothing."
+                if leader.is_only_category
+                else None
+            ),
+        ),
+    )
+
+
+def next_review_action(df, activation) -> Optional[NextReviewAction]:
+    """Band 5's payload, or None when the band is omitted entirely.
+
+    An empty band is worse than no band: a heading over nothing asks the reader
+    to work out what is missing (spec 5.6).
+
+    Activation outranks the observation. A trader who has not finished setting
+    up does not need a pattern read; they need the next setup step. The
+    activation service exposes `is_activated` / `next_key` / `completed` /
+    `total` — not the nested step object the plan sketched — so the caller
+    adapts and the service is left alone.
+    """
+    if activation is not None and not activation.is_activated:
+        heading, slug, link_label = NEXT_STEP_COPY.get(
+            activation.next_key, ("Keep going", "/", "Continue")
+        )
+        return NextReviewAction(
+            kind="next_step",
+            title=heading,
+            body=(
+                "One step, not a checklist — this is what unlocks the next "
+                "useful review."
+            ),
+            progress=f"{activation.completed} of {activation.total}",
+            link_label=link_label,
+            link_slug=slug,
+        )
+
+    return _period_observation(df)

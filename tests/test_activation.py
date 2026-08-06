@@ -121,21 +121,57 @@ _UI = Path(__file__).resolve().parents[1] / "src" / "tradelens" / "ui"
 
 
 def test_dashboard_scopes_every_activation_input_to_the_current_user():
-    """An activation card built from another user's rows would be a leak."""
+    """An activation card built from another user's rows would be a leak.
+
+    The anchor moved when band 5 took over rendering — the decision now lives
+    in overview_bands.next_review_action — but the inputs are still assembled
+    here, so this still guards the same thing: every one of them is scoped.
+    """
     src = (_UI / "app.py").read_text(encoding="utf-8")
-    block = src[
-        src.index("_activation = activation_status(") : src.index("if not _activation")
-    ]
+    start = src.index("_activation = activation_status(")
+    block = src[start : src.index(")", src.index("weekly_review=", start))]
     assert "get_trades(user_id=uid)" in block
     assert "uid)" in block  # get_weekly_review(..., uid)
     assert "strategy=_strategy" in block
     # _strategy itself is loaded scoped.
     assert "get_active_strategy(uid) if uid is not None else None" in src
+    # And the whole computation only happens for an authenticated user.
+    assert "if uid is not None:" in src[: start + 200]
 
 
 def test_dashboard_card_is_hidden_once_activated():
-    src = (_UI / "app.py").read_text(encoding="utf-8")
-    assert "if not _activation.is_activated and _activation.next_key:" in src
+    """Tested through the decision function rather than a source string.
+
+    The literal `if not _activation.is_activated` moved out of app.py into
+    overview_bands.next_review_action when band 5 absorbed the card, so
+    grepping the page for it was checking where the code lives, not what it
+    does. This checks the behaviour: an activated account gets no next step.
+    """
+    import pandas as pd
+
+    from src.tradelens.services.activation import ActivationStatus
+    from src.tradelens.ui.components.overview_bands import next_review_action
+
+    activated = ActivationStatus(
+        completed=3,
+        total=3,
+        next_key=None,
+        is_activated=True,
+        complete_trades=9,
+        trades_until_review=0,
+    )
+    band = next_review_action(pd.DataFrame(), activated)
+    assert band is None or band.kind != "next_step"
+
+    unactivated = ActivationStatus(
+        completed=1,
+        total=3,
+        next_key="first_trade",
+        is_activated=False,
+        complete_trades=0,
+        trades_until_review=5,
+    )
+    assert next_review_action(pd.DataFrame(), unactivated).kind == "next_step"
 
 
 def test_insights_does_not_auto_generate_below_the_threshold():

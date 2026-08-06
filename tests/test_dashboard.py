@@ -467,8 +467,15 @@ def test_recent_trades_ledger_has_no_full_row_tint():
 
 
 def test_activation_demo_and_empty_states_are_preserved():
+    """NEXT_STEP_COPY moved to overview_bands with the band-5 decision; the
+    page still assembles the activation inputs and still carries the demo and
+    sample-data states."""
     src = APP_PATH.read_text(encoding="utf-8")
-    assert "activation_status" in src and "NEXT_STEP_COPY" in src
+    bands = Path("src/tradelens/ui/components/overview_bands.py").read_text(
+        encoding="utf-8"
+    )
+    assert "activation_status" in src
+    assert "NEXT_STEP_COPY" in bands
     assert "render_demo_banner" in src
     assert "count_sample_trades" in src
     assert "Load sample trades" in src
@@ -703,3 +710,124 @@ def test_no_discipline_measure_is_toned():
     df = pd.DataFrame({"followed_rules": [True, False], "pnl": [5.0, -5.0]})
     for measure in discipline_measures(df):
         assert not hasattr(measure, "tone")
+
+
+# ---------------------------------------------------------------------------
+# Task 7 — band 5, the next review action (spec §5.6) and the state matrix
+# ---------------------------------------------------------------------------
+def _band_five(df, activation):
+    from src.tradelens.ui.components.overview_bands import (  # noqa: PLC0415
+        next_review_action,
+    )
+
+    return next_review_action(df, activation)
+
+
+def _activation(*, activated, completed=1, total=3, next_key="first_trade"):
+    """Mirrors services.activation.ActivationStatus, whose real attributes are
+    is_activated / next_key / completed / total — not the is_complete and
+    next_step object the plan sketched. The plan says to adapt the caller and
+    leave the service alone, so this stub matches what activation.py returns."""
+    from src.tradelens.services.activation import ActivationStatus  # noqa: PLC0415
+
+    return ActivationStatus(
+        completed=completed,
+        total=total,
+        next_key=None if activated else next_key,
+        is_activated=activated,
+        complete_trades=completed,
+        trades_until_review=0 if activated else 4,
+    )
+
+
+def _period_frame():
+    """A frame rich enough for leading_category to earn an observation: it
+    needs at least the pattern threshold of trades and a killzone column."""
+    return pd.DataFrame(
+        {
+            "trade_date": [f"2026-08-{d:02d}" for d in range(1, 9)],
+            "pnl": [120.0, -40.0, 80.0, 60.0, -20.0, 95.0, 30.0, -10.0],
+            "killzone": ["ny_am"] * 5 + ["london_open"] * 3,
+            "result": ["Win", "Loss", "Win", "Win", "Loss", "Win", "Win", "Loss"],
+        }
+    )
+
+
+def test_band_five_is_omitted_when_neither_element_is_earned():
+    """An empty band is worse than no band (spec §5.6)."""
+    assert _band_five(pd.DataFrame(), None) is None
+
+
+def test_an_unactivated_account_gets_one_action_never_a_checklist():
+    band = _band_five(
+        _period_frame(), _activation(activated=False, completed=2, total=3)
+    )
+    assert band.kind == "next_step"
+    assert band.progress == "2 of 3"
+
+
+def test_activation_outranks_the_observation():
+    """A trader who has not finished setting up needs the next setup step, not
+    a pattern read."""
+    band = _band_five(_period_frame(), _activation(activated=False))
+    assert band.kind == "next_step"
+
+
+def test_an_activated_account_gets_the_period_observation_with_its_evidence():
+    band = _band_five(_period_frame(), _activation(activated=True))
+    assert band.kind == "observation"
+    assert band.evidence is not None
+    assert band.evidence.sample.startswith("n=")
+
+
+def test_the_action_is_always_a_review_action_never_a_trade_action():
+    for activation in (_activation(activated=True), _activation(activated=False)):
+        band = _band_five(_period_frame(), activation)
+        lowered = f"{band.title} {band.body}".lower()
+        for word in ("buy", "sell", "enter ", "entry", "target", "should trade"):
+            assert word not in lowered, f"{word!r} in band 5 copy"
+
+
+def test_three_trades_on_one_day_withholds_both_dated_instruments():
+    """The worked example from spec §5.7: t=3, d=1 renders bands 1, 2 and 5."""
+    from src.tradelens.services.metrics import (  # noqa: PLC0415
+        _MIN_TRADES_FOR_CONSISTENCY,
+    )
+    from src.tradelens.ui.components.data_state import (  # noqa: PLC0415
+        sample_state,
+        show_dated_instrument,
+    )
+    from src.tradelens.ui.components.overview_bands import (  # noqa: PLC0415
+        discipline_measures,
+    )
+
+    df = pd.DataFrame({"trade_date": ["2026-08-01"] * 3, "pnl": [10.0, -4.0, 2.0]})
+    state = sample_state(df)
+    assert state.trades == 3 and state.dated_points == 1
+    assert show_dated_instrument(state) is False
+
+    assert state.trades < _MIN_TRADES_FOR_CONSISTENCY
+    measures = discipline_measures(df)
+    labels = [m.label for m in measures]
+    consistency = [m for m in measures if m.label == "Consistency"][0]
+    assert "Rule adherence" in labels and "Edge leak" in labels
+    assert "2 more" in consistency.sample
+
+
+def test_a_filter_matching_nothing_suppresses_the_bands():
+    """Spec §5.7. The 0-trade welcome runs before the filter, so a scope that
+    matches nothing used to render band 1 as a strip of zeros — figures that
+    read as a flat account rather than an empty scope."""
+    src = APP_PATH.read_text(encoding="utf-8")
+    filter_block = src[src.index("render_filter_summary(") :]
+    guard = filter_block[: filter_block.index("# ── Band 1")]
+    assert "if df.empty:" in guard, "no empty-scope guard after filtering"
+    assert "st.stop()" in guard, "the bands are not suppressed"
+    assert "Show all assets" in guard, "no path back from an empty scope"
+
+
+def test_the_asset_filter_stays_a_collapsed_control_with_a_summary_line():
+    """Demoted from a panel above the numbers to a control plus one line."""
+    src = APP_PATH.read_text(encoding="utf-8")
+    assert 'st.expander("Filter", expanded=False)' in src
+    assert "render_filter_summary(" in src
