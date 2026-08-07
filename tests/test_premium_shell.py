@@ -433,9 +433,14 @@ def test_the_fifth_mobile_slot_is_more_not_a_renamed_settings_link():
         "/Trades",
         "/Insights",
     ]
+    # Task 15 adds the Partner here rather than to the rail: at rail widths it
+    # is a drawer, at these widths it is a destination, and one conversation
+    # must not have two entry points at one width. Settings stays last — the
+    # quiet utility, after the three surfaces that are work.
     assert [slug for slug, _, _ in sidebar.MOBILE_MORE] == [
         "/Analytics",
         "/Strategy",
+        "/Partner",
         "/Settings",
     ]
     html = sidebar._mobile_nav_html("/")

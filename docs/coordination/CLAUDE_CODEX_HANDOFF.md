@@ -20,9 +20,10 @@ the same time.
 ## Current handoff state
 
 - Active writer: `CLAUDE`
-- Current phase: `PHASE 2 IN PROGRESS — TASK 14 DONE, RESUME AT TASK 15`
-- Last completed work: **Task 14** — the AI Partner desktop drawer (this
-  commit). Before it: Tasks 12 and 13, the AI Reviews reading shell
+- Current phase: `PHASE 2 IN PROGRESS — TASK 15 DONE, RESUME AT TASK 16`
+- Last completed work: **Task 15** — the AI Partner phone destination (this
+  commit). Before it: Task 14, the desktop drawer (`db6be6d`), and Tasks 12
+  and 13, the AI Reviews reading shell
   (`cd1273c`) and the Strategy/Settings/auth surface (`c8952dd`). Before
   them: Tasks 10 and 11 — Analytics on one instrument shape
   (`eaeca32`) and the pure review document model (`df07a11`). Before them:
@@ -33,7 +34,7 @@ the same time.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification at Task 14: `1961 passed, 7 skipped` · Ruff clean · Black clean
+- Verification at Task 15: `1972 passed, 7 skipped` · Ruff clean · Black clean
   · `git diff --check` clean · all four Analytics lenses verified at 1440,
   1024, coarse 768 and coarse 375 plus reduced motion, with the pointer state
   and the reduced-motion state asserted from the page at every applicable row
@@ -42,15 +43,14 @@ the same time.
   and bottom bar never both on screen. The Journal calendar was re-verified
   after the shared key rename.
 - Next owner: **`CLAUDE`**.
-- Next action: **continue the approved Phase 2 master directive at Task 15**
-  (the mobile AI Partner destination, reached through More) and run through
-  Task 17 — one scoped
+- Next action: **continue the approved Phase 2 master directive at Task 16**
+  (the cross-page accessibility, security and consistency audit) and finish
+  with Task 17 — one scoped
   commit and verification record per task — then release the lock to `NONE`
   and hand the complete Phase 2 diff to Codex.
 - **No interim Codex review is requested.** The comprehensive Codex review
   remains scheduled after Task 17.
-- Tasks 15–17 remain: the AI Partner mobile destination, the cross-page
-  audit, and the 10K re-score.
+- Tasks 16–17 remain: the cross-page audit, and the 10K re-score.
 - Task 4 interfaces are present exactly as planned and verified green
   (`tests/test_metrics.py` + `tests/test_partner_context.py`, 129 passed).
   Claude must consume them, never reproduce their calculations or open a
@@ -212,6 +212,75 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-06 — Phase 2 Task 15: the AI Partner phone destination (Claude)
+
+**Commit:** see `feat(partner): full-page destination at bottom-navigation
+widths`. Task 15 only; Task 16 not started.
+
+New route `pages/7_Partner.py`, and `/Partner` added to `MOBILE_MORE` between
+Strategy Profile and Settings — work, then reflective work, then the quiet
+utility. The page renders the masthead and `render_partner_body(st,
+surface="page")` and does nothing else: it names no service, no adapter and no
+logger, which is asserted rather than assumed.
+
+**One conversation, two surfaces.** History is keyed by user, never by
+surface, so a question asked in the drawer is on the phone page and back
+again. `history_key` takes no surface argument, and that is a test — keying by
+surface would give a trader two conversations with no way to tell which one
+they were in.
+
+**Mutual exclusivity is structural, not a CSS trick.** The launcher is
+`display: none` below 768 and the bottom bar appears only below 768, so there
+is no width at which a floating overlay could collide with the `More` sheet.
+Asserted by walking the phone media query's actual extent: splitting the CSS
+on `}` puts the `@media` opener *inside* the chunk that carries the launcher
+rule, so asking what encloses that chunk answers about the text before the
+query. Measured both ways in the browser — at coarse 768 the launcher is
+visible and focusable and the bar is absent; at coarse 375 the reverse.
+
+**`7_Partner.py` was added to `ALL_PAGES`, which is not bookkeeping** — that
+list drives the parametrised boot test, so a page absent from it is a page
+nothing proves boots.
+
+**One existing contract updated, not weakened.**
+`test_the_fifth_mobile_slot_is_more_not_a_renamed_settings_link` enumerates the
+`More` list exactly; Task 15 adds an entry to it. The property it protects —
+Settings is not the fifth tab, and everything else is reachable under More — is
+unchanged, and Settings still sits last.
+
+**Browser evidence at coarse 375 and coarse 768.** Pointer state read back
+from the page.
+
+| Check | Result |
+|---|---|
+| `More` closed on arrival | yes, on both `/Partner` and `/Analytics` |
+| `/Partner` marked current while on it | `aria-current="true"`; not marked from `/Analytics` |
+| Open `More` sheet targets | four links at 190×44, **zero under 44** |
+| Bottom bar | 51 px tall, reserves its own inset (`navBottomGap` 0) |
+| Floating launcher at 375 | not visible **and not focusable** |
+| Launcher at coarse 768 | visible and focusable, bottom bar absent |
+| Horizontal overflow | none — `scrollWidth` 375 = `innerWidth` 375 |
+| Overflow / undersized / exceptions | 0 / 0 / 0 at every combination |
+
+The page renders its masthead, one chat field and the three retrospective
+chips, with `h1` reading "AI Partner".
+
+**Persistence** is proved through the same subprocess boot harness, with the
+history preset before the first run — exactly the state a multipage navigation
+leaves behind. Mutation-checked: a page that resets the history instead of
+reading it fails.
+
+**Mutation checks:** history reset on arrival (1 failure), `/Partner` removed
+from `MOBILE_MORE` (2), the phone launcher un-hidden (2).
+
+**Verification:** `1972 passed, 7 skipped` (was `1961/7`); Ruff clean; Black
+clean; `git diff --check` clean. Dev database byte-identical
+(`md5 dffdb781…`).
+
+**Unresolved concerns.** Unchanged from Task 14: the drawer is non-modal by
+necessity. Carried forward: dataframe `aria-sort` is `null` and its four
+toolbar controls have no accessible names; the ledger was not replaced.
 
 ### 2026-08-06 — Phase 2 Task 14: the AI Partner desktop drawer (Claude)
 

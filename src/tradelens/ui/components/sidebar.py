@@ -65,12 +65,17 @@ MOBILE_NAV = (
 # a bottom bar whose fifth slot went straight to Settings left Analytics and
 # Strategy Profile with no route on a phone except the collapsed rail.
 #
-# Order is deliberate. Analytics and Strategy Profile are work; Settings is
-# the quiet utility, so it sits last and keeps the muted treatment it has
-# everywhere else in the product.
+# Order is deliberate. Analytics and Strategy Profile are work, the Partner is
+# reflective work, and Settings is the quiet utility, so it sits last and keeps
+# the muted treatment it has everywhere else in the product.
+#
+# The Partner is here and NOT in the rail: at rail widths it is a drawer, at
+# bottom-nav widths it is this destination, and one conversation must not have
+# two entry points at one width.
 MOBILE_MORE = (
     ("/Analytics", "Analytics", "analytics"),
     ("/Strategy", "Strategy Profile", "flag"),
+    ("/Partner", "AI Partner", "forum"),
     ("/Settings", "Settings", "settings"),
 )
 

@@ -29,6 +29,9 @@ ALL_PAGES = [
     "4_Analytics.py",
     "5_Strategy.py",
     "6_Insights.py",
+    # Not bookkeeping: this list drives the parametrised boot test, so a page
+    # absent from it is a page nothing proves boots.
+    "7_Partner.py",
     "9_Settings.py",
 ]
 
@@ -443,3 +446,34 @@ def test_settings_encloses_its_destructive_actions(tmp_path):
 
 def test_settings_states_the_ai_integration_without_calling_it_an_error(tmp_path):
     _boot(_SETTINGS, tmp_path / "set-ai.db", "0", "tl-settings-state")
+
+
+def test_the_partner_conversation_survives_arriving_on_the_page(tmp_path):
+    """Navigating away is not closing the conversation, so arriving on the
+    phone destination must render the history that is already in session
+    state rather than starting a fresh one.
+
+    Driven through the same subprocess harness as every other boot, with the
+    history preset before the first run — which is exactly the state a
+    multipage navigation leaves behind.
+    """
+    import json
+
+    _boot(
+        "7_Partner.py",
+        tmp_path / "partner.db",
+        "0",
+        "PERSISTED QUESTION",
+        json.dumps(
+            {
+                "partner_history_None": [
+                    {"role": "user", "content": "PERSISTED QUESTION"}
+                ]
+            }
+        ),
+    )
+
+
+def test_the_partner_page_greets_an_empty_conversation_with_its_scope(tmp_path):
+    """First arrival states what the Partner reads and that nothing is kept."""
+    _boot("7_Partner.py", tmp_path / "empty.db", "0", "not saved")

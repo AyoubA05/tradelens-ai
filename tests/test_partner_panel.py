@@ -332,3 +332,100 @@ def test_the_partner_rides_the_shell_every_page_already_renders():
     for page in pages:
         text = page.read_text(encoding="utf-8")
         assert "render_partner_launcher" not in text, page.name
+
+
+# ---------------------------------------------------------------------------
+# Task 15 — the phone destination
+# ---------------------------------------------------------------------------
+
+
+def test_the_more_sheet_lists_the_partner():
+    from src.tradelens.ui.components.sidebar import MOBILE_MORE, MOBILE_MORE_SLUGS
+
+    assert "/Partner" in MOBILE_MORE_SLUGS
+    entry = [e for e in MOBILE_MORE if e[0] == "/Partner"][0]
+    assert entry[1] and entry[2], "the entry needs a label and a Material icon"
+
+
+def test_the_partner_is_absent_from_the_desktop_rail():
+    """One conversation must not have two entry points at one width."""
+    from src.tradelens.ui.components.sidebar import PRIMARY_NAV, UTILITY_NAV
+
+    slugs = [s for _p, s, _l, _i in PRIMARY_NAV + UTILITY_NAV]
+    assert "/Partner" not in slugs
+
+
+def test_the_partner_route_is_deep_linkable_like_every_other_destination():
+    from src.tradelens.ui.components.sidebar import route_href
+
+    assert route_href("/Partner", "tok").startswith("/Partner?")
+
+
+def test_the_phone_page_and_the_drawer_share_one_conversation():
+    """History is keyed by user, not by surface. Keying it by surface would
+    give a trader two conversations and no way to tell which they were in."""
+    page = (
+        Path(__file__).resolve().parents[1] / "src/tradelens/ui/pages/7_Partner.py"
+    ).read_text(encoding="utf-8")
+    assert 'render_partner_body(st, surface="page")' in page
+    assert 'render_partner_body(st, surface="drawer")' in _SOURCE
+    # …and the key that carries the conversation ignores the surface.
+    import inspect
+
+    assert "surface" not in inspect.signature(partner_turn.history_key).parameters
+
+
+def test_the_phone_page_adds_no_second_primary_action():
+    """ "Log completed trade" is the one primary action in this product."""
+    page = (
+        Path(__file__).resolve().parents[1] / "src/tradelens/ui/pages/7_Partner.py"
+    ).read_text(encoding="utf-8")
+    assert 'type="primary"' not in page
+
+
+def test_the_phone_page_opens_no_data_or_model_path_of_its_own():
+    page = (
+        Path(__file__).resolve().parents[1] / "src/tradelens/ui/pages/7_Partner.py"
+    ).read_text(encoding="utf-8")
+    for banned in (
+        "partner_reply",
+        "build_global_partner_context",
+        "log_ai_usage",
+        "SessionLocal",
+        "import anthropic",
+    ):
+        assert banned not in page, banned
+
+
+def test_the_launcher_and_the_bottom_bar_are_never_both_available():
+    """Structural, not a CSS trick: the launcher is hidden at exactly the
+    widths where the bottom bar appears, so there is no width at which a
+    floating overlay could collide with the More sheet."""
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+
+    # The extent of the phone media query, by brace count. Splitting on "}"
+    # is not enough here: the chunk that carries the launcher rule also
+    # carries the `@media` opener itself, so asking what encloses that chunk
+    # answers about the text before the query rather than inside it.
+    start = css.rindex("@media (max-width: 767px)")
+    depth, end = 0, None
+    for i in range(css.index("{", start), len(css)):
+        if css[i] == "{":
+            depth += 1
+        elif css[i] == "}":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    assert end is not None, "unterminated phone media query"
+    phone = css[start:end]
+
+    assert ".st-key-tl_partner_launcher" in phone
+    launcher = phone[phone.index(".st-key-tl_partner_launcher") :]
+    assert "display: none" in launcher[: launcher.index("}")]
+
+    assert ".tl-mobile-nav" in phone
+    nav = phone[phone.index(".tl-mobile-nav {") :]
+    assert "display: flex" in nav[: nav.index("}")]
