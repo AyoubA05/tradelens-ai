@@ -29,6 +29,7 @@ from src.tradelens.services.partner import PartnerError, partner_reply
 from src.tradelens.services.partner_context import build_global_partner_context
 from src.tradelens.ui.components.partner_turn import (
     CONTEXT_USED_LABEL,
+    QUESTION_DISCARDED,
     clear_conversation,
     context_used_for,
     error_key,
@@ -75,13 +76,22 @@ def _availability(st):
 
     uid = current_user_id()
     context = None
+    context_failed = False
     if isinstance(uid, int) and not isinstance(uid, bool) and uid > 0:
         try:
             context = build_global_partner_context(user_id=uid)
         except Exception:  # noqa: BLE001 — a render path must never raise
+            # The failure is passed on rather than left to be inferred from a
+            # context of None, which is also what an ownerless session
+            # produces — and which the availability rules would otherwise read
+            # as "no trades", sending a trader with a full journal to log one.
+            context_failed = True
             _log_exception("AI Partner availability context failed")
     return uid, partner_availability(
-        user_id=uid, ai_ready=ai_available(), context=context
+        user_id=uid,
+        ai_ready=ai_available(),
+        context=context,
+        context_failed=context_failed,
     )
 
 
@@ -164,34 +174,48 @@ def render_partner_body(st, *, surface: str) -> None:
             _render_turn(st, turn)
 
     if not state.can_send:
+        # A question queued on a previous pass cannot be sent now, and must not
+        # survive to be sent by some later pass that happens to find
+        # availability restored — that would be model usage, and a bill, that
+        # the trader never asked for. Discard it here and say so.
+        discarded = st.session_state.pop(f"_partner_pending_{surface}", None)
+        st.session_state.pop(busy_key, None)
+
         # No composer at all. A disabled one would still read as "type here",
         # and an enabled one would refuse every submission.
         _unavailable(st, state, surface=surface)
+        if discarded:
+            st.markdown(
+                f'<p class="tl-partner-error" role="alert">'
+                f"{escape(QUESTION_DISCARDED)}</p>",
+                unsafe_allow_html=True,
+            )
         if history:
             _clear_control(st, uid, surface)
         return
+
+    # The notice belongs to the surface, not to its empty state: it was
+    # rendered only when there was no history, so the reason a trader's
+    # answers were thin vanished the moment they asked anything.
+    if state.profile_missing:
+        st.markdown(
+            '<p class="tl-partner-empty" role="status">'
+            "No Strategy Profile yet, so answers cannot weigh your trades "
+            "against your own rules.</p>",
+            unsafe_allow_html=True,
+        )
+        _route_link(
+            st,
+            state.profile_route[0],
+            state.profile_route[1],
+            f"partner_{surface}_profile",
+        )
 
     if not history:
         st.markdown(
             f'<p class="tl-partner-empty">{escape(EMPTY_STATE_BODY)}</p>',
             unsafe_allow_html=True,
         )
-        if state.profile_missing:
-            # A notice, not a blocker: the Partner still reads the journal and
-            # the completed trades, so the answers are thinner rather than
-            # impossible.
-            st.markdown(
-                '<p class="tl-partner-empty" role="status">'
-                "No Strategy Profile yet, so answers cannot weigh your trades "
-                "against your own rules.</p>",
-                unsafe_allow_html=True,
-            )
-            _route_link(
-                st,
-                state.profile_route[0],
-                state.profile_route[1],
-                f"partner_{surface}_profile",
-            )
         for i, question in enumerate(SUGGESTED_QUESTIONS):
             if st.button(
                 question,

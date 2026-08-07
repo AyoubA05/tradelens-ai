@@ -20,9 +20,12 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 2 — PARTNER AMENDMENTS COMPLETE, AWAITING FINAL CODEX GATE`
-- Last completed work: **Claude's Partner presentation amendments** (this
-  commit) — ownerless and AI-unavailable availability, the no-trades and
+- Current phase: `PHASE 2 — PARTNER AMENDMENTS ROUND 2 COMPLETE, AWAITING CODEX`
+- Last completed work: **Claude's Partner amendments round 2** (this commit) —
+  the four findings from Codex's review of `ebdba27`: a safe context-failure
+  state, no auto-send after an interrupted queue, the profile notice with
+  history, and the full-page Partner restricted to bottom-navigation widths.
+  Before it: **round 1** (`ebdba27`) — ownerless and AI-unavailable availability, the no-trades and
   no-profile states, immediate clearing, the two-pass sending state, and
   route-level Partner exclusivity. Before it: the **Codex
   comprehensive-review remediation** (`c78b2a0`) — Partner output enforcement,
@@ -40,7 +43,7 @@ the same time.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification at the Partner amendments: `2033 passed, 7 skipped` · Ruff clean · Black clean
+- Verification at Partner amendments round 2: `2052 passed, 7 skipped` · Ruff clean · Black clean
   · `git diff --check` clean · all four Analytics lenses verified at 1440,
   1024, coarse 768 and coarse 375 plus reduced motion, with the pointer state
   and the reduced-motion state asserted from the page at every applicable row
@@ -222,6 +225,115 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-07 — Partner amendments round 2 (Claude)
+
+**Commit:** see `fix(partner): safe context failure, no auto-send, bottom-nav
+page`. Starting point `ebdba27`. Codex's remediation is untouched —
+`git diff c78b2a0 -- src/tradelens/services/ src/tradelens/ui/components/auth.py`
+is empty and the zero-trade send gate still stands.
+
+All four findings from Codex's review of `ebdba27` were real. Test-first: 20
+tests were written and failing before any implementation.
+
+**1. A failed context became the no-trades state.** `_availability` caught the
+adapter's exception and left `context = None`, which the availability rules
+read as zero trades — so a database failure told a trader with a full journal
+to go and log one, under a **New Trade route that fixes nothing**. The failure
+now travels as `context_failed=True` rather than being inferred from a `None`
+context, because `None` is also what an ownerless session produces and those
+two need different answers. New `CONTEXT_UNAVAILABLE` state, no route, and the
+ordering is stated: no owner, no model, no context, no trade.
+
+**2. An interrupted two-pass send could auto-send later.** If availability
+changed between queueing and sending, the not-can-send branch returned before
+the busy block — leaving `_partner_pending_*` and `_partner_busy_*` set. A
+later pass that found availability restored would send the question the trader
+had long since walked away from, at their cost. The queue is now discarded on
+that branch and the discard is reported rather than silent.
+
+**The regression test needed a better fake, and Codex was right to ask.** The
+round-1 fake returned from `rerun()` and **copied** session state. Both are
+wrong: a pass that reruns is over, and session state persists across reruns.
+Copying meant a two-pass test was really running two first passes, which is
+exactly how the defect survived. `_RealisticSt` raises from `rerun()` and
+shares the caller's dict; the test now drives pass A (unavailable) and pass B
+(healthy) over one session and asserts the model was never called.
+
+**3. The Strategy Profile notice was inside the empty-state branch**, so the
+reason a trader's answers were thin vanished the moment they asked anything.
+Moved out. Proved in a real browser: after clicking a suggestion at coarse 375
+the conversation shows 2 turns and the notice **and** its route are still
+there, alongside the new Clear control.
+
+**4. The full-page Partner rendered on desktop.** Round 1 suppressed the
+shell's Partner on `/Partner`, which guaranteed non-coexistence but left the
+phone presentation on a rail width — as Codex said, that is not what the
+specification asks for, and I should not have called it satisfied.
+
+**The approved behaviour is implemented, without JavaScript and without hidden
+tabbable widgets.** Two complementary media queries:
+
+- `@media (min-width: 768px)` hides `.st-key-tl_partner_page`
+- the existing phone breakpoint hides the launcher and drawer
+
+`display: none` is what does the hiding, and it removes an element from the tab
+order and the accessibility tree — not `visibility`, not a transform. The
+round-1 `with_partner` flag is deleted with the approach that needed it; a
+parameter no caller passes is one that rots.
+
+**Measured, not asserted** — the claim that mattered most:
+
+| Width | Page visible | **Focusables inside the page** | Launcher | Presentations on screen |
+|---|---|---|---|---|
+| 1440 fine | no | **0** | yes | **1** |
+| 1024 fine | no | **0** | yes | **1** |
+| coarse 768 | no | **0** | yes | **1** |
+| coarse 375 | **yes** | 5 | no | **1** |
+
+Zero focusables inside the hidden page at every rail width is the evidence that
+`display: none` is not merely visual. Reduced motion re-checked at 375 and
+1440: same result, `prefers-reduced-motion` read back from the page. Zero
+exceptions, overflow and undersized targets throughout. Analytics still carries
+its launcher and never renders the page container.
+
+**Six mutation checks, all caught:** the failed context falling through to the
+trade count; the panel dropping the failure signal; the interrupted question
+left queued; the notice moved back inside the empty state; the full page shown
+at rail widths; the page body losing its key.
+
+**One self-inflicted defect worth recording.** The first version of the
+desktop-note rule created a **second, early** `@media (max-width: 767px)`
+block. `test_the_44px_floor_is_not_hidden_behind_the_phone_breakpoint` locates
+the phone breakpoint as the *first* such occurrence, so every global 44px rule
+suddenly looked phone-only. The rule now lives in the one phone breakpoint the
+file has, beside the launcher rule it is the counterpart of — better structure,
+and the test was right.
+
+**Two Strategy tests failed once under load** (`test_strategy_empty_profile_
+reports_zero_completion`, `test_correcting_the_name_saves_and_clears_the_
+error`) while a Streamlit server and Chrome instances were running alongside
+the suite. Both pass in isolation and in a quiet full run. Recorded as
+subprocess timing under load, not as a product defect — and not silently
+dropped.
+
+**Verification:** `2052 passed, 7 skipped` (was `2033/7`; +19); Ruff clean;
+Black clean (88 files); `git diff --check` clean. Dev database byte-identical
+(`md5 dffdb781…`). App and Chrome stopped. `.impeccable/` untouched.
+
+**Limitations, unchanged and stated.**
+
+1. Streamlit has no server-side knowledge of the viewport, so at a rail width
+   the page body is still **built** (including one context read) and then
+   hidden by CSS. Avoiding that needs JavaScript, which this phase forbids.
+2. The `aria-live` sending status is verified under AppTest, not in the
+   browser: DEMO_MODE returns canned output instantly, so the in-flight window
+   closes before a probe can sample it.
+3. The context-failure state is proved by a panel test driving a real raising
+   adapter, not in a live browser — forcing a database failure against the
+   running app was out of scope.
+
+
 
 ### 2026-08-07 — Partner presentation amendments (Claude)
 

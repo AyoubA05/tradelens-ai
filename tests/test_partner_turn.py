@@ -602,3 +602,67 @@ def test_clearing_covers_every_surface_the_conversation_can_be_open_on():
     }
     clear_conversation(state, user_id=7, surfaces=("drawer", "page"))
     assert state == {}
+
+
+# ---------------------------------------------------------------------------
+# A context that could not be built is not an empty account
+# ---------------------------------------------------------------------------
+
+
+def test_a_failed_context_is_temporary_not_a_missing_trade():
+    """`build_global_partner_context` opens a session, so it can fail with a
+    driver error. Reading that failure as "you have no trades" tells a trader
+    with a full journal to go and log one, and offers a route that fixes
+    nothing — the database is down, not their account.
+    """
+    from src.tradelens.ui.components.partner_turn import (
+        CONTEXT_UNAVAILABLE,
+        NO_TRADES_ERROR,
+    )
+
+    state = _avail(context=None, context_failed=True)
+    assert state.can_send is False
+    assert state.reason == CONTEXT_UNAVAILABLE
+    assert state.reason != NO_TRADES_ERROR
+    assert state.route is None, "there is no route that fixes a failed read"
+
+
+def test_a_failed_context_says_nothing_about_the_driver():
+    from src.tradelens.ui.components.partner_turn import CONTEXT_UNAVAILABLE
+
+    lowered = CONTEXT_UNAVAILABLE.lower()
+    for leak in ("postgres", "sqlite", "dsn", "traceback", "psycopg"):
+        assert leak not in lowered
+
+
+def test_a_genuinely_empty_account_still_gets_the_new_trade_route():
+    """The fix must not blunt the real no-trades state into a shrug."""
+    from src.tradelens.ui.components.partner_turn import NO_TRADES_ERROR
+
+    state = _avail(context=FakeContext(completed_trade_count=0), context_failed=False)
+    assert state.reason == NO_TRADES_ERROR
+    assert state.route == ("Log a completed trade", "/NewTrade")
+
+
+def test_a_failed_context_outranks_every_other_reason_except_ownership():
+    """Nothing downstream can be trusted once the read failed — but an
+    ownerless session never attempted one, so it keeps its own message."""
+    from src.tradelens.ui.components.partner_turn import (
+        CONTEXT_UNAVAILABLE,
+        NO_USER_ERROR,
+    )
+
+    assert _avail(context=None, context_failed=True).reason == CONTEXT_UNAVAILABLE
+    assert (
+        _avail(user_id=None, context=None, context_failed=True).reason == NO_USER_ERROR
+    )
+
+
+def test_a_missing_model_still_outranks_a_failed_context():
+    """Both are infrastructure, and the AI one is the more specific truth."""
+    from src.tradelens.ui.components.partner_turn import AI_UNAVAILABLE
+
+    assert (
+        _avail(ai_ready=False, context=None, context_failed=True).reason
+        == AI_UNAVAILABLE
+    )

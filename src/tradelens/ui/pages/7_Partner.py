@@ -39,18 +39,41 @@ inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
 render_demo_banner()
-# The shell renders the global launcher and drawer on every other
-# destination. On this one they would be a second Partner beside the first —
-# at a rail width a direct visit would show the full page AND the launcher.
-# Suppressed from the route rather than by a media query, so it holds at every
-# width and leaves nothing hidden-but-tabbable.
-render_sidebar(with_partner=False)
+# The shell keeps its launcher and drawer here. At a rail width they ARE the
+# Partner on this route, because the full-page presentation below is hidden
+# from 768 up. Suppressing them instead — the previous approach — guaranteed
+# the two never coexisted but left the phone presentation rendering on a
+# desktop, which is not what the specification asks for.
+render_sidebar()
 
 st.markdown(
     render_workspace_header("AI Partner", SCOPE_NOTE),
     unsafe_allow_html=True,
 )
 
+# One Partner at every width, by construction. Two complementary media
+# queries, no JavaScript and nothing hidden-but-tabbable:
+#
+#   <= 767  bottom navigation  -> this page shows; launcher and drawer hidden
+#   >= 768  rail navigation    -> this page hidden; launcher and drawer show
+#
+# `display: none` is what does the hiding, and it removes an element from the
+# tab order and the accessibility tree rather than merely making it invisible
+# — measured in Task 15, where the hidden launcher reported unfocusable at
+# coarse 375.
+#
+# The cost, stated rather than hidden: Streamlit has no server-side knowledge
+# of the viewport, so at a rail width this body is still built (including one
+# context read) and then hidden by CSS. Avoiding that would need JavaScript,
+# which this phase forbids.
+st.markdown(
+    '<p class="tl-partner-desktop-note" role="status">'
+    "At this width the AI Partner opens beside your work — use "
+    "<strong>Ask about a trade</strong>, bottom right.</p>",
+    unsafe_allow_html=True,
+)
+
 # A reflective surface, not a second bright CTA competing with "Log completed
 # trade" — the one-primary-action rule still applies here.
-render_partner_body(st, surface="page")
+with st.container(key="tl_partner_page"):
+    render_partner_body(st, surface="page")

@@ -551,6 +551,25 @@ def build_css() -> str:
   display: none;
 }}
 
+/* The full-page Partner belongs to bottom-navigation widths. From 768 up the
+   rail is the navigation and the drawer is the Partner, so the page body is
+   removed — `display: none`, which takes it out of the tab order and the
+   accessibility tree, not `visibility` or an offscreen transform. Together
+   with the launcher/drawer rule in the phone breakpoint this gives exactly
+   one Partner at every width, with no JavaScript. */
+@media (min-width: 768px) {{
+  .st-key-tl_partner_page {{
+    display: none;
+  }}
+}}
+[data-testid="stAppViewContainer"] .tl-partner-desktop-note {{
+  font-size: 14px;
+  line-height: 21px;
+  color: var(--tl-content-secondary);
+  max-width: 68ch;
+  margin: var(--tl-space-4) 0 0 0;
+}}
+
 /* === AI PARTNER (components/partner_panel.py) ===
    A launcher pinned bottom-right and a drawer that opens beside the work
    rather than over it. Non-modal on purpose: a focus trap needs JavaScript,
@@ -3064,6 +3083,16 @@ def build_css() -> str:
      the full Partner destination through More instead. */
   .st-key-tl_partner_launcher,
   .st-key-tl_partner_drawer {{
+    display: none;
+  }}
+  /* The counterpart of the `min-width: 768px` rule that hides the full-page
+     Partner: the note explaining where the Partner is only makes sense at the
+     widths where that page is hidden. It lives HERE, in the one phone
+     breakpoint this file has, rather than in a second early media query —
+     `test_the_44px_floor_is_not_hidden_behind_the_phone_breakpoint` locates
+     the breakpoint as the first `max-width: 767px` occurrence, so a stray
+     earlier one makes every global 44px rule look phone-only. */
+  .tl-partner-desktop-note {{
     display: none;
   }}
   /* The bottom bar appears only here, and reserves its own height plus the

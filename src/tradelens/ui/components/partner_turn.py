@@ -54,6 +54,18 @@ NO_TRADES_ERROR = "Log at least one completed trade before using the AI Partner.
 # nothing with it.
 AI_UNAVAILABLE = "The AI Partner is unavailable right now."
 
+# The context read failed. Deliberately NOT the no-trades message: reading a
+# driver failure as "you have no trades" tells a trader with a full journal to
+# go and log one, and offers a route that fixes nothing.
+CONTEXT_UNAVAILABLE = "Your journal could not be read just now. Try again in a moment."
+
+# A question was queued, and by the time the sending pass ran the Partner
+# could no longer answer it. Saying so beats both sending it anyway and
+# dropping it in silence.
+QUESTION_DISCARDED = (
+    "That question was not sent. Ask it again when the Partner is available."
+)
+
 HISTORY_PREFIX = "partner_history_"
 ERROR_PREFIX = "partner_error_"
 
@@ -164,7 +176,7 @@ class PartnerAvailability:
 
 
 def partner_availability(
-    *, user_id: object, ai_ready: bool, context: object
+    *, user_id: object, ai_ready: bool, context: object, context_failed: bool = False
 ) -> PartnerAvailability:
     """Whether the Partner can take a question, and what to say if not.
 
@@ -173,9 +185,15 @@ def partner_availability(
     caller has already built the context through the one approved path, and a
     second read here would be a second data path.
 
-    Order matters. A missing model outranks a missing trade, because both are
-    true on a fresh install and only one of them is something the trader can
-    fix by logging a trade.
+    Order matters, and the order is: no owner, no model, no context, no trade.
+    A missing model outranks a missing trade because both are true on a fresh
+    install and only one is something a trader can fix by logging a trade. A
+    failed context outranks the trade count because a read that did not happen
+    reports no trades, and that is not the same fact.
+
+    `context_failed` is the caller telling us the adapter raised. It is passed
+    rather than inferred, because a context of None is also what an ownerless
+    session produces, and those two need different answers.
     """
     if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:
         # No owner means no scope. The adapter refuses this before it opens a
@@ -184,6 +202,13 @@ def partner_availability(
 
     if not ai_ready:
         return PartnerAvailability(can_send=False, reason=AI_UNAVAILABLE)
+
+    if context_failed:
+        # Nothing downstream can be trusted once the read failed, and the
+        # trader can do nothing about it — so no route is offered. This sits
+        # ABOVE the trade count on purpose: a failed read has no trade count,
+        # and the absent one must not be read as zero.
+        return PartnerAvailability(can_send=False, reason=CONTEXT_UNAVAILABLE)
 
     trades = getattr(context, "completed_trade_count", None)
     try:

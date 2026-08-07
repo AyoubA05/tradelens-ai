@@ -696,20 +696,60 @@ def test_the_launcher_is_actionable_when_the_partner_is_ready(monkeypatch):
 # --- responsive exclusivity -------------------------------------------------
 
 
-def test_the_partner_route_suppresses_the_shell_partner():
-    """A direct /Partner visit at a rail width would otherwise show the full
-    page AND the global launcher. Decided from the route, server-side, so it
-    holds at every width and leaves nothing hidden-but-tabbable."""
-    from pathlib import Path
+def test_the_partner_route_never_shows_two_partners():
+    """Round 1 suppressed the shell's Partner on this route. That guaranteed
+    the two never coexisted, but it left the phone presentation rendering on a
+    desktop — non-coexistence was only half the requirement.
 
-    page = (
-        Path(__file__).resolve().parents[1] / "src/tradelens/ui/pages/7_Partner.py"
-    ).read_text(encoding="utf-8")
-    assert "render_sidebar(with_partner=False)" in page
+    Exclusivity now comes from two complementary media queries, so this
+    asserts the pair rather than the suppression: whatever the width, exactly
+    one of the two presentations is displayed.
+    """
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+
+    def _block(opener, selector):
+        """The rule for `selector` inside `opener`, by brace count.
+
+        Every block with that opener is searched, not just the first: the file
+        carries several `@media (max-width: 767px)` blocks and the Partner
+        rules are not in the earliest one.
+        """
+        at = 0
+        while True:
+            start = css.find(opener, at)
+            assert start != -1, f"{selector} missing from every {opener}"
+            depth, end = 0, None
+            for i in range(css.index("{", start), len(css)):
+                if css[i] == "{":
+                    depth += 1
+                elif css[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            region = css[start:end]
+            if selector in region:
+                tail = region[region.index(selector) :]
+                return tail[: tail.index("}")]
+            at = start + 1
+
+    # >= 768: the page is gone, so the launcher and drawer are the Partner.
+    assert "display: none" in _block(
+        "@media (min-width: 768px) {", ".st-key-tl_partner_page"
+    )
+    # <= 767: the launcher and drawer are gone, so the page is the Partner.
+    assert "display: none" in _block(
+        "@media (max-width: 767px) {", ".st-key-tl_partner_launcher"
+    )
 
 
-def test_the_shell_renders_no_partner_when_asked_not_to():
-    """Asserted by running it, not by reading it."""
+def test_the_shell_renders_its_partner_on_every_destination():
+    """Round 1's `with_partner` flag is gone with the approach that needed it.
+    A parameter no caller passes is one that rots, and the shell now has one
+    behaviour: it always offers the Partner, and CSS decides which of the two
+    presentations a width gets."""
     import ast
     from pathlib import Path
 
@@ -722,17 +762,8 @@ def test_the_shell_renders_no_partner_when_asked_not_to():
         for n in ast.walk(tree)
         if isinstance(n, ast.FunctionDef) and n.name == "render_sidebar"
     )
-    assert any(a.arg == "with_partner" for a in fn.args.kwonlyargs)
-    # Both calls sit inside the guard rather than beside it.
-    guarded = [
-        n
-        for n in ast.walk(fn)
-        if isinstance(n, ast.If)
-        and isinstance(n.test, ast.Name)
-        and n.test.id == "with_partner"
-    ]
-    assert guarded, "the Partner calls are not behind the flag"
-    dumped = ast.dump(guarded[0])
+    assert not any(a.arg == "with_partner" for a in fn.args.kwonlyargs)
+    dumped = ast.dump(fn)
     assert "render_partner_launcher" in dumped
     assert "render_partner_drawer" in dumped
 
@@ -748,3 +779,312 @@ def test_every_other_destination_still_gets_the_shell_partner():
         if page.name == "7_Partner.py":
             continue
         assert "with_partner=False" not in text, page.name
+
+
+# ---------------------------------------------------------------------------
+# Round 2 — Codex's review of ebdba27
+# ---------------------------------------------------------------------------
+
+
+class _Rerun(Exception):
+    """What `st.rerun()` really does: raises, and the script run ends there."""
+
+
+class _RealisticSt(_RichFakeSt):
+    """A fake with the two lifecycle behaviours the earlier one lacked.
+
+    `rerun()` raises, because that is what Streamlit's does — a pass that
+    reruns is over, and the earlier fake let execution fall through into code
+    that never runs in the product.
+
+    Session state is the caller's own dict, not a copy, because it *persists
+    across reruns*. Copying it made every pass start from the original state,
+    so a test that ran two passes over one session was really running two
+    first passes — which is how the first version of the interrupted-send
+    test passed while the defect was live.
+    """
+
+    def __init__(self, state=None):
+        super().__init__(state)
+        self.session_state = state if state is not None else {}
+
+    def rerun(self):
+        self.reran += 1
+        raise _Rerun()
+
+
+def _render_realistic(
+    monkeypatch,
+    *,
+    uid,
+    ai_ready,
+    context,
+    state=None,
+    surface="drawer",
+    build_raises=False,
+    send=None,
+):
+    from src.tradelens.ui.components import partner_panel as pp
+
+    monkeypatch.setattr("src.tradelens.ui.components.auth.current_user_id", lambda: uid)
+    monkeypatch.setattr(pp, "ai_available", lambda: ai_ready)
+
+    def _build(*, user_id):
+        if build_raises:
+            raise RuntimeError('psycopg2 dsn="postgresql://tl:pw@db:5432/tl"')
+        return context
+
+    monkeypatch.setattr(pp, "build_global_partner_context", _build)
+    if send is not None:
+        monkeypatch.setattr(pp, "send_turn", send)
+    fake = _RealisticSt(state)
+    try:
+        pp.render_partner_body(fake, surface=surface)
+    except _Rerun:
+        pass
+    return fake
+
+
+# --- 1. a context that could not be built ----------------------------------
+
+
+def test_a_failed_context_never_becomes_the_no_trades_state(monkeypatch):
+    """Telling a trader with a full journal to go and log a trade, because the
+    database was unreachable, is worse than saying nothing."""
+    from src.tradelens.ui.components.partner_turn import (
+        CONTEXT_UNAVAILABLE,
+        NO_TRADES_ERROR,
+    )
+
+    fake = _render_realistic(
+        monkeypatch, uid=7, ai_ready=True, context=None, build_raises=True
+    )
+    html = "\n".join(fake.html)
+    assert CONTEXT_UNAVAILABLE in html
+    assert NO_TRADES_ERROR not in html
+    assert fake.links == [], "no route is offered for a failure it cannot fix"
+    assert fake.chat_inputs == []
+
+
+def test_a_failed_context_leaks_no_driver_text(monkeypatch):
+    fake = _render_realistic(
+        monkeypatch, uid=7, ai_ready=True, context=None, build_raises=True
+    )
+    rendered = "\n".join(fake.html + fake.text)
+    for leak in ("psycopg2", "postgresql://", "dsn", "Traceback"):
+        assert leak not in rendered
+
+
+# --- 2. a two-pass send interrupted between its passes ----------------------
+
+
+def test_queuing_a_question_ends_the_run_without_sending(monkeypatch):
+    """First pass records intent and reruns. With a fake that returns from
+    `rerun()` the code below it kept executing, so this could not be seen."""
+    sent = _recorder_calls()
+    fake = _render_realistic(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state={"_partner_pending_drawer": "queued question"},
+        send=sent,
+    )
+    assert sent.calls == [], "the model was called on the queueing pass"
+    assert fake.reran == 1
+    assert fake.session_state["_partner_busy_drawer"] is True
+
+
+def test_a_question_queued_before_availability_changed_is_never_sent(monkeypatch):
+    """The interruption Codex found. A question is queued, and by the next
+    pass the Partner can no longer send — the key was pulled, the trades were
+    deleted, the database went down. The pending question must not survive to
+    be auto-sent by a later rerun that happens to find availability restored:
+    that is model usage and billing the trader never asked for.
+    """
+    sent = _recorder_calls()
+    state = {
+        "_partner_pending_drawer": "queued before the key was pulled",
+        "_partner_busy_drawer": True,
+    }
+    fake = _render_realistic(
+        monkeypatch, uid=7, ai_ready=False, context=_Ctx(), state=state, send=sent
+    )
+    assert sent.calls == [], "an interrupted question was sent anyway"
+    assert "_partner_pending_drawer" not in fake.session_state
+    assert not fake.session_state.get("_partner_busy_drawer")
+
+
+def test_the_discarded_question_is_reported_not_silently_dropped(monkeypatch):
+    from src.tradelens.ui.components.partner_turn import QUESTION_DISCARDED
+
+    fake = _render_realistic(
+        monkeypatch,
+        uid=7,
+        ai_ready=False,
+        context=_Ctx(),
+        state={
+            "_partner_pending_drawer": "queued",
+            "_partner_busy_drawer": True,
+        },
+        send=_recorder_calls(),
+    )
+    assert QUESTION_DISCARDED in "\n".join(fake.html)
+
+
+def test_availability_returning_later_does_not_resurrect_the_question(monkeypatch):
+    """The whole point: the state left behind by the interrupted pass must
+    contain nothing that a healthy later pass would act on."""
+    sent = _recorder_calls()
+    state = {
+        "_partner_pending_drawer": "queued before the key was pulled",
+        "_partner_busy_drawer": True,
+    }
+    # Pass A: unavailable — the queue is cleared.
+    _render_realistic(
+        monkeypatch, uid=7, ai_ready=False, context=_Ctx(), state=state, send=sent
+    )
+    # Pass B: everything healthy again, same session state.
+    _render_realistic(
+        monkeypatch, uid=7, ai_ready=True, context=_Ctx(), state=state, send=sent
+    )
+    assert sent.calls == [], "the question came back to life on a later pass"
+
+
+def test_a_healthy_second_pass_still_sends_exactly_once(monkeypatch):
+    """The fix must not break sending."""
+    sent = _recorder_calls()
+    fake = _render_realistic(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state={
+            "_partner_pending_drawer": "a real question",
+            "_partner_busy_drawer": True,
+        },
+        send=sent,
+    )
+    assert len(sent.calls) == 1
+    assert sent.calls[0][1]["text"] == "a real question"
+    assert not fake.session_state.get("_partner_busy_drawer")
+
+
+# --- 3. the profile notice, whether or not there is history -----------------
+
+
+def test_the_profile_notice_survives_a_conversation(monkeypatch):
+    """It was rendered only inside the empty-state branch, so the moment a
+    trader asked anything the reason their answers were thin disappeared."""
+    from src.tradelens.ui.components.partner_turn import history_key
+
+    fake = _render_realistic(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(profile=None),
+        state={
+            history_key(7): [
+                {"role": "user", "content": "q"},
+                {"role": "assistant", "content": "a"},
+            ]
+        },
+    )
+    assert "No Strategy Profile yet" in "\n".join(fake.html)
+    assert fake.links == [("pages/5_Strategy.py", "Add your Strategy Profile →")]
+
+
+def test_a_present_profile_stays_quiet_with_history_too(monkeypatch):
+    from src.tradelens.ui.components.partner_turn import history_key
+
+    fake = _render_realistic(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(profile={"name": "ICT"}),
+        state={history_key(7): [{"role": "user", "content": "q"}]},
+    )
+    assert "No Strategy Profile yet" not in "\n".join(fake.html)
+    assert fake.links == []
+
+
+def _recorder_calls():
+    def fn(*args, **kwargs):
+        fn.calls.append((args, kwargs))
+
+    fn.calls = []
+    return fn
+
+
+# --- 4. the full page belongs to bottom-navigation widths only --------------
+
+
+def test_the_full_page_partner_is_hidden_at_rail_widths():
+    """Non-coexistence was not the whole requirement. The full-page
+    presentation is for bottom-navigation widths, so at a rail width it must
+    not render at all — and `display: none` is what removes it from the tab
+    order rather than merely hiding it."""
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+    # The exact block. `@media (min-width: 768px) and (max-width: 1023px)`
+    # appears earlier and starts identically, so an `index` on the prefix
+    # finds the rail-width sidebar rules instead of this one.
+    start = css.index("@media (min-width: 768px) {")
+    depth, end = 0, None
+    for i in range(css.index("{", start), len(css)):
+        if css[i] == "{":
+            depth += 1
+        elif css[i] == "}":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    rail = css[start:end]
+    assert ".st-key-tl_partner_page" in rail
+    block = rail[rail.index(".st-key-tl_partner_page") :]
+    assert "display: none" in block[: block.index("}")]
+
+
+def test_the_two_presentations_are_hidden_at_exactly_opposite_widths():
+    """One Partner at every width, by construction: the page is hidden from
+    768 up and the launcher and drawer are hidden to 767."""
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+    phone = css[css.rindex("@media (max-width: 767px)") :]
+    assert ".st-key-tl_partner_launcher" in phone[: phone.index("@media")] or (
+        ".st-key-tl_partner_launcher" in phone[:4000]
+    )
+    assert "@media (min-width: 768px)" in css
+
+
+def test_the_page_body_is_keyed_so_the_rule_can_reach_it():
+    from pathlib import Path
+
+    page = (
+        Path(__file__).resolve().parents[1] / "src/tradelens/ui/pages/7_Partner.py"
+    ).read_text(encoding="utf-8")
+    assert 'st.container(key="tl_partner_page")' in page
+
+
+def test_the_desktop_visitor_is_told_where_the_partner_is():
+    """A direct /Partner visit at a rail width must not be a blank page."""
+    from pathlib import Path
+
+    page = (
+        Path(__file__).resolve().parents[1] / "src/tradelens/ui/pages/7_Partner.py"
+    ).read_text(encoding="utf-8")
+    assert "tl-partner-desktop-note" in page
+
+
+def test_the_shell_partner_is_restored_on_the_partner_route():
+    """It is what a rail-width visitor uses, now that the full page is hidden
+    there. Exclusivity comes from the two media queries, not from suppressing
+    the shell."""
+    from pathlib import Path
+
+    page = (
+        Path(__file__).resolve().parents[1] / "src/tradelens/ui/pages/7_Partner.py"
+    ).read_text(encoding="utf-8")
+    assert "with_partner=False" not in page
