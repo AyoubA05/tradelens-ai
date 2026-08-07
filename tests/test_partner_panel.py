@@ -108,16 +108,37 @@ def test_context_is_built_by_the_approved_adapter_only():
     assert "build_context=build_global_partner_context" in _SOURCE
 
 
-def test_the_authenticated_user_id_is_what_reaches_the_send_path():
-    body = ast.dump(
-        next(
-            n
-            for n in ast.walk(_TREE)
-            if isinstance(n, ast.FunctionDef) and n.name == "render_partner_body"
-        )
+def test_the_authenticated_user_id_is_what_reaches_the_send_path(monkeypatch):
+    """Asserted by sending, not by reading.
+
+    This previously scanned `render_partner_body` for the name
+    `current_user_id`, which the amendment moved into the availability helper —
+    a location change would have failed it while the property held. What
+    matters is which owner the send path is given.
+    """
+    from src.tradelens.ui.components import partner_panel as pp
+    from src.tradelens.ui.components.partner_turn import history_key
+
+    seen = {}
+
+    def spy(state, *, user_id, text, **_kw):
+        seen["user_id"] = user_id
+        seen["text"] = text
+
+    monkeypatch.setattr("src.tradelens.ui.components.auth.current_user_id", lambda: 7)
+    monkeypatch.setattr(pp, "ai_available", lambda: True)
+    monkeypatch.setattr(pp, "build_global_partner_context", lambda *, user_id: _Ctx())
+    monkeypatch.setattr(pp, "send_turn", spy)
+
+    fake = _RichFakeSt(
+        {
+            "_partner_busy_drawer": True,
+            "_partner_pending_drawer": "What did I repeat?",
+            history_key(7): [{"role": "user", "content": "What did I repeat?"}],
+        }
     )
-    assert "current_user_id" in body
-    assert "user_id" in body
+    pp.render_partner_body(fake, surface="drawer")
+    assert seen == {"user_id": 7, "text": "What did I repeat?"}
 
 
 def test_partner_reply_is_called_in_general_reflective_mode():
@@ -429,3 +450,301 @@ def test_the_launcher_and_the_bottom_bar_are_never_both_available():
     assert ".tl-mobile-nav" in phone
     nav = phone[phone.index(".tl-mobile-nav {") :]
     assert "display: flex" in nav[: nav.index("}")]
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 amendment — availability, clearing, sending, exclusivity
+# ---------------------------------------------------------------------------
+
+
+class _RichFakeSt(_FakeSt):
+    """The fake, extended for the amendment's controls.
+
+    Records which controls were offered and whether each was disabled, so the
+    assertions below read what the surface produced rather than what its source
+    says. `rerun` records instead of raising here, because these paths reach it
+    legitimately.
+    """
+
+    def __init__(self, state=None):
+        super().__init__(state)
+        self.disabled = {}
+        self.chat_inputs = []
+        self.links = []
+        self.reran = 0
+        self.query_params = {}
+
+    def button(self, label, **kwargs):
+        self.buttons.append(label)
+        self.disabled[label] = bool(kwargs.get("disabled"))
+        return False
+
+    def chat_input(self, placeholder, **kwargs):
+        self.chat_inputs.append(
+            {"placeholder": placeholder, "disabled": bool(kwargs.get("disabled"))}
+        )
+        return None
+
+    def page_link(self, path, label=None, **kwargs):
+        self.links.append((path, label))
+
+    def rerun(self):
+        self.reran += 1
+
+
+def _render_body(monkeypatch, *, uid, ai_ready, context, state=None, surface="drawer"):
+    from src.tradelens.ui.components import partner_panel as pp
+
+    monkeypatch.setattr("src.tradelens.ui.components.auth.current_user_id", lambda: uid)
+    monkeypatch.setattr(pp, "ai_available", lambda: ai_ready)
+    monkeypatch.setattr(pp, "build_global_partner_context", lambda *, user_id: context)
+    fake = _RichFakeSt(state)
+    pp.render_partner_body(fake, surface=surface)
+    return fake
+
+
+class _Ctx:
+    def __init__(self, trades=6, profile=None):
+        self.context_text = "## Journal notes"
+        self.strategy_profile = profile
+        self.evidence_sources = ()
+        self.completed_trade_count = trades
+        self.journal_entry_count = trades
+
+
+def test_an_ownerless_session_is_offered_no_composer(monkeypatch):
+    """The adapter refuses an ownerless read, so a composer here would produce
+    an error on every submission."""
+    from src.tradelens.ui.components.partner_turn import NO_USER_ERROR
+
+    fake = _render_body(monkeypatch, uid=None, ai_ready=True, context=None)
+    assert fake.chat_inputs == []
+    assert NO_USER_ERROR in "\n".join(fake.html)
+
+
+def test_an_ownerless_session_never_reaches_the_context_adapter(monkeypatch):
+    """Tenant isolation is not weakened to render a nicer message."""
+    from src.tradelens.ui.components import partner_panel as pp
+
+    calls = []
+    monkeypatch.setattr(
+        "src.tradelens.ui.components.auth.current_user_id", lambda: None
+    )
+    monkeypatch.setattr(pp, "ai_available", lambda: True)
+    monkeypatch.setattr(
+        pp,
+        "build_global_partner_context",
+        lambda *, user_id: calls.append(user_id) or _Ctx(),
+    )
+    pp.render_partner_body(_RichFakeSt(), surface="drawer")
+    assert calls == [], "a context was built for a session with no owner"
+
+
+def test_an_unconfigured_model_is_stated_without_naming_the_secret(monkeypatch):
+    from src.tradelens.ui.components.partner_turn import AI_UNAVAILABLE
+
+    fake = _render_body(monkeypatch, uid=7, ai_ready=False, context=_Ctx())
+    assert fake.chat_inputs == []
+    html = "\n".join(fake.html)
+    assert AI_UNAVAILABLE in html
+    assert "ANTHROPIC" not in html and "api key" not in html.lower()
+
+
+def test_no_completed_trades_shows_the_new_trade_route(monkeypatch):
+    from src.tradelens.ui.components.partner_turn import NO_TRADES_ERROR
+
+    fake = _render_body(monkeypatch, uid=7, ai_ready=True, context=_Ctx(trades=0))
+    assert fake.chat_inputs == [], "no composer without a trade to reflect on"
+    assert NO_TRADES_ERROR in "\n".join(fake.html)
+    assert fake.links == [("pages/1_NewTrade.py", "Log a completed trade →")]
+
+
+def test_a_missing_profile_notices_but_still_takes_a_question(monkeypatch):
+    fake = _render_body(monkeypatch, uid=7, ai_ready=True, context=_Ctx(profile=None))
+    assert len(fake.chat_inputs) == 1
+    assert fake.chat_inputs[0]["disabled"] is False
+    assert "Strategy Profile" in "\n".join(fake.html)
+    assert fake.links == [("pages/5_Strategy.py", "Add your Strategy Profile →")]
+
+
+def test_a_present_profile_raises_no_notice(monkeypatch):
+    fake = _render_body(
+        monkeypatch, uid=7, ai_ready=True, context=_Ctx(profile={"name": "ICT"})
+    )
+    assert fake.links == []
+    assert "No Strategy Profile yet" not in "\n".join(fake.html)
+
+
+def test_the_composer_is_disabled_while_a_question_is_in_flight(monkeypatch):
+    """The second pass. A Streamlit widget cannot become disabled inside its
+    own handler, so the disabled state has to be rendered on a pass of its
+    own — this asserts that pass produces it."""
+    from src.tradelens.ui.components.partner_turn import history_key
+
+    state = {
+        "_partner_busy_drawer": True,
+        "_partner_pending_drawer": "What did I repeat?",
+        history_key(7): [{"role": "user", "content": "What did I repeat?"}],
+    }
+    fake = _render_body(monkeypatch, uid=7, ai_ready=True, context=_Ctx(), state=state)
+    assert fake.chat_inputs[0]["disabled"] is True
+    html = "\n".join(fake.html)
+    assert 'aria-live="polite"' in html
+    assert "Reading your journal" in html
+
+
+def test_previous_turns_stay_on_screen_while_sending(monkeypatch):
+    from src.tradelens.ui.components.partner_turn import history_key
+
+    state = {
+        "_partner_busy_drawer": True,
+        "_partner_pending_drawer": "next question",
+        history_key(7): [
+            {"role": "user", "content": "EARLIER QUESTION"},
+            {"role": "assistant", "content": "EARLIER ANSWER"},
+        ],
+    }
+    fake = _render_body(monkeypatch, uid=7, ai_ready=True, context=_Ctx(), state=state)
+    rendered = "\n".join(fake.text + fake.html)
+    assert "EARLIER QUESTION" in rendered and "EARLIER ANSWER" in rendered
+
+
+def test_the_turns_are_rendered_before_anything_that_could_refuse(monkeypatch):
+    """Whatever this render is doing, the conversation does not move."""
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "src/tradelens/ui/components/partner_panel.py"
+    ).read_text(encoding="utf-8")
+    body = src[src.index("def render_partner_body") :]
+    body = body[: body.index("def _clear_control")]
+    assert body.index("_render_turn(st, turn)") < body.index("if not state.can_send")
+
+
+def test_clear_conversation_is_offered_once_there_is_one(monkeypatch):
+    from src.tradelens.ui.components.partner_turn import history_key
+
+    empty = _render_body(monkeypatch, uid=7, ai_ready=True, context=_Ctx())
+    assert "Clear conversation" not in empty.buttons
+
+    with_history = _render_body(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state={history_key(7): [{"role": "user", "content": "q"}]},
+    )
+    assert "Clear conversation" in with_history.buttons
+
+
+def test_clear_is_offered_even_when_the_partner_can_no_longer_send(monkeypatch):
+    """A trader whose key was removed must still be able to dismiss the
+    conversation they are looking at."""
+    from src.tradelens.ui.components.partner_turn import history_key
+
+    fake = _render_body(
+        monkeypatch,
+        uid=7,
+        ai_ready=False,
+        context=_Ctx(),
+        state={history_key(7): [{"role": "user", "content": "q"}]},
+    )
+    assert "Clear conversation" in fake.buttons
+
+
+def test_the_suggestion_chips_are_disabled_while_sending(monkeypatch):
+    """They queue a question, so a live chip during a call would stack a
+    second one behind the first."""
+    fake = _render_body(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state={"_partner_busy_drawer": True},
+    )
+    chips = [b for b in fake.buttons if b in partner_panel.SUGGESTED_QUESTIONS]
+    assert chips, "the empty state still offers its chips"
+    assert all(fake.disabled[c] for c in chips)
+
+
+def test_the_launcher_is_disabled_and_explains_itself_when_unavailable(monkeypatch):
+    from src.tradelens.ui.components import partner_panel as pp
+    from src.tradelens.ui.components.partner_turn import AI_UNAVAILABLE
+
+    monkeypatch.setattr("src.tradelens.ui.components.auth.current_user_id", lambda: 7)
+    monkeypatch.setattr(pp, "ai_available", lambda: False)
+    monkeypatch.setattr(pp, "build_global_partner_context", lambda *, user_id: _Ctx())
+    fake = _RichFakeSt()
+    pp.render_partner_launcher(fake)
+    assert fake.disabled["Ask about a trade"] is True
+    # A disabled button leaves the tab order, so the reason must also be text.
+    assert AI_UNAVAILABLE in "\n".join(fake.html)
+
+
+def test_the_launcher_is_actionable_when_the_partner_is_ready(monkeypatch):
+    from src.tradelens.ui.components import partner_panel as pp
+
+    monkeypatch.setattr("src.tradelens.ui.components.auth.current_user_id", lambda: 7)
+    monkeypatch.setattr(pp, "ai_available", lambda: True)
+    monkeypatch.setattr(pp, "build_global_partner_context", lambda *, user_id: _Ctx())
+    fake = _RichFakeSt()
+    pp.render_partner_launcher(fake)
+    assert fake.disabled["Ask about a trade"] is False
+
+
+# --- responsive exclusivity -------------------------------------------------
+
+
+def test_the_partner_route_suppresses_the_shell_partner():
+    """A direct /Partner visit at a rail width would otherwise show the full
+    page AND the global launcher. Decided from the route, server-side, so it
+    holds at every width and leaves nothing hidden-but-tabbable."""
+    from pathlib import Path
+
+    page = (
+        Path(__file__).resolve().parents[1] / "src/tradelens/ui/pages/7_Partner.py"
+    ).read_text(encoding="utf-8")
+    assert "render_sidebar(with_partner=False)" in page
+
+
+def test_the_shell_renders_no_partner_when_asked_not_to():
+    """Asserted by running it, not by reading it."""
+    import ast
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[1] / "src/tradelens/ui/components/sidebar.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    fn = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "render_sidebar"
+    )
+    assert any(a.arg == "with_partner" for a in fn.args.kwonlyargs)
+    # Both calls sit inside the guard rather than beside it.
+    guarded = [
+        n
+        for n in ast.walk(fn)
+        if isinstance(n, ast.If)
+        and isinstance(n.test, ast.Name)
+        and n.test.id == "with_partner"
+    ]
+    assert guarded, "the Partner calls are not behind the flag"
+    dumped = ast.dump(guarded[0])
+    assert "render_partner_launcher" in dumped
+    assert "render_partner_drawer" in dumped
+
+
+def test_every_other_destination_still_gets_the_shell_partner():
+    from pathlib import Path
+
+    pages = Path(__file__).resolve().parents[1] / "src/tradelens/ui/pages"
+    for page in pages.glob("*.py"):
+        text = page.read_text(encoding="utf-8")
+        if "render_sidebar(" not in text:
+            continue
+        if page.name == "7_Partner.py":
+            continue
+        assert "with_partner=False" not in text, page.name

@@ -616,6 +616,26 @@ def build_css() -> str:
   margin: var(--tl-space-2) 0 0 0;
   max-width: 68ch;
 }}
+/* Sending. A status line under a composer that is already disabled and turns
+   that are already on screen, so nothing above it moves while the call runs. */
+[data-testid="stAppViewContainer"] .tl-partner-status {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--tl-content-secondary);
+  margin: var(--tl-space-3) 0 0 0;
+}}
+/* The launcher's reason, for the keyboard and the screen reader: a disabled
+   button leaves the tab order, so its tooltip reaches nobody who is not using
+   a mouse. */
+[data-testid="stAppViewContainer"] .tl-partner-launcher-note {{
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tl-content-secondary);
+  max-width: 24ch;
+  margin: var(--tl-space-2) 0 0 0;
+  text-align: right;
+}}
 [data-testid="stAppViewContainer"] .tl-partner-error {{
   font-size: 14px;
   line-height: 21px;

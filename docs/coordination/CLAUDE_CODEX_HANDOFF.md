@@ -20,10 +20,14 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 2 CODEX REMEDIATION COMPLETE — CLAUDE PARTNER UI AMENDMENTS NEXT`
-- Last completed work: **Codex comprehensive-review remediation** — Partner
-  output enforcement, zero-trade model/cost gating, and Partner session cleanup
-  on sign-out. Before it: **Task 17** — the 10K re-score, which
+- Current phase: `PHASE 2 — PARTNER AMENDMENTS COMPLETE, AWAITING FINAL CODEX GATE`
+- Last completed work: **Claude's Partner presentation amendments** (this
+  commit) — ownerless and AI-unavailable availability, the no-trades and
+  no-profile states, immediate clearing, the two-pass sending state, and
+  route-level Partner exclusivity. Before it: the **Codex
+  comprehensive-review remediation** (`c78b2a0`) — Partner output enforcement,
+  zero-trade model/cost gating, and Partner session cleanup on sign-out, all
+  preserved unchanged. Before it: **Task 17** — the 10K re-score, which
   completes **Tasks 1–17**. Before it: Task 16 (`ac8f20e`), Task 15
   (`3de1f43`), Task 14 (`db6be6d`), and Tasks 12 and 13, the AI Reviews reading shell
   (`cd1273c`) and the Strategy/Settings/auth surface (`c8952dd`). Before
@@ -36,7 +40,7 @@ the same time.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification at Task 17: `1997 passed, 7 skipped` · Ruff clean · Black clean
+- Verification at the Partner amendments: `2033 passed, 7 skipped` · Ruff clean · Black clean
   · `git diff --check` clean · all four Analytics lenses verified at 1440,
   1024, coarse 768 and coarse 375 plus reduced motion, with the pointer state
   and the reduced-motion state asserted from the page at every applicable row
@@ -44,11 +48,15 @@ the same time.
   only ever 360 or 240, calendar 7-across with 47x44 cells at coarse 375, rail
   and bottom bar never both on screen. The Journal calendar was re-verified
   after the shared key rename.
-- Next owner: **`CLAUDE`**.
-- Next action: **complete the Partner presentation amendments from the Codex
-  review** — ownerless/AI-disabled availability, no-trades and no-profile
-  states, immediate clear, stable sending state, and desktop/full-page
-  exclusivity — without changing the Codex-owned service or safety boundary.
+- Next owner: **`CODEX`**.
+- Next action: **the final focused Codex re-review** of the Partner
+  presentation amendments. They are complete: ownerless and AI-disabled
+  availability, the no-trades and no-profile states with their routes,
+  immediate clearing, the two-pass sending state, and route-level exclusivity
+  between the full-page Partner and the global launcher/drawer. The
+  Codex-owned service, `auth.py`, and the zero-trade send gate are unchanged —
+  `git diff c78b2a0 -- src/tradelens/services/` is empty. Limitations are
+  listed at the end of the Task entry below.
 - The comprehensive Codex review has been performed. One final focused Codex
   re-review is required after the Partner presentation amendments.
 - Tasks 1–17 are implemented, but Phase 2 is not approved until the remaining
@@ -214,6 +222,103 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-07 — Partner presentation amendments (Claude)
+
+**Commit:** see `feat(partner): honest availability, clearing, and one Partner
+per width`. Starting point `c78b2a0`. **Codex's safety remediation is preserved
+exactly** — `services/partner.py`, `components/auth.py` and the zero-trade
+send-path gate are byte-unchanged; `git diff c78b2a0 -- src/tradelens/services/`
+is empty, and `NO_TRADES_ERROR` still refuses a turn before the model is
+called.
+
+Test-first throughout: 13 availability/clearing tests were written and failing
+before the implementation existed.
+
+**The decisions are pure, so they can be proved without a browser.**
+`partner_availability(*, user_id, ai_ready, context)` and
+`clear_conversation(...)` live in `partner_turn.py`, which holds no Streamlit.
+The panel renders what they decide.
+
+| Requirement | Behaviour | How it is proved |
+|---|---|---|
+| Ownerless legacy account | No composer, no actionable launcher; states `Sign in to use the AI Partner` | Rendered output, plus a boot test |
+| **Tenant isolation not weakened** | `build_global_partner_context` is **never called** without a positive integer owner | A spy asserts zero calls |
+| AI unavailable | Launcher renders **disabled** with the reason; composer withheld | Rendered output, and in the browser with no key |
+| No completed trades | State plus a **New Trade** route; no composer | Rendered output; route asserted |
+| No Strategy Profile | A `role="status"` notice plus a **Strategy Profile** route; composer stays enabled | Rendered output; browser at four widths |
+| Clear conversation | Immediate; drops history, error, pending suggestion, busy flag and composer state, **on every surface** | Pure test, scoped to one owner |
+| Two-pass sending | Composer and chips disabled on the second pass; turns stay; polite `aria-live` status | Rendered output on the busy pass |
+
+**One data path.** Availability reads the context once per render through the
+one approved adapter and reuses it for every decision on the surface. It is
+deliberately **not** reused for the send — `send_turn` builds its own, because
+what was true when the page painted is not necessarily true when the question
+is asked.
+
+**A missing model outranks a missing trade.** Both are true on a fresh install,
+and only one of them is something a trader can fix by logging a trade. The
+unavailable copy names no secret: `AI_UNAVAILABLE` is
+`"The AI Partner is unavailable right now."`, and a test fails if `ANTHROPIC`
+or the word "key" appears in it.
+
+**Turns render before anything that can refuse**, so whatever else a pass is
+doing — refusing, sending, or reporting a failure — the conversation does not
+move. `Clear conversation` is offered even when the Partner can no longer send,
+so a trader whose key was removed can still dismiss what they are looking at.
+
+**Responsive exclusivity is decided server-side, from the route.**
+`render_sidebar(with_partner=False)` on `7_Partner.py`. A CSS rule would have
+to guess the width, and hiding a rendered drawer leaves its widgets in the tab
+order. **Measured, not assumed:** on `/Partner` the launcher and drawer are
+**not in the DOM at all** at 1440, 1024, coarse 768 and coarse 375 — so the
+full page and the global Partner can never both be present. No JavaScript was
+needed and no forbidden fallback was required.
+
+**Six mutation checks, all caught:** building a context for an ownerless
+session; offering a composer when the Partner cannot send; leaving the composer
+live while sending; naming the secret in the unavailable copy; clearing only
+one surface; and letting the shell render its Partner on the Partner route.
+
+**Browser evidence.** Pointer and reduced-motion state read back from the page.
+
+| Case | Widths | Result |
+|---|---|---|
+| `/Partner` exclusivity | 1440, 1024, coarse 768, coarse 375 | launcher and drawer absent from the DOM; `h1` "AI Partner"; 1 composer |
+| Missing-profile notice | same four | `role="status"` notice renders; composer enabled |
+| Launcher, AI available | 1440 | 159×44, enabled, focusable |
+| Launcher, **no key, demo off** | 1440 | **disabled**, note reads "The AI Partner is unavailable right now." |
+| Reduced motion | 1440 | `prefers-reduced-motion` asserted true; clean |
+
+Zero exceptions, zero horizontal overflow, zero undersized targets in every
+run.
+
+**Two contract changes, both because behaviour changed rather than to make a
+test pass.** The boot test expecting the empty-state scope copy now expects the
+ownerless message, because the harness boots authenticated with no user id —
+which is precisely the ownerless case; a second boot test presets an owner and
+asserts the no-trades state. And
+`test_the_authenticated_user_id_is_what_reaches_the_send_path` scanned
+`render_partner_body` for `current_user_id`, which moved into the availability
+helper; it now asserts, by sending, which owner the send path is given.
+
+**Limitations, stated rather than smoothed over.**
+
+1. The `aria-live` sending status is verified under AppTest, not in the
+   browser: DEMO_MODE returns canned output instantly, so the in-flight window
+   is closed before a probe can sample it. Same instrument split as Task 12.
+2. The browser probe reports a disabled launcher as focusable because it does
+   not filter `:disabled`. The browser removes disabled buttons from the tab
+   order; that field is **not** evidence. The reason is rendered as text
+   precisely because a disabled control's tooltip reaches nobody on a keyboard.
+3. The ownerless state is proved by boot test and rendered output, not in a
+   live browser — the signed session always has an owner.
+
+**Verification:** `2033 passed, 7 skipped` (was `1997/7`; +36); Ruff clean;
+Black clean (88 files); `git diff --check` clean. Dev database byte-identical
+(`md5 dffdb781…`). App and Chrome stopped. `.impeccable/` untouched.
+
+
 
 ### 2026-08-07 — Comprehensive Codex review remediation
 

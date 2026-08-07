@@ -443,3 +443,162 @@ def test_the_send_path_does_not_trim_history_behind_the_service():
 
     stored = [t["content"] for t in state[history_key(7)] if t["role"] == "user"]
     assert stored == sent, "the UI dropped turns the service intended to keep"
+
+
+# ---------------------------------------------------------------------------
+# Availability — what the surface may offer, decided without Streamlit
+# ---------------------------------------------------------------------------
+
+
+def _avail(**over):
+    from src.tradelens.ui.components.partner_turn import partner_availability
+
+    kwargs = dict(user_id=7, ai_ready=True, context=FakeContext())
+    kwargs.update(over)
+    return partner_availability(**kwargs)
+
+
+def test_an_ownerless_session_may_not_send_and_says_why():
+    """A legacy login with no user id cannot be scoped to an owner, so the
+    adapter would refuse it anyway. The surface must say so rather than offer
+    a composer that produces an error on every submission."""
+    from src.tradelens.ui.components.partner_turn import NO_USER_ERROR
+
+    for bad in (None, 0, -1, "7", True):
+        state = _avail(user_id=bad, context=None)
+        assert state.can_send is False
+        assert state.reason == NO_USER_ERROR
+        assert state.route is None, "there is no route out of a legacy login"
+
+
+def test_an_ownerless_session_is_decided_before_any_context_is_needed():
+    """`build_global_partner_context` raises on a missing owner, so the
+    decision cannot depend on having called it."""
+    assert _avail(user_id=None, context=None).can_send is False
+
+
+def test_the_partner_is_unavailable_when_no_model_is_configured():
+    from src.tradelens.ui.components.partner_turn import AI_UNAVAILABLE
+
+    state = _avail(ai_ready=False)
+    assert state.can_send is False
+    assert state.reason == AI_UNAVAILABLE
+    assert "key" not in state.reason.lower(), "never name the secret"
+    assert "ANTHROPIC" not in state.reason
+
+
+def test_a_missing_model_outranks_a_missing_trade():
+    """Both are true on a fresh install; the one the trader cannot fix by
+    logging a trade is the one to state."""
+    from src.tradelens.ui.components.partner_turn import AI_UNAVAILABLE
+
+    state = _avail(ai_ready=False, context=FakeContext(completed_trade_count=0))
+    assert state.reason == AI_UNAVAILABLE
+
+
+def test_no_completed_trades_offers_the_route_that_fixes_it():
+    from src.tradelens.ui.components.partner_turn import NO_TRADES_ERROR
+
+    state = _avail(context=FakeContext(completed_trade_count=0))
+    assert state.can_send is False
+    assert state.reason == NO_TRADES_ERROR
+    assert state.route == ("Log a completed trade", "/NewTrade")
+
+
+def test_a_missing_strategy_profile_is_a_notice_not_a_blocker():
+    """The Partner reads three sources and can answer from two of them. A
+    missing playbook makes the answers thinner, not impossible."""
+    state = _avail(context=FakeContext(strategy_profile=None))
+    assert state.can_send is True
+    assert state.profile_missing is True
+    assert state.profile_route == ("Add your Strategy Profile", "/Strategy")
+
+
+def test_a_present_strategy_profile_raises_no_notice():
+    state = _avail(context=FakeContext(strategy_profile={"name": "ICT"}))
+    assert state.can_send is True
+    assert state.profile_missing is False
+
+
+def test_a_ready_partner_states_no_reason_at_all():
+    state = _avail()
+    assert state.can_send is True
+    assert state.reason is None
+    assert state.route is None
+
+
+def test_availability_never_raises_on_a_context_it_cannot_read():
+    """It runs inside a render path."""
+    for junk in (None, object(), 123):
+        state = _avail(context=junk)
+        assert state.can_send in (True, False)
+
+
+def test_the_send_gate_and_the_surface_gate_agree_about_zero_trades():
+    """Codex's send-path gate is the enforcement; this is the presentation.
+    They must name the same condition, or the surface offers a composer whose
+    every submission is refused."""
+    from src.tradelens.ui.components.partner_turn import NO_TRADES_ERROR
+
+    state = {}
+    result = send_turn(
+        state,
+        user_id=7,
+        text="q",
+        **_wire(build_context=lambda *, user_id: FakeContext(completed_trade_count=0)),
+    )
+    assert result.error == NO_TRADES_ERROR
+    assert _avail(context=FakeContext(completed_trade_count=0)).reason == (
+        NO_TRADES_ERROR
+    )
+
+
+# ---------------------------------------------------------------------------
+# Clearing a conversation
+# ---------------------------------------------------------------------------
+
+
+def test_clearing_removes_every_trace_of_the_conversation():
+    from src.tradelens.ui.components.partner_turn import clear_conversation
+
+    state = {
+        history_key(7): [{"role": "user", "content": "q"}],
+        error_key(7): "something failed",
+        "_partner_pending_drawer": "a queued suggestion",
+        "_partner_busy_drawer": True,
+        "partner_in_drawer": "half-typed text",
+        history_key(8): [{"role": "user", "content": "someone else"}],
+        "unrelated": "keep me",
+    }
+    clear_conversation(state, user_id=7, surfaces=("drawer", "page"))
+
+    assert history_key(7) not in state
+    assert error_key(7) not in state
+    assert "_partner_pending_drawer" not in state
+    assert "_partner_busy_drawer" not in state
+    assert "partner_in_drawer" not in state
+    # Another user's conversation is not this user's to clear.
+    assert state[history_key(8)] == [{"role": "user", "content": "someone else"}]
+    assert state["unrelated"] == "keep me"
+
+
+def test_clearing_an_empty_conversation_is_harmless():
+    from src.tradelens.ui.components.partner_turn import clear_conversation
+
+    state = {}
+    clear_conversation(state, user_id=7, surfaces=("drawer",))
+    assert state == {}
+
+
+def test_clearing_covers_every_surface_the_conversation_can_be_open_on():
+    """A pending suggestion left on the page would fire the moment the trader
+    navigated there after clearing in the drawer."""
+    from src.tradelens.ui.components.partner_turn import clear_conversation
+
+    state = {
+        "_partner_pending_drawer": "x",
+        "_partner_pending_page": "y",
+        "_partner_busy_page": True,
+    }
+    clear_conversation(state, user_id=7, surfaces=("drawer", "page"))
+    assert state == {}

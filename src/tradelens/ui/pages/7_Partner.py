@@ -39,7 +39,12 @@ inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()
 render_demo_banner()
-render_sidebar()
+# The shell renders the global launcher and drawer on every other
+# destination. On this one they would be a second Partner beside the first —
+# at a rail width a direct visit would show the full page AND the launcher.
+# Suppressed from the route rather than by a media query, so it holds at every
+# width and leaves nothing hidden-but-tabbable.
+render_sidebar(with_partner=False)
 
 st.markdown(
     render_workspace_header("AI Partner", SCOPE_NOTE),

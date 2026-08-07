@@ -49,6 +49,11 @@ NO_USER_ERROR = "Sign in to use the AI Partner."
 # its composer, so an empty account can never spend on an invented review.
 NO_TRADES_ERROR = "Log at least one completed trade before using the AI Partner."
 
+# The model is not configured. Deliberately says nothing about which secret is
+# missing or where it lives — that is operator information, and a trader can do
+# nothing with it.
+AI_UNAVAILABLE = "The AI Partner is unavailable right now."
+
 HISTORY_PREFIX = "partner_history_"
 ERROR_PREFIX = "partner_error_"
 
@@ -135,6 +140,90 @@ def _drop_abandoned_question(history: List[Dict]) -> None:
     """
     if history and history[-1].get("role") == "user":
         history.pop()
+
+
+@dataclass(frozen=True)
+class PartnerAvailability:
+    """What the surface may offer this trader, and what to say when it may not.
+
+    Decided here rather than in the panel so it can be proved without a
+    browser, and so the presentation and Codex's send-path gate cannot drift
+    into disagreeing about when a turn is allowed — a surface that offers a
+    composer whose every submission is refused is worse than one that explains
+    itself.
+
+    `reason` is trader-facing copy. `route` is the destination that fixes the
+    reason, or None when nothing the trader can do would.
+    """
+
+    can_send: bool
+    reason: Optional[str] = None
+    route: Optional[Tuple[str, str]] = None
+    profile_missing: bool = False
+    profile_route: Optional[Tuple[str, str]] = None
+
+
+def partner_availability(
+    *, user_id: object, ai_ready: bool, context: object
+) -> PartnerAvailability:
+    """Whether the Partner can take a question, and what to say if not.
+
+    `context` is a `PartnerContext` from the approved adapter, or None when
+    there was no owner to build one for. Nothing here queries anything: the
+    caller has already built the context through the one approved path, and a
+    second read here would be a second data path.
+
+    Order matters. A missing model outranks a missing trade, because both are
+    true on a fresh install and only one of them is something the trader can
+    fix by logging a trade.
+    """
+    if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:
+        # No owner means no scope. The adapter refuses this before it opens a
+        # session, and there is no route out of a legacy login from here.
+        return PartnerAvailability(can_send=False, reason=NO_USER_ERROR)
+
+    if not ai_ready:
+        return PartnerAvailability(can_send=False, reason=AI_UNAVAILABLE)
+
+    trades = getattr(context, "completed_trade_count", None)
+    try:
+        trades = int(trades or 0)
+    except (TypeError, ValueError):
+        trades = 0
+    if trades <= 0:
+        return PartnerAvailability(
+            can_send=False,
+            reason=NO_TRADES_ERROR,
+            route=("Log a completed trade", "/NewTrade"),
+        )
+
+    profile_missing = not getattr(context, "strategy_profile", None)
+    return PartnerAvailability(
+        can_send=True,
+        profile_missing=profile_missing,
+        profile_route=(
+            ("Add your Strategy Profile", "/Strategy") if profile_missing else None
+        ),
+    )
+
+
+def clear_conversation(
+    state: MutableMapping, *, user_id: object, surfaces: Sequence[str]
+) -> None:
+    """Remove this user's conversation and everything attached to it.
+
+    Every surface is cleared, not just the one the button was pressed on: a
+    pending suggestion left on the page would fire the moment the trader
+    navigated there after clearing in the drawer.
+
+    Scoped to one owner. Another user's history in the same session is not
+    this user's to delete.
+    """
+    state.pop(history_key(user_id), None)
+    state.pop(error_key(user_id), None)
+    for surface in surfaces:
+        for prefix in ("_partner_pending_", "_partner_busy_", "partner_in_"):
+            state.pop(f"{prefix}{surface}", None)
 
 
 def send_turn(

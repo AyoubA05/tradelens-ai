@@ -474,6 +474,25 @@ def test_the_partner_conversation_survives_arriving_on_the_page(tmp_path):
     )
 
 
-def test_the_partner_page_greets_an_empty_conversation_with_its_scope(tmp_path):
-    """First arrival states what the Partner reads and that nothing is kept."""
-    _boot("7_Partner.py", tmp_path / "empty.db", "0", "not saved")
+def test_the_partner_page_refuses_an_ownerless_session(tmp_path):
+    """The harness boots authenticated with no user id — a legacy login. The
+    Partner cannot scope a read to an owner, so it says so instead of offering
+    a composer whose every submission would be refused.
+
+    This assertion changed with the Partner presentation amendment. It
+    previously expected the empty-state scope copy, which is what a signed-in
+    trader sees; an ownerless session never reaches it.
+    """
+    _boot("7_Partner.py", tmp_path / "empty.db", "0", "Sign in to use the AI Partner")
+
+
+def test_the_partner_page_states_its_scope_to_a_signed_in_trader(tmp_path):
+    """With an owner and no trades yet, the page states what would unlock it
+    rather than showing a composer that cannot answer."""
+    _boot(
+        "7_Partner.py",
+        tmp_path / "owned.db",
+        "profile",
+        "Log at least one completed trade",
+        json.dumps({"current_user_id": 1}),
+    )

@@ -286,7 +286,7 @@ def render_mobile_navigation(st, active_path: str) -> None:
     )
 
 
-def render_sidebar(df=None, today=None) -> None:
+def render_sidebar(df=None, today=None, *, with_partner: bool = True) -> None:
     """Render the app shell: brand, primary action, destinations, active
     strategy context, and the quiet utility group.
 
@@ -352,10 +352,16 @@ def render_sidebar(df=None, today=None) -> None:
     # nothing when closed, and the launcher is `display: none` below the
     # sidebar-navigation width, which takes it out of the tab order rather
     # than merely hiding it; the phone gets the full destination instead.
-    from src.tradelens.ui.components.partner_panel import (
-        render_partner_drawer,
-        render_partner_launcher,
-    )
+    # `with_partner=False` is how the full-page Partner route keeps the
+    # product to ONE Partner at any width. Deciding it server-side, from the
+    # route that is rendering, is deterministic — a CSS rule would have to
+    # guess the width, and hiding a rendered drawer leaves its widgets in the
+    # tab order.
+    if with_partner:
+        from src.tradelens.ui.components.partner_panel import (
+            render_partner_drawer,
+            render_partner_launcher,
+        )
 
-    render_partner_launcher(st)
-    render_partner_drawer(st)
+        render_partner_launcher(st)
+        render_partner_drawer(st)

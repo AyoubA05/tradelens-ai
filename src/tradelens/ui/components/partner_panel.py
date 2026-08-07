@@ -29,11 +29,18 @@ from src.tradelens.services.partner import PartnerError, partner_reply
 from src.tradelens.services.partner_context import build_global_partner_context
 from src.tradelens.ui.components.partner_turn import (
     CONTEXT_USED_LABEL,
+    clear_conversation,
     context_used_for,
     error_key,
     history_key,
+    partner_availability,
     send_turn,
 )
+from src.tradelens.utils.ai_utils import ai_available
+
+# Both surfaces the conversation can be open on. Clearing has to reach every
+# one of them, not just the one the button was pressed on.
+PARTNER_SURFACES = ("drawer", "page")
 
 PARTNER_OPEN_KEY = "partner_open"
 
@@ -54,6 +61,62 @@ EMPTY_STATE_BODY = (
 
 # The scope sentence, shown once on the surface rather than repeated per turn.
 SCOPE_NOTE = "Reflection on trades you have logged. Never signals or advice."
+
+
+def _availability(st):
+    """This trader's availability, built through the one approved adapter.
+
+    The context is read once per render and reused for every decision on the
+    surface. It is NOT reused for the send: `send_turn` builds its own, because
+    what was true when the page painted is not necessarily true when the
+    question is asked.
+    """
+    from src.tradelens.ui.components.auth import current_user_id
+
+    uid = current_user_id()
+    context = None
+    if isinstance(uid, int) and not isinstance(uid, bool) and uid > 0:
+        try:
+            context = build_global_partner_context(user_id=uid)
+        except Exception:  # noqa: BLE001 — a render path must never raise
+            _log_exception("AI Partner availability context failed")
+    return uid, partner_availability(
+        user_id=uid, ai_ready=ai_available(), context=context
+    )
+
+
+def _route_link(st, label: str, slug: str, key: str) -> None:
+    """A way out of a state the trader can actually fix.
+
+    `page_link` needs the multipage registry, which registry-less AppTest boots
+    do not build — the same fallback every other route in this product uses.
+    """
+    paths = {"/NewTrade": "pages/1_NewTrade.py", "/Strategy": "pages/5_Strategy.py"}
+    try:
+        st.page_link(paths[slug], label=f"{label} →")
+    except Exception:  # noqa: BLE001 — registry-less boots only
+        from src.tradelens.ui.components.sidebar import route_href
+
+        href = escape(route_href(slug, st.query_params.get("auth")), quote=True)
+        st.markdown(
+            f'<a href="{href}" target="_self">{escape(label)} →</a>',
+            unsafe_allow_html=True,
+        )
+
+
+def _unavailable(st, state, *, surface: str) -> None:
+    """Say why the Partner cannot take a question, and offer the way out.
+
+    `role="status"` rather than `alert`: nothing has gone wrong, and an alert
+    would interrupt a screen reader to announce a condition the trader may
+    already know about.
+    """
+    st.markdown(
+        f'<p class="tl-partner-empty" role="status">{escape(str(state.reason))}</p>',
+        unsafe_allow_html=True,
+    )
+    if state.route:
+        _route_link(st, state.route[0], state.route[1], f"partner_{surface}_route")
 
 
 def _log_exception(label: str) -> None:
@@ -88,39 +151,85 @@ def render_partner_body(st, *, surface: str) -> None:
     surface, so a conversation started in the drawer is the same one the phone
     page shows.
     """
-    from src.tradelens.ui.components.auth import current_user_id
-
-    uid = current_user_id()
+    uid, state = _availability(st)
     history = st.session_state.get(history_key(uid)) or []
+    busy_key = f"_partner_busy_{surface}"
+    busy = bool(st.session_state.get(busy_key))
 
-    if not history:
-        st.markdown(
-            '<p class="tl-partner-empty">' f"{escape(EMPTY_STATE_BODY)}</p>",
-            unsafe_allow_html=True,
-        )
-        for i, question in enumerate(SUGGESTED_QUESTIONS):
-            if st.button(question, key=f"secondary_partner_{surface}_chip_{i}"):
-                st.session_state[f"_partner_pending_{surface}"] = question
-                st.rerun()
-    else:
+    # Turns first, always. Whatever else this render is doing — refusing,
+    # sending, or reporting a failure — the conversation the trader already
+    # has stays exactly where it was.
+    if history:
         for turn in history:
             _render_turn(st, turn)
 
-    error = st.session_state.get(error_key(uid))
-    if error:
+    if not state.can_send:
+        # No composer at all. A disabled one would still read as "type here",
+        # and an enabled one would refuse every submission.
+        _unavailable(st, state, surface=surface)
+        if history:
+            _clear_control(st, uid, surface)
+        return
+
+    if not history:
         st.markdown(
-            '<p class="tl-partner-error" role="alert">' f"{escape(str(error))}</p>",
+            f'<p class="tl-partner-empty">{escape(EMPTY_STATE_BODY)}</p>',
+            unsafe_allow_html=True,
+        )
+        if state.profile_missing:
+            # A notice, not a blocker: the Partner still reads the journal and
+            # the completed trades, so the answers are thinner rather than
+            # impossible.
+            st.markdown(
+                '<p class="tl-partner-empty" role="status">'
+                "No Strategy Profile yet, so answers cannot weigh your trades "
+                "against your own rules.</p>",
+                unsafe_allow_html=True,
+            )
+            _route_link(
+                st,
+                state.profile_route[0],
+                state.profile_route[1],
+                f"partner_{surface}_profile",
+            )
+        for i, question in enumerate(SUGGESTED_QUESTIONS):
+            if st.button(
+                question,
+                key=f"secondary_partner_{surface}_chip_{i}",
+                disabled=busy,
+            ):
+                st.session_state[f"_partner_pending_{surface}"] = question
+                st.rerun()
+
+    error = st.session_state.get(error_key(uid))
+    if error and not busy:
+        st.markdown(
+            f'<p class="tl-partner-error" role="alert">{escape(str(error))}</p>',
             unsafe_allow_html=True,
         )
 
-    pending = st.session_state.pop(f"_partner_pending_{surface}", None)
+    pending = st.session_state.get(f"_partner_pending_{surface}")
     typed = st.chat_input(
-        "Ask about a trade you have logged", key=f"partner_in_{surface}"
+        "Ask about a trade you have logged",
+        key=f"partner_in_{surface}",
+        disabled=busy,
     )
-    question = pending or typed
 
-    if question:
-        with st.spinner("Reading your journal…"):
+    if history and not busy:
+        _clear_control(st, uid, surface)
+
+    if busy:
+        # Second pass. The composer above is already rendered disabled and the
+        # turns are already on screen, so the status line changes nothing above
+        # it and the page does not jump.
+        st.markdown(
+            '<p class="tl-partner-status" role="status" aria-live="polite">'
+            "Reading your journal…</p>",
+            unsafe_allow_html=True,
+        )
+        question = st.session_state.pop(f"_partner_pending_{surface}", None)
+        st.session_state[busy_key] = False
+        if question:
             send_turn(
                 st.session_state,
                 user_id=uid,
@@ -132,6 +241,25 @@ def render_partner_body(st, *, surface: str) -> None:
                 log_exception=_log_exception,
             )
         st.rerun()
+        return
+
+    question = pending or typed
+    if question:
+        # First pass records the intent and reruns. A Streamlit widget cannot
+        # become disabled inside its own handler — the script run is blocking,
+        # so the browser holds a live composer for the whole call unless the
+        # disabled state is rendered on a pass of its own.
+        st.session_state[f"_partner_pending_{surface}"] = question
+        st.session_state[busy_key] = True
+        st.rerun()
+
+
+def _clear_control(st, uid, surface: str) -> None:
+    """Start again. Immediate, because a confirmation step on something with
+    no lasting consequence is friction — the conversation was never saved."""
+    if st.button("Clear conversation", key=f"secondary_partner_{surface}_clear"):
+        clear_conversation(st.session_state, user_id=uid, surfaces=PARTNER_SURFACES)
+        st.rerun()
 
 
 def render_partner_launcher(st) -> None:
@@ -139,10 +267,31 @@ def render_partner_launcher(st) -> None:
 
     A real Streamlit button in a keyed container rather than authored HTML, so
     it is keyboard-reachable and needs no script to work.
+
+    When the Partner cannot take a question the control still appears, but
+    disabled and carrying the reason: a launcher that opens a drawer which can
+    only refuse is a dead end, and one that silently vanishes leaves a trader
+    wondering where a feature went.
     """
     if st.session_state.get(PARTNER_OPEN_KEY):
         return
+    _uid, state = _availability(st)
     with st.container(key="tl_partner_launcher"):
+        if not state.can_send:
+            st.button(
+                "Ask about a trade",
+                key="partner_open_btn",
+                disabled=True,
+                help=state.reason,
+            )
+            # A disabled button is removed from the tab order, so the reason
+            # would otherwise reach nobody using a keyboard or a screen reader.
+            st.markdown(
+                '<p class="tl-partner-launcher-note" role="status">'
+                f"{escape(str(state.reason))}</p>",
+                unsafe_allow_html=True,
+            )
+            return
         if st.button("Ask about a trade", key="partner_open_btn", type="primary"):
             st.session_state[PARTNER_OPEN_KEY] = True
             st.rerun()
