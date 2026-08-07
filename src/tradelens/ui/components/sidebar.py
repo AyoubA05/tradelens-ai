@@ -341,3 +341,16 @@ def render_sidebar(df=None, today=None) -> None:
     # Outside the rail: the bar is fixed to the viewport and must stay
     # reachable when the rail is collapsed off-canvas on a phone.
     render_mobile_navigation(st, active)
+
+    # The AI Partner rides the shell for the same reason the bar does — it is
+    # global, and every page already calls this one function. Both render
+    # nothing when closed, and the launcher is `display: none` below the
+    # sidebar-navigation width, which takes it out of the tab order rather
+    # than merely hiding it; the phone gets the full destination instead.
+    from src.tradelens.ui.components.partner_panel import (
+        render_partner_drawer,
+        render_partner_launcher,
+    )
+
+    render_partner_launcher(st)
+    render_partner_drawer(st)

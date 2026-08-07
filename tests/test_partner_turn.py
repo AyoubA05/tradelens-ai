@@ -1,0 +1,418 @@
+"""The send path's orderings, pinned.
+
+Every collaborator is injected, so each ordering is proved without a database,
+a model, or a cost table.
+"""
+
+from dataclasses import dataclass, field
+from typing import Optional, Tuple
+
+import pytest
+
+from src.tradelens.ui.components.partner_turn import (
+    API_TURN_FIELDS,
+    CONTEXT_FIELD,
+    CONTEXT_USED_LABEL,
+    NO_USER_ERROR,
+    UNEXPECTED_ERROR,
+    TurnResult,
+    context_used_for,
+    context_used_rows,
+    error_key,
+    history_key,
+    send_turn,
+    to_api_messages,
+)
+
+
+class FakePartnerError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class FakeSource:
+    kind: str = "journal"
+    record_id: int = 1
+    user_id: int = 7
+    label: str = "2026-08-01 NQ — sized up after a loss"
+    occurred_on: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class FakeContext:
+    context_text: str = "## Journal notes\n- 2026-08-01: sized up after a loss"
+    strategy_profile: Optional[dict] = None
+    evidence_sources: Tuple[FakeSource, ...] = field(default_factory=tuple)
+    completed_trade_count: int = 6
+    journal_entry_count: int = 6
+
+
+def _recorder():
+    calls = []
+
+    def fn(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    fn.calls = calls
+    return fn
+
+
+def _reply_ok(*_a, **_k):
+    return "You sized up after two losses.", {"input_tokens": 10, "output_tokens": 4}
+
+
+def _wire(**overrides):
+    wiring = dict(
+        build_context=lambda *, user_id: FakeContext(),
+        partner_reply=_reply_ok,
+        log_ai_usage=_recorder(),
+        partner_error=FakePartnerError,
+        log_exception=_recorder(),
+    )
+    wiring.update(overrides)
+    return wiring
+
+
+# ---------------------------------------------------------------------------
+# The happy path
+# ---------------------------------------------------------------------------
+
+
+def test_a_successful_turn_appends_both_turns_in_order():
+    state = {}
+    result = send_turn(state, user_id=7, text="What did I do well?", **_wire())
+    assert isinstance(result, TurnResult) and result.ok
+    history = state[history_key(7)]
+    assert [t["role"] for t in history] == ["user", "assistant"]
+    assert history[0]["content"] == "What did I do well?"
+    assert history[1]["content"] == "You sized up after two losses."
+
+
+def test_the_reply_is_produced_in_general_reflective_mode():
+    seen = {}
+
+    def spy(messages, **kwargs):
+        seen.update(kwargs)
+        seen["messages"] = messages
+        return _reply_ok()
+
+    send_turn({}, user_id=7, text="q", **_wire(partner_reply=spy))
+    assert seen["per_trade_qa"] is False
+
+
+def test_the_authenticated_user_id_reaches_the_context_adapter():
+    seen = {}
+
+    def spy(*, user_id):
+        seen["user_id"] = user_id
+        return FakeContext()
+
+    send_turn({}, user_id=7, text="q", **_wire(build_context=spy))
+    assert seen["user_id"] == 7
+
+
+def test_usage_is_logged_once_per_completed_response():
+    logger = _recorder()
+    send_turn({}, user_id=7, text="q", **_wire(log_ai_usage=logger))
+    assert len(logger.calls) == 1
+    args, kwargs = logger.calls[0]
+    assert args[0] == "AI Partner"
+    assert kwargs["user_id"] == 7
+
+
+def test_blank_input_does_nothing_at_all():
+    state = {}
+    for blank in ("", "   ", "\n\t"):
+        assert send_turn(state, user_id=7, text=blank, **_wire()).ok is False
+    assert state == {}
+
+
+# ---------------------------------------------------------------------------
+# History projection and per-turn labels
+# ---------------------------------------------------------------------------
+
+
+def test_only_role_and_content_reach_the_model():
+    history = [
+        {"role": "user", "content": "q"},
+        {"role": "assistant", "content": "a", CONTEXT_FIELD: ["a label"]},
+    ]
+    projected = to_api_messages(history)
+    assert projected == [
+        {"role": "user", "content": "q"},
+        {"role": "assistant", "content": "a"},
+    ]
+    for turn in projected:
+        assert set(turn) <= set(API_TURN_FIELDS)
+
+
+def test_the_model_never_sees_the_context_labels_as_conversation():
+    seen = {}
+
+    def spy(messages, **_k):
+        seen["messages"] = messages
+        return _reply_ok()
+
+    state = {}
+    wiring = _wire(
+        build_context=lambda *, user_id: FakeContext(evidence_sources=(FakeSource(),)),
+        partner_reply=spy,
+    )
+    send_turn(state, user_id=7, text="first", **wiring)
+    send_turn(state, user_id=7, text="second", **wiring)
+    for turn in seen["messages"]:
+        assert CONTEXT_FIELD not in turn
+
+
+def test_each_answer_keeps_the_labels_it_was_answered_from():
+    """A rerun re-renders every turn. Labels stored globally would put the
+    newest context under an answer that predates it."""
+    state = {}
+    first = FakeContext(evidence_sources=(FakeSource(label="older record"),))
+    second = FakeContext(evidence_sources=(FakeSource(label="newer record"),))
+    contexts = iter((first, second))
+    wiring = _wire(build_context=lambda *, user_id: next(contexts))
+    send_turn(state, user_id=7, text="one", **wiring)
+    send_turn(state, user_id=7, text="two", **wiring)
+
+    answers = [t for t in state[history_key(7)] if t["role"] == "assistant"]
+    assert context_used_for(answers[0]) == ("older record",)
+    assert context_used_for(answers[1]) == ("newer record",)
+
+
+def test_a_user_turn_carries_no_context_labels():
+    state = {}
+    send_turn(state, user_id=7, text="q", **_wire())
+    assert context_used_for(state[history_key(7)][0]) == ()
+
+
+def test_context_rows_read_the_adapters_labels():
+    ctx = FakeContext(evidence_sources=(FakeSource(label="A"), FakeSource(label="B")))
+    assert context_used_rows(ctx) == ("A", "B")
+    assert context_used_rows(FakeContext()) == ()
+    assert context_used_rows(object()) == ()
+
+
+def test_the_context_heading_is_not_a_citation_claim():
+    """`partner_reply` returns text and usage only, so it cannot report which
+    records a sentence drew on. The wording is a contract."""
+    assert CONTEXT_USED_LABEL == "Context used"
+    assert "source" not in CONTEXT_USED_LABEL.lower()
+    assert "cited" not in CONTEXT_USED_LABEL.lower()
+
+
+# ---------------------------------------------------------------------------
+# Containment — three boundaries, not one
+# ---------------------------------------------------------------------------
+
+
+def test_a_context_failure_is_contained_like_any_other():
+    """Assembling context opens a session, so it can raise a driver error
+    carrying a DSN. Outside the containment it would reach the page."""
+
+    def boom(*, user_id):
+        raise RuntimeError("could not connect to postgres://user:pw@host/db")
+
+    state = {}
+    logs = _recorder()
+    result = send_turn(
+        state, user_id=7, text="q", **_wire(build_context=boom, log_exception=logs)
+    )
+    assert result.ok is False
+    assert result.error == UNEXPECTED_ERROR
+    assert state[error_key(7)] == UNEXPECTED_ERROR
+    assert "postgres://" not in result.error
+    assert len(logs.calls) == 1
+
+
+def test_a_model_failure_is_contained_and_says_nothing_about_the_driver():
+    def boom(*_a, **_k):
+        raise RuntimeError("sk-ant-secret leaked in a driver string")
+
+    state = {}
+    result = send_turn(state, user_id=7, text="q", **_wire(partner_reply=boom))
+    assert result.error == UNEXPECTED_ERROR
+    assert "sk-ant" not in state[error_key(7)]
+
+
+@pytest.mark.parametrize("failing", ["build_context", "partner_reply"])
+def test_a_domain_error_keeps_its_trader_safe_wording(failing):
+    """PartnerError is already phrased for a trader, so it is shown as-is."""
+
+    def boom(*_a, **_k):
+        raise FakePartnerError("Add a few journal notes and try again.")
+
+    state = {}
+    result = send_turn(state, user_id=7, text="q", **_wire(**{failing: boom}))
+    assert result.ok is False
+    assert result.error == "Add a few journal notes and try again."
+    assert state[error_key(7)] == "Add a few journal notes and try again."
+
+
+def test_a_failed_turn_still_leaves_the_question_on_screen():
+    """Re-typing is the one thing an error must never cost."""
+
+    def boom(*_a, **_k):
+        raise FakePartnerError("nope")
+
+    state = {}
+    send_turn(state, user_id=7, text="What did I repeat?", **_wire(partner_reply=boom))
+    assert state[history_key(7)][-1] == {
+        "role": "user",
+        "content": "What did I repeat?",
+    }
+
+
+def test_a_failed_cost_write_never_costs_the_trader_the_answer():
+    """The reply is already the trader's. Bookkeeping that fails records the
+    truth in `usage_logged` rather than discarding it."""
+
+    def boom(*_a, **_k):
+        raise RuntimeError("cost table is read-only")
+
+    state = {}
+    logs = _recorder()
+    result = send_turn(
+        state, user_id=7, text="q", **_wire(log_ai_usage=boom, log_exception=logs)
+    )
+    assert result.ok is True
+    assert result.usage_logged is False
+    assert state[history_key(7)][-1]["role"] == "assistant"
+    assert len(logs.calls) == 1
+
+
+def test_a_new_turn_clears_the_previous_error():
+    state = {error_key(7): "old failure"}
+    send_turn(state, user_id=7, text="q", **_wire())
+    assert error_key(7) not in state
+
+
+# ---------------------------------------------------------------------------
+# Isolation
+# ---------------------------------------------------------------------------
+
+
+def test_history_is_scoped_per_user():
+    assert history_key(7) != history_key(8)
+    assert error_key(7) != error_key(8)
+
+
+def test_two_users_in_one_session_never_share_a_conversation():
+    """Session state can outlive a sign-out in one tab."""
+    state = {}
+    send_turn(state, user_id=7, text="seven's question", **_wire())
+    send_turn(state, user_id=8, text="eight's question", **_wire())
+    seven = [t["content"] for t in state[history_key(7)]]
+    eight = [t["content"] for t in state[history_key(8)]]
+    assert "eight's question" not in seven
+    assert "seven's question" not in eight
+
+
+@pytest.mark.parametrize("bad", [None, 0, -1, "7", True])
+def test_an_ownerless_send_is_refused_before_any_session_opens(bad):
+    """The adapter rejects a missing owner by raising, which the containment
+    would report as "temporarily unavailable" — sending the trader to retry
+    something that cannot succeed. It is refused here, by name."""
+    opened = _recorder()
+    state = {}
+    result = send_turn(
+        state, user_id=bad, text="q", **_wire(build_context=lambda *, user_id: opened())
+    )
+    assert result.ok is False
+    assert result.error == NO_USER_ERROR
+    assert opened.calls == [], "a session was opened for an ownerless send"
+
+
+# ---------------------------------------------------------------------------
+# The retry path — a property the plan's suite does not reach.
+# ---------------------------------------------------------------------------
+
+
+def test_a_retry_replaces_the_question_it_is_retrying():
+    """A failed turn leaves the question in history so the trader does not
+    retype it. The moment they DO send again, the abandoned turn stops being
+    conversation: left in place, the next call sends BOTH questions, the model
+    answers a two-question prompt, and the trader is billed for the one that
+    was never answered.
+
+    Only a trailing USER turn is dropped — an assistant turn at the end means
+    the previous exchange completed and must survive.
+    """
+    seen = {}
+
+    def spy(messages, **_k):
+        seen["messages"] = list(messages)
+        return _reply_ok()
+
+    def boom(*_a, **_k):
+        raise FakePartnerError("nope")
+
+    state = {}
+    send_turn(state, user_id=7, text="first attempt", **_wire(partner_reply=boom))
+    assert [t["content"] for t in state[history_key(7)]] == ["first attempt"]
+
+    send_turn(state, user_id=7, text="second attempt", **_wire(partner_reply=spy))
+    assert [t["content"] for t in seen["messages"]] == ["second attempt"]
+    assert [t["content"] for t in state[history_key(7)]] == [
+        "second attempt",
+        "You sized up after two losses.",
+    ]
+
+
+def test_a_completed_exchange_is_never_dropped_by_the_next_question():
+    state = {}
+    send_turn(state, user_id=7, text="one", **_wire())
+    send_turn(state, user_id=7, text="two", **_wire())
+    assert [t["content"] for t in state[history_key(7)]] == [
+        "one",
+        "You sized up after two losses.",
+        "two",
+        "You sized up after two losses.",
+    ]
+
+
+def test_repeated_failures_never_stack_unanswered_questions():
+    def boom(*_a, **_k):
+        raise FakePartnerError("nope")
+
+    state = {}
+    for attempt in ("one", "two", "three"):
+        send_turn(state, user_id=7, text=attempt, **_wire(partner_reply=boom))
+    assert [t["content"] for t in state[history_key(7)]] == ["three"]
+
+
+def test_the_send_path_holds_no_streamlit_import():
+    """The orderings above are provable without a browser only while this
+    stays true."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "src/tradelens/ui/components/partner_turn.py"
+    ).read_text(encoding="utf-8")
+    assert "import streamlit" not in source
+
+
+def test_the_send_path_does_not_trim_history_behind_the_service():
+    """`partner_reply` already trims to its own limit and carries a running
+    summary of what it dropped. A second trimming rule here would disagree
+    with the service's and silently drop turns it intended to summarise.
+
+    Asserted behaviourally. A first draft scanned the source for the service's
+    constant name and failed on the docstring that explains why it is absent —
+    the same brittleness a comment triggered in the auth-screen contract in
+    Task 13. What matters is that nothing is dropped, so that is what is run.
+    """
+    state = {}
+    sent = []
+    for i in range(24):
+        send_turn(
+            state,
+            user_id=7,
+            text=f"question {i}",
+            **_wire(partner_reply=lambda m, **_k: (f"answer {len(m)}", {})),
+        )
+        sent.append(f"question {i}")
+
+    stored = [t["content"] for t in state[history_key(7)] if t["role"] == "user"]
+    assert stored == sent, "the UI dropped turns the service intended to keep"

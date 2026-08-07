@@ -317,6 +317,11 @@ def build_css() -> str:
   --tl-radius-lg: 10px; --tl-radius-full: 9999px;
   /* -- one elevation; borders and spacing carry hierarchy -- */
   --tl-shadow: 0 1px 2px rgba(19,33,37,0.05), 0 8px 24px rgba(19,33,37,0.07);
+  /* -- the one lift for things that float above the workspace: the Partner
+        launcher and its drawer. Named here so the literals stay in the token
+        block, which is the rule the whole file is measured against. -- */
+  --tl-shadow-float: 0 10px 30px rgba(0,0,0,0.45);
+  --tl-shadow-overlay: 0 24px 60px rgba(0,0,0,0.55);
   /* -- motion: locked now, applied after the static pass -- */
   --tl-ease-out: {TL_EASE_OUT};
   --tl-ease-in-out: {TL_EASE_IN_OUT};
@@ -544,6 +549,117 @@ def build_css() -> str:
    the rail. */
 .tl-mobile-nav {{
   display: none;
+}}
+
+/* === AI PARTNER (components/partner_panel.py) ===
+   A launcher pinned bottom-right and a drawer that opens beside the work
+   rather than over it. Non-modal on purpose: a focus trap needs JavaScript,
+   which this phase forbids, so the drawer never claims `aria-modal` and never
+   draws a scrim. Nothing is blocked, so nothing has to be released. */
+.st-key-tl_partner_launcher {{
+  position: fixed;
+  right: var(--tl-space-6);
+  bottom: var(--tl-space-6);
+  z-index: var(--tl-z-partner);
+  width: auto;
+}}
+.st-key-tl_partner_launcher .stButton button {{
+  min-height: 44px;
+  border-radius: 999px;
+  padding: 0 var(--tl-space-5);
+  box-shadow: var(--tl-shadow-float);
+}}
+.st-key-tl_partner_drawer {{
+  position: fixed;
+  right: var(--tl-space-4);
+  bottom: var(--tl-space-4);
+  top: var(--tl-space-6);
+  width: min(420px, calc(100vw - var(--tl-space-8)));
+  z-index: var(--tl-z-partner);
+  background: var(--tl-surface-panel);
+  border: 1px solid var(--tl-line-hairline);
+  border-radius: var(--tl-radius-md);
+  padding: var(--tl-space-5);
+  overflow-y: auto;
+  box-shadow: var(--tl-shadow-overlay);
+}}
+.st-key-tl_partner_drawer .stButton button {{ min-height: 44px; }}
+/* The chat control is not a `.stButton`, so the drawer's rule above never
+   reached it: measured at 1440 the field was 378x40 and its submit button
+   40x40, both under the §12 floor. Set at every width and not scoped to the
+   drawer, because Task 15's phone destination renders the same control — a
+   floor that exists in one place is one that regresses in the other. */
+[data-testid="stChatInput"] {{
+  min-height: 44px;
+}}
+[data-testid="stChatInput"] textarea {{
+  min-height: 44px;
+}}
+[data-testid="stChatInputSubmitButton"] {{
+  min-width: 44px;
+  min-height: 44px;
+}}
+[data-testid="stAppViewContainer"] .tl-partner-title {{
+  font-family: var(--tl-font-display);
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 700;
+  color: var(--tl-content-primary);
+  margin: 0;
+}}
+/* The scope sentence sits once on the surface, not under every answer. */
+[data-testid="stAppViewContainer"] .tl-partner-scope,
+[data-testid="stAppViewContainer"] .tl-partner-empty {{
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--tl-content-secondary);
+  margin: var(--tl-space-2) 0 0 0;
+  max-width: 68ch;
+}}
+[data-testid="stAppViewContainer"] .tl-partner-error {{
+  font-size: 14px;
+  line-height: 21px;
+  color: var(--tl-content-primary);
+  margin: var(--tl-space-3) 0 0 0;
+}}
+/* A mark, not a coloured side rule. `.tl-error-box` already established this
+   pattern in this file, and side borders are reserved for the neutral ruled
+   structure — a semantic one here would be a second vocabulary for the same
+   idea. */
+.tl-partner-error::before {{
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--tl-space-2);
+  vertical-align: 1px;
+  border-radius: var(--tl-radius-full);
+  background: var(--tl-danger);
+}}
+/* Context used: what the answer was assembled from, collapsed. A native
+   <details> — no script, keyboard-reachable, 44px summary. */
+.tl-partner-context {{
+  margin-top: var(--tl-space-2);
+}}
+[data-testid="stAppViewContainer"] .tl-partner-context summary {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  color: var(--tl-content-secondary);
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}}
+.tl-partner-context summary:focus-visible {{
+  outline: 2px solid var(--tl-focus);
+  outline-offset: 2px;
+}}
+[data-testid="stAppViewContainer"] .tl-partner-context ul {{
+  margin: 0;
+  padding-left: var(--tl-space-4);
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--tl-content-secondary);
 }}
 /* Anchored to the app container: Streamlit's own markdown-anchor rule
    outranks a bare class, so an unanchored selector leaves the bar rendering
@@ -2922,6 +3038,14 @@ def build_css() -> str:
    two-column compact list rather than six full-width rows, tables scroll
    inside their own frame, and touch targets reach >=44px. */
 @media (max-width: 767px) {{
+  /* No floating Partner on a phone. `display: none`, not `visibility` or an
+     offscreen transform: a hidden-but-present button stays in the tab order,
+     and a keyboard user would reach a control they cannot see. The phone gets
+     the full Partner destination through More instead. */
+  .st-key-tl_partner_launcher,
+  .st-key-tl_partner_drawer {{
+    display: none;
+  }}
   /* The bottom bar appears only here, and reserves its own height plus the
      gesture-bar inset so it never covers the last row of a table. */
   .tl-mobile-nav {{

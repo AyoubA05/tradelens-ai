@@ -190,6 +190,11 @@ def test_css_uses_only_scoped_selectors():
 def test_css_uses_only_proven_testids():
     """Only the data-testid set proven in this repo on streamlit==1.50.0."""
     proven = {
+        # Task 14 AI Partner: both measured live on streamlit 1.50 before the
+        # rule was written — the chat field rendered 378x40 with a 40x40
+        # submit button, which is what the 44px floor below them corrects.
+        "stChatInput",
+        "stChatInputSubmitButton",
         "stAppViewContainer",
         "stHeader",
         "stSidebar",

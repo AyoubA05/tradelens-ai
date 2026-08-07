@@ -19,9 +19,10 @@ the same time.
 
 ## Current handoff state
 
-- Active writer: `NONE`
-- Current phase: `PHASE 2 TASKS 12–13 COMPLETE — RESUME AT TASK 14`
-- Last completed work: **Tasks 12 and 13** — the AI Reviews reading shell
+- Active writer: `CLAUDE`
+- Current phase: `PHASE 2 IN PROGRESS — TASK 14 DONE, RESUME AT TASK 15`
+- Last completed work: **Task 14** — the AI Partner desktop drawer (this
+  commit). Before it: Tasks 12 and 13, the AI Reviews reading shell
   (`cd1273c`) and the Strategy/Settings/auth surface (`c8952dd`). Before
   them: Tasks 10 and 11 — Analytics on one instrument shape
   (`eaeca32`) and the pure review document model (`df07a11`). Before them:
@@ -32,7 +33,7 @@ the same time.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification at Task 13: `1907 passed, 7 skipped` · Ruff clean · Black clean
+- Verification at Task 14: `1961 passed, 7 skipped` · Ruff clean · Black clean
   · `git diff --check` clean · all four Analytics lenses verified at 1440,
   1024, coarse 768 and coarse 375 plus reduced motion, with the pointer state
   and the reduced-motion state asserted from the page at every applicable row
@@ -41,15 +42,15 @@ the same time.
   and bottom bar never both on screen. The Journal calendar was re-verified
   after the shared key rename.
 - Next owner: **`CLAUDE`**.
-- Next action: **continue the approved Phase 2 master directive at Task 14**
-  (the global AI Partner desktop drawer; its audit is already recorded in the
-  session-boundary handoff-log entry below) and run through Task 17 — one scoped
+- Next action: **continue the approved Phase 2 master directive at Task 15**
+  (the mobile AI Partner destination, reached through More) and run through
+  Task 17 — one scoped
   commit and verification record per task — then release the lock to `NONE`
   and hand the complete Phase 2 diff to Codex.
 - **No interim Codex review is requested.** The comprehensive Codex review
   remains scheduled after Task 17.
-- Tasks 14–17 remain: the AI Partner desktop drawer and mobile destination,
-  the cross-page audit, and the 10K re-score.
+- Tasks 15–17 remain: the AI Partner mobile destination, the cross-page
+  audit, and the 10K re-score.
 - Task 4 interfaces are present exactly as planned and verified green
   (`tests/test_metrics.py` + `tests/test_partner_context.py`, 129 passed).
   Claude must consume them, never reproduce their calculations or open a
@@ -211,6 +212,110 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-06 — Phase 2 Task 14: the AI Partner desktop drawer (Claude)
+
+**Commit:** see `feat(partner): a global desktop drawer on the approved
+service`. Task 14 only; Task 15 not started.
+
+Two new modules: `components/partner_turn.py` (the send path, Streamlit-free)
+and `components/partner_panel.py` (rendering). The Partner rides
+`render_sidebar`, which every page already calls and which already renders the
+mobile bar outside the rail — one wiring, so a new page cannot forget it and an
+old one cannot get a second copy.
+
+**Boundaries held, and each is a test rather than a promise.** No SDK import,
+no endpoint, no query of its own; context only from
+`build_global_partner_context`; `partner_reply(..., per_trade_qa=False)`; usage
+logged from exactly one place; the authenticated `user_id` on every call.
+`partner.py`, `partner_context.py`, `cost.py` and every prompt are untouched.
+
+**Six send-path guarantees, all mutation-checked** by reverting each and
+confirming the suite fails: context assembly inside the containment (2
+failures), usage logging contained and *after* the reply is stored (1),
+history projected to role/content before the model sees it (1), labels stored
+per turn (1), the ownerless-send refusal (5), and the retry rule (2). Five
+panel guards likewise: unescaped labels, a claimed `aria-modal`, Close moved
+after the conversation, `visibility` instead of `display` on the phone, and a
+page rendering its own launcher.
+
+**One real defect the plan's design would have shipped.** A failed turn leaves
+the question in history so the trader does not retype it — correct, and the
+plan says so. But nothing removed it when they *did* retype, so the next call
+sent **both** questions: the model would answer a two-question prompt and the
+trader would be billed for the abandoned one. `_drop_abandoned_question` drops
+a trailing turn only when it is a user turn, so a completed exchange is never
+touched. Three consecutive failures now leave exactly one question, not three.
+
+**A second: an ownerless send.** `build_global_partner_context` rejects a
+missing owner by raising, which the containment would report as "temporarily
+unavailable" — sending a signed-out trader to retry something that cannot
+succeed. It is refused by name now, before any session opens.
+
+**Two of the plan's tests could not pass as written, for the same reason.**
+`test_usage_is_logged_exactly_once_per_completed_response` counts the substring
+`log_ai_usage(`, which also matches a definition, a wrapper and a comment; it
+reports 2 for a module with one call site. `test_partner_reply_is_called_in_
+general_reflective_mode` looks for `per_trade_qa=False` in the panel, but the
+call lives in the send path — which is the whole point of the split. Both are
+asserted where the behaviour is.
+
+**Three of my own tests were brittle in the way this phase keeps finding.** A
+source scan for `aria-modal` failed on the docstring explaining why the
+attribute is absent — the third time a contract has been broken by a comment
+about the thing it guards. Those now assert **rendered output** through a small
+fake `st`, which is stronger and cannot be broken by prose.
+
+**Three design-system guards caught the new CSS and were right every time:**
+unproven testids (`stChatInput`, `stChatInputSubmitButton` — now in the proven
+set with the measurement that justified them), a semantic coloured side border
+(replaced with the dot `.tl-error-box` already established), and raw `rgba()`
+outside the token block (now `--tl-shadow-float` / `--tl-shadow-overlay`).
+
+**A real 44px defect, found by measuring.** The chat control is not a
+`.stButton`, so the drawer's own floor never reached it: measured at 1440 the
+field was **378×40** and its submit button **40×40**. Fixed at every width
+rather than scoped to the drawer, because Task 15's phone destination renders
+the same control. Now 378×44 / 44×44.
+
+**A sixth CDP correction.** `offsetParent` is **always null for a
+position:fixed element**, so the visibility check reported the launcher and
+drawer as hidden at every width. Fixed elements are now measured by computed
+style plus layout box. The probe also flagged a "scrim": it is a 0×0
+non-interactive SVG `<g>` whose class contains "overlay" — a false positive,
+and **there is no blocking scrim**, as the non-modal design requires.
+
+**Browser evidence — 8 combinations, all clean.** Pointer and reduced-motion
+state read back from the page.
+
+| Route | Width | Launcher in DOM | Visible | Focusable | Drawer opens | Close first | aria-modal | ovf/und/exc |
+|---|---|---|---|---|---|---|---|---|
+| Analytics | 1440 | yes | yes | yes | yes | yes | 0 | 0/0/0 |
+| Analytics | 1024 | yes | yes | yes | yes | yes | 0 | 0/0/0 |
+| Analytics | coarse 768 | yes | yes | yes | yes | yes | 0 | 0/0/0 |
+| Analytics | coarse 375 | yes | **no** | **no** | hidden | — | 0 | 0/0/0 |
+| Journal | 1440 / coarse 375 | as above | | | | | 0 | 0/0/0 |
+| Analytics, reduced motion | 1440 / coarse 375 | as above | | | | | 0 | 0/0/0 |
+
+At coarse 375 the launcher is in the DOM but neither visible nor **focusable** —
+`display: none`, deliberately, because `visibility: hidden` or an offscreen
+transform would leave a keyboard user able to reach a control they cannot see.
+The phone destination is Task 15.
+
+Open/close was driven end to end: launcher → drawer renders with Close first,
+three retrospective chips and one chat field → Close → drawer leaves the DOM
+entirely and the launcher returns. Closed means *not rendered*, so its widgets
+are not in the tab order at all.
+
+**Verification:** `1961 passed, 7 skipped` (was `1907/7`; +54); Ruff clean;
+Black clean; `git diff --check` clean. Dev database byte-identical
+(`md5 dffdb781…`) — the browser ran against a scratchpad **copy**.
+
+**Unresolved concerns.** The drawer is non-modal by necessity: a focus trap
+needs JavaScript, so it claims no `aria-modal` and draws no scrim. Recorded as
+a deliberate reading of §8.2 rather than an omission. Carried forward
+unchanged: dataframe `aria-sort` is `null` and its four toolbar controls have
+no accessible names; the ledger was not replaced.
 
 ### 2026-08-06 — Session boundary: Tasks 12–13 done, resume at Task 14 (Claude)
 
