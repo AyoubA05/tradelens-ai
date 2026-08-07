@@ -1639,13 +1639,21 @@ def test_the_danger_zone_border_encloses_the_whole_container():
     """A border on the heading markup alone would draw a box around a title
     and leave both destructive actions outside it. Streamlit renders the
     expanders as siblings of that markup, so the border belongs on the
-    keyed container."""
+    keyed container.
+
+    The colour changed in Task 13: the perimeter is the neutral strong line,
+    not the danger hue. Spec §6.7 names TL_LINE_STRONG for it, and red stays
+    on the heading and the two destructive buttons, where it is the only
+    thing carrying the warning. This assertion previously required
+    `var(--tl-danger)` here, which is the state Task 13 supersedes — the
+    containment property it was written to protect is unchanged.
+    """
     from src.tradelens.ui import design_system as ds
 
     css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
     keyed = re.search(r"\.st-key-tl_danger_zone \{([^{}]*)\}", css)
     assert keyed, "the keyed container carries no rule"
-    assert "border: 1px solid var(--tl-danger)" in keyed.group(1)
+    assert "border: 1px solid var(--tl-line-strong)" in keyed.group(1)
     # …and the heading markup does not draw its own box
     heading = re.search(r"(?<![\w-])\.tl-danger-zone \{([^{}]*)\}", css)
     if heading:

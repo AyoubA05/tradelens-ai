@@ -145,7 +145,11 @@ def auth_css() -> str:
   -webkit-text-fill-color: {TL_CONTENT_PRIMARY};
   caret-color: {TL_PRIMARY};
   background: transparent;
-  min-height: 42px;
+  /* 44, not 42. This rule carries the auth card's key AND the root-element
+     testid, so it outranked the app-wide `[data-testid="stTextInput"] input`
+     floor and quietly took two pixels off every field on the first surface a
+     user ever meets — measured at 42px in the browser on all five inputs. */
+  min-height: 44px;
 }}
 .st-key-tl_auth_card [data-testid="stTextInputRootElement"] input::placeholder {{
   color: {TL_CONTENT_SECONDARY};
@@ -349,7 +353,7 @@ def _render_reset_panel() -> None:
     )
 
     with st.form("tl_reset_request", clear_on_submit=False):
-        email = st.text_input("Email address", key="reset_email")
+        email = st.text_input("Email address", key="reset_email", autocomplete="email")
         asked = st.form_submit_button("Email me a code", width="stretch")
     if asked:
         outcome = request_reset(email)
@@ -369,7 +373,10 @@ def _render_reset_panel() -> None:
     with st.form("tl_reset_complete", clear_on_submit=False):
         code = st.text_input("Reset code", key="reset_code")
         new_password = st.text_input(
-            "New password", type="password", key="reset_new_password"
+            "New password",
+            type="password",
+            key="reset_new_password",
+            autocomplete="new-password",
         )
         applied = st.form_submit_button("Set new password", width="stretch")
     if applied:
@@ -441,12 +448,20 @@ def render_auth_screen() -> None:
                 unsafe_allow_html=True,
             )
             with st.form("tl_signup", clear_on_submit=False):
-                username = st.text_input("Username", key="signup_username")
+                username = st.text_input(
+                    "Username", key="signup_username", autocomplete="username"
+                )
                 password = st.text_input(
-                    "Password", type="password", key="signup_password"
+                    "Password",
+                    type="password",
+                    key="signup_password",
+                    autocomplete="new-password",
                 )
                 confirm = st.text_input(
-                    "Confirm password", type="password", key="signup_confirm"
+                    "Confirm password",
+                    type="password",
+                    key="signup_confirm",
+                    autocomplete="new-password",
                 )
                 invite = st.text_input("Invite code", key="signup_invite")
                 submitted = st.form_submit_button("Create account", width="stretch")
@@ -482,9 +497,14 @@ def render_auth_screen() -> None:
                     unsafe_allow_html=True,
                 )
             with st.form("tl_login", clear_on_submit=False):
-                username = st.text_input("Username", key="login_username")
+                username = st.text_input(
+                    "Username", key="login_username", autocomplete="username"
+                )
                 password = st.text_input(
-                    "Password", type="password", key="login_password"
+                    "Password",
+                    type="password",
+                    key="login_password",
+                    autocomplete="current-password",
                 )
                 submitted = st.form_submit_button("Sign in", width="stretch")
             if submitted:

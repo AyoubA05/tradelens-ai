@@ -246,3 +246,88 @@ def test_ownerless_pages_do_not_call_or_persist_settings(monkeypatch, page):
 def test_module_import_is_streamlit_free():
     mod = importlib.reload(app_settings)
     assert hasattr(mod, "get_timezone")
+
+
+# ---------------------------------------------------------------------------
+# Task 13 — the Danger Zone perimeter, and where red is allowed to appear.
+# ---------------------------------------------------------------------------
+
+_SETTINGS_PAGE = (
+    Path(__file__).resolve().parents[1] / "src/tradelens/ui/pages/9_Settings.py"
+)
+
+
+def _src() -> str:
+    return _SETTINGS_PAGE.read_text(encoding="utf-8")
+
+
+def test_the_danger_zone_is_one_contained_perimeter():
+    """Spec §6.7: one contained perimeter around both disclosures, their
+    confirmation fields, and their destructive buttons — drawn with
+    TL_LINE_STRONG.
+
+    The plan's version of this test looked for `--tl-line-strong` inside a CSS
+    block containing the string "tl-danger-zone". The perimeter is not on that
+    class: it is on the KEYED CONTAINER, `.st-key-tl_danger_zone`, spelled
+    with underscores, because the expanders and buttons inside it are
+    Streamlit's own elements and only the container encloses them all. So the
+    plan's test failed while a perimeter was present, and would have kept
+    failing after any correct fix. It reads the real selector now.
+    """
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+    marker = ".st-key-tl_danger_zone {"
+    assert marker in css, "no perimeter on the danger-zone container"
+    block = css[css.index(marker) : css.index("}", css.index(marker))]
+    assert "border:" in block
+    assert "var(--tl-line-strong)" in block, block
+    assert "var(--tl-danger)" not in block, (
+        "the perimeter is spending the danger hue that the heading and the "
+        "destructive buttons need"
+    )
+
+
+def test_red_inside_settings_is_confined_to_destructive_things():
+    """Red is reserved for the Danger Zone and destructive actions; warnings
+    are amber or neutral.
+
+    The plan proposed `assert "TL_DANGER" not in outside(source, "danger_zone")`
+    on the page source. That is vacuous twice over: there is no function named
+    `danger_zone`, so `outside()` returns the whole file, and the page never
+    names `TL_DANGER` at all — its colour comes from CSS classes. It passed
+    with the assertion doing nothing. The property is checked where the colour
+    actually lives.
+    """
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+    allowed = ("danger", "error", "fail", "negative", "leak", "pnl-neg")
+    offenders = []
+    for block in css.split("}"):
+        if "var(--tl-danger)" not in block:
+            continue
+        selector = block.split("{")[0]
+        if "st-key-tl_settings" in selector or "tl-setting" in selector:
+            if not any(word in selector for word in allowed):
+                offenders.append(selector.strip()[:80])
+    assert not offenders, f"red on a non-destructive Settings surface: {offenders}"
+
+
+def test_both_destructive_gates_still_require_their_exact_phrase():
+    """Preserved, not redesigned: the typed confirmation is the last thing
+    between a trader and an irreversible action."""
+    src = _src()
+    assert 'st.text_input(\n            "Type DELETE to confirm"' in src or (
+        "Type DELETE to confirm" in src
+    )
+    assert "Type DELETE MY ACCOUNT to confirm" in src
+    assert 'typed != "DELETE"' in src
+    assert '_confirm_account.strip() != "DELETE MY ACCOUNT"' in src
+
+
+def test_settings_stays_the_quietest_destination():
+    """Spec §6.7: no chart, no promotional banner, no bright primary CTA."""
+    src = _src()
+    assert 'type="primary"' not in src
+    assert "plotly_chart" not in src

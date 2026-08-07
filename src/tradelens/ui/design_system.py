@@ -2064,8 +2064,16 @@ def build_css() -> str:
    elements rendered as siblings of that markup, so a border drawn around
    the heading alone would enclose a title and leave both destructive
    actions outside the box it is supposed to be warning about. */
+/* …and it is the NEUTRAL strong line, which is what the comment above has
+   always claimed and what spec §6.7 names. The rule said
+   `1px solid var(--tl-danger)`, so the hue was on the boundary as well as on
+   the heading and the buttons: a trader opening Settings to change a timezone
+   met a red-framed slab, and the colour that is supposed to mean "this one is
+   irreversible" was already spent by the time they reached the button that
+   is. Containment is the border's job; warning is the title's and the
+   buttons'. */
 .st-key-tl_danger_zone {{
-  border: 1px solid var(--tl-danger);
+  border: 1px solid var(--tl-line-strong);
   border-radius: var(--tl-radius-md);
   padding: var(--tl-space-5) var(--tl-space-6);
   margin-top: var(--tl-space-12);

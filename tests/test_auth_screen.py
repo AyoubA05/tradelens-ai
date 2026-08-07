@@ -194,7 +194,16 @@ def test_native_widgets_are_restyled_for_the_dark_card():
 
     # Nothing may restyle a widget globally: every widget rule is a
     # descendant of the auth card container.
-    for line in css.splitlines():
+    #
+    # Comments are stripped first. The scan reads raw lines, so a COMMENT that
+    # merely quotes a selector — explaining which app-wide rule a scoped one
+    # overrides, which is exactly the sort of thing worth writing down — was
+    # reported as an unscoped rule leaking into the app. The property being
+    # guarded is about selectors, so the input has to be selectors.
+    import re as _re
+
+    selectors_only = _re.sub(r"/\*.*?\*/", "", css, flags=_re.S)
+    for line in selectors_only.splitlines():
         stripped = line.strip()
         if 'data-testid="st' in stripped and "stMainBlockContainer" not in stripped:
             assert stripped.startswith(
@@ -329,3 +338,92 @@ def test_scope_line_is_honest_no_signals():
     note = auth_screen.compliance_html().lower()
     assert "does not generate signals" in note
     assert "reflection only" in note
+
+
+# ---------------------------------------------------------------------------
+# Task 13 — credential fields a password manager can actually fill.
+# ---------------------------------------------------------------------------
+
+_SCREEN = None
+
+
+def _screen_src() -> str:
+    from pathlib import Path
+
+    return (
+        Path(__file__).resolve().parents[1]
+        / "src/tradelens/ui/components/auth_screen.py"
+    ).read_text(encoding="utf-8")
+
+
+def test_every_credential_field_declares_its_autocomplete_purpose():
+    """Spec §6.1 asks for autocomplete on the sign-in fields, and the screen
+    carried it on none of them — zero occurrences across sign in, create
+    account and reset.
+
+    Worth stating why this is a real defect and not a framework limitation
+    like `aria-sort`: `st.text_input` on the pinned streamlit==1.50.0 takes an
+    `autocomplete` argument, checked against the installed signature before
+    this was written. Without it a password manager cannot reliably offer a
+    saved credential, and the browser may offer to save a *new* password over
+    an existing one on the sign-in form.
+
+    The purposes are the ones the HTML spec defines, and they differ per form:
+    `current-password` on sign in, `new-password` where a password is being
+    set, so a manager suggests a strong password in one place and fills the
+    saved one in the other.
+    """
+    import ast
+
+    src = _screen_src()
+    tree = ast.parse(src)
+
+    found = {}
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "text_input"
+        ):
+            continue
+        kw = {
+            k.arg: (k.value.value if isinstance(k.value, ast.Constant) else None)
+            for k in node.keywords
+        }
+        key = kw.get("key")
+        if key:
+            found[key] = kw.get("autocomplete")
+
+    expected = {
+        "login_username": "username",
+        "login_password": "current-password",
+        "signup_username": "username",
+        "signup_password": "new-password",
+        "signup_confirm": "new-password",
+        "reset_email": "email",
+        "reset_new_password": "new-password",
+    }
+    for key, purpose in expected.items():
+        assert key in found, f"{key} is gone — update this contract with it"
+        assert (
+            found[key] == purpose
+        ), f"{key} declares autocomplete={found[key]!r}, expected {purpose!r}"
+
+
+def test_the_invite_code_is_not_offered_a_saved_credential():
+    """Not every field wants a purpose. The invite code is a one-off token,
+    so leaving it unset is correct rather than an omission."""
+    import ast
+
+    for node in ast.walk(ast.parse(_screen_src())):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "text_input"
+        ):
+            kw = {
+                k.arg: (k.value.value if isinstance(k.value, ast.Constant) else None)
+                for k in node.keywords
+            }
+            if kw.get("key") == "signup_invite":
+                assert "autocomplete" not in kw

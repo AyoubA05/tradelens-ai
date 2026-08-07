@@ -20,9 +20,10 @@ the same time.
 ## Current handoff state
 
 - Active writer: `CLAUDE`
-- Current phase: `PHASE 2 IN PROGRESS — TASK 12 DONE, RESUME AT TASK 13`
-- Last completed work: **Task 12** — the AI Reviews reading shell (this
-  commit). Before it: Tasks 10 and 11 — Analytics on one instrument shape
+- Current phase: `PHASE 2 IN PROGRESS — TASK 13 DONE, RESUME AT TASK 14`
+- Last completed work: **Task 13** — Strategy, Settings and the auth surface
+  (this commit). Before it: Task 12, the AI Reviews reading shell
+  (`cd1273c`). Before that: Tasks 10 and 11 — Analytics on one instrument shape
   (`eaeca32`) and the pure review document model (`df07a11`). Before them:
   Tasks 8 and 9 — New Trade on the dark workspace
   (`f2eb1df`) and the dark Journal (`9d571d3`). Before them: Tasks 5–7, the
@@ -31,7 +32,7 @@ the same time.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification at Task 12: `1901 passed, 7 skipped` · Ruff clean · Black clean
+- Verification at Task 13: `1907 passed, 7 skipped` · Ruff clean · Black clean
   · `git diff --check` clean · all four Analytics lenses verified at 1440,
   1024, coarse 768 and coarse 375 plus reduced motion, with the pointer state
   and the reduced-motion state asserted from the page at every applicable row
@@ -40,14 +41,14 @@ the same time.
   and bottom bar never both on screen. The Journal calendar was re-verified
   after the shared key rename.
 - Next owner: **`CLAUDE`**.
-- Next action: **continue the approved Phase 2 master directive at Task 13**
-  (Strategy Profile and Settings) and run through Task 17 — one scoped
+- Next action: **continue the approved Phase 2 master directive at Task 14**
+  (the global AI Partner desktop drawer) and run through Task 17 — one scoped
   commit and verification record per task — then release the lock to `NONE`
   and hand the complete Phase 2 diff to Codex.
 - **No interim Codex review is requested.** The comprehensive Codex review
   remains scheduled after Task 17.
-- Tasks 13–17 remain: Strategy Profile and Settings, the AI Partner desktop
-  drawer and mobile destination, the cross-page audit, and the 10K re-score.
+- Tasks 14–17 remain: the AI Partner desktop drawer and mobile destination,
+  the cross-page audit, and the 10K re-score.
 - Task 4 interfaces are present exactly as planned and verified green
   (`tests/test_metrics.py` + `tests/test_partner_context.py`, 129 passed).
   Claude must consume them, never reproduce their calculations or open a
@@ -209,6 +210,130 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-06 — Phase 2 Task 13: Strategy, Settings, auth surface (Claude)
+
+**Commit:** see `feat(ui): a neutral Danger Zone perimeter and fillable auth
+fields`. Task 13 only; Task 14 not started.
+
+**Step 1 first, as the plan asks.** `tests/test_strategy.py`,
+`tests/test_app_settings.py` and `tests/test_account_deletion.py` — 41 tests
+covering starter persistence, blank-name refusal, corrected save,
+untouched-field preservation and contained write failure with no DSN leak —
+were green before anything changed and are green after.
+
+**One of the plan's two tests failed for the wrong reason; the other was
+vacuous.**
+
+- `test_the_danger_zone_is_one_contained_perimeter` searched CSS blocks
+  containing the string `tl-danger-zone` for `--tl-line-strong`. The perimeter
+  is not on that class — it is on the **keyed container**,
+  `.st-key-tl_danger_zone`, spelled with underscores, because only the
+  container encloses the two expanders and their buttons. So the test failed
+  while a perimeter was present, and would have kept failing after any correct
+  fix.
+- `test_warnings_outside_the_danger_zone_are_not_red` asserted
+  `"TL_DANGER" not in outside(source, "danger_zone")`. There is no function
+  named `danger_zone`, so `outside()` returns the whole file — measured, 16187
+  of 16187 characters — and the page never names `TL_DANGER` at all, because
+  its colour comes from CSS classes. It passed with the assertion doing
+  nothing. Replaced with a check of the CSS, where the colour actually lives.
+
+**Real finding 1 — the perimeter was spending the danger hue.** The rule read
+`border: 1px solid var(--tl-danger)` while the comment directly above it
+claimed "the hue stays on the heading and the buttons". Code and comment
+disagreed, and spec §6.7 names `TL_LINE_STRONG` for the perimeter. A trader
+opening Settings to change a timezone met a red-framed slab, so the colour
+meant to mark "this one is irreversible" was already spent by the time they
+reached the button that is. Now `--tl-line-strong`, measured in the browser as
+`rgb(92, 110, 119)`, with the title still `rgb(245, 101, 101)`.
+
+**Real finding 2 — no credential field on the auth screen declared an
+autocomplete purpose.** Zero occurrences across sign in, create account and
+reset. Worth separating from framework limitations like `aria-sort`:
+`st.text_input` on the pinned streamlit==1.50.0 **does** take `autocomplete`,
+checked against the installed signature before writing anything. Without it a
+password manager cannot reliably offer a saved credential, and the browser may
+offer to save a new password over an existing one on the sign-in form. Seven
+fields now declare the purpose the HTML spec defines — `current-password` on
+sign in, `new-password` where a password is being set — and the invite code
+deliberately declares none. Verified in the DOM, not just in source.
+
+**Real finding 3 — every auth input was 42px, and the probe was hiding it.**
+`.st-key-tl_auth_card [data-testid="stTextInputRootElement"] input` set
+`min-height: 42px`, which carries both the card key and the root-element
+testid and so outranked the app-wide 44px floor. Two pixels under the §12
+minimum on the first surface a user ever meets, on all five inputs.
+
+**A fifth CDP measurement correction, and this one had produced a false
+negative.** The undersized probe's exclusion read
+`(clip !== 'auto' && clip !== '') || clipPath !== 'none'`. The second arm
+excluded **any** element carrying a clip-path, which is how five 42px inputs
+were reported as zero undersized targets. Both arms must now indicate a
+deliberately hidden element. **Every surface was re-measured with the
+corrected probe** — Analytics, AI Reviews, Strategy, Settings, Journal and New
+Trade at 1440 and coarse 375 — and all twelve are still `0` overflow, `0`
+undersized, `0` exceptions, so the Task 10 and Task 12 evidence stands. The
+auth screen was the only place the false negative was hiding a real defect.
+
+**Two pre-existing contracts failed and were handled differently, on their
+merits.**
+
+1. `test_the_danger_zone_border_encloses_the_whole_container` required
+   `border: 1px solid var(--tl-danger)`. That is the state Task 13
+   supersedes, and spec §6.7 says otherwise. Updated to the neutral line; the
+   containment property it was written to protect is untouched.
+2. `test_native_widgets_are_restyled_for_the_dark_card` failed on **my own
+   comment**: it scans raw CSS lines for `data-testid="st`, and a comment
+   explaining which app-wide rule the scoped one overrides was read as an
+   unscoped rule leaking into the app. A contract that can be broken by
+   writing a comment is guarding the wrong input, so it strips comments first
+   — the same treatment the danger-zone test already uses. The property is
+   unchanged.
+
+**Already correct, verified rather than changed.** Settings carries no chart,
+no promotional banner and no `type="primary"` CTA. Strategy keeps its five
+accordions. The auth screen already has a real segmented control for the
+sign-in/create-account switch and a 44×44 show/hide password button — my first
+probe reported `modeControl: 0` because it queried for a radio; the page was
+right and the probe's selector was wrong.
+
+**Browser evidence.** Coarse-pointer and reduced-motion states read back from
+the page at every applicable row.
+
+| Surface | Widths | Overflow | Undersized | Exceptions | Notes |
+|---|---|---|---|---|---|
+| Strategy | 1440, 1024, coarse 768, coarse 375 | 0 | 0 | 0 | 5 accordions, inputs 44px |
+| Settings | same four | 0 | 0 | 0 | perimeter `rgb(92,110,119)` at every width, 0 charts |
+| Settings, reduced motion | coarse 375 | 0 | 0 | 0 | — |
+| Strategy, reduced motion | 1440 | 0 | 0 | 0 | — |
+| Auth (signed out) | 1440, coarse 375 | 0 | 0 | 0 | no rail, no bottom nav, no Partner; inputs 44px; autocomplete live in the DOM |
+
+Both destructive gates were confirmed to render — `Type DELETE to confirm` and
+`Type DELETE MY ACCOUNT to confirm`, two expanders inside the perimeter — and
+**neither was executed**.
+
+Strategy Name persistence was proved under AppTest rather than CDP: the name
+was changed, saved, and then read back from a **fresh script run with a fresh
+session**, so only the database could have carried it, and
+`get_active_strategy` was checked to agree with the page. A CDP click on a
+Streamlit widget drove one transition and silently failed the next in Task 9,
+which is why the browser is used for geometry and AppTest for behaviour.
+
+**Mutation checks.** Perimeter reverted to the danger hue → fails; perimeter
+removed entirely → fails; sign-in password given `new-password` → fails;
+`autocomplete` dropped from `login_username` → fails.
+
+**Files changed:** `components/auth_screen.py`, `design_system.py`,
+`tests/test_app_settings.py`, `tests/test_auth_screen.py`,
+`tests/test_premium_page_contracts.py`, and this handoff. `git add -A` not
+used; untracked `src/tradelens/ui/.impeccable/` deliberately not staged.
+
+**Unresolved concerns.** Carried forward unchanged: `aria-sort` is `null` on
+Streamlit's dataframe headers and its four toolbar controls have no accessible
+names — both need JavaScript injection (forbidden) or an authored table, and
+Task 13 was not expanded into a ledger replacement. The note-surface CSS
+comment still describes "the light workspace"; left for the Task 16 sweep.
 
 ### 2026-08-06 — Phase 2 Task 12: one reading shell, safe regeneration (Claude)
 
