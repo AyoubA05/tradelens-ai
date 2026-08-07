@@ -19,11 +19,11 @@ the same time.
 
 ## Current handoff state
 
-- Active writer: `CLAUDE`
-- Current phase: `PHASE 2 IN PROGRESS — TASK 13 DONE, RESUME AT TASK 14`
-- Last completed work: **Task 13** — Strategy, Settings and the auth surface
-  (this commit). Before it: Task 12, the AI Reviews reading shell
-  (`cd1273c`). Before that: Tasks 10 and 11 — Analytics on one instrument shape
+- Active writer: `NONE`
+- Current phase: `PHASE 2 TASKS 12–13 COMPLETE — RESUME AT TASK 14`
+- Last completed work: **Tasks 12 and 13** — the AI Reviews reading shell
+  (`cd1273c`) and the Strategy/Settings/auth surface (`c8952dd`). Before
+  them: Tasks 10 and 11 — Analytics on one instrument shape
   (`eaeca32`) and the pure review document model (`df07a11`). Before them:
   Tasks 8 and 9 — New Trade on the dark workspace
   (`f2eb1df`) and the dark Journal (`9d571d3`). Before them: Tasks 5–7, the
@@ -42,7 +42,8 @@ the same time.
   after the shared key rename.
 - Next owner: **`CLAUDE`**.
 - Next action: **continue the approved Phase 2 master directive at Task 14**
-  (the global AI Partner desktop drawer) and run through Task 17 — one scoped
+  (the global AI Partner desktop drawer; its audit is already recorded in the
+  session-boundary handoff-log entry below) and run through Task 17 — one scoped
   commit and verification record per task — then release the lock to `NONE`
   and hand the complete Phase 2 diff to Codex.
 - **No interim Codex review is requested.** The comprehensive Codex review
@@ -210,6 +211,63 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-06 — Session boundary: Tasks 12–13 done, resume at Task 14 (Claude)
+
+Tasks 12 (`cd1273c`) and 13 (`c8952dd`) are committed with full evidence.
+Tasks 14–17 are not started. This is a **context boundary, not a review
+gate** — no interim Codex review is requested, and the comprehensive review
+stays scheduled after Task 17. The lock is `NONE` only so a fresh session can
+claim it cleanly.
+
+**Resume at Task 14 (the AI Partner desktop drawer).** It is the largest task
+in the plan — 915 lines, two new modules from scratch, a service-backed AI
+surface with non-negotiable safety boundaries — which is why it was not begun
+on a partial context budget rather than left half-built.
+
+**Task 14 pre-audit, so the next session does not repeat it. Everything it
+consumes already exists and is green:**
+
+| Interface | Location | State |
+|---|---|---|
+| `build_global_partner_context(*, user_id)`, `PartnerContext`, `PartnerEvidenceSource` | `services/partner_context.py:132`, `:45`, `:34` | present (Task 4) |
+| `partner_reply(messages, *, trade_context, strategy_profile, image_b64, per_trade_qa)` | `services/partner.py:272` | present, signature matches the plan exactly |
+| `PartnerError` | `services/partner.py:135` | present |
+| `TL_Z_PARTNER = 20` | `design_system.py:130`, exported as `--tl-z-partner` | present |
+| `log_ai_usage(feature, usage, user_id=None)` | `services/cost.py:41` | present |
+
+`tests/test_partner.py` + `tests/test_partner_context.py` — **57 passed** —
+are the contract Task 14 must not break.
+
+**No Partner UI exists yet.** `ui/components/` has no partner module and
+`app.py` never mentions one, so Task 14 is a genuine from-scratch build of
+`partner_panel.py` (rendering) and `partner_turn.py` (Streamlit-free send
+path) plus their two test files and the launcher/drawer CSS. Nothing needs
+retargeting first.
+
+**Boundaries to carry in, from handoff §1 — these are scope, not style.**
+Reuse `partner_reply(..., per_trade_qa=False)`; no new endpoint, no new system
+prompt, no direct Anthropic import from a page or component; every service
+query takes the authenticated `user_id`; usage logged exactly once per
+completed response; the post-trade scope guard stays, so never signals,
+predictions, entries or advice; model output goes through Streamlit's safe
+Markdown path with HTML off, and any surrounding authored HTML escapes its
+values. The drawer applies at **every sidebar-navigation width (≥768)** — there
+is no mobile launcher and no bottom sheet; the phone destination is Task 15.
+
+**What a fresh session needs for the browser.** The CDP driver lives in the
+session scratchpad, not the worktree, and now carries **five** measured
+corrections — the four in the Task 8/9 entries plus the clip-path false
+negative recorded in the Task 13 entry below, which is the first one to have
+hidden a real defect. Rebuild it from those notes. Also: this worktree's
+database has no trades owned by user 1, so seed a scratchpad **copy** and set
+`user_id = 1` there to reach the Journal and AI Reviews with data; Analytics
+falls back to `get_demo_df()` and does not need it.
+
+**Verification at this boundary:** `1907 passed, 7 skipped`; Ruff clean; Black
+clean; `git diff --check` clean. Dev database byte-identical
+(`md5 dffdb781…`, `Jul 31`). App and Chrome processes stopped. `.impeccable/`
+untouched and unstaged.
 
 ### 2026-08-06 — Phase 2 Task 13: Strategy, Settings, auth surface (Claude)
 
