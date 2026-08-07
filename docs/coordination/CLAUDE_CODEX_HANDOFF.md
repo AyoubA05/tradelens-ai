@@ -20,8 +20,13 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 2 — PARTNER AMENDMENTS ROUND 3 COMPLETE, AWAITING CODEX`
-- Last completed work: **Claude's Partner amendments round 3** (this commit) —
+- Current phase: `PHASE 2 — PARTNER AMENDMENTS ROUND 4 COMPLETE, AWAITING FINAL CODEX REVIEW`
+- Last completed work: **Claude's Partner amendments round 4** (this commit) —
+  Codex's P1 privacy blocker: `_partner_queue` and `_partner_run` survived
+  sign-out, carrying the previous trader's unsent question in plain text. The
+  cleanup prefix now covers the whole `_partner_` namespace, with a structural
+  guard so the next key cannot be forgotten. Before it: **round 3**
+  (`8d39e02`) —
   Codex's hidden-surface spending blocker: a queued question now expires with
   the run that made it, so a CSS-hidden presentation can never call the model.
   Before it: **round 2** (`5805968`) —
@@ -46,7 +51,7 @@ the same time.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification at Partner amendments round 3: `2060 passed, 7 skipped` · Ruff clean · Black clean
+- Verification at Partner amendments round 4: `2064 passed, 7 skipped` · Ruff clean · Black clean
   · `git diff --check` clean · all four Analytics lenses verified at 1440,
   1024, coarse 768 and coarse 375 plus reduced motion, with the pointer state
   and the reduced-motion state asserted from the page at every applicable row
@@ -228,6 +233,73 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-07 — Partner amendment round 4: the sign-out key leak (Claude)
+
+**Commit:** see `fix(partner): a queued question dies with its author's
+session`. Codex's P1 privacy blocker is closed. Services, schema and the AI
+boundary are untouched — the diff against `c78b2a0` for `src/tradelens/
+services/` and `alembic/` is empty.
+
+**The defect was mine, and reproduced before anything changed.** Round 3
+introduced `_partner_queue` and `_partner_run`. Codex's cleanup sweeps the
+prefixes `("partner_", "_partner_pending_", "secondary_partner_")` — and
+neither new key matches `_partner_pending_`. Run directly against the shipped
+cleanup:
+
+```
+after sign-out: {'_partner_queue': {'surface': 'page',
+                 'text': 'alice private question', 'run': 1},
+                 '_partner_run': 1}
+LEAK: True
+```
+
+So Alice's unsent question survived her sign-out **in plain text**, together
+with the counter that makes it claimable. Bob signing in to the same browser
+session could have had it sent as him.
+
+**The fix is the prefix, widened to the namespace.**
+`_partner_pending_` → `_partner_`. It covers the queue, the run counter, the
+retired busy/pending keys and anything added later. Enumerating the two new
+names would have closed this instance and left the next one open — being
+forgotten is precisely what happened.
+
+**A structural guard so it cannot happen again.**
+`test_every_partner_session_key_is_covered_by_the_cleanup` reads the prefixes
+out of the cleanup's own source and checks every name the Partner writes
+(`QUEUE_KEY`, `RUN_KEY`, `HISTORY_PREFIX`, `ERROR_PREFIX`, `partner_open`, the
+composer keys, the chip keys) against them. A new key that no prefix covers
+fails the suite rather than reaching a trader.
+
+**Three regression tests, in Codex's order.** The exact scenario — Alice
+queues, signs out, Bob signs in, the Partner advances a run — asserts that
+neither surface can claim the question, on two consecutive runs in case
+adjacency lined up by coincidence, and that the private text is absent from
+`repr(state)` rather than merely its key being gone. A queue nested inside
+some other surviving value would still be a leak.
+
+**One cleanup, both exits.** `sign_out()` is the only caller, and account
+deletion in Settings goes through it. A test now pins that: no
+`session_state.clear()` anywhere in the UI, and no second `clear_session*`
+function outside `auth.py`. A second cleanup path is a second place to forget
+a key.
+
+**Mutation checks, all caught:** reverting to the narrow `_partner_pending_`
+prefix (the exact defect); removing the partner sweep entirely; narrowing it
+to `partner_history_` only.
+
+**Verification:** `2064 passed, 7 skipped` (was `2060/7`; +4); Ruff clean;
+Black clean; `git diff --check` clean. Dev database byte-identical
+(`md5 dffdb781…`). Focused Partner and auth suites — `test_auth.py`,
+`test_partner_panel.py`, `test_partner_turn.py`, `test_account_deletion.py` —
+147 passed. No browser run: this is session-state lifetime, which a browser
+cannot show and AppTest-level state can.
+
+**The round 3 queue/run mechanism is preserved exactly.** The only production
+change is one prefix in `auth.py`, nine lines including the comment explaining
+why the narrow one was wrong.
+
+
 
 ### 2026-08-07 — Partner amendment round 3: no invisible spending (Claude)
 

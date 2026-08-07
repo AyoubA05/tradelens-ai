@@ -287,7 +287,15 @@ def _clear_session_state_for_sign_out(state) -> None:
     for key in (_AUTH_KEY, _USER_KEY, _UID_KEY, _ERROR_KEY, _MODE_KEY, _TOKEN_KEY):
         state.pop(key, None)
 
-    partner_prefixes = ("partner_", "_partner_pending_", "secondary_partner_")
+    # `_partner_` and not `_partner_pending_`: the narrower prefix named one
+    # key and missed every other private one beside it. `_partner_queue`
+    # carried the previous trader's unsent question in plain text and
+    # `_partner_run` carried the counter that made it claimable, so signing
+    # out and handing the browser to someone else left a question they never
+    # asked ready to be sent as them. The prefix now covers the whole
+    # namespace, which is what stops the next key being forgotten too;
+    # `test_every_partner_session_key_is_covered_by_the_cleanup` holds it.
+    partner_prefixes = ("partner_", "_partner_", "secondary_partner_")
     for key in list(state):
         if str(key).startswith(partner_prefixes):
             state.pop(key, None)

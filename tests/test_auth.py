@@ -7,6 +7,7 @@ which are the security-critical, Streamlit-free parts.
 """
 
 import importlib
+import re
 from pathlib import Path
 
 import pytest
@@ -217,3 +218,150 @@ def test_sign_out_cleanup_removes_all_partner_session_state():
     auth._clear_session_state_for_sign_out(state)
 
     assert state == {"unrelated_preference": "keep"}
+
+
+# ---------------------------------------------------------------------------
+# Round 4 — a queued question must not survive its author's session
+# ---------------------------------------------------------------------------
+
+
+def test_sign_out_removes_the_partner_queue_and_run_counter():
+    """`_partner_queue` and `_partner_run` are not matched by the
+    `_partner_pending_` prefix, so they survived sign-out — carrying the
+    previous trader's unsent question in plain text."""
+    from src.tradelens.ui.components.partner_turn import (
+        QUEUE_KEY,
+        RUN_KEY,
+        queue_question,
+    )
+
+    state = {"authenticated": True, "current_user_id": 7, "keep": "me"}
+    queue_question(state, surface="page", text="alice private question", run_id=3)
+    state[RUN_KEY] = 3
+
+    auth._clear_session_state_for_sign_out(state)
+
+    assert QUEUE_KEY not in state
+    assert RUN_KEY not in state
+    # The text itself, not just the key: a queue nested inside another
+    # surviving value would still be a leak.
+    assert "alice private question" not in repr(state)
+    assert state == {"keep": "me"}
+
+
+def test_one_traders_queued_question_cannot_be_claimed_by_the_next():
+    """The reproduction, end to end and in order.
+
+    Alice queues a question and signs out without it being sent. Bob signs in
+    to the same browser session, and the Partner advances a run. Bob's run
+    must not be able to claim Alice's question, and it must not be anywhere on
+    Bob's screen.
+    """
+    from src.tradelens.ui.components.partner_turn import (
+        QUEUE_KEY,
+        RUN_KEY,
+        begin_partner_run,
+        claim_question,
+        current_run,
+        history_key,
+        queue_question,
+    )
+
+    private = "alice private question"
+    state = {"authenticated": True, "current_user": "alice", "current_user_id": 7}
+
+    # Alice's session: a run is stamped, a question is queued, nothing sends.
+    begin_partner_run(state)
+    queue_question(state, surface="page", text=private, run_id=current_run(state))
+    state[history_key(7)] = [{"role": "user", "content": private}]
+
+    # Alice signs out.
+    auth._clear_session_state_for_sign_out(state)
+    assert QUEUE_KEY not in state, "Alice's queue outlived her session"
+    assert RUN_KEY not in state, "the run counter outlived her session"
+    assert private not in repr(state)
+
+    # Bob signs in to the same browser session.
+    state.update({"authenticated": True, "current_user": "bob", "current_user_id": 8})
+
+    # Bob's first Partner run.
+    run_id = begin_partner_run(state)
+    assert claim_question(state, surface="page", run_id=run_id) is None
+    assert claim_question(state, surface="drawer", run_id=run_id) is None
+
+    # …and a second, in case adjacency were to line up by coincidence.
+    run_id = begin_partner_run(state)
+    assert claim_question(state, surface="page", run_id=run_id) is None
+    assert private not in repr(state)
+    assert state.get(history_key(8)) is None
+
+
+def test_every_partner_session_key_is_covered_by_the_cleanup():
+    """The structural guard, so the next key cannot be forgotten the way
+    `_partner_queue` was.
+
+    Each name the Partner writes into session state is checked against the
+    prefixes the cleanup actually sweeps, rather than against a list somebody
+    has to remember to update.
+    """
+    import inspect
+
+    from src.tradelens.ui.components import partner_turn as pt
+
+    source = inspect.getsource(auth._clear_session_state_for_sign_out)
+    prefixes = tuple(
+        re.findall(r'"((?:_)?(?:partner|secondary_partner)[a-z_]*)"', source)
+    )
+    assert prefixes, "no partner prefixes found in the cleanup"
+
+    written = [
+        pt.QUEUE_KEY,
+        pt.RUN_KEY,
+        pt.HISTORY_PREFIX + "7",
+        pt.ERROR_PREFIX + "7",
+        "partner_open",
+        "partner_in_drawer",
+        "partner_in_page",
+        "secondary_partner_drawer_chip_0",
+    ]
+    uncovered = [k for k in written if not k.startswith(prefixes)]
+    assert not uncovered, f"sign-out does not clear: {uncovered}"
+
+
+def test_every_way_out_of_a_session_runs_the_same_cleanup():
+    """There is one cleanup, and both exits reach it.
+
+    Deleting an account ends the session too, and a second cleanup path would
+    be a second place for a key to be forgotten — which is how this defect
+    happened in the first place.
+    """
+    import ast
+    import inspect
+    from pathlib import Path
+
+    # `sign_out` is the only caller of the cleanup, and it is what the
+    # account-deletion flow uses.
+    assert "_clear_session_state_for_sign_out" in inspect.getsource(auth.sign_out)
+
+    settings = (
+        Path(__file__).resolve().parents[1] / "src/tradelens/ui/pages/9_Settings.py"
+    ).read_text(encoding="utf-8")
+    assert "sign_out()" in settings
+
+    # …and nothing else in the UI clears session state its own way.
+    ui = Path(__file__).resolve().parents[1] / "src/tradelens/ui"
+    for path in ui.rglob("*.py"):
+        if "_archive" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8")
+        assert "session_state.clear()" not in text, path.name
+        if path.name == "auth.py":
+            continue
+        tree = ast.parse(text)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.FunctionDef)
+                and "clear_session" in node.name
+                and node.name != "_clear_session_state_for_sign_out"
+            ):
+                raise AssertionError(f"a second cleanup in {path.name}: {node.name}")
