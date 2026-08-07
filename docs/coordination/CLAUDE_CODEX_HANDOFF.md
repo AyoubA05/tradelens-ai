@@ -20,10 +20,10 @@ the same time.
 ## Current handoff state
 
 - Active writer: `CLAUDE`
-- Current phase: `PHASE 2 IN PROGRESS — TASK 15 DONE, RESUME AT TASK 16`
-- Last completed work: **Task 15** — the AI Partner phone destination (this
-  commit). Before it: Task 14, the desktop drawer (`db6be6d`), and Tasks 12
-  and 13, the AI Reviews reading shell
+- Current phase: `PHASE 2 IN PROGRESS — TASK 16 DONE, RESUME AT TASK 17`
+- Last completed work: **Task 16** — the cross-page audit (this commit).
+  Before it: Task 15, the phone destination (`3de1f43`), Task 14, the desktop
+  drawer (`db6be6d`), and Tasks 12 and 13, the AI Reviews reading shell
   (`cd1273c`) and the Strategy/Settings/auth surface (`c8952dd`). Before
   them: Tasks 10 and 11 — Analytics on one instrument shape
   (`eaeca32`) and the pure review document model (`df07a11`). Before them:
@@ -34,7 +34,7 @@ the same time.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification at Task 15: `1972 passed, 7 skipped` · Ruff clean · Black clean
+- Verification at Task 16: `1997 passed, 7 skipped` · Ruff clean · Black clean
   · `git diff --check` clean · all four Analytics lenses verified at 1440,
   1024, coarse 768 and coarse 375 plus reduced motion, with the pointer state
   and the reduced-motion state asserted from the page at every applicable row
@@ -43,14 +43,13 @@ the same time.
   and bottom bar never both on screen. The Journal calendar was re-verified
   after the shared key rename.
 - Next owner: **`CLAUDE`**.
-- Next action: **continue the approved Phase 2 master directive at Task 16**
-  (the cross-page accessibility, security and consistency audit) and finish
-  with Task 17 — one scoped
+- Next action: **finish the approved Phase 2 master directive at Task 17**
+  (the 10K checklist re-score and the final handoff) — one scoped
   commit and verification record per task — then release the lock to `NONE`
   and hand the complete Phase 2 diff to Codex.
 - **No interim Codex review is requested.** The comprehensive Codex review
   remains scheduled after Task 17.
-- Tasks 16–17 remain: the cross-page audit, and the 10K re-score.
+- Task 17 remains: the 10K checklist re-score and the final handoff.
 - Task 4 interfaces are present exactly as planned and verified green
   (`tests/test_metrics.py` + `tests/test_partner_context.py`, 129 passed).
   Claude must consume them, never reproduce their calculations or open a
@@ -212,6 +211,93 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-06 — Phase 2 Task 16: the cross-page audit (Claude)
+
+**Commit:** see `fix(a11y): close the defects the cross-page dark audit
+reproduced`. Task 16 only; Task 17 not started.
+
+`tests/test_dark_accessibility.py` was written **before** anything was fixed,
+transcribed from the plan, and it passes 25/25. The plan recorded `16 passed,
+5 skipped` on 2026-08-04; the five composited-contrast cases now activate
+because Task 1 landed, and the page-handler check gained `7_Partner.py`.
+
+**An audit that passes everything on its first run proves nothing, so it was
+mutation-checked itself.** All three defect classes are genuinely detected:
+
+| Injected defect | Result |
+|---|---|
+| a broad handler rendering the exception it caught | fails on that page |
+| `get_trades(...)` with the owner removed | fails, naming file and line |
+| a dead entry in the payload-scoped allowlist | fails |
+
+**Browser sweep: 8 destinations × 4 widths = 32 runs.** Coarse-pointer state
+read back from the page on every coarse row.
+
+**Zero rendered exceptions, zero document-level horizontal overflow, and zero
+undersized targets — on all 31 runs that completed.** One run (Partner at
+coarse 375) failed to parse on the first pass; re-run in isolation it is clean,
+so it was a transient Chrome failure rather than a finding.
+
+**Two real defects, both reproduced at all four widths, both fixed:**
+
+1. **Overview skipped `h2 → h4`.** `overview_bands.render_ranked_list` emitted
+   `<h4 class="tl-ranked-title">` inside a band whose own heading is an `<h2>`.
+   Every style comes from the class, so the level was free to be correct.
+2. **Strategy skipped `h1 → h5`.** The playbook form's first section heading
+   was `#####`. **The first correction was wrong and the browser caught it:**
+   `###` still skipped `h1 → h3`, because nothing sits between them. It is
+   `##`. Both pages now measure a clean sequence — Overview
+   `[1,2,2,2,3,3,2,2]`, Strategy `[1,2]`, zero skips.
+
+That second fix is the reason the guard for it asserts the *sequence has no
+gap* rather than `max(level) <= 3`. The number was easier to satisfy than the
+property, and satisfying it left the defect in place.
+
+**A third comment-brittleness case, for the record.** The guard's first form
+asserted `"#####" not in source` — and the comment explaining why the marker
+was wrong contained the marker. It now reads heading levels out of the
+markdown calls through the AST. This is the third contract in this phase
+broken by a comment about the thing it guards.
+
+**Two probe limitations, reported rather than dressed up as findings.**
+
+1. **Focus-ring counts are not evidence.** The sweep calls `element.focus()`,
+   and `:focus-visible` does not match programmatic focus — so the non-zero
+   "controls without a focus ring" counts (Journal 5, Strategy 8, Settings 5)
+   measure the probe, not the product. Confirming focus visibility needs real
+   `Tab` key dispatch. **Not claimed as verified.**
+2. **Target separation** flagged 1 adjacent pair under 8 px on Journal at 768
+   and on Strategy at all widths. Both are adjacent form controls inside one
+   Streamlit row; whether the 8 px rule is intended to apply between two halves
+   of a single field group is a judgement the audit cannot make. Recorded, not
+   silently fixed.
+
+**Tab order was not verified by key dispatch** and is therefore not claimed.
+The Partner drawer's "Close is the first tab stop" is asserted from DOM order
+and from `render_partner_drawer` rendering Close before the conversation, which
+is weaker than walking focus. Left for Codex.
+
+**Nested-route `_stcore` 404s:** not re-checked this session. They were
+recorded in the preflight as baseline infrastructure noise and are not a target
+of this phase.
+
+**Scope discipline.** `git status --short` at commit time showed exactly the
+audit file plus the two files a reproduced defect required. Nothing else.
+
+**Verification:** `1997 passed, 7 skipped` (was `1972/7`; +25); Ruff clean;
+Black clean; `git diff --check` clean. Dev database byte-identical
+(`md5 dffdb781…`).
+
+**One note for the security gate.** The scoping check matches call sites *by
+name*, so `build_context=build_global_partner_context` in `partner_panel.py`
+— a reference, not a call — is invisible to it. The scoping is enforced
+elsewhere and tested: `send_turn` always passes `user_id=`, the adapter
+rejects a non-positive owner before opening a session, and
+`test_the_authenticated_user_id_reaches_the_context_adapter` pins it. Flagged
+so Codex can judge whether the audit should also follow references.
+
+
 
 ### 2026-08-06 — Phase 2 Task 15: the AI Partner phone destination (Claude)
 

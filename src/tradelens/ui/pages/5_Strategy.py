@@ -264,7 +264,12 @@ p = profile or {}
 # screen too — a page-load flicker on five pages that asked for none.
 # st.container(key=…) renders .st-key-tl_playbook_form around this form.
 with st.container(key="tl_playbook_form"), st.form("strategy_form"):
-    st.markdown(f"##### {PLAYBOOK_SECTIONS[0]}")
+    # Two hashes, not five. This is the first heading under the page title
+    # and there is no h2 between them, so it IS the h2 — the original h5
+    # skipped three levels, and a first correction to h3 still skipped one.
+    # Measured in the browser both times; no CSS targets either level, so
+    # nothing about the look changes.
+    st.markdown(f"## {PLAYBOOK_SECTIONS[0]}")
     col1, col2 = st.columns(2)
     with col1:
         name = st.text_input(

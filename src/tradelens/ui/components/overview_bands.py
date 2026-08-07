@@ -226,7 +226,10 @@ def render_ranked_list(title: str, rows: Sequence[RankedRow], *, rankable: bool)
         )
     return (
         '<div class="tl-ranked">'
-        f'<h4 class="tl-ranked-title">{escape(str(title))}</h4>'
+        # h3, not h4: this sits under the band's own h2, and a skipped level
+        # is a screen reader announcing a section that is not there.
+        # Every style comes from the class, so the level is free.
+        f'<h3 class="tl-ranked-title">{escape(str(title))}</h3>'
         f'<ol class="tl-ranked-rows">{"".join(items)}</ol>'
         "</div>"
     )
