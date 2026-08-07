@@ -935,7 +935,7 @@ def test_the_review_step_hides_empty_groups_instead_of_listing_them():
 
 
 def test_the_review_step_offers_one_action_to_complete_missing_fields():
-    """"Hide empty groups and offer one 'complete N fields' action" (spec 6.2).
+    """ "Hide empty groups and offer one 'complete N fields' action" (spec 6.2).
 
     The word "complete" already appeared in the passive heading
     "Completeness", which is why the plan's assertion above passes on a review
@@ -973,7 +973,7 @@ def test_the_screenshot_waiting_state_reserves_its_height():
 
 
 def test_the_waiting_state_holds_its_height_so_results_do_not_jump():
-    """"Waiting state holds its height — no collapse-and-jump" (spec 6.2).
+    """ "Waiting state holds its height — no collapse-and-jump" (spec 6.2).
 
     A class name in the source proves nothing about geometry. The pending
     block is what stands where the detection panel will land, so it has to
@@ -985,9 +985,9 @@ def test_the_waiting_state_holds_its_height_so_results_do_not_jump():
     css = ds.build_css()
     block = next((b for b in css.split("}") if "st-key-tl_analysis_pending" in b), "")
     assert block, "no rule reserves the analysis pending state's height"
-    assert re.search(r"min-height:\s*\d", block), (
-        "the pending state must reserve a height, not collapse to its content"
-    )
+    assert re.search(
+        r"min-height:\s*\d", block
+    ), "the pending state must reserve a height, not collapse to its content"
 
 
 def test_no_wizard_surface_uses_an_emoji_as_an_icon():

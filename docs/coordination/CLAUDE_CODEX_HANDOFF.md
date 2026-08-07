@@ -20,8 +20,10 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 2 COMPLETE — AWAITING COMPREHENSIVE CODEX REVIEW`
-- Last completed work: **Task 17** — the 10K re-score (this commit), which
+- Current phase: `PHASE 2 CODEX REMEDIATION COMPLETE — CLAUDE PARTNER UI AMENDMENTS NEXT`
+- Last completed work: **Codex comprehensive-review remediation** — Partner
+  output enforcement, zero-trade model/cost gating, and Partner session cleanup
+  on sign-out. Before it: **Task 17** — the 10K re-score, which
   completes **Tasks 1–17**. Before it: Task 16 (`ac8f20e`), Task 15
   (`3de1f43`), Task 14 (`db6be6d`), and Tasks 12 and 13, the AI Reviews reading shell
   (`cd1273c`) and the Strategy/Settings/auth surface (`c8952dd`). Before
@@ -42,16 +44,15 @@ the same time.
   only ever 360 or 240, calendar 7-across with 47x44 cells at coarse 375, rail
   and bottom bar never both on screen. The Journal calendar was re-verified
   after the shared key rename.
-- Next owner: **`CODEX`**.
-- Next action: **the comprehensive Codex Phase 2 review** — security,
-  tenant isolation, AI safety, full test and CI gates over the complete diff
-  `eaeca32`…HEAD. The open items are listed in the Task 17 handoff-log entry
-  below, headed by the Streamlit dataframe `aria-sort` limitation — one scoped
-  commit and verification record per task — then release the lock to `NONE`
-  and hand the complete Phase 2 diff to Codex.
-- **No interim Codex review is requested.** The comprehensive Codex review
-  remains scheduled after Task 17.
-- No tasks remain. Phase 2 is complete.
+- Next owner: **`CLAUDE`**.
+- Next action: **complete the Partner presentation amendments from the Codex
+  review** — ownerless/AI-disabled availability, no-trades and no-profile
+  states, immediate clear, stable sending state, and desktop/full-page
+  exclusivity — without changing the Codex-owned service or safety boundary.
+- The comprehensive Codex review has been performed. One final focused Codex
+  re-review is required after the Partner presentation amendments.
+- Tasks 1–17 are implemented, but Phase 2 is not approved until the remaining
+  Partner presentation amendments pass a final Codex re-review.
 - Task 4 interfaces are present exactly as planned and verified green
   (`tests/test_metrics.py` + `tests/test_partner_context.py`, 129 passed).
   Claude must consume them, never reproduce their calculations or open a
@@ -213,6 +214,48 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-07 — Comprehensive Codex review remediation
+
+**Scope:** Codex-owned AI safety, grounding, authentication/session lifecycle,
+and CI-format remediation only. No schema, model routing, prompt, tenant query,
+or design-direction change.
+
+**Verified defects corrected:**
+
+- The Partner post-check accepted explicit position instructions that avoided
+  its original exact marker list. Instruction-shaped patterns now redirect to
+  the existing retrospective response; three reproduced outputs are pinned.
+- The global Partner ignored `completed_trade_count` and called/logged the model
+  with no completed records. `send_turn` now stops before model and usage calls
+  when the approved context adapter reports zero completed trades.
+- Sign-out copy promised the conversation ended, but authentication cleanup left
+  history, errors, pending suggestions, composer state, and drawer-open state in
+  `session_state`. One pure cleanup boundary now removes all ephemeral Partner
+  keys before ending authentication.
+- The comprehensive gate found two committed tests that Black would reformat;
+  both were formatted without changing their assertions.
+
+**TDD evidence:** the five new cases failed on the reviewed branch for the
+expected reasons, then passed after the minimal changes. Focused Partner/auth
+verification: `205 passed`. Complete suite: `2002 passed, 7 skipped`.
+
+**Claude-owned presentation work still required before Phase 2 approval:**
+
+1. Do not render an actionable launcher/composer for an ownerless legacy account;
+   show accurate account-required availability without weakening user scoping.
+2. Gate the surface with the existing AI-availability helper instead of opening
+   a dead end.
+3. Render the specified no-trades and no-Strategy-Profile states using only the
+   approved context adapter; no second data-access path.
+4. Add immediate Clear conversation and the two-pass sending state (disabled
+   composer, stable prior turns, polite live status).
+5. Make the full-page Partner presentation bottom-nav-only. A desktop direct
+   `/Partner` route must not coexist with the global launcher/drawer.
+
+Claude must not alter `services/partner.py`, AI prompts/routing, authentication
+semantics, tenant scoping, database schema, or cost logging. Return to Codex for
+the final Phase 2 gate before Impeccable.
 
 ### 2026-08-06 — Phase 2 COMPLETE: Task 17 and the final handoff (Claude)
 

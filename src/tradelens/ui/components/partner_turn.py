@@ -44,6 +44,11 @@ UNEXPECTED_ERROR = "AI is temporarily unavailable. Please try again."
 # retry something that cannot succeed.
 NO_USER_ERROR = "Sign in to use the AI Partner."
 
+# A global reflective answer must have at least one completed record behind it.
+# This is enforced in the send path even when the presentation fails to hide
+# its composer, so an empty account can never spend on an invented review.
+NO_TRADES_ERROR = "Log at least one completed trade before using the AI Partner."
+
 HISTORY_PREFIX = "partner_history_"
 ERROR_PREFIX = "partner_error_"
 
@@ -185,6 +190,10 @@ def send_turn(
         return TurnResult(ok=False, error=str(exc))
     except Exception:
         return _contain("AI Partner context assembly failed")
+
+    if int(getattr(context, "completed_trade_count", 0) or 0) <= 0:
+        state[error_key(user_id)] = NO_TRADES_ERROR
+        return TurnResult(ok=False, error=NO_TRADES_ERROR)
 
     labels = context_used_rows(context)
 

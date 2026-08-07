@@ -12,6 +12,7 @@ memory is injected centrally by ai_client — never re-injected here.
 """
 
 import json
+import re
 from typing import Optional
 
 from src.tradelens.services.ai_client import AIUnavailable, Usage, converse, load_prompt
@@ -71,6 +72,15 @@ _SIGNAL_MARKERS = (
     "i predict",
     "will likely rally",
     "will likely drop",
+)
+
+# Imperative or future position instructions that do not contain the exact
+# phrases above. These are deliberately shaped around instructions so normal
+# retrospective prose such as "the trade was long" remains reviewable.
+_POSITION_INSTRUCTION_PATTERNS = (
+    r"\b(?:open|enter|take)\s+(?:a\s+)?(?:long|short)\s+(?:position|trade)\b",
+    r"\bpurchase\b[^\n.!?]{0,80}\b(?:tomorrow|next\s+(?:session|week)|at\s+the\s+open)\b",
+    r"\bconsider\s+(?:going|getting)\s+(?:long|short)\b",
 )
 
 _DEMO_PARTNER_REPLY = (
@@ -226,7 +236,9 @@ def _summarize(older: list) -> str:
 def _apply_scope_guard(text: str) -> str:
     """Replace any signal-seeking / predictive reply with the redirect message."""
     low = text.lower()
-    if any(marker in low for marker in _SIGNAL_MARKERS):
+    if any(marker in low for marker in _SIGNAL_MARKERS) or any(
+        re.search(pattern, low) for pattern in _POSITION_INSTRUCTION_PATTERNS
+    ):
         return _REDIRECT_MESSAGE
     return text
 

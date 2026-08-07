@@ -150,6 +150,22 @@ def test_apply_scope_guard_fires_on_signal_seeking():
     )
 
 
+@pytest.mark.parametrize(
+    "unsafe_reply",
+    (
+        "Open a short position in EURUSD at 1.08 with a stop at 1.09.",
+        "Purchase TSLA tomorrow at the open.",
+        "Consider going long NQ on the next pullback.",
+    ),
+)
+def test_apply_scope_guard_rejects_position_instructions(unsafe_reply):
+    """The post-check must catch instructions even when they avoid the
+    original handful of exact marker phrases."""
+    from src.tradelens.services.partner import _REDIRECT_MESSAGE, _apply_scope_guard
+
+    assert _apply_scope_guard(unsafe_reply) == _REDIRECT_MESSAGE
+
+
 def test_apply_scope_guard_passes_normal_review():
     from src.tradelens.services.partner import _apply_scope_guard
 

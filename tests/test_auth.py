@@ -197,3 +197,23 @@ def test_persist_token_rotates_before_expiry():
     assert fresh != aging  # rotated
     assert auth._verify_token(fresh) == ("ayoub", 3)
     assert fake_st.query_params["auth"] == fresh  # URL updated too
+
+
+def test_sign_out_cleanup_removes_all_partner_session_state():
+    """Conversation copy promises that signing out ends the session."""
+    state = {
+        "authenticated": True,
+        "current_user": "ayoub",
+        "current_user_id": 7,
+        "partner_open": True,
+        "partner_history_7": [{"role": "user", "content": "private"}],
+        "partner_error_7": "failure",
+        "partner_in_drawer": "draft",
+        "_partner_pending_drawer": "suggestion",
+        "secondary_partner_drawer_chip_0": True,
+        "unrelated_preference": "keep",
+    }
+
+    auth._clear_session_state_for_sign_out(state)
+
+    assert state == {"unrelated_preference": "keep"}

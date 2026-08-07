@@ -282,6 +282,17 @@ def require_auth() -> None:
     st.stop()
 
 
+def _clear_session_state_for_sign_out(state) -> None:
+    """Remove authentication and ephemeral Partner data from one session."""
+    for key in (_AUTH_KEY, _USER_KEY, _UID_KEY, _ERROR_KEY, _MODE_KEY, _TOKEN_KEY):
+        state.pop(key, None)
+
+    partner_prefixes = ("partner_", "_partner_pending_", "secondary_partner_")
+    for key in list(state):
+        if str(key).startswith(partner_prefixes):
+            state.pop(key, None)
+
+
 def sign_out(rerun: bool = True) -> None:
     """Clear the session and the persisted token.
 
@@ -291,9 +302,8 @@ def sign_out(rerun: bool = True) -> None:
     """
     import streamlit as st
 
+    _clear_session_state_for_sign_out(st.session_state)
     st.session_state[_AUTH_KEY] = False
-    for key in (_USER_KEY, _UID_KEY, _ERROR_KEY, _MODE_KEY, _TOKEN_KEY):
-        st.session_state.pop(key, None)
     st.query_params.pop(_TOKEN_PARAM, None)
     if rerun:
         st.rerun()

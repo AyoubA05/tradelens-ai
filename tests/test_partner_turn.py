@@ -127,6 +127,33 @@ def test_blank_input_does_nothing_at_all():
     assert state == {}
 
 
+def test_zero_completed_trades_never_calls_or_bills_the_model():
+    """A post-trade Partner has nothing grounded to review without a trade."""
+    model = _recorder()
+    usage = _recorder()
+    state = {}
+
+    result = send_turn(
+        state,
+        user_id=7,
+        text="What did I repeat?",
+        **_wire(
+            build_context=lambda *, user_id: FakeContext(
+                context_text="",
+                completed_trade_count=0,
+                journal_entry_count=0,
+            ),
+            partner_reply=model,
+            log_ai_usage=usage,
+        ),
+    )
+
+    assert result.ok is False
+    assert "completed trade" in (result.error or "").lower()
+    assert model.calls == []
+    assert usage.calls == []
+
+
 # ---------------------------------------------------------------------------
 # History projection and per-turn labels
 # ---------------------------------------------------------------------------
