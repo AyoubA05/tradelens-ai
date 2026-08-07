@@ -19,11 +19,11 @@ the same time.
 
 ## Current handoff state
 
-- Active writer: `CLAUDE`
-- Current phase: `PHASE 2 IN PROGRESS — TASK 16 DONE, RESUME AT TASK 17`
-- Last completed work: **Task 16** — the cross-page audit (this commit).
-  Before it: Task 15, the phone destination (`3de1f43`), Task 14, the desktop
-  drawer (`db6be6d`), and Tasks 12 and 13, the AI Reviews reading shell
+- Active writer: `NONE`
+- Current phase: `PHASE 2 COMPLETE — AWAITING COMPREHENSIVE CODEX REVIEW`
+- Last completed work: **Task 17** — the 10K re-score (this commit), which
+  completes **Tasks 1–17**. Before it: Task 16 (`ac8f20e`), Task 15
+  (`3de1f43`), Task 14 (`db6be6d`), and Tasks 12 and 13, the AI Reviews reading shell
   (`cd1273c`) and the Strategy/Settings/auth surface (`c8952dd`). Before
   them: Tasks 10 and 11 — Analytics on one instrument shape
   (`eaeca32`) and the pure review document model (`df07a11`). Before them:
@@ -34,7 +34,7 @@ the same time.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification at Task 16: `1997 passed, 7 skipped` · Ruff clean · Black clean
+- Verification at Task 17: `1997 passed, 7 skipped` · Ruff clean · Black clean
   · `git diff --check` clean · all four Analytics lenses verified at 1440,
   1024, coarse 768 and coarse 375 plus reduced motion, with the pointer state
   and the reduced-motion state asserted from the page at every applicable row
@@ -42,14 +42,16 @@ the same time.
   only ever 360 or 240, calendar 7-across with 47x44 cells at coarse 375, rail
   and bottom bar never both on screen. The Journal calendar was re-verified
   after the shared key rename.
-- Next owner: **`CLAUDE`**.
-- Next action: **finish the approved Phase 2 master directive at Task 17**
-  (the 10K checklist re-score and the final handoff) — one scoped
+- Next owner: **`CODEX`**.
+- Next action: **the comprehensive Codex Phase 2 review** — security,
+  tenant isolation, AI safety, full test and CI gates over the complete diff
+  `eaeca32`…HEAD. The open items are listed in the Task 17 handoff-log entry
+  below, headed by the Streamlit dataframe `aria-sort` limitation — one scoped
   commit and verification record per task — then release the lock to `NONE`
   and hand the complete Phase 2 diff to Codex.
 - **No interim Codex review is requested.** The comprehensive Codex review
   remains scheduled after Task 17.
-- Task 17 remains: the 10K checklist re-score and the final handoff.
+- No tasks remain. Phase 2 is complete.
 - Task 4 interfaces are present exactly as planned and verified green
   (`tests/test_metrics.py` + `tests/test_partner_context.py`, 129 passed).
   Claude must consume them, never reproduce their calculations or open a
@@ -211,6 +213,101 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-06 — Phase 2 COMPLETE: Task 17 and the final handoff (Claude)
+
+**Commit:** see `docs(audit): re-score the 10K checklist against the dark
+workspace`. **Tasks 1–17 are done. Phase 2 is ready for the comprehensive
+Codex review.**
+
+**Phase 2 commits, in order:**
+
+| Commit | Task |
+|---|---|
+| `eaeca32` | 10 — Analytics, one instrument shape |
+| `df07a11` | 11 — the pure review document model |
+| `cd1273c` | 12 — the AI Reviews reading shell |
+| `c8952dd` | 13 — Strategy, Settings, auth surface |
+| `db6be6d` | 14 — the AI Partner desktop drawer |
+| `3de1f43` | 15 — the AI Partner phone destination |
+| `ac8f20e` | 16 — the cross-page audit |
+| this one | 17 — the 10K re-score |
+
+(Tasks 1–9 landed in earlier sessions; `db54c56` and `85ee83a` are the two
+session-boundary handoffs.)
+
+**Final verification:** `1997 passed, 7 skipped` (Phase 2 start: `1833/7`;
+**+164 tests**). Ruff clean. Black clean (88 files). `git diff --check` clean.
+Dev database byte-identical throughout (`md5 dffdb781…`, `Jul 31`) — every
+browser run used a scratchpad **copy** pointed at by `DATABASE_URL`.
+
+**The re-score: seven of eight targets met.**
+Full working in `docs/superpowers/audits/2026-08-06-phase2-dark-rescore.md`;
+summary appended to `docs/audits/2026-07-21-10k-checklist-business-audit.md`.
+
+| # | Item | Baseline | Target | Result |
+|---|---|---:|---:|---:|
+| 01 | Point of view | 7.5 | 8.5 | 8.5 |
+| 02 | Typography | 8.0 | 8.5 | 8.5 |
+| 03 | Restrained colour | 8.5 | 9.0 | 9.0 |
+| 04 | Hierarchy that breathes | 6.5 | 8.5 | 8.5 |
+| 05 | Imagery with intent | 6.5 | 7.5 | **6.5 — NOT ATTEMPTED** |
+| 06 | Motion that whispers | 6.0 | 7.5 | 7.5 |
+| 07 | Mobile, designed not shrunk | 5.5 | 7.5 | 8.0 |
+| 08 | The invisible expensive stuff | 4.5 | 7.0 | 7.0 |
+
+Streamlit product polish 64/100 → 80/100. Business scores untouched — this
+phase did not touch the funnel, policies or activation.
+
+**Item 05 was in scope and was not done.** Task 17 Step 2 asks for re-captured
+product screenshots from coherent seeded data; that was not performed, so the
+item keeps its baseline rather than inheriting credit from the product
+improvements around it. The capture harness exists and is proven; what remains
+is listed in the re-score.
+
+**Open items for the Codex review**, in the order they matter:
+
+1. **`aria-sort` is `null`** on Streamlit's dataframe column headers, and its
+   **four toolbar controls carry no accessible names**. Spec §6.3 and §12
+   require both. Fixing either needs JavaScript injection — forbidden this
+   phase — or replacing the ledger with an authored table. Carried unchanged
+   through Tasks 9, 10, 12, 13 and 16, and **no task was expanded into a ledger
+   replacement**. This is Codex's call.
+2. **Focus visibility is not verified.** The sweep used programmatic
+   `element.focus()` and `:focus-visible` does not match it, so its counts
+   measure the probe, not the product. Needs real `Tab` dispatch.
+3. **Tab order is not verified** by key dispatch. The Partner drawer's "Close
+   is the first tab stop" rests on DOM order.
+4. **The scoping audit matches call sites by name**, so
+   `build_context=build_global_partner_context` — a reference, not a call — is
+   invisible to it. Scoping is enforced and separately tested; flagged so Codex
+   can decide whether the audit should follow references.
+5. **The Partner drawer is non-modal** by necessity: a focus trap needs
+   JavaScript, so it claims no `aria-modal` and draws no scrim.
+6. **Per-finding confidence badges** are no longer rendered beside each finding
+   — the consequence of §7.2's one-rail-per-note rule. The note's stated
+   confidence is the **floor** across its findings, never the peak.
+7. One adjacent target pair under 8 px on Journal at 768 and Strategy at all
+   widths, both halves of one field group.
+8. `TL_RULE = #AFBEC0` is still a light-surface value; `theme.py` compatibility
+   names still lie; the note-surface CSS comment still says "light workspace".
+
+**What Phase 2 found that the plan did not.** Recorded because the pattern
+recurred: **the plan's own tests passed against unchanged code in four of the
+eight tasks**, and two supplied implementations carried defects their own
+suites could not see — the review parser's colliding ids and length-blind
+fences, and the Partner's abandoned-question retry, which would have sent the
+model two questions and billed the trader for both. Three contracts in this
+phase were broken by a **comment about the thing they guard**. Six CDP
+measurement corrections are recorded across the log; the fifth and sixth
+produced false negatives, and every earlier claim they touched was re-measured
+rather than assumed to still hold.
+
+**State:** app and Chrome processes stopped. `.impeccable/` untouched and
+unstaged. Nothing pushed, merged, or deployed. Impeccable and Emil motion work
+not started.
+
+
 
 ### 2026-08-06 — Phase 2 Task 16: the cross-page audit (Claude)
 

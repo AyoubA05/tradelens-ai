@@ -416,3 +416,34 @@ a person, not a commit:
   token survives in the served HTML.
 - All five CTAs point at the configured app origin.
 - 1173 tests pass; ruff and black clean.
+
+---
+
+## Phase 2 re-score — 2026-08-06
+
+The dark-workspace redesign (Phase 2, Tasks 1–16, branch
+`codex/full-dark-streamlit-redesign`) re-scores the **app** against the eight
+items. The marketing site, public funnel, policies and activation measurement
+are untouched by that phase and keep the scores above.
+
+Full working: `docs/superpowers/audits/2026-08-06-phase2-dark-rescore.md`.
+
+| # | Item | This audit (app) | Phase 2 target | Phase 2 result |
+|---|---|---:|---:|---:|
+| 01 | Point of view, not a template | 7.5 | 8.5 | **8.5** |
+| 02 | Typography that does work | 8.0 | 8.5 | **8.5** |
+| 03 | A restrained colour system | 8.5 | 9.0 | **9.0** |
+| 04 | Hierarchy that breathes | 6.5 | 8.5 | **8.5** |
+| 05 | Imagery with intent | 6.5 | 7.5 | **6.5 — not attempted** |
+| 06 | Motion that whispers | 6.0 | 7.5 | **7.5** |
+| 07 | Mobile that is designed, not shrunk | 5.5 | 7.5 | **8.0** |
+| 08 | The invisible expensive stuff | 4.5 | 7.0 | **7.0** |
+
+**Streamlit product polish: 64/100 → 80/100.** Seven of eight targets met.
+Item 05 was in scope and was not done, so it keeps its baseline rather than
+inheriting credit from the product improvements around it.
+
+Item 05's remaining work — and the four accessibility items still open,
+including the Streamlit dataframe's null `aria-sort` — are listed in the
+re-score document. This phase is pre-Codex: nothing is merged, pushed or
+deployed.
