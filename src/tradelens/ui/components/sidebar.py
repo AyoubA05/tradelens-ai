@@ -361,6 +361,13 @@ def render_sidebar(df=None, today=None) -> None:
         render_partner_drawer,
         render_partner_launcher,
     )
+    from src.tradelens.ui.components.partner_turn import begin_partner_run
+
+    # Stamped once per script run, before either presentation renders, so both
+    # see the same number. A queued question is only sendable on the run
+    # immediately after the one that made it — which is what stops a
+    # CSS-hidden presentation spending on a screen nobody is looking at.
+    begin_partner_run(st.session_state)
 
     render_partner_launcher(st)
     render_partner_drawer(st)

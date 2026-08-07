@@ -29,7 +29,11 @@ from src.tradelens.services.partner import PartnerError, partner_reply
 from src.tradelens.services.partner_context import build_global_partner_context
 from src.tradelens.ui.components.partner_turn import (
     CONTEXT_USED_LABEL,
+    QUEUE_KEY,
     QUESTION_DISCARDED,
+    claim_question,
+    current_run,
+    queue_question,
     clear_conversation,
     context_used_for,
     error_key,
@@ -163,8 +167,21 @@ def render_partner_body(st, *, surface: str) -> None:
     """
     uid, state = _availability(st)
     history = st.session_state.get(history_key(uid)) or []
-    busy_key = f"_partner_busy_{surface}"
-    busy = bool(st.session_state.get(busy_key))
+    run_id = current_run(st.session_state)
+    # This presentation is "sending" only if the queue is its own AND was made
+    # by the run immediately before this one. Both bodies execute on every run
+    # regardless of which the width shows, so a queue that survives longer
+    # belongs to a run nobody finished watching.
+    queued = st.session_state.get(QUEUE_KEY)
+    mine = isinstance(queued, dict) and queued.get("surface") == surface
+    busy = mine and int(queued.get("run") or 0) + 1 == run_id
+    if mine and not busy:
+        # Mine, but from a run that never came back — the trader navigated
+        # away, the socket dropped, the tab closed. Discard it HERE, on the
+        # healthy path too: skipping it would leave it in place for whichever
+        # run next happened to land adjacent, which is the invisible send this
+        # whole mechanism exists to prevent.
+        st.session_state.pop(QUEUE_KEY, None)
 
     # Turns first, always. Whatever else this render is doing — refusing,
     # sending, or reporting a failure — the conversation the trader already
@@ -178,8 +195,7 @@ def render_partner_body(st, *, surface: str) -> None:
         # survive to be sent by some later pass that happens to find
         # availability restored — that would be model usage, and a bill, that
         # the trader never asked for. Discard it here and say so.
-        discarded = st.session_state.pop(f"_partner_pending_{surface}", None)
-        st.session_state.pop(busy_key, None)
+        discarded = claim_question(st.session_state, surface=surface, run_id=run_id)
 
         # No composer at all. A disabled one would still read as "type here",
         # and an enabled one would refuse every submission.
@@ -222,7 +238,9 @@ def render_partner_body(st, *, surface: str) -> None:
                 key=f"secondary_partner_{surface}_chip_{i}",
                 disabled=busy,
             ):
-                st.session_state[f"_partner_pending_{surface}"] = question
+                queue_question(
+                    st.session_state, surface=surface, text=question, run_id=run_id
+                )
                 st.rerun()
 
     error = st.session_state.get(error_key(uid))
@@ -232,7 +250,6 @@ def render_partner_body(st, *, surface: str) -> None:
             unsafe_allow_html=True,
         )
 
-    pending = st.session_state.get(f"_partner_pending_{surface}")
     typed = st.chat_input(
         "Ask about a trade you have logged",
         key=f"partner_in_{surface}",
@@ -251,8 +268,7 @@ def render_partner_body(st, *, surface: str) -> None:
             "Reading your journal…</p>",
             unsafe_allow_html=True,
         )
-        question = st.session_state.pop(f"_partner_pending_{surface}", None)
-        st.session_state[busy_key] = False
+        question = claim_question(st.session_state, surface=surface, run_id=run_id)
         if question:
             send_turn(
                 st.session_state,
@@ -267,14 +283,13 @@ def render_partner_body(st, *, surface: str) -> None:
         st.rerun()
         return
 
-    question = pending or typed
-    if question:
+    if typed:
         # First pass records the intent and reruns. A Streamlit widget cannot
         # become disabled inside its own handler — the script run is blocking,
         # so the browser holds a live composer for the whole call unless the
-        # disabled state is rendered on a pass of its own.
-        st.session_state[f"_partner_pending_{surface}"] = question
-        st.session_state[busy_key] = True
+        # disabled state is rendered on a pass of its own. The queue is stamped
+        # with this run, which is what limits it to the single rerun it needs.
+        queue_question(st.session_state, surface=surface, text=typed, run_id=run_id)
         st.rerun()
 
 

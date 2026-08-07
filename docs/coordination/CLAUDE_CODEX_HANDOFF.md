@@ -20,8 +20,11 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 2 — PARTNER AMENDMENTS ROUND 2 COMPLETE, AWAITING CODEX`
-- Last completed work: **Claude's Partner amendments round 2** (this commit) —
+- Current phase: `PHASE 2 — PARTNER AMENDMENTS ROUND 3 COMPLETE, AWAITING CODEX`
+- Last completed work: **Claude's Partner amendments round 3** (this commit) —
+  Codex's hidden-surface spending blocker: a queued question now expires with
+  the run that made it, so a CSS-hidden presentation can never call the model.
+  Before it: **round 2** (`5805968`) —
   the four findings from Codex's review of `ebdba27`: a safe context-failure
   state, no auto-send after an interrupted queue, the profile notice with
   history, and the full-page Partner restricted to bottom-navigation widths.
@@ -43,7 +46,7 @@ the same time.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification at Partner amendments round 2: `2052 passed, 7 skipped` · Ruff clean · Black clean
+- Verification at Partner amendments round 3: `2060 passed, 7 skipped` · Ruff clean · Black clean
   · `git diff --check` clean · all four Analytics lenses verified at 1440,
   1024, coarse 768 and coarse 375 plus reduced motion, with the pointer state
   and the reduced-motion state asserted from the page at every applicable row
@@ -225,6 +228,90 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-07 — Partner amendment round 3: no invisible spending (Claude)
+
+**Commit:** see `fix(partner): a queued question expires with the run that
+made it`. Codex's blocker was real and is closed. Services and `auth.py` are
+untouched — the diff against `c78b2a0` for both is empty.
+
+**The defect, reproduced.** Both presentations execute server-side on every
+run; CSS decides which a width *shows*, and Streamlit cannot read the
+viewport. So `_partner_busy_page` / `_partner_pending_page` left behind by a
+run that never finished — the trader navigated away, the socket dropped, the
+tab closed — would be picked up later by the page body executing **hidden** at
+a rail width, and sent. Same for the drawer at phone widths, where
+`partner_open` keeps its body executing while CSS hides it. Model usage and a
+bill with no visible cause.
+
+**The fix: a queued question expires with the run that made it.**
+
+- **One queue, not one per presentation.** `_partner_queue` replaces
+  `_partner_pending_{surface}` and `_partner_busy_{surface}`. Two queues meant
+  the hidden presentation had its own turn to fire.
+- **The queue carries its surface**, so on `/Partner` — where both bodies
+  render in one run — the hidden one cannot claim what the visible one queued.
+- **The queue carries its run.** `begin_partner_run` stamps once per script
+  run in the shell, before either body renders. A queue is claimable only on
+  the run *immediately* after the one that made it, which is exactly the
+  single rerun the two-pass pattern needs and nothing more.
+- **A stale queue is discarded, not skipped** — on the healthy path too. Left
+  in place it would be claimed by whichever run next landed adjacent to it.
+
+No viewport knowledge, no JavaScript, no change to services, auth, schema or
+tenant scoping. One shared conversation and the 768 breakpoint behaviour are
+unchanged.
+
+**Mutation checks — and two that did not catch on the first attempt.**
+
+| Mutation | Caught |
+|---|---|
+| run-adjacency check removed | yes |
+| stale queue skipped instead of discarded | yes |
+| **surface check removed** | **no, first time** |
+| **shell stops stamping the run** | **no, first time** |
+
+The surface-check mutation **never applied**: my replacement string did not
+match because a comment sits between the two lines. Re-applied through an
+index-guided edit, the test failed correctly. The shell-stamp mutation was a
+genuine **test gap** — every test drove `begin_partner_run` itself, so nothing
+asserted the shell does. Two tests were added: one pins that the shell stamps
+exactly once and before both bodies, the other that an unstamped session can
+never claim a queue, so the failure direction is "stops sending" rather than
+"sends invisibly". Both now fail under their mutations.
+
+Recording this because it is the fourth time in this phase a mutation check
+has passed for the wrong reason. A mutation that does not apply looks
+identical to a guard that works.
+
+**Browser evidence — 8 combinations, all clean.**
+
+| Route | Width | Presentations | Page visible | **Focusables in page** | Launcher |
+|---|---|---|---|---|---|
+| /Partner | 1440, 1024, coarse 768 | 1 | no | **0** | yes |
+| /Partner | coarse 375 | 1 | yes | 5 | no |
+| /Partner reduced motion | 1440, coarse 375 | 1 | as above | 0 / 5 | as above |
+| Analytics | 1440 / coarse 375 | 1 / 0 | never | 0 | yes / no |
+
+Zero exceptions, overflow and undersized targets throughout; pointer and
+reduced-motion state read back from the page. **Sending still works end to
+end**: driven at coarse 375, 0 turns → chip → 2 turns, with the profile notice
+preserved and Clear appearing.
+
+**Verification:** `2060 passed, 7 skipped` (was `2052/7`; +8); Ruff clean;
+Black clean; `git diff --check` clean. Dev database byte-identical
+(`md5 dffdb781…`).
+
+**The UX tradeoff, stated.** Streamlit has no server-side viewport knowledge,
+so the hidden presentation still *executes* — it builds one context (a read,
+never a model call) and renders into markup CSS hides. Preventing invisible
+model usage took priority, as instructed, and that is now structural: a hidden
+surface cannot initiate `send_turn`, cannot consume usage, and cannot mutate
+the queue except to discard a stale entry it owns. The remaining cost is one
+redundant database read per hidden render. Removing it would need client
+viewport knowledge, which means JavaScript.
+
+
 
 ### 2026-08-07 — Partner amendments round 2 (Claude)
 

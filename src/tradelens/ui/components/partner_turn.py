@@ -66,6 +66,17 @@ QUESTION_DISCARDED = (
     "That question was not sent. Ask it again when the Partner is available."
 )
 
+# ONE queue for the whole product, not one per presentation. Both the drawer
+# and the page execute server-side on every run — CSS decides which a width
+# *shows*, and Streamlit cannot read the viewport — so two queues would mean
+# the hidden presentation had its own turn to fire, spending a trader's money
+# on a screen nobody is looking at.
+QUEUE_KEY = "_partner_queue"
+
+# The run counter the queue is stamped against. Incremented once per script
+# run by the shell, before either presentation renders.
+RUN_KEY = "_partner_run"
+
 HISTORY_PREFIX = "partner_history_"
 ERROR_PREFIX = "partner_error_"
 
@@ -232,6 +243,67 @@ def partner_availability(
     )
 
 
+def begin_partner_run(state: MutableMapping) -> int:
+    """Stamp this script run and return its id.
+
+    Called once per run by the shell, before either presentation renders, so
+    both see the same number. It is what makes "the run immediately after the
+    one that queued" a thing the server can check without knowing anything
+    about the browser.
+    """
+    run_id = int(state.get(RUN_KEY) or 0) + 1
+    state[RUN_KEY] = run_id
+    return run_id
+
+
+def current_run(state: MutableMapping) -> int:
+    return int(state.get(RUN_KEY) or 0)
+
+
+def queue_question(
+    state: MutableMapping, *, surface: str, text: str, run_id: int
+) -> None:
+    """Record the intent to send, for exactly one following run.
+
+    The surface is stored because a queue belongs to the presentation the
+    trader acted on; the run is stored because a queue that outlives its own
+    rerun is a queue nobody is watching.
+    """
+    state[QUEUE_KEY] = {"surface": surface, "text": text, "run": int(run_id)}
+
+
+def claim_question(
+    state: MutableMapping, *, surface: str, run_id: int
+) -> Optional[str]:
+    """Take the queued question if this run is allowed to send it.
+
+    Two conditions, both necessary:
+
+    * **Same surface.** On the Partner route both presentations render in one
+      run. Without this the hidden one could send what the visible one queued.
+    * **The very next run.** A queue is created by a pass that ends in
+      `st.rerun()`, so the legitimate send is always exactly one run later. A
+      queue found any later belongs to a run that never finished — the trader
+      navigated away, the socket dropped, the tab closed — and by then nobody
+      is watching the screen that would send it.
+
+    A queue that fails either check is **removed**, not skipped: left in place
+    it would be claimed by whichever run next happened to land adjacent to it.
+    """
+    queued = state.get(QUEUE_KEY)
+    if not isinstance(queued, dict):
+        return None
+    if queued.get("surface") != surface:
+        # Not this presentation's to take, and not its to discard either —
+        # the surface that owns it may be about to claim it in this same run.
+        return None
+    state.pop(QUEUE_KEY, None)
+    if int(queued.get("run") or 0) + 1 != int(run_id):
+        return None
+    text = queued.get("text")
+    return text if isinstance(text, str) and text.strip() else None
+
+
 def clear_conversation(
     state: MutableMapping, *, user_id: object, surfaces: Sequence[str]
 ) -> None:
@@ -246,6 +318,7 @@ def clear_conversation(
     """
     state.pop(history_key(user_id), None)
     state.pop(error_key(user_id), None)
+    state.pop(QUEUE_KEY, None)
     for surface in surfaces:
         for prefix in ("_partner_pending_", "_partner_busy_", "partner_in_"):
             state.pop(f"{prefix}{surface}", None)

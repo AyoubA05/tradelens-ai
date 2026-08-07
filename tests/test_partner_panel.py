@@ -117,6 +117,7 @@ def test_the_authenticated_user_id_is_what_reaches_the_send_path(monkeypatch):
     matters is which owner the send path is given.
     """
     from src.tradelens.ui.components import partner_panel as pp
+    from src.tradelens.ui.components import partner_turn as pt
     from src.tradelens.ui.components.partner_turn import history_key
 
     seen = {}
@@ -130,14 +131,14 @@ def test_the_authenticated_user_id_is_what_reaches_the_send_path(monkeypatch):
     monkeypatch.setattr(pp, "build_global_partner_context", lambda *, user_id: _Ctx())
     monkeypatch.setattr(pp, "send_turn", spy)
 
-    fake = _RichFakeSt(
-        {
-            "_partner_busy_drawer": True,
-            "_partner_pending_drawer": "What did I repeat?",
-            history_key(7): [{"role": "user", "content": "What did I repeat?"}],
-        }
-    )
-    pp.render_partner_body(fake, surface="drawer")
+    state = {history_key(7): [{"role": "user", "content": "What did I repeat?"}]}
+    _seed_queue(state, surface="drawer", text="What did I repeat?")
+    fake = _RealisticSt(state)
+    pt.begin_partner_run(fake.session_state)
+    try:
+        pp.render_partner_body(fake, surface="drawer")
+    except _Rerun:
+        pass
     assert seen == {"user_id": 7, "text": "What did I repeat?"}
 
 
@@ -581,12 +582,16 @@ def test_the_composer_is_disabled_while_a_question_is_in_flight(monkeypatch):
     own — this asserts that pass produces it."""
     from src.tradelens.ui.components.partner_turn import history_key
 
-    state = {
-        "_partner_busy_drawer": True,
-        "_partner_pending_drawer": "What did I repeat?",
-        history_key(7): [{"role": "user", "content": "What did I repeat?"}],
-    }
-    fake = _render_body(monkeypatch, uid=7, ai_ready=True, context=_Ctx(), state=state)
+    state = {history_key(7): [{"role": "user", "content": "What did I repeat?"}]}
+    _seed_queue(state, surface="drawer", text="What did I repeat?")
+    fake = _render_realistic(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state=state,
+        send=_recorder_calls(),
+    )
     assert fake.chat_inputs[0]["disabled"] is True
     html = "\n".join(fake.html)
     assert 'aria-live="polite"' in html
@@ -597,14 +602,20 @@ def test_previous_turns_stay_on_screen_while_sending(monkeypatch):
     from src.tradelens.ui.components.partner_turn import history_key
 
     state = {
-        "_partner_busy_drawer": True,
-        "_partner_pending_drawer": "next question",
         history_key(7): [
             {"role": "user", "content": "EARLIER QUESTION"},
             {"role": "assistant", "content": "EARLIER ANSWER"},
-        ],
+        ]
     }
-    fake = _render_body(monkeypatch, uid=7, ai_ready=True, context=_Ctx(), state=state)
+    _seed_queue(state, surface="drawer", text="next question")
+    fake = _render_realistic(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state=state,
+        send=_recorder_calls(),
+    )
     rendered = "\n".join(fake.text + fake.html)
     assert "EARLIER QUESTION" in rendered and "EARLIER ANSWER" in rendered
 
@@ -653,15 +664,22 @@ def test_clear_is_offered_even_when_the_partner_can_no_longer_send(monkeypatch):
     assert "Clear conversation" in fake.buttons
 
 
+def _chips_busy_state():
+    state = {}
+    _seed_queue(state, surface="drawer", text="in flight")
+    return state
+
+
 def test_the_suggestion_chips_are_disabled_while_sending(monkeypatch):
     """They queue a question, so a live chip during a call would stack a
     second one behind the first."""
-    fake = _render_body(
+    fake = _render_realistic(
         monkeypatch,
         uid=7,
         ai_ready=True,
         context=_Ctx(),
-        state={"_partner_busy_drawer": True},
+        state=_chips_busy_state(),
+        send=_recorder_calls(),
     )
     chips = [b for b in fake.buttons if b in partner_panel.SUGGESTED_QUESTIONS]
     assert chips, "the empty state still offers its chips"
@@ -804,13 +822,41 @@ class _RealisticSt(_RichFakeSt):
     test passed while the defect was live.
     """
 
-    def __init__(self, state=None):
+    def __init__(self, state=None, types=None):
         super().__init__(state)
         self.session_state = state if state is not None else {}
+        self._types = types
+
+    def chat_input(self, placeholder, **kwargs):
+        """Submit `types` once, as a trader pressing enter would.
+
+        Driving the real composer matters: seeding the queue by hand would
+        test the reader of a session key rather than the path that writes it.
+        """
+        self.chat_inputs.append(
+            {"placeholder": placeholder, "disabled": bool(kwargs.get("disabled"))}
+        )
+        if kwargs.get("disabled"):
+            return None
+        value, self._types = self._types, None
+        return value
 
     def rerun(self):
         self.reran += 1
         raise _Rerun()
+
+
+def _seed_queue(state, *, surface, text):
+    """Leave a queue that the NEXT run is entitled to claim.
+
+    Stamped with the current run, because `begin_partner_run` bumps the counter
+    before the body reads it — which is exactly the adjacency the product
+    relies on. Seeding an arbitrary number would test a situation the product
+    cannot produce.
+    """
+    from src.tradelens.ui.components.partner_turn import current_run, queue_question
+
+    queue_question(state, surface=surface, text=text, run_id=current_run(state))
 
 
 def _render_realistic(
@@ -823,8 +869,10 @@ def _render_realistic(
     surface="drawer",
     build_raises=False,
     send=None,
+    types=None,
 ):
     from src.tradelens.ui.components import partner_panel as pp
+    from src.tradelens.ui.components.partner_turn import begin_partner_run
 
     monkeypatch.setattr("src.tradelens.ui.components.auth.current_user_id", lambda: uid)
     monkeypatch.setattr(pp, "ai_available", lambda: ai_ready)
@@ -837,7 +885,8 @@ def _render_realistic(
     monkeypatch.setattr(pp, "build_global_partner_context", _build)
     if send is not None:
         monkeypatch.setattr(pp, "send_turn", send)
-    fake = _RealisticSt(state)
+    fake = _RealisticSt(state, types=types)
+    begin_partner_run(fake.session_state)
     try:
         pp.render_partner_body(fake, surface=surface)
     except _Rerun:
@@ -881,18 +930,21 @@ def test_a_failed_context_leaks_no_driver_text(monkeypatch):
 def test_queuing_a_question_ends_the_run_without_sending(monkeypatch):
     """First pass records intent and reruns. With a fake that returns from
     `rerun()` the code below it kept executing, so this could not be seen."""
+    from src.tradelens.ui.components.partner_turn import QUEUE_KEY
+
     sent = _recorder_calls()
     fake = _render_realistic(
         monkeypatch,
         uid=7,
         ai_ready=True,
         context=_Ctx(),
-        state={"_partner_pending_drawer": "queued question"},
+        state={},
         send=sent,
+        types="queued question",
     )
     assert sent.calls == [], "the model was called on the queueing pass"
     assert fake.reran == 1
-    assert fake.session_state["_partner_busy_drawer"] is True
+    assert fake.session_state[QUEUE_KEY]["text"] == "queued question"
 
 
 def test_a_question_queued_before_availability_changed_is_never_sent(monkeypatch):
@@ -902,31 +954,29 @@ def test_a_question_queued_before_availability_changed_is_never_sent(monkeypatch
     be auto-sent by a later rerun that happens to find availability restored:
     that is model usage and billing the trader never asked for.
     """
+    from src.tradelens.ui.components.partner_turn import QUEUE_KEY
+
     sent = _recorder_calls()
-    state = {
-        "_partner_pending_drawer": "queued before the key was pulled",
-        "_partner_busy_drawer": True,
-    }
+    state = {}
+    _seed_queue(state, surface="drawer", text="queued before the key was pulled")
     fake = _render_realistic(
         monkeypatch, uid=7, ai_ready=False, context=_Ctx(), state=state, send=sent
     )
     assert sent.calls == [], "an interrupted question was sent anyway"
-    assert "_partner_pending_drawer" not in fake.session_state
-    assert not fake.session_state.get("_partner_busy_drawer")
+    assert QUEUE_KEY not in fake.session_state
 
 
 def test_the_discarded_question_is_reported_not_silently_dropped(monkeypatch):
     from src.tradelens.ui.components.partner_turn import QUESTION_DISCARDED
 
+    state = {}
+    _seed_queue(state, surface="drawer", text="queued")
     fake = _render_realistic(
         monkeypatch,
         uid=7,
         ai_ready=False,
         context=_Ctx(),
-        state={
-            "_partner_pending_drawer": "queued",
-            "_partner_busy_drawer": True,
-        },
+        state=state,
         send=_recorder_calls(),
     )
     assert QUESTION_DISCARDED in "\n".join(fake.html)
@@ -936,10 +986,8 @@ def test_availability_returning_later_does_not_resurrect_the_question(monkeypatc
     """The whole point: the state left behind by the interrupted pass must
     contain nothing that a healthy later pass would act on."""
     sent = _recorder_calls()
-    state = {
-        "_partner_pending_drawer": "queued before the key was pulled",
-        "_partner_busy_drawer": True,
-    }
+    state = {}
+    _seed_queue(state, surface="drawer", text="queued before the key was pulled")
     # Pass A: unavailable — the queue is cleared.
     _render_realistic(
         monkeypatch, uid=7, ai_ready=False, context=_Ctx(), state=state, send=sent
@@ -953,21 +1001,17 @@ def test_availability_returning_later_does_not_resurrect_the_question(monkeypatc
 
 def test_a_healthy_second_pass_still_sends_exactly_once(monkeypatch):
     """The fix must not break sending."""
+    from src.tradelens.ui.components.partner_turn import QUEUE_KEY
+
     sent = _recorder_calls()
+    state = {}
+    _seed_queue(state, surface="drawer", text="a real question")
     fake = _render_realistic(
-        monkeypatch,
-        uid=7,
-        ai_ready=True,
-        context=_Ctx(),
-        state={
-            "_partner_pending_drawer": "a real question",
-            "_partner_busy_drawer": True,
-        },
-        send=sent,
+        monkeypatch, uid=7, ai_ready=True, context=_Ctx(), state=state, send=sent
     )
     assert len(sent.calls) == 1
     assert sent.calls[0][1]["text"] == "a real question"
-    assert not fake.session_state.get("_partner_busy_drawer")
+    assert QUEUE_KEY not in fake.session_state
 
 
 # --- 3. the profile notice, whether or not there is history -----------------
@@ -1088,3 +1132,294 @@ def test_the_shell_partner_is_restored_on_the_partner_route():
         Path(__file__).resolve().parents[1] / "src/tradelens/ui/pages/7_Partner.py"
     ).read_text(encoding="utf-8")
     assert "with_partner=False" not in page
+
+
+# ---------------------------------------------------------------------------
+# Round 3 — a hidden presentation must never spend
+# ---------------------------------------------------------------------------
+#
+# Both presentations execute server-side on every run. CSS decides which one a
+# width *shows*, and Streamlit has no server-side knowledge of the viewport —
+# so "hidden" is a fact about the browser that the script cannot read. A queue
+# left in session state by one presentation could therefore be picked up and
+# sent by that same presentation on a later run, at a width where nobody can
+# see it happen. That is model usage and a bill with no visible cause.
+
+
+def _partner_run(
+    monkeypatch, *, uid, ai_ready, context, state, surface, send=None, types=None
+):
+    """One script run's worth of Partner rendering for a single surface."""
+    from src.tradelens.ui.components import partner_panel as pp
+    from src.tradelens.ui.components.partner_turn import begin_partner_run
+
+    monkeypatch.setattr("src.tradelens.ui.components.auth.current_user_id", lambda: uid)
+    monkeypatch.setattr(pp, "ai_available", lambda: ai_ready)
+    monkeypatch.setattr(pp, "build_global_partner_context", lambda *, user_id: context)
+    if send is not None:
+        monkeypatch.setattr(pp, "send_turn", send)
+    fake = _RealisticSt(state, types=types)
+    # The shell stamps the run before either presentation renders, exactly as
+    # `render_sidebar` does in the product.
+    begin_partner_run(fake.session_state)
+    try:
+        pp.render_partner_body(fake, surface=surface)
+    except _Rerun:
+        pass
+    return fake
+
+
+def test_a_page_queue_is_never_sent_after_the_run_that_made_it(monkeypatch):
+    """The page→desktop case.
+
+    A trader queues a question on the phone page. The sending run never
+    completes — they navigate away, the socket drops, the tab is closed. The
+    queue survives in session state. Later they are on a desktop, where the
+    page body still executes but is hidden by CSS. Nothing on that screen may
+    call the model.
+    """
+    sent = _recorder_calls()
+    state = {}
+
+    # Run 1, phone: the question is queued and the run ends in a rerun.
+    _partner_run(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state=state,
+        surface="page",
+        send=sent,
+        types="What did I repeat?",
+    )
+    assert sent.calls == []
+
+    # Runs 2 and 3 happen elsewhere — another page, a reload, a resize. The
+    # shell stamps each one; the Partner page is not rendering.
+    from src.tradelens.ui.components.partner_turn import begin_partner_run
+
+    begin_partner_run(state)
+    begin_partner_run(state)
+
+    # Run 4, desktop: the page body executes, hidden. It must not send.
+    _partner_run(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state=state,
+        surface="page",
+        send=sent,
+    )
+    assert sent.calls == [], "a hidden page sent a stale question"
+
+
+def test_a_drawer_queue_is_never_sent_after_the_run_that_made_it(monkeypatch):
+    """The symmetric drawer→mobile case: the drawer body executes whenever
+    `partner_open` is set, and at phone widths CSS hides it."""
+    sent = _recorder_calls()
+    state = {}
+
+    _partner_run(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state=state,
+        surface="drawer",
+        send=sent,
+        types="What did I repeat?",
+    )
+    assert sent.calls == []
+
+    from src.tradelens.ui.components.partner_turn import begin_partner_run
+
+    begin_partner_run(state)
+    begin_partner_run(state)
+
+    _partner_run(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state=state,
+        surface="drawer",
+        send=sent,
+    )
+    assert sent.calls == [], "a hidden drawer sent a stale question"
+
+
+def test_the_other_presentation_can_never_claim_a_queue(monkeypatch):
+    """One shared conversation, but the queue belongs to the surface the
+    trader actually acted on. On /Partner both bodies execute in the same run,
+    so an unowned claim would let the hidden one send what the visible one
+    queued."""
+    sent = _recorder_calls()
+    state = {}
+    _partner_run(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state=state,
+        surface="page",
+        send=sent,
+        types="the page's question",
+    )
+    # The very next run — adjacent, so not stale — but the DRAWER renders.
+    _partner_run(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state=state,
+        surface="drawer",
+        send=sent,
+    )
+    assert sent.calls == [], "the drawer sent the page's question"
+
+
+def test_the_normal_two_pass_send_still_works(monkeypatch):
+    """The guard must not break the thing it protects: a question queued on
+    one run is sent on the run immediately after it, by its own surface."""
+    sent = _recorder_calls()
+    state = {}
+    _partner_run(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state=state,
+        surface="page",
+        send=sent,
+        types="a real question",
+    )
+    _partner_run(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state=state,
+        surface="page",
+        send=sent,
+    )
+    assert len(sent.calls) == 1
+    assert sent.calls[0][1]["text"] == "a real question"
+
+
+def test_a_stale_queue_leaves_no_state_behind(monkeypatch):
+    """Discarded means gone, not merely skipped: a queue left in place would
+    be claimed by whichever run happened to land adjacent to it next."""
+    from src.tradelens.ui.components.partner_turn import QUEUE_KEY, begin_partner_run
+
+    sent = _recorder_calls()
+    state = {}
+    _partner_run(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state=state,
+        surface="page",
+        send=sent,
+        types="a question nobody waited for",
+    )
+    begin_partner_run(state)
+    begin_partner_run(state)
+    _partner_run(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state=state,
+        surface="page",
+        send=sent,
+    )
+    assert QUEUE_KEY not in state
+    # …and a further adjacent pair cannot resurrect it.
+    _partner_run(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state=state,
+        surface="page",
+        send=sent,
+    )
+    assert sent.calls == []
+
+
+def test_only_one_queue_can_exist_at_a_time(monkeypatch):
+    """Two per-surface queues could both be live, and the hidden one would
+    have its own turn to fire. There is one."""
+    from src.tradelens.ui.components.partner_turn import QUEUE_KEY
+
+    state = {}
+    _partner_run(
+        monkeypatch,
+        uid=7,
+        ai_ready=True,
+        context=_Ctx(),
+        state=state,
+        surface="page",
+        send=_recorder_calls(),
+        types="one question",
+    )
+    queued = [k for k in state if "pending" in k or k == QUEUE_KEY]
+    assert queued == [QUEUE_KEY], f"more than one queue slot: {queued}"
+
+
+def test_the_shell_stamps_the_run_before_either_presentation_renders():
+    """The adjacency rule is only meaningful if something advances the
+    counter, and it must advance ONCE per run, before both bodies read it —
+    otherwise the drawer and the page would disagree about which run they are
+    in on the Partner route.
+
+    Removing the stamp from the shell was a mutation the first version of this
+    file did not catch, because every test drove `begin_partner_run` itself.
+    """
+    import ast
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[1] / "src/tradelens/ui/components/sidebar.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    fn = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "render_sidebar"
+    )
+    calls = [
+        (n.lineno, n.func.id)
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id
+        in {"begin_partner_run", "render_partner_launcher", "render_partner_drawer"}
+    ]
+    names = [name for _line, name in calls]
+    assert (
+        names.count("begin_partner_run") == 1
+    ), f"stamped {names.count('begin_partner_run')} times"
+    stamp = next(line for line, name in calls if name == "begin_partner_run")
+    for line, name in calls:
+        if name != "begin_partner_run":
+            assert stamp < line, f"{name} renders before the run is stamped"
+
+
+def test_an_unstamped_session_can_never_claim_a_question():
+    """The safe direction of the failure. If the counter never advances, a
+    queue can never satisfy `queued.run + 1 == run_id`, so an unstamped
+    session stops sending rather than sending invisibly."""
+    from src.tradelens.ui.components.partner_turn import (
+        claim_question,
+        current_run,
+        queue_question,
+    )
+
+    state = {}
+    assert current_run(state) == 0
+    queue_question(state, surface="page", text="q", run_id=current_run(state))
+    # No `begin_partner_run` — the counter is still 0.
+    assert claim_question(state, surface="page", run_id=current_run(state)) is None
