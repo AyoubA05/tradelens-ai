@@ -19,18 +19,19 @@ the same time.
 
 ## Current handoff state
 
-- Active writer: `NONE`
-- Current phase: `PHASE 2 TASKS 10–11 COMPLETE — RESUME AT TASK 12`
-- Last completed work: **Tasks 10 and 11** — Analytics on one instrument
-  shape (`eaeca32`) and the pure review document model (`df07a11`). Before
-  them: Tasks 8 and 9 — New Trade on the dark workspace
+- Active writer: `CLAUDE`
+- Current phase: `PHASE 2 IN PROGRESS — TASK 12 DONE, RESUME AT TASK 13`
+- Last completed work: **Task 12** — the AI Reviews reading shell (this
+  commit). Before it: Tasks 10 and 11 — Analytics on one instrument shape
+  (`eaeca32`) and the pure review document model (`df07a11`). Before them:
+  Tasks 8 and 9 — New Trade on the dark workspace
   (`f2eb1df`) and the dark Journal (`9d571d3`). Before them: Tasks 5–7, the
   Overview's five bands — `243d0c9`, `25616f9`, `00d2359`. Task 4 is
   `3aa9e36`; Task 3 is `5a03834` + `16a81ee`.
 - Plan path: `docs/superpowers/plans/2026-08-04-phase2-dark-workspace-implementation.md`
   (4900 lines, 17 tasks, 145 steps). It supersedes
   `docs/superpowers/plans/2026-07-31-streamlit-dark-workspace-ai-review.md`.
-- Verification at Task 11: `1867 passed, 7 skipped` · Ruff clean · Black clean
+- Verification at Task 12: `1901 passed, 7 skipped` · Ruff clean · Black clean
   · `git diff --check` clean · all four Analytics lenses verified at 1440,
   1024, coarse 768 and coarse 375 plus reduced motion, with the pointer state
   and the reduced-motion state asserted from the page at every applicable row
@@ -39,17 +40,14 @@ the same time.
   and bottom bar never both on screen. The Journal calendar was re-verified
   after the shared key rename.
 - Next owner: **`CLAUDE`**.
-- Next action: **continue the approved Phase 2 master directive at Task 12**
-  (AI Reviews — one reading shell for three lenses; its audit is already
-  recorded in the session-boundary handoff-log entry below) and run through
-  Task 17 — one scoped
+- Next action: **continue the approved Phase 2 master directive at Task 13**
+  (Strategy Profile and Settings) and run through Task 17 — one scoped
   commit and verification record per task — then release the lock to `NONE`
   and hand the complete Phase 2 diff to Codex.
 - **No interim Codex review is requested.** The comprehensive Codex review
   remains scheduled after Task 17.
-- Tasks 12–17 remain: AI Reviews, Strategy Profile and Settings, the AI
-  Partner desktop drawer and mobile destination, the cross-page audit, and the
-  10K re-score.
+- Tasks 13–17 remain: Strategy Profile and Settings, the AI Partner desktop
+  drawer and mobile destination, the cross-page audit, and the 10K re-score.
 - Task 4 interfaces are present exactly as planned and verified green
   (`tests/test_metrics.py` + `tests/test_partner_context.py`, 129 passed).
   Claude must consume them, never reproduce their calculations or open a
@@ -211,6 +209,119 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-06 — Phase 2 Task 12: one reading shell, safe regeneration (Claude)
+
+**Commit:** see `feat(ai-reviews): one reading shell and non-destructive
+regeneration`. Task 12 only; Task 13 not started.
+
+**All four of the plan's Task 12 tests failed against the unchanged page** —
+the first task in this phase where that is true. Transcribed verbatim and run
+before anything changed, so the pre-audit findings carried in from the last
+session are confirmed by execution rather than by reading.
+
+**D5 was data loss, and it is now proved by doing it.** `_render_daily_lens`
+popped the cached note before calling the generator, and `_run_daily_debrief`
+writes its replacement only on success — so a `DebriefError` left the trader
+with no review at all. Weekly never did this and said so in a comment.
+
+The plan proposed comparing the source offsets of `.pop(` and
+`_run_daily_debrief(` inside one function. That passes for a page that pops the
+key one line later, in a helper, or under another name, and it says nothing
+about what is on screen. `tests/insights_regen_check.py` clicks the real
+control under AppTest with the real generator raising and reads the rendered
+page. **Mutation-checked:** restoring the pop fails with `FAILED REGENERATION
+DESTROYED THE PRIOR NOTE`.
+
+**D8 needed the two-pass pattern, and the in-flight pass had to be made
+observable.** A Streamlit button cannot become disabled inside its own handler
+— the script run is blocking — so `disabled=` alone is not a fix. The click now
+records intent and reruns; the next pass renders the control disabled, says
+`Updating review…` politely, and only then makes the call.
+
+Proving that needed a third measurement correction, recorded with the others:
+**AppTest resolves `st.rerun()` inside the same `run()`**, so a click passes
+straight through the busy pass and the disabled control is never visible to it.
+The check enters the busy pass directly and halts the script with `st.stop()`
+exactly where the blocking call sits, which leaves that pass as AppTest's final
+state. Mutation-checked both ways — removing `disabled=busy` fails with "still
+live during the call", removing the progress line fails with "no polite inline
+progress". In a browser this window is closed instantly because DEMO_MODE
+returns canned output with zero spend, which is precisely why it is asserted
+under AppTest instead of claimed from a screenshot.
+
+**D7 was real:** `_note_stats(` appeared in Weekly and Daily and not once in
+Patterns, so one page answered "how big is this sample" two different ways.
+Patterns now opens with the same five-cell strip, fed by a new pure
+`review_reader.period_stats`, which **assembles** what the metrics service
+returns and calculates nothing.
+
+**A spec violation the plan did not name.** Patterns rendered
+`render_research_note`, which embeds an Evidence Rail inside *every* numbered
+finding — four findings put four stacked rails on one note, against §7.2's
+"once per note, not under every paragraph". Measured in the browser at 1440
+before and after: **4 rails → 1**. The note's stated confidence is the **floor**
+across its findings, never the peak; quoting the strongest would describe the
+weakest claim on the page as high confidence. The trade-off is disclosed: the
+shell shows one section at a time, so per-finding confidence badges are no
+longer rendered beside each finding. Recorded for Codex as a deliberate reading
+of §7.2 rather than an oversight.
+
+**Contracts that moved rather than weakened.** Five existing tests asserted
+page-source strings for behaviour that Task 12 moved into the shell
+(`render_evidence_rail`, `render_evidence_disclosure`, `tl_note_sheet`,
+`st.markdown(_md_safe(review["content_md"]))`, `render_research_note`). Each
+now asserts the same property where the rendering actually happens, and the
+safety one is asserted through the AST instead of `near()`: a fixed character
+radius reports on whatever happens to sit nearby, so it would pass a file that
+renders the thesis unsafely just outside the window.
+
+**Files changed:** new `components/review_reader.py`, new
+`tests/test_review_reader.py`, new `tests/insights_regen_check.py`,
+`6_Insights.py`, `design_system.py`, `tests/test_insights_page.py`,
+`tests/test_premium_page_contracts.py`, and this handoff. `_md_safe` moved off
+the page into the shell so all three lenses get it rather than the two that
+remembered. `git add -A` not used; untracked `src/tradelens/ui/.impeccable/`
+deliberately not staged. `black tests/` reformatted two unrelated files
+(`test_page_polish.py`, `test_trade_wizard.py`, both already non-black-clean
+before this session); **both were reverted** under handoff rule 6.
+
+**Browser evidence — 14 combinations, all clean.** Coarse-pointer emulation
+asserted at every coarse row (`pointer: coarse` true **and** `pointer: fine`
+false); reduced motion read back from the page.
+
+| Lens | Widths | Overflow | Undersized | Exceptions | Sheets | Rails | Strips | Prose width |
+|---|---|---|---|---|---|---|---|---|
+| Patterns | 1440, 1024, coarse 768, coarse 375 | 0 | 0 | 0 | 1 | 1 | 1 | 573 / 560 / 480 / 295 |
+| Weekly Recap | same four | 0 | 0 | 0 | 1 | 1 | 1 | same |
+| Daily Debrief | same four | 0 | 0 | 0 | pre-generation state | — | — | — |
+| Patterns, reduced motion | coarse 375 | 0 | 0 | 0 | 1 | 1 | 1 | 295 |
+| Weekly, reduced motion | 1440 | 0 | 0 | 0 | 1 | 1 | 1 | 573 |
+
+573 px of 16 px prose is ≈71 characters — inside §7.4's 68–72 ch measure, and
+it never stretches into the unused right side. The section index carries 44 px
+options at every width. Rail and bottom bar are never both on screen.
+
+Daily Debrief was additionally driven end to end in the browser at 1440:
+lens switch → `Generate debrief` → note appears (1 sheet, 1 rail, 1 strip,
+"Day in review") → `Regenerate debrief` → the note is still there, no error, no
+exception.
+
+**Verification:** `1901 passed, 7 skipped` (was `1867/7`; +34); Ruff clean;
+Black clean (85 files); `git diff --check` clean. Dev database byte-identical
+(`md5 dffdb781…`) — the browser ran against a scratchpad **copy** pointed at by
+`DATABASE_URL`, seeded and re-owned there only.
+
+**Unresolved concerns.**
+
+1. Per-finding confidence is no longer rendered beside each finding (above).
+2. The note-surface CSS comment still describes "a focused DARK reading surface
+   inside the light workspace"; the workspace has been fully dark since Task 1.
+   Left for the Task 16 stale-comment sweep rather than widened into here.
+3. Carried forward unchanged: `aria-sort` is `null` on Streamlit's dataframe
+   headers and its four toolbar controls have no accessible names. Both need
+   JavaScript injection (forbidden) or an authored table. **Task 12 was not
+   expanded into a ledger replacement.**
 
 ### 2026-08-06 — Session boundary: Tasks 10 and 11 done, resume at Task 12 (Claude)
 

@@ -121,28 +121,41 @@ def test_journal_does_not_render_generation_cost():
     assert "Generation cost" not in src
 
 
+_SHELL = (
+    Path(__file__).resolve().parents[1] / "src/tradelens/ui/components/review_reader.py"
+)
+
+
 def test_every_lens_uses_the_same_evidence_disclosure():
     """st.expander put the generated lenses' disclosure on the LIGHT
     workspace at 38px, while the composed note's sat on the dark sheet at
     44px — one component, two treatments, two surfaces. Measured at 375px.
+
+    Task 12 moved the rendering into the shared shell, so the disclosure
+    assertion follows it there. The page-level half — never reaching for
+    st.expander again — still belongs to the page.
     """
-    src = _src()
-    assert "render_evidence_disclosure(" in src
-    assert "st.expander(" not in src, "the shared <details> builder, not st.expander"
+    assert "render_evidence_disclosure(" in _SHELL.read_text(encoding="utf-8")
+    assert "st.expander(" not in _src(), "the shared <details> builder, not st.expander"
 
 
 def test_insights_shows_evidence_and_confidence():
-    """What a review was based on travels with it. Confidence is now a
-    per-finding fact on the Evidence Rail rather than a footer line, so the
-    assertion follows the rail rather than the old label."""
-    src = (_UI_PAGES / "6_Insights.py").read_text(encoding="utf-8")
+    """What a review was based on travels with it.
+
+    The rail is now built once per note by the shell rather than by the page,
+    which is the point of §7.2 — so the rail assertion reads the shell and the
+    page keeps the parts it still owns: what the note was based on, and the
+    confidence band that describes the sample.
+    """
+    src = _src()
     assert "Trades reviewed" in src
-    assert "render_evidence_rail" in src
     assert "_confidence_for(" in src
-    # "Evidence used" is now the shared builder's own summary text.
+    shell = _SHELL.read_text(encoding="utf-8")
+    assert "render_evidence_rail" in shell
+    assert "render_evidence_disclosure(" in shell
+
     from src.tradelens.ui.components.workspace import render_evidence_disclosure
 
-    assert "render_evidence_disclosure(" in src
     assert "Evidence used" in render_evidence_disclosure(("Trades reviewed: 3",))
 
 
@@ -161,7 +174,7 @@ def test_confidence_bands_follow_sample_size():
     # vocabulary (low/medium/high) instead of a second set of words for
     # the same three levels.
     start = src.index("_CONF_BY_SAMPLE = ")
-    end = src.index("def _md_safe")
+    end = src.index("def _evidence_used")
     exec(src[start:end], ns)  # noqa: S102 — isolated pure function
     level = ns["_confidence_for"]
     assert level(0) == "low"
@@ -170,3 +183,159 @@ def test_confidence_bands_follow_sample_size():
     assert level(19) == "medium"
     assert level(20) == "high"
     assert level(200) == "high"
+
+
+# ---------------------------------------------------------------------------
+# Task 12 — one reading shell, and a regeneration that cannot lose a note.
+# ---------------------------------------------------------------------------
+
+import os  # noqa: E402
+import re  # noqa: E402
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+
+from tests.source_probe import function_source  # noqa: E402
+
+_REGEN_CHECK = Path(__file__).resolve().parent / "insights_regen_check.py"
+_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _regen(mode: str, db_path: Path) -> subprocess.CompletedProcess:
+    env = dict(os.environ)
+    env["DATABASE_URL"] = f"sqlite:///{db_path}"
+    env["DEMO_MODE"] = "true"  # never touch the network
+    return subprocess.run(
+        [sys.executable, str(_REGEN_CHECK), str(_ROOT), mode],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+
+
+def test_a_failed_daily_regeneration_keeps_the_note_the_trader_had(tmp_path):
+    """The defect this task exists for, proved by doing it.
+
+    `_render_daily_lens` popped the cached note BEFORE calling the generator,
+    and the generator writes its replacement only on success — so a
+    `DebriefError` left the trader with no review at all. Weekly never did
+    this and says so in a comment.
+
+    The plan proposed comparing the source offsets of `.pop(` and
+    `_run_daily_debrief(` inside the function. That would pass for a page
+    that popped the key in a helper, or one line later, or under a different
+    name, and it says nothing about what is on screen. This clicks the real
+    control with the real generator raising and reads the rendered page.
+    Mutation-checked: restoring the pop makes it fail with
+    "FAILED REGENERATION DESTROYED THE PRIOR NOTE".
+    """
+    proc = _regen("fail", tmp_path / "fail.db")
+    assert proc.returncode == 0, f"{proc.stderr[-2000:]}"
+
+
+def test_a_successful_daily_regeneration_replaces_the_note(tmp_path):
+    """The other half: keeping the old note must not mean never replacing it."""
+    proc = _regen("succeed", tmp_path / "ok.db")
+    assert proc.returncode == 0, f"{proc.stderr[-2000:]}"
+
+
+def test_the_note_stays_and_the_control_locks_while_a_call_is_in_flight(tmp_path):
+    """What the trader sees DURING regeneration, asserted rather than assumed.
+
+    The busy pass is frozen at the moment of the blocking call, because a
+    Streamlit button cannot become disabled inside its own handler and the
+    two-pass flag is what makes the disabled state reachable at all. AppTest
+    resolves `st.rerun()` inside the same `run()`, so clicking would skip
+    straight past this pass — the check enters it directly and halts the
+    script where the call would sit.
+
+    Mutation-checked both ways: removing `disabled=busy` fails with "still
+    live during the call", and removing the progress line fails with "no
+    polite inline progress".
+    """
+    proc = _regen("inflight", tmp_path / "inflight.db")
+    assert proc.returncode == 0, f"{proc.stderr[-2000:]}"
+
+
+def test_no_lens_clears_its_cached_note_before_generating_a_replacement():
+    """The structural half of the guard above, so a second lens cannot
+    reintroduce the shape somewhere the behavioural check does not look."""
+    src = _src()
+    for lens in ("_render_daily_lens", "_render_weekly_lens"):
+        body = function_source(src, lens)
+        run_at = min(
+            (
+                body.index(marker)
+                for marker in ("_run_daily_debrief(", "generate_weekly_review(")
+                if marker in body
+            ),
+            default=len(body),
+        )
+        before = body[:run_at]
+        assert "pop(cache_key)" not in before
+        assert "pop(cache_key, None)" not in before
+
+
+def test_all_three_lenses_render_the_same_period_stats_strip():
+    """D7: Weekly and Daily opened with a five-cell strip; Patterns had none,
+    so one page answered "how big is this sample" two different ways."""
+    src = _src()
+    for lens in ("_render_patterns_lens", "_render_weekly_lens", "_render_daily_lens"):
+        assert "_note_stats(" in function_source(src, lens), lens
+
+
+def test_the_patterns_strip_takes_its_figures_from_the_service():
+    """Not recomputed on the page: `period_stats` assembles what the metrics
+    service returns."""
+    src = _src()
+    assert "period_stats(df)" in function_source(src, "_render_patterns_lens")
+
+
+def test_the_regenerate_control_is_disabled_while_a_call_is_in_flight():
+    """D8. A Streamlit button cannot become disabled during its own handler —
+    the script run is blocking, so `disabled=` alone is not a fix. Both lenses
+    use the two-pass flag: the click records intent and reruns, and the next
+    pass renders the control disabled, says the review is updating, and only
+    then makes the call."""
+    src = _src()
+    for lens in ("_render_daily_lens", "_render_weekly_lens"):
+        body = function_source(src, lens)
+        assert "disabled=busy" in body, lens
+        assert "busy_key" in body, lens
+        # The disabled control and the progress line are rendered BEFORE the
+        # blocking call, or the browser never shows them.
+        assert body.index("_regenerating()") < max(
+            body.rfind("_run_daily_debrief("), body.rfind("generate_weekly_review(")
+        ), lens
+
+
+def test_the_skeleton_stands_in_for_a_missing_note_never_for_a_present_one():
+    """The skeleton replaces the note's geometry. Shown during a
+    regeneration it would replace the review the trader is reading with grey
+    bars — so regeneration gets an inline status line instead."""
+    src = _src()
+    for lens in ("_render_daily_lens", "_render_weekly_lens"):
+        body = function_source(src, lens)
+        assert "render_note_skeleton" not in body, lens
+    # It still exists where there is genuinely nothing yet.
+    assert "render_note_skeleton" in function_source(src, "_auto_run_weekly")
+    assert "render_note_skeleton" in function_source(src, "_run_daily_debrief")
+
+
+def test_every_lens_reads_through_the_one_shell():
+    """D6: three lenses, one idea of what a review looks like."""
+    src = _src()
+    assert "render_research_note(" not in src, "the old per-finding rail path"
+    for lens in ("_render_patterns_lens", "_render_weekly_lens", "_render_daily_lens"):
+        body = function_source(src, lens)
+        assert "render_review_reader(" in body or "_render_generated_note(" in body
+
+
+def test_each_lens_remembers_its_own_section():
+    """One shared key would move the reader's place in the Weekly note when
+    they navigated the Daily one."""
+    src = _src()
+    keys = set(re.findall(r'state_key="(_ins_\w+)"', src)) | set(
+        re.findall(r'key="(_ins_\w+_section)"', src)
+    )
+    assert len(keys) >= 3, keys

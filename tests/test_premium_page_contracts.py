@@ -837,7 +837,11 @@ def test_patterns_is_a_research_note_not_a_card_grid():
     """Spec 11.5: numbered findings in a real reading sequence, replacing
     the two-column grid of red and green insight cards."""
     src = _src("6_Insights.py")
-    assert "render_research_note(" in src
+    # The note is still composed here; it is now READ through the shared
+    # shell, which is what gives Patterns the same anatomy as the two
+    # generated lenses instead of its own.
+    assert "view_from_note(" in src
+    assert "render_review_reader(" in src
     assert "ResearchNote(" in src
     assert "_insight_card_html" not in src, "the card grid is gone"
     assert "tl-insight-card" not in src
@@ -862,11 +866,7 @@ def test_next_actions_are_review_actions_never_trade_actions():
     to go and re-read, never something to take."""
     src = _src("6_Insights.py")
     assert "Re-read the trades behind" in src
-    body = src[
-        src.index("actions = [") : src.index(
-            "st.markdown(\n        render_research_note"
-        )
-    ]
+    body = src[src.index("actions = [") : src.index('state_key="_ins_patterns')]
     lowered = body.lower()
     for banned in (
         "buy",
@@ -882,28 +882,87 @@ def test_next_actions_are_review_actions_never_trade_actions():
 
 def test_generated_prose_never_reaches_an_html_allowing_path():
     """Same rule as the Journal summary: model markdown goes through
-    Streamlit's renderer with unsafe HTML off."""
+    Streamlit's renderer with unsafe HTML off.
+
+    This used to assert one exact source line on the page. Task 12 moved
+    rendering into the shared reading shell, and an exact-string contract
+    would have failed for the move rather than for a safety regression — so
+    it now asserts the property where the rendering actually happens: the
+    page hands `content_md` to the shell, and every `unsafe_allow_html=True`
+    call in the shell is checked (through the AST, in
+    `tests/test_review_reader.py`) to carry no generated text.
+    """
+    import ast
+
     src = _src("6_Insights.py")
-    assert 'st.markdown(_md_safe(review["content_md"]))' in src
+    assert 'content_md=review.get("content_md")' in src
+    assert "render_review_reader(" in src
+    # The page itself must not paint generated prose into markup.
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.Call) and any(
+            k.arg == "unsafe_allow_html"
+            and isinstance(k.value, ast.Constant)
+            and k.value.value is True
+            for k in node.keywords
+        ):
+            dumped = ast.dump(
+                ast.Module(body=[ast.Expr(a) for a in node.args], type_ignores=[])
+            )
+            assert "content_md" not in dumped, f"line {node.lineno}"
 
 
 def test_the_note_body_gets_the_dark_reading_surface():
     """Spec 7: the thing being read gets its own plane, distinct from the
-    filters and controls around it."""
+    filters and controls around it.
+
+    The plane is opened by the shell now, not by each lens — which is what
+    stops one lens drifting onto a different surface.
+    """
     from src.tradelens.ui import design_system as ds
 
-    src = _src("6_Insights.py")
-    assert 'st.container(key="tl_note_sheet")' in src
+    assert 'st.container(key="tl_note_sheet")' in _src_component("review_reader.py")
     css = ds.build_css()
     assert ".st-key-tl_note_sheet" in css
     block = css[css.index(".st-key-tl_note_sheet {") :][:220]
     assert "var(--tl-surface-chart)" in block
 
 
-def test_confidence_is_stated_once_per_finding_not_as_a_footer():
+def test_the_evidence_rail_is_stated_once_per_note_not_under_every_finding():
+    """§7.2 is explicit: the rail appears once per note, "not under every
+    paragraph".
+
+    This test used to require the opposite, because the page rendered
+    `render_research_note`, which embeds a rail inside every numbered
+    finding — four findings put four stacked rails on a Patterns note. The
+    shell shows one section at a time and one rail, and the rail's confidence
+    is the floor across the findings so nothing is overstated.
+    """
     src = _src("6_Insights.py")
-    assert "render_evidence_rail(" in src
+    assert "render_evidence_rail(" not in src, "the rail belongs to the shell"
+    assert "render_research_note(" not in src, "the per-finding rail path"
     assert "_confidence_label" not in src, "the repeated footer label is gone"
+
+    from src.tradelens.ui.components.review_reader import (
+        build_note_regions,
+        view_from_note,
+    )
+    from src.tradelens.ui.components.workspace import (
+        EvidenceItem,
+        ResearchFinding,
+        ResearchNote,
+    )
+
+    ev = EvidenceItem("e", "n=9", "medium", None)
+    note = ResearchNote(
+        title="t",
+        thesis="th",
+        findings=tuple(ResearchFinding(n, f"F{n}", "b", ev) for n in range(1, 5)),
+        actions=(),
+        evidence_used=(),
+        sample="n=9",
+        limitation="",
+    )
+    assert build_note_regions(view_from_note(note)).count("tl-evidence-rail") == 1
 
 
 def test_generation_keeps_the_previous_note_until_a_replacement_succeeds():

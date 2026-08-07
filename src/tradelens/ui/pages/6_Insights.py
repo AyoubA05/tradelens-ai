@@ -58,16 +58,19 @@ from src.tradelens.ui.components.sidebar import (  # noqa: E402
 )
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import error_box  # noqa: E402
+from src.tradelens.ui.components.review_reader import (  # noqa: E402
+    period_stats,
+    render_review_reader,
+    view_from_markdown,
+    view_from_note,
+)
 from src.tradelens.ui.components.workspace import (  # noqa: E402
     EvidenceItem,
     MetricItem,
     ResearchFinding,
     ResearchNote,
-    render_evidence_disclosure,
-    render_evidence_rail,
     render_kpi_strip,
     render_note_skeleton,
-    render_research_note,
     render_section_header,
     render_workspace_header,
 )
@@ -198,12 +201,6 @@ def _confidence_for(trades: int) -> str:
     return "low"
 
 
-def _md_safe(text: str) -> str:
-    # Escape $ so paired dollar amounts ("$1,000 ... $500") aren't parsed
-    # as LaTeX math delimiters by st.markdown (garbled-italics bug).
-    return text.replace("\\$", "$").replace("$", "\\$")
-
-
 def _evidence_used(review: dict) -> list:
     """What the review was based on — never how it was produced.
 
@@ -217,6 +214,21 @@ def _evidence_used(review: dict) -> list:
         rows.append(f"Period: {review['week_start']}")
     rows.append(f"Strategy profile: {'included' if _strategy else 'not included'}")
     return rows
+
+
+def _regenerating() -> None:
+    """Inline, polite progress that leaves the prior note exactly where it is.
+
+    Not `render_note_skeleton`: the skeleton stands in for a note that is not
+    there yet, and using it during a regeneration would replace the review the
+    trader is reading with grey bars. A status line changes nothing above it,
+    so the page does not jump.
+    """
+    st.markdown(
+        '<p class="tl-note-updating" role="status" aria-live="polite">'
+        "Updating review…</p>",
+        unsafe_allow_html=True,
+    )
 
 
 def _note_stats(stats: dict) -> None:
@@ -261,47 +273,36 @@ def _note_stats(stats: dict) -> None:
     )
 
 
-def _render_generated_note(review: dict, title: str, sample: str) -> None:
-    """A generated review on the dark reading surface.
+def _render_generated_note(review: dict, title: str, sample: str, *, key: str) -> None:
+    """A generated review through the one reading shell.
 
-    content_md is a multi-section Markdown document, so it goes through
-    Streamlit's own renderer with unsafe HTML OFF — model output must never
-    reach an HTML-allowing path. The evidence treatment is our own markup
-    with escaped values, emitted separately.
+    content_md is a multi-section Markdown document. It reaches the shell as
+    Markdown and is rendered by Streamlit with unsafe HTML OFF — model output
+    must never take an HTML-allowing path. The evidence treatment is our own
+    markup with escaped values, built separately by `build_note_regions`.
     """
     stats = review.get("stats") or {}
     trades = int(stats.get("trades") or 0)
-    with st.container(key="tl_note_sheet"):
-        st.markdown(
-            f'<header class="tl-note-head">'
-            f'<h2 class="tl-note-title">{escape(title)}</h2>'
-            f'<p class="tl-note-sample">{escape(sample)}</p></header>',
-            unsafe_allow_html=True,
-        )
-        if review.get("content_md"):
-            st.markdown(_md_safe(review["content_md"]))
-        st.markdown(
-            render_evidence_rail(
-                EvidenceItem(
-                    evidence="Your own journalled trades for this period",
-                    sample=sample,
-                    confidence=_confidence_for(trades),
-                    limitation=(
-                        "Small sample — read this as a description, not a rule."
-                        if trades < 5
-                        else None
-                    ),
-                )
+    render_review_reader(
+        st,
+        view_from_markdown(
+            title=title,
+            sample=sample,
+            content_md=review.get("content_md"),
+            evidence=EvidenceItem(
+                evidence="Your own journalled trades for this period",
+                sample=sample,
+                confidence=_confidence_for(trades),
+                limitation=(
+                    "Small sample — read this as a description, not a rule."
+                    if trades < 5
+                    else None
+                ),
             ),
-            unsafe_allow_html=True,
-        )
-        # Same disclosure builder as the composed note, on the same
-        # surface: st.expander rendered this at 38px while the Patterns
-        # note's sat on the note sheet at 44px.
-        st.markdown(
-            render_evidence_disclosure(_evidence_used(review)),
-            unsafe_allow_html=True,
-        )
+            evidence_used=_evidence_used(review),
+        ),
+        state_key=key,
+    )
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -319,6 +320,11 @@ _TYPE_LIMITATION = {
 def _render_patterns_lens() -> None:
     insights = generate_insights(df, _strategy)
     sample = f"n={len(df)} trades"
+    # D7: Weekly and Daily opened with the period strip and Patterns opened
+    # with nothing, so the same page answered "how big is this sample" in two
+    # different ways. Same builder, same five cells, same conventions — the
+    # figures come from the metrics service, not from this page.
+    _note_stats(period_stats(df))
 
     if not insights:
         st.markdown(
@@ -363,8 +369,13 @@ def _render_patterns_lens() -> None:
     if findings:
         actions.append(f"Check whether “{findings[0].title}” still holds next week.")
 
-    st.markdown(
-        render_research_note(
+    # Through the same shell as the generated lenses. `render_research_note`
+    # embeds an Evidence Rail inside EVERY numbered finding, so four findings
+    # stacked four rails — against §7.2's "once per note, not under every
+    # paragraph". The shell shows one section at a time and one rail.
+    render_review_reader(
+        st,
+        view_from_note(
             ResearchNote(
                 title="What keeps repeating",
                 thesis=str(lead.get("body") or lead.get("title") or ""),
@@ -384,7 +395,7 @@ def _render_patterns_lens() -> None:
                 ),
             )
         ),
-        unsafe_allow_html=True,
+        state_key="_ins_patterns_section",
     )
 
 
@@ -474,26 +485,50 @@ def _render_weekly_lens() -> None:
 
     if existing is not None:
         _note_stats(existing.get("stats") or {})
-        _render_generated_note(existing, "Week in review", f"{monday} → {sunday}")
-        if _ai_on and st.button("Regenerate this week", key="secondary_ins_wk_regen"):
-            # The existing note stays on screen until a replacement
-            # succeeds — a failed regeneration must not cost the review
-            # the trader already had.
-            try:
-                review, _usage = generate_weekly_review(
-                    monday, user_id=uid, strategy_profile=_strategy
-                )
-                if review["empty"]:
-                    st.caption("This week has nothing logged to review.")
-                else:
-                    save_weekly_review(review, overwrite=True, user_id=uid)
-                    st.session_state.pop(f"_wk_err_{monday}", None)
-                    st.rerun()
-            except WeeklyReviewError as exc:
-                _error_box(f"Could not regenerate: {exc}")
-            except Exception:  # noqa: BLE001 — never crash the page
-                _log.exception("weekly regeneration failed for user %s", uid)
-                _error_box(_AI_FAILED)
+        _render_generated_note(
+            existing,
+            "Week in review",
+            f"{monday} → {sunday}",
+            key="_ins_weekly_section",
+        )
+        if _ai_on:
+            busy_key = f"_wk_busy_{monday}"
+            busy = bool(st.session_state.get(busy_key))
+            clicked = st.button(
+                "Regenerate this week",
+                key="secondary_ins_wk_regen",
+                disabled=busy,
+            )
+            if busy:
+                _regenerating()
+                st.session_state[busy_key] = False
+                # The existing note stays on screen until a replacement
+                # succeeds — a failed regeneration must not cost the review
+                # the trader already had.
+                try:
+                    review, _usage = generate_weekly_review(
+                        monday, user_id=uid, strategy_profile=_strategy
+                    )
+                    if review["empty"]:
+                        st.caption("This week has nothing logged to review.")
+                    else:
+                        save_weekly_review(review, overwrite=True, user_id=uid)
+                        st.session_state.pop(f"_wk_err_{monday}", None)
+                        st.rerun()
+                except WeeklyReviewError as exc:
+                    _error_box(f"Could not regenerate: {exc}")
+                except Exception:  # noqa: BLE001 — never crash the page
+                    _log.exception("weekly regeneration failed for user %s", uid)
+                    _error_box(_AI_FAILED)
+            elif clicked:
+                # Two passes on purpose. A Streamlit button cannot become
+                # disabled during its own handler — the script run is
+                # blocking, so the browser holds the live control for the
+                # whole call. The click only records the intent; the next
+                # pass renders the control disabled, says the review is
+                # updating, and then makes the call.
+                st.session_state[busy_key] = True
+                st.rerun()
     elif err:
         _error_box(f"AI weekly review couldn't run: {err}")
         if st.button("Retry weekly review", key="secondary_ins_wk_retry"):
@@ -527,6 +562,9 @@ def _run_daily_debrief(day_iso: str, day_trades: list, cache_key: str) -> None:
             period_label=f"Trading day {day_iso}",
         )
         st.session_state[cache_key] = review
+        # A successful run clears the reason the previous one failed; leaving
+        # it set would print a stale error beside a fresh note.
+        st.session_state.pop(cache_key + "_err", None)
         from src.tradelens.services.cost import log_ai_usage
 
         log_ai_usage("Daily Debrief", usage, user_id=uid)
@@ -561,7 +599,14 @@ def _render_daily_lens() -> None:
     review = st.session_state.get(cache_key)
     if review is not None:
         _note_stats(review.get("stats") or {})
-        _render_generated_note(review, "Day in review", day_iso)
+        _render_generated_note(
+            review, "Day in review", day_iso, key="_ins_daily_section"
+        )
+        # A regeneration that failed leaves the note it could not replace on
+        # screen, so its reason has to appear beside that note rather than in
+        # the never-generated branch below, which this path never reaches.
+        if err:
+            _error_box(f"Could not regenerate: {err}")
         # A path back to the records the note is about.
         try:
             st.page_link(
@@ -573,10 +618,25 @@ def _render_daily_lens() -> None:
                 ' target="_self">Open these trades in the Journal →</a>',
                 unsafe_allow_html=True,
             )
-        if st.button("Regenerate debrief", key="secondary_ins_dbf_regen"):
-            st.session_state.pop(cache_key, None)
-            st.session_state.pop(cache_key + "_err", None)
+        busy_key = cache_key + "_busy"
+        busy = bool(st.session_state.get(busy_key))
+        clicked = st.button(
+            "Regenerate debrief", key="secondary_ins_dbf_regen", disabled=busy
+        )
+        if busy:
+            _regenerating()
+            st.session_state[busy_key] = False
+            # The cached note is NOT cleared first. `_run_daily_debrief`
+            # writes the replacement only on success, so popping the key
+            # before the call meant a DebriefError destroyed the review the
+            # trader already had — Weekly never did this, and said so.
             _run_daily_debrief(day_iso, day_trades, cache_key)
+            st.rerun()
+        elif clicked:
+            # Two passes: a Streamlit button cannot become disabled during
+            # its own blocking handler. See the weekly lens for the same
+            # pattern and the same reason.
+            st.session_state[busy_key] = True
             st.rerun()
     elif err:
         _error_box(f"Daily debrief couldn't run: {err}")

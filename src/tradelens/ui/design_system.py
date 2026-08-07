@@ -1787,6 +1787,55 @@ def build_css() -> str:
   color: var(--tl-content-primary);
 }}
 
+/* --- the reading shell (components/review_reader.py) --- */
+/* The thesis is the one sentence a reader must not miss, so it is the
+   largest text on the surface. It arrives as generated Markdown through
+   st.markdown, so the size is set on the paragraph Streamlit renders
+   inside the keyed container rather than on a class we control. */
+.st-key-tl_note_thesis [data-testid="stMarkdownContainer"] p {{
+  font-size: 19px;
+  line-height: 28px;
+  color: var(--tl-content-primary);
+  margin: var(--tl-space-4) 0 0 0;
+}}
+[data-testid="stAppViewContainer"] .tl-note-section-title {{
+  font-family: var(--tl-font-ui);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tl-content-secondary);
+  margin: 0 0 var(--tl-space-2) 0;
+}}
+/* Regeneration progress. A status line, not a skeleton: the note it
+   describes is still on screen and must not move. */
+[data-testid="stAppViewContainer"] .tl-note-updating {{
+  font-family: var(--tl-font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--tl-content-secondary);
+  margin: var(--tl-space-3) 0 0 0;
+}}
+/* The section index reads as navigation, not as a second question. */
+.st-key-tl_note_sheet [data-testid="stRadio"] label[data-baseweb="radio"] p {{
+  font-size: 14px;
+  color: var(--tl-content-secondary);
+}}
+/* Motion: only when the reader moves between sections. The container's key
+   carries the section id, so Streamlit mounts a new element on a change and
+   this replays — it cannot fire on first load, on regeneration, or on an
+   error, because none of those change the key. Opacity and a 4px lift,
+   inside the 160-180ms window, and never under reduced motion. */
+@media (prefers-reduced-motion: no-preference) {{
+  [class*="st-key-tl_note_section_"] {{
+    animation: tl-note-section-in 170ms var(--tl-ease-out) both;
+  }}
+  @keyframes tl-note-section-in {{
+    from {{ opacity: 0; transform: translateY(4px); }}
+    to {{ opacity: 1; transform: none; }}
+  }}
+}}
+
 /* === STRATEGY PROFILE — the playbook summary ===
    A compact functional header, not a hero. The page it introduces is a
    long form, so this states three things and stops: whose playbook, how
