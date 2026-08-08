@@ -1205,6 +1205,36 @@ def test_the_44px_floor_is_not_hidden_behind_the_phone_breakpoint():
     assert ">" not in floor.group(1), floor.group(1).strip()
 
 
+def test_the_button_label_colour_reaches_tooltip_wrapped_buttons():
+    """The floor above learned the `>` lesson; the colour rule had not.
+
+    A button passing ``help=`` is wrapped in a tooltip div, so
+    ``.stButton > button`` never matches it — and config.toml's
+    ``primaryColor`` then paints a primary button teal with Streamlit's own
+    WHITE label. Measured on Strategy's "Apply the ICT/SMC starter playbook"
+    at 1.61:1 against the teal, at all four audited widths, while every other
+    primary button in the product was correctly dark-on-teal.
+
+    Guarding the rule that declares the colour, not one page's markup: the
+    next control to pass ``help=`` must inherit the fix rather than rediscover
+    the bug.
+    """
+    from src.tradelens.ui import design_system as ds
+
+    css = re.sub(r"/\*.*?\*/", "", ds.build_css(), flags=re.S)
+
+    declaring = [
+        m
+        for m in re.finditer(r"([^{}]*\.stButton[^{}]*)\{([^{}]*)\}", css)
+        if "color:" in m.group(2) and "stSidebar" not in m.group(1)
+    ]
+    assert declaring, "nothing declares a label colour for .stButton"
+    for m in declaring:
+        assert ">" not in m.group(1), (
+            "a tooltip-wrapped button escapes this colour rule: " + m.group(1).strip()
+        )
+
+
 # ---------------------------------------------------------------------------
 # Strategy Profile — a playbook, not a settings dump
 # ---------------------------------------------------------------------------

@@ -20,8 +20,14 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 2 — PARTNER AMENDMENTS ROUND 4 COMPLETE, AWAITING FINAL CODEX REVIEW`
-- Last completed work: **Claude's Partner amendments round 4** (this commit) —
+- Current phase: `PHASE 3 — IMPECCABLE FORENSIC AUDIT AND POLISH COMPLETE, AWAITING CODEX REVIEW`
+- **Phase 2 is APPROVED.** Codex approved Phase 2 at `7ffd9a1` — the Partner
+  amendments round 4 commit and, with it, Tasks 1–17 and every amendment round
+  that preceded them. The final focused Codex re-review named in the previous
+  state block has been performed and passed. Phase 3 begins from `7ffd9a1` as
+  its base; the approved visual direction and functionality are frozen and this
+  phase must not redesign them.
+- Last completed work: **Claude's Partner amendments round 4** (`7ffd9a1`) —
   Codex's P1 privacy blocker: `_partner_queue` and `_partner_run` survived
   sign-out, carrying the previous trader's unsent question in plain text. The
   cleanup prefix now covers the whole `_partner_` namespace, with a structural
@@ -60,18 +66,61 @@ the same time.
   and bottom bar never both on screen. The Journal calendar was re-verified
   after the shared key rename.
 - Next owner: **`CODEX`**.
-- Next action: **the final focused Codex re-review** of the Partner
-  presentation amendments. They are complete: ownerless and AI-disabled
-  availability, the no-trades and no-profile states with their routes,
-  immediate clearing, the two-pass sending state, and route-level exclusivity
-  between the full-page Partner and the global launcher/drawer. The
-  Codex-owned service, `auth.py`, and the zero-trade send gate are unchanged —
-  `git diff c78b2a0 -- src/tradelens/services/` is empty. Limitations are
-  listed at the end of the Task entry below.
-- The comprehensive Codex review has been performed. One final focused Codex
-  re-review is required after the Partner presentation amendments.
-- Tasks 1–17 are implemented, but Phase 2 is not approved until the remaining
-  Partner presentation amendments pass a final Codex re-review.
+- Next action: **Codex review of the Phase 3 diff.** Phase 3 is complete. It
+  was a presentation-only pass; `git diff 7ffd9a1 -- src/tradelens/services/
+  src/tradelens/db/ src/tradelens/prompts/` is empty, `auth.py` is untouched,
+  and no schema, secret, tenant-scoping, or marketing-site file was opened.
+  Motion work remains deferred to Phase 4 and was not started.
+- **Phase 3 verification:** `2065 passed, 7 skipped` (Phase 2 approved at
+  `2064/7`; the +1 is the new selector guard). Ruff clean · Black clean ·
+  `git diff --check` clean. Browser evidence: 8 destinations x 4 viewports
+  (1440, 1024, coarse 768, coarse 375) plus a reduced-motion pass over all 8
+  at 1440 — 40 measured runs before the fixes and 40 after. The coarse-pointer
+  and reduced-motion states were asserted from inside the page on every
+  applicable run rather than assumed. Confirmation pass: **zero horizontal
+  overflow, zero sub-44px targets, zero composited-contrast failures, zero
+  stale light surfaces** on every page at every viewport.
+- **Four defects found and fixed** (all shipped in Phase 2, none cosmetic):
+  1. `.tl-flank*` — the four figures beside the Overview trajectory had been
+     emitted since the band was built with **no CSS anywhere**, so all three
+     spans per row ran together: `Average win$293.1833 winning trades`. Two
+     numbers presented as one, on the landing page, at every width.
+  2. Streamlit's `primaryColor` painted Strategy's "Apply the ICT/SMC starter
+     playbook" teal with a **white** label at **1.61:1**, because the colour
+     rule used `.stButton > button` and a `help=` button sits inside a tooltip
+     div. The 44px floor had already learned this exact lesson; the colour
+     rule never had it carried back.
+  3. Both calendars dimmed non-trading days with `opacity` (0.35 Overview,
+     0.45 Journal), measuring **3.0:1 on 12px text**. Real dates, dimmed to
+     look forbidden — the substitution the design system already warns against
+     where it separates disabled from read-only inputs.
+  4. The New Trade review ticket set a hand-rolled `ui-monospace` stack, so the
+     last screen before a save rendered its numerals in a different face from
+     every other numeral in the product.
+- Colour-only meaning is **also** now spelled out for assistive technology in
+  the Overview calendar (visually-hidden outcome text per day, zero visual
+  change). See the unresolved finding below for the part that needs a ruling.
+- A structural guard, `test_the_button_label_colour_reaches_tooltip_wrapped
+  _buttons`, asserts the colour-declaring rule never regains a `>`, so the
+  next control passing `help=` inherits the fix instead of rediscovering the
+  bug.
+- **Unresolved, needs an owner/Codex ruling:** the calendars still encode day
+  outcome by **hue alone** for sighted users (green / red / grey dots, and a
+  legend keyed the same way). Every non-colour channel that would fix it —
+  dot shape, a ring for breakeven, a glyph — changes approved pixels, which
+  Phase 3 was told not to do. Flagged rather than decided.
+- **`.impeccable/` was inspected and nothing from it is in this commit.** Both
+  copies (`./` and `src/tradelens/ui/`) hold only `hook.cache.json`, a
+  machine-written per-session detector cache carrying session UUIDs and
+  absolute scratchpad paths. It is now in `.gitignore` so a broad `git add`
+  cannot sweep it in.
+- Three cosmetic orphan classes remain emitted with no rule and no visual
+  effect — `.tl-evidence-sample`, `.tl-note-thesis-label`, `.tl-partner-head`;
+  each is a dead styling hook whose siblings or children carry the styling.
+  Left alone deliberately: removing them is churn, not polish.
+- The comprehensive Codex review has been performed and the final focused
+  re-review of the Partner presentation amendments has passed.
+- Tasks 1–17 are implemented and approved.
 - Task 4 interfaces are present exactly as planned and verified green
   (`tests/test_metrics.py` + `tests/test_partner_context.py`, 129 passed).
   Claude must consume them, never reproduce their calculations or open a
@@ -233,6 +282,67 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-08 — Phase 3: the Impeccable forensic audit and polish (Claude)
+
+Phase 2 is approved at `7ffd9a1`; this phase starts there and changes no
+approved visual decision. It is a presentation-only pass, and the four things
+it fixed were all defects rather than preferences — each one shipped inside
+Phase 2 and each was reproduced in a browser before it was touched.
+
+**Method.** One bounded inspection pass, then the fixes together, then exactly
+one confirmation pass, as instructed. Evidence came from headless Chrome over
+CDP: a fresh browser per viewport, device metrics re-applied *after* navigation
+(Chrome recomputes the mobile viewport from the loaded page, which silently
+turns a "coarse 375" run into a desktop layout), and a DOM probe that composites
+every text node's effective background through its ancestors — folding in
+`opacity` — rather than trusting the declared pair. The 44px probe keeps the
+three exclusions this app genuinely needs: off-canvas rail items, `clip`ped
+visually-hidden inputs, and BaseWeb's inner 2px caret input.
+
+That compositing is what found defect 3. A declared-pair check would have read
+the calendar's day numbers as content-primary on canvas — about 15:1, a pass —
+and never seen the `opacity: 0.35` sitting between them, which is the whole
+defect.
+
+**Why the two selector fixes are one fix.** `.stButton > button` misses any
+button that passes `help=`, because Streamlit wraps those in a tooltip div.
+The 44px floor had already been corrected for exactly this and carries a
+comment saying so; the colour rule sitting 1800 lines earlier never was. So one
+control in the product — Strategy's starter-playbook button — kept Streamlit's
+own white label on the teal `primaryColor` fill at 1.61:1, while every other
+primary button was correctly dark-on-teal. Fixing the rest state then left the
+reduced-motion kill switch narrower than the rule it cancels, so `help=` buttons
+would have kept animating under reduced motion; that selector is widened in the
+same commit. `theme.py`'s redundant duplicate is widened too, so the two
+stylesheets cannot disagree about which buttons they cover, and its comment —
+which described white-on-teal on a light surface, the abandoned hybrid
+direction, and the reverse of what the rule does — is corrected.
+
+Specificity is unchanged by all of this: `.stButton button` and
+`.stButton > button` are both (0,1,1), so the sidebar's outlined-button
+override still wins.
+
+**What was checked and found clean**, so the next reviewer does not re-derive
+it: Partner exclusivity is airtight at the CSS level — the full-page Partner is
+`display: none` from 768 up and the launcher/drawer are `display: none` to 767,
+complementary with no gap and no overlap, and `display` rather than
+`visibility` keeps the hidden one out of the tab order. Model output takes the
+safe Markdown path with `unsafe_allow_html` off and `$` escaped so paired money
+is not parsed as LaTeX. The AI Reviews skeleton preserves the note's geometry
+and animates only under `prefers-reduced-motion: no-preference`, so there is no
+loading-state shift and no motion to suppress. The one `outline: none` in the
+tree is deliberate and replaced by a ring on the wrapper. `.tl-insight-card`
+resolves its variants with tinted backgrounds and accent icons, not the 3px
+coloured left borders the Phase 1C spec proposed — so PRODUCT.md's "owner
+decision pending" footnote describes a conflict that implementation already
+resolved correctly.
+
+**Limitations.** DEMO_MODE data was used, so these are the seeded states, not
+every real one. Contrast was measured on rendered defaults; hover, focus and
+active colours were read from CSS, not photographed. The colour-only encoding
+in both calendars is reported unresolved rather than fixed, because every
+remedy changes approved pixels.
 
 ### 2026-08-07 — Partner amendment round 4: the sign-out key leak (Claude)
 

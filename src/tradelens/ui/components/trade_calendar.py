@@ -82,10 +82,18 @@ def compact_month_html(year: int, month: int, daily: dict) -> str:
     to inspect it belongs to the full Journal calendar, which has the room
     to show the result. Layout is inline (grid geometry only); every colour
     comes from a design-system class or token.
+
+    Quiet days carry `--tl-content-secondary`, not an opacity. A day the
+    trader did not trade is still a real date, and `opacity: 0.35` measured
+    3.0:1 on 12px text against the canvas — a WCAG AA failure at every width,
+    reproduced on all four. The design system already warns against exactly
+    this substitution where it separates disabled from read-only inputs:
+    dimming by opacity makes a real value look like a forbidden one. The
+    content-secondary role says "quiet" and stays at 6.13-7.32:1.
     """
     cells = [
         f'<div style="font-size:11px;letter-spacing:0.04em;text-transform:uppercase;'
-        f'opacity:0.55;text-align:center">{name[:1]}</div>'
+        f'color:var(--tl-content-secondary);text-align:center">{name[:1]}</div>'
         for name in _WEEKDAYS
     ]
     for week in _cal.monthcalendar(year, month):
@@ -95,18 +103,30 @@ def compact_month_html(year: int, month: int, daily: dict) -> str:
                 continue
             info = daily.get(day_key(year, month, day))
             if info:
+                outcome = info.get("outcome", "")
                 dot_class = {
                     "positive": "tl-cal-dot positive",
                     "negative": "tl-cal-dot negative",
-                }.get(info.get("outcome", ""), "tl-cal-dot")
+                }.get(outcome, "tl-cal-dot")
+                # The dot's meaning is carried by hue alone, so it is also
+                # spelled out for anyone not reading the hue. Visually hidden,
+                # not `title`: a tooltip needs a pointer and never reaches a
+                # screen-reader user browsing the grid.
+                outcome_text = {
+                    "positive": "net positive",
+                    "negative": "net negative",
+                }.get(outcome, "breakeven")
                 cells.append(
                     '<div style="text-align:center;padding:3px 0;'
                     'font-family:var(--tl-font-mono);font-size:12px">'
-                    f'{day}<br/><span class="{dot_class}"></span></div>'
+                    f'{day}<br/><span class="{dot_class}"></span>'
+                    f'<span class="tl-visually-hidden">{outcome_text}</span>'
+                    "</div>"
                 )
             else:
                 cells.append(
-                    '<div style="text-align:center;padding:3px 0;opacity:0.35;'
+                    '<div style="text-align:center;padding:3px 0;'
+                    "color:var(--tl-content-secondary);"
                     'font-family:var(--tl-font-mono);font-size:12px">'
                     f"{day}</div>"
                 )
@@ -249,7 +269,8 @@ def render_trade_calendar(
                     st.session_state[_SELECTED_KEY] = key
             else:
                 cols[i].markdown(
-                    f"<div style='text-align:center;opacity:0.45'>{day}</div>",
+                    "<div style='text-align:center;"
+                    f"color:var(--tl-content-secondary)'>{day}</div>",
                     unsafe_allow_html=True,
                 )
 

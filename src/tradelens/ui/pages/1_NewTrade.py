@@ -889,7 +889,12 @@ def _do_save(override: bool) -> None:
 
 
 _NOT_ENTERED = f"<span style='{_FAINT}'>Not entered yet</span>"
-_MONO = "font-family:ui-monospace,SFMono-Regular,Menlo,monospace"
+# The design system's mono role, not a hand-rolled stack. This used to name
+# ui-monospace/SFMono/Menlo directly, which rendered the review ticket's
+# numerals in a different face from every other numeral in the product —
+# the KPI strip, the tables and the calendar all resolve --tl-font-mono to
+# JetBrains Mono, and the last screen before a save disagreed with them.
+_MONO = "font-family:var(--tl-font-mono)"
 
 
 def _tv(value) -> str:

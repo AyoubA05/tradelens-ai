@@ -911,9 +911,20 @@ def build_css() -> str:
 
 /* === BUTTONS (all states: rest, hover, focus, active) ===
    Form submit buttons (Sign In, Save Trade, …) are primary actions too —
-   they get the identical treatment as .stButton. */
-.stButton > button,
-.stFormSubmitButton > button {{
+   they get the identical treatment as .stButton.
+
+   Descendant, not `>`, for the same reason the 44px floor below is: a button
+   that passes `help=` is wrapped in a tooltip div, so `.stButton > button`
+   never reaches it. That lesson was learned once for `min-height` and not
+   carried back here, which left the label colour to Streamlit — and
+   `primaryColor` in config.toml paints a primary button teal with a WHITE
+   label. Measured on Strategy's "Apply the ICT/SMC starter playbook" at
+   1.61:1, at all four widths. Every other primary button in the product was
+   already dark-on-teal; this one control disagreed because of a selector.
+   Specificity is unchanged (0,1,1 either way), so the sidebar's outlined
+   override still wins. */
+.stButton button,
+.stFormSubmitButton button {{
   background: var(--tl-accent-action);
   color: var(--tl-surface-panel);
   border: 1px solid var(--tl-accent-action);
@@ -924,19 +935,19 @@ def build_css() -> str:
               border-color var(--tl-dur-state) var(--tl-ease-out);
 }}
 @media (hover: hover) and (pointer: fine) {{
-  .stButton > button:hover,
-  .stFormSubmitButton > button:hover {{
+  .stButton button:hover,
+  .stFormSubmitButton button:hover {{
     background: var(--tl-primary-hover);
     border-color: var(--tl-primary-hover);
   }}
 }}
-.stButton > button:focus-visible,
-.stFormSubmitButton > button:focus-visible {{
+.stButton button:focus-visible,
+.stFormSubmitButton button:focus-visible {{
   outline: 2px solid var(--tl-accent-action);
   outline-offset: 2px;
 }}
-.stButton > button:active,
-.stFormSubmitButton > button:active {{
+.stButton button:active,
+.stFormSubmitButton button:active {{
   background: var(--tl-primary-hover);
 }}
 /* The rail holds exactly ONE filled action — "Log completed trade". Sign
@@ -2626,8 +2637,11 @@ def build_css() -> str:
    scales, so removing transitions entirely is the correct reduction. */
 @media (prefers-reduced-motion: reduce) {{
   .tl-action-card,
-  .stButton > button,
-  .stFormSubmitButton > button,
+  /* Descendant here too: the rest-state rule above transitions every button
+     including the tooltip-wrapped ones, so the kill switch has to reach the
+     same set or `help=` buttons would keep animating under reduced motion. */
+  .stButton button,
+  .stFormSubmitButton button,
   .tl-table td,
   .tl-mobile-nav-item,
   [data-testid="stSidebar"] a,
@@ -2841,6 +2855,63 @@ def build_css() -> str:
   .tl-discipline-row:last-child {{
     border-bottom: none;
   }}
+}}
+
+/* === OVERVIEW BAND 3 — the figures flanking the trajectory ===
+   These classes were emitted by `components/overview_bands.py` from the day
+   the band was built and never had a rule anywhere, so all three spans in a
+   row rendered inline and ran together: "Average win" + "$293.18" + "33
+   winning trades" read as `Average win$293.1833 winning trades`, which does
+   not merely look wrong — it makes the figure ambiguous, because $293.18 and
+   33 are two numbers presented as one.
+
+   A stacked list divided by hairlines, not a panel of tiles: band 2 is
+   already a panel and band 1 a strip, and the anti-grid rule that shapes this
+   Overview says the fourth form must not repeat the second. The chart is this
+   band's dominant instrument, so the figure sits at 18px — below band 2's
+   22px, which keeps the reading order chart first, figures second.
+
+   No tone class is set. These are money figures, but an average win is
+   positive by construction and an average loss negative by construction;
+   painting them green and red would encode nothing the words do not already
+   say, and would spend the outcome colours on a non-outcome. */
+.tl-flank {{
+  display: flex;
+  flex-direction: column;
+}}
+.tl-flank-row {{
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--tl-space-3) 0;
+  border-bottom: 1px solid var(--tl-line-hairline);
+}}
+.tl-flank-row:first-child {{
+  padding-top: 0;
+}}
+.tl-flank-row:last-child {{
+  border-bottom: none;
+}}
+.tl-flank-label {{
+  font-family: var(--tl-font-ui);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tl-content-secondary);
+}}
+.tl-flank-value {{
+  font-family: var(--tl-font-mono);
+  font-size: 18px;
+  line-height: 1.2;
+  color: var(--tl-content-primary);
+  font-variant-numeric: tabular-nums;
+}}
+.tl-flank-detail {{
+  font-family: var(--tl-font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--tl-content-secondary);
+  font-variant-numeric: tabular-nums;
 }}
 
 /* === OVERVIEW BAND 4 — ranked performance lists ===

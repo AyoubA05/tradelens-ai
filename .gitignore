@@ -250,3 +250,9 @@ data/
 
 # Local Git worktrees
 .worktrees/
+
+# Impeccable detector hook cache. Machine-written, per-session: it holds
+# session UUIDs and absolute scratchpad paths from whoever ran the tool, and
+# nothing a reviewer or another machine can use. Ignored rather than left
+# untracked so it is never swept into a commit by a broad `git add`.
+.impeccable/

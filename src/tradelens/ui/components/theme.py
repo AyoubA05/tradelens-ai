@@ -185,10 +185,18 @@ def _build_css() -> str:
 .stMetric [data-testid="stMetricLabel"] {{
     color: {TEXT_MUTED};
 }}
-/* Deep teal, not the bright instrument teal: this button carries white
-   text on a light surface, where #00E5CC measures 1.7:1. No lift and no
-   glow — a press must not move the layout under the pointer. */
-.stButton > button {{
+/* The bright instrument teal carrying a dark panel-coloured label — the
+   workspace is dark, so the label is the dark value and the fill is the
+   bright one. (An earlier note here described the reverse, white-on-teal on
+   a light surface; that was the abandoned hybrid direction and never what
+   this rule did.) No lift and no glow — a press must not move the layout
+   under the pointer.
+
+   Descendant, not `>`: a button passing `help=` sits inside a tooltip div.
+   design_system.py is injected after this file and declares the same roles,
+   so this block is a redundant second source for one control; it is kept
+   only so the two never disagree about WHICH buttons they cover. */
+.stButton button {{
     background: {ACTION};
     color: {PAPER};
     border: 1px solid {ACTION};
@@ -197,11 +205,11 @@ def _build_css() -> str:
     transition: background 0.16s ease-out;
 }}
 @media (hover: hover) and (pointer: fine) {{
-    .stButton > button:hover {{
+    .stButton button:hover {{
         background: {ACTION_HOVER};
     }}
 }}
-.stButton > button:focus-visible {{
+.stButton button:focus-visible {{
     outline: 2px solid {ACTION};
     outline-offset: 2px;
 }}
@@ -268,7 +276,7 @@ def _build_css() -> str:
     margin: 6px 12% 6px 0;
 }}
 @media (prefers-reduced-motion: reduce) {{
-    .stButton > button {{
+    .stButton button {{
         transition: none;
     }}
 }}
