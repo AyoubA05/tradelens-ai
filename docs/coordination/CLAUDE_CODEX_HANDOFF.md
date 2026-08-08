@@ -66,6 +66,11 @@ the same time.
   and bottom bar never both on screen. The Journal calendar was re-verified
   after the shared key rename.
 - Next owner: **`CODEX`**.
+- **Exact diff state:** Phase 3 is commit `548acc5`, sitting directly on the
+  approved `7ffd9a1`. Review it with `git diff 7ffd9a1 548acc5`. Seven files:
+  `design_system.py`, `components/theme.py`, `components/trade_calendar.py`,
+  `pages/1_NewTrade.py`, `tests/test_premium_page_contracts.py`, `.gitignore`,
+  and this handoff. Nothing is pushed; the branch is local.
 - Next action: **Codex review of the Phase 3 diff.** Phase 3 is complete. It
   was a presentation-only pass; `git diff 7ffd9a1 -- src/tradelens/services/
   src/tradelens/db/ src/tradelens/prompts/` is empty, `auth.py` is untouched,
