@@ -20,15 +20,18 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 4 APPROVED. AUTH BYPASS CLOSED. DSN DISCLOSURE CLOSED.
-  BRANCH NOT FINISHED — awaiting owner.`
-- **Phase 4 presentation review: APPROVED** by the owner at `6b3d33c`.
-- **Authentication bypass: CLOSED** at `950bc8f`, accepted by the owner.
-- **DATABASE_URL disclosure: CLOSED** at `7c046fc`, together with both Phase 4
-  verification gaps. Details in the log entry below.
-- Verification: `2128 passed, 7 skipped` (Phase 4 approved at `2087/7`; +41
-  across the two security commits and the hardening). Ruff clean · Black clean
-  · `git diff --check` clean · working tree clean.
+- Current phase: `FINAL INDEPENDENT CODEX REVIEW APPROVED — READY FOR BRANCH
+  FINISHING AFTER THE OWNER'S DEPLOYMENT-SECRET CHECK.`
+- **Phase 2:** APPROVED at `7ffd9a1`.
+- **Phase 3:** APPROVED at `2c29a20`.
+- **Phase 4:** APPROVED at `6b3d33c`; independently re-reviewed through
+  `ad8a8ce`, with the review-contract correction committed at `6f08590`.
+- **Authentication bypass:** CLOSED at `950bc8f`.
+- **DATABASE_URL disclosure:** CLOSED at `7c046fc`.
+- Verification: `2129 passed, 7 skipped`; Ruff clean; Black clean (217 files);
+  `git diff --check` clean. Live Analytics CDP check: one animation on a lens
+  change, zero replays on a real filter rerun, and no positional animation in
+  reduced-motion mode.
 - **STILL REQUIRED FROM THE OWNER — deployment secret check.** Not doable from
   this worktree. share.streamlit.io → the TradeLens app → **Settings →
   Secrets** → confirm whether `TRADELENS_USERNAME` and `TRADELENS_PASSWORD`
@@ -38,6 +41,12 @@ the same time.
   was reused.
 - Next owner: **`OWNER`**. Not pushed, not merged, not deployed. The
   password-strength feature is not started and the branch is not finished.
+
+## Superseded state snapshots (historical; not current)
+
+The bullets below preserve earlier session boundaries for audit history. They
+are not the active handoff state; the authoritative state is the block above.
+
 - **Phase 4 review outcome: no blocking findings.** The diff `2c29a20..6b3d33c`
   is presentation-only and its boundary claims re-verified empty. It is NOT
   marked approved here, because approval was withheld pending the
@@ -571,6 +580,44 @@ defaults or merely on a legacy-tenant bypass, and it is a deployment question,
 not a code one.
 
 ## Handoff log
+
+### 2026-08-08 — Independent final review (Codex)
+
+**Outcome: approved.** The Phase 4 motion diff, fail-closed authentication,
+and database-bootstrap containment were reviewed against the implementation,
+focused subprocess tests, a live Streamlit browser session, and the full
+project gates. No product-code blocker remains.
+
+| Before | After | Why |
+|---|---|---|
+| A named long-duration animation exempted its entire comma-separated declaration | The exemption is evaluated per top-level animation item | An unrelated 1.4s animation could previously borrow the skeleton pulse's exemption and pass the 300ms ceiling guard. |
+| The traceback test accepted legacy `false` spellings | The project contract pins canonical `showErrorDetails = "none"` | The deployed config deliberately chose the stable Streamlit 1.50 enum rather than a compatibility shim. |
+
+**Live motion evidence.** Chrome CDP drove the actual Analytics page in demo
+mode. Performance → Risk emitted exactly one `tl-lens-in-risk` event. Selecting
+the NQ Asset filter caused a confirmed Streamlit rerun (3,436 observed DOM
+mutations) with zero lens-animation events and zero rendered exceptions.
+Under emulated `prefers-reduced-motion: reduce`, Risk → Timing rendered with
+`animation-name: none`, `transform: none`, zero overflow, and zero exceptions.
+The `agent-browser` executable was unavailable, so the fallback used a fresh
+headless Chrome target and direct CDP rather than claiming an agent-browser or
+physical-device run.
+
+**Security evidence.** The authentication and database paths fail closed:
+unconfigured or partial legacy credentials cannot authenticate; a user-store
+failure cannot fall through to legacy mode; engine construction cannot fall
+back to another database; and the browser receives generic copy rather than a
+DSN or traceback. The final review changed no product, auth, database, service,
+schema, prompt, or marketing-site code.
+
+**Verification:** `81 passed` in the focused motion/auth/DSN gate, then `2129
+passed, 7 skipped` in the full suite. Ruff clean; Black clean (217 files);
+`git diff --check` clean.
+
+**Still owner-only:** inspect the deployed Streamlit secrets. If the legacy
+username/password were absent before `950bc8f`, treat the old published pair
+as disclosed and rotate it anywhere it was reused. Nothing was pushed, merged,
+or deployed, and the separate password-strength feature remains deferred.
 
 ### 2026-08-08 — Phase 4: motion and interaction refinement (Claude)
 
