@@ -14,8 +14,19 @@ from __future__ import annotations
 import src.tradelens.ui.components.auth as auth
 
 
-def test_authenticate_login_does_not_crash_when_db_auth_raises(monkeypatch):
-    """A DB/bcrypt error in the accounts-exist branch must degrade, not crash."""
+def test_authenticate_login_reports_a_db_failure_as_unavailable(monkeypatch):
+    """A DB/bcrypt error in the accounts-exist branch must degrade, not crash.
+
+    CONTRACT CHANGE, deliberate. This previously asserted a `(False, None,
+    None)` rejection tuple. A rejection tuple is indistinguishable from "wrong
+    password", and that conflation is what allowed a database outage to be
+    reinterpreted as an authentication mode elsewhere in this function. The
+    failure is now typed. The original intent — the exception must never reach
+    the trader as a crash — is unchanged and is asserted by the AppTest below,
+    which drives the real screen and requires no rendered exception.
+    """
+    import pytest
+
     from src.tradelens.services import users
 
     monkeypatch.setattr(users, "users_exist", lambda: True)
@@ -25,8 +36,8 @@ def test_authenticate_login_does_not_crash_when_db_auth_raises(monkeypatch):
 
     monkeypatch.setattr(users, "authenticate", _boom)
 
-    # Must return a clean rejection tuple — never propagate the exception.
-    assert auth.authenticate_login("ayoub", "whatever") == (False, None, None)
+    with pytest.raises(auth.AuthUnavailableError):
+        auth.authenticate_login("ayoub", "whatever")
 
 
 def test_login_form_renders_rejection_instead_of_crashing(monkeypatch):
@@ -62,4 +73,11 @@ auth.require_auth()
 
     assert not at.exception, f"login click crashed: {list(at.exception)}"
     rendered = " ".join(m.value for m in at.markdown)
-    assert "Check your details and try again" in rendered
+    # The screen now separates "we could not check" from "those are wrong".
+    # A raising auth path is the former, and saying "check your details" would
+    # send a trader to reset a password that was never the problem.
+    assert "Sign-in is temporarily unavailable" in rendered
+    assert "Check your details and try again" not in rendered
+    # And nothing about the failure itself reaches the page.
+    for leak in ("boom", "RuntimeError", "Traceback"):
+        assert leak not in rendered, f"{leak!r} leaked to the login screen"

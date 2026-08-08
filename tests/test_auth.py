@@ -33,19 +33,32 @@ def _clean_env(monkeypatch):
     yield
 
 
-def test_default_credentials_used_when_unset():
+def test_legacy_login_is_unavailable_when_unset():
+    """CONTRACT CHANGE, deliberate. This test previously asserted the opposite —
+    that unset secrets yielded a committed ``demo`` / ``tradelens2025`` pair
+    which authenticated. That was the vulnerability, written down as a
+    contract, so it is inverted rather than deleted: unset now means the
+    legacy path does not exist. Full coverage in test_auth_fail_closed.py."""
     importlib.reload(auth)
-    assert auth.expected_credentials() == ("demo", "tradelens2025")
-    assert auth.verify_credentials("demo", "tradelens2025") is True
+    assert auth.expected_credentials() == ("", "")
+    assert auth.legacy_login_configured() is False
+    assert auth.verify_credentials("demo", "tradelens2025") is False
 
 
-def test_wrong_credentials_rejected():
-    assert auth.verify_credentials("demo", "wrong") is False
-    assert auth.verify_credentials("nobody", "tradelens2025") is False
+def test_wrong_credentials_rejected(monkeypatch):
+    """Configured first, on purpose. With nothing configured every one of
+    these would be False because the legacy path is closed, and the test would
+    pass without ever exercising a credential comparison."""
+    monkeypatch.setenv("TRADELENS_USERNAME", "ayoub")
+    monkeypatch.setenv("TRADELENS_PASSWORD", "s3cret!")
+    assert auth.verify_credentials("ayoub", "wrong") is False
+    assert auth.verify_credentials("nobody", "s3cret!") is False
     assert auth.verify_credentials("", "") is False
 
 
-def test_none_credentials_rejected():
+def test_none_credentials_rejected(monkeypatch):
+    monkeypatch.setenv("TRADELENS_USERNAME", "ayoub")
+    monkeypatch.setenv("TRADELENS_PASSWORD", "s3cret!")
     assert auth.verify_credentials(None, None) is False
 
 

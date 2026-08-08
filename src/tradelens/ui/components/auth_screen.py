@@ -407,6 +407,7 @@ def render_auth_screen() -> None:
         _AUTH_KEY,
         _UID_KEY,
         _USER_KEY,
+        AuthUnavailableError,
         authenticate_login,
         process_signup,
         signup_enabled,
@@ -508,19 +509,37 @@ def render_auth_screen() -> None:
                 )
                 submitted = st.form_submit_button("Sign in", width="stretch")
             if submitted:
+                unavailable = False
                 with st.spinner("Signing you in…"):
-                    # authenticate_login -> (ok, username, user_id). Any auth
-                    # error becomes a normal rejection, never a crash.
+                    # authenticate_login -> (ok, username, user_id), or raises
+                    # AuthUnavailableError when the user store cannot be
+                    # consulted. The two are reported differently on purpose:
+                    # telling a trader their password is wrong when the
+                    # database is down sends them to reset a password that was
+                    # never the problem.
                     try:
                         ok, uname, uid = authenticate_login(username, password)
+                    except AuthUnavailableError:
+                        ok, uname, uid = False, None, None
+                        unavailable = True
                     except Exception:  # noqa: BLE001 — never crash the login screen
                         ok, uname, uid = False, None, None
+                        unavailable = True
                 if ok:
                     st.session_state[_AUTH_KEY] = True
                     st.session_state[_USER_KEY] = uname
                     st.session_state[_UID_KEY] = uid
                     st.session_state.pop(_ERROR_KEY, None)
                     st.rerun()
+                elif unavailable:
+                    # Calm, generic, and carrying nothing about the failure:
+                    # no exception type, no driver name, no host. It also does
+                    # not say whether the credentials were right, because the
+                    # app genuinely does not know.
+                    st.session_state[_ERROR_KEY] = (
+                        "Sign-in is temporarily unavailable. "
+                        "Please try again in a moment."
+                    )
                 else:
                     st.session_state[_ERROR_KEY] = (
                         "Incorrect username or password. "

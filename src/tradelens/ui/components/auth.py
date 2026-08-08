@@ -1,16 +1,24 @@
 """
 Password gate for TradeLens AI (Session A).
 
-Single-user access control. Credentials come from Streamlit secrets / environment
-(TRADELENS_USERNAME, TRADELENS_PASSWORD) — never hardcoded inline. A clearly
-labeled demo fallback (demo / tradelens2025) keeps the public deploy usable when
-no secrets are set; override it by setting the secrets.
+Single-user access control. Credentials come from Streamlit secrets /
+environment (TRADELENS_USERNAME, TRADELENS_PASSWORD) — never hardcoded inline
+and with no fallback pair. When they are unset or blank the legacy path is
+UNAVAILABLE rather than open: there is nothing to sign in with.
+
+Two failures that look alike are kept apart here, because conflating them was
+a real authentication bypass:
+
+    users table queried, found empty  -> legacy login may apply, if configured
+    users table could not be queried  -> AuthUnavailableError, no decision
 
 Public surface:
-    require_auth()          gate placed at the top of every page (after inject_css)
-    render_logout_button()  sidebar logout control
-    is_authenticated()      bool read of the session flag
-    verify_credentials()    pure check, unit-tested
+    require_auth()            gate at the top of every page (after inject_css)
+    render_logout_button()    sidebar logout control
+    is_authenticated()        bool read of the session flag
+    verify_credentials()      pure check, unit-tested
+    legacy_login_configured() whether the legacy path exists at all
+    AuthUnavailableError      raised when the user store cannot be consulted
 
 Credential reading is env-first so it is testable without Streamlit; st.secrets is
 consulted as a fallback the same way config.py bridges ANTHROPIC_API_KEY.
@@ -24,15 +32,41 @@ from __future__ import annotations
 import base64
 import hmac
 import json
+import logging
 import os
 import secrets as _pysecrets
 import time
 
-# Labeled fallback for a demo-only deployment. Real deployments set the secrets
-# below and these are never used. This is NOT a hardcoded production credential —
-# it is overridden by TRADELENS_USERNAME / TRADELENS_PASSWORD whenever they exist.
-_DEFAULT_USERNAME = "demo"
-_DEFAULT_PASSWORD = "tradelens2025"
+_log = logging.getLogger(__name__)
+
+
+class AuthUnavailableError(RuntimeError):
+    """The user store could not be consulted, so no decision can be made.
+
+    Deliberately distinct from "these credentials are wrong". The old code
+    could not tell the two apart, and that is what made the bypass possible:
+    a failed lookup was indistinguishable from a database with no users in
+    it, and the second of those legitimately falls back to legacy login.
+    """
+
+
+# There is NO fallback credential pair. There used to be — a demo username and
+# password written as literals in this file, see `a0ef59b` — and
+# `expected_credentials()` handed it out whenever the deployment secrets were
+# unset. Combined with the fail-open below it meant a database outage on a real
+# deployment downgraded login to a password published in the repository.
+#
+# The old literals are deliberately NOT quoted here. A guard in
+# tests/test_auth_fail_closed.py asserts this module's source contains no such
+# string, so writing one into a comment would fail the suite — which is the
+# intended outcome: an auth module should hold no credential-shaped literal at
+# all, and three contracts in this project have already been broken by a
+# comment that spelled out the thing it was guarding against.
+#
+# Legacy single-user login is still supported, but only when it has been
+# explicitly configured: both TRADELENS_USERNAME and TRADELENS_PASSWORD must
+# be set and non-blank. Unset means the legacy path is unavailable, not that
+# it is open with a default.
 
 _AUTH_KEY = "authenticated"
 _USER_KEY = "current_user"
@@ -153,16 +187,50 @@ def _read_secret(name: str, default: str) -> str:
 
 
 def expected_credentials() -> tuple[str, str]:
-    """The (username, password) the app will accept this run."""
+    """The legacy (username, password) this deployment accepts.
+
+    ``("", "")`` when the legacy path is not configured. The empty string is
+    the honest answer: it means "nothing is configured", where the old
+    default meant "everything is configured, with a password anyone can read".
+    """
     return (
-        _read_secret("TRADELENS_USERNAME", _DEFAULT_USERNAME),
-        _read_secret("TRADELENS_PASSWORD", _DEFAULT_PASSWORD),
+        _read_secret("TRADELENS_USERNAME", ""),
+        _read_secret("TRADELENS_PASSWORD", ""),
     )
 
 
-def verify_credentials(username: str | None, password: str | None) -> bool:
-    """Constant-time check of submitted credentials against the configured pair."""
+def legacy_login_configured() -> bool:
+    """Whether legacy single-user login is available at all.
+
+    Both halves must be present and non-blank. A deployment that sets only
+    one of them has not configured legacy login; it has half-configured it,
+    which must not authenticate anyone.
+
+    Whitespace-only counts as blank. `TRADELENS_PASSWORD="   "` is what an
+    empty value in a YAML secrets file or a mistyped CI variable looks like by
+    the time it arrives here, and treating it as a configured password means
+    three spaces sign somebody in.
+    """
     exp_user, exp_pass = expected_credentials()
+    return bool(exp_user.strip()) and bool(exp_pass.strip())
+
+
+def verify_credentials(username: str | None, password: str | None) -> bool:
+    """Constant-time check of submitted credentials against the configured pair.
+
+    Returns False when the legacy path is unconfigured, BEFORE comparing
+    anything. Without this an unset deployment compared the submission against
+    ``("", "")``, so a blank username and blank password authenticated.
+
+    The configured check strips, but the COMPARISON does not: a deployment
+    whose real password legitimately begins or ends with a space must still be
+    able to sign in with it exactly.
+    """
+    exp_user, exp_pass = expected_credentials()
+    if not legacy_login_configured():
+        return False
+    # Both comparisons always run: `and` would short-circuit on the username
+    # and leak, by timing, whether the username was the right one.
     user_ok = hmac.compare_digest(str(username or ""), exp_user)
     pass_ok = hmac.compare_digest(str(password or ""), exp_pass)
     return user_ok and pass_ok
@@ -187,29 +255,46 @@ def authenticate_login(username, password):
     """Resolve a login attempt to ``(ok, username, user_id)``.
 
     DB users take precedence: once the users table has rows, only bcrypt DB users
-    can sign in. While it is empty, fall back to the secrets credentials (whose
-    user_id is None — legacy single-user trades).
+    can sign in. While it is genuinely empty, fall back to the legacy credentials
+    (whose user_id is None — legacy single-user trades) IF they are configured.
+
+    Raises ``AuthUnavailableError`` when the user store cannot be consulted.
+    That is the whole point of this function's shape: a dependency failure is
+    not an authentication mode. The old code turned the exception into
+    ``has_db_users = False`` and carried on into the legacy branch, so a
+    database outage silently changed which credentials the app accepted.
     """
     from src.tradelens.services import users
 
     try:
         has_db_users = users.users_exist()
-    except Exception:  # noqa: BLE001 — a DB hiccup must not lock everyone out
-        has_db_users = False
+    except Exception as exc:  # noqa: BLE001 — converted, never swallowed
+        # Type name only. The message and traceback of a DB error routinely
+        # carry the DSN, host, and the SQL that failed; none of that belongs
+        # in a log line that a support process may forward onwards.
+        _log.error(
+            "Authentication unavailable: user lookup failed (%s)",
+            type(exc).__name__,
+        )
+        raise AuthUnavailableError("user store unavailable") from exc
 
     if has_db_users:
-        # Guard the DB query/bcrypt path the same way users_exist() is guarded:
-        # this branch only runs once accounts exist (localhost dev DB), never on a
-        # fresh Cloud deploy, so an unguarded error here is the localhost-only
-        # "login crash". A failure falls through to a normal rejection, not a crash.
         try:
             user = users.authenticate(str(username or ""), str(password or ""))
-        except Exception:  # noqa: BLE001 — a DB/bcrypt hiccup must not crash login
-            user = None
+        except Exception as exc:  # noqa: BLE001 — converted, never swallowed
+            _log.error(
+                "Authentication unavailable: credential check failed (%s)",
+                type(exc).__name__,
+            )
+            raise AuthUnavailableError("user store unavailable") from exc
         if user is not None:
             return True, user.username, user.id
+        # No fallthrough. A deployment with accounts authenticates against
+        # those accounts or not at all; dropping to the legacy path here would
+        # hand a user_id=None session to whoever knew the legacy password.
         return False, None, None
 
+    # The users table was queried successfully and is empty.
     if verify_credentials(username, password):
         return True, str(username), None
     return False, None, None
