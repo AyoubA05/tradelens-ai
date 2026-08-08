@@ -68,8 +68,8 @@ the same time.
 - Next owner: **`CODEX`**.
 - **Exact diff state:** review the whole of Phase 3 with
   `git diff 7ffd9a1 HEAD`. It is three commits on the approved `7ffd9a1`:
-  `548acc5` (the four defects), `542a7f3` (recording that SHA here), and the
-  amendment commit named at the end of this block. Files touched across all
+  `548acc5` (the four defects), `542a7f3` (recording that SHA here), and
+  `0371604` (this amendment). Files touched across all
   three: `design_system.py`, `components/theme.py`,
   `components/trade_calendar.py`, `pages/1_NewTrade.py`,
   `tests/test_premium_page_contracts.py`, `tests/test_dashboard.py`,
