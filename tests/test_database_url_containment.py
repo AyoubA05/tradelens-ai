@@ -284,10 +284,10 @@ def test_show_error_details_is_disabled_in_project_config():
 
     cfg = tomllib.load(open(ROOT / ".streamlit" / "config.toml", "rb"))
     value = cfg["client"]["showErrorDetails"]
-    # "none" is canonical on the pinned 1.50.0; `false` is the legacy spelling
-    # the loader still special-cases. Either disables details; neither may be
-    # silently dropped.
-    assert value in ("none", False, "false", "False"), value
+    # Pin the canonical 1.50.0 spelling. Accepting Streamlit's legacy false
+    # variations here would let the project drift back onto a compatibility
+    # shim even though config.toml deliberately chose the stable enum value.
+    assert value == "none", value
 
 
 def test_show_error_details_value_is_valid_for_the_pinned_streamlit():

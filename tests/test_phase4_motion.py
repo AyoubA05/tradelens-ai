@@ -305,6 +305,59 @@ def _durations_ms(value: str):
     return out
 
 
+def _split_css_list(value: str):
+    """Split a CSS comma list without splitting function arguments.
+
+    Animation and transition shorthands are comma-separated, while their
+    easing functions also contain commas.  Exemptions must be evaluated per
+    animation item; otherwise an approved animation can lend its name to an
+    unrelated long animation in the same declaration.
+    """
+    items = []
+    start = 0
+    depth = 0
+    quote = None
+    for index, char in enumerate(value):
+        if quote:
+            if char == quote and (index == 0 or value[index - 1] != "\\"):
+                quote = None
+            continue
+        if char in {'"', "'"}:
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            items.append(value[start:index].strip())
+            start = index + 1
+    items.append(value[start:].strip())
+    return [item for item in items if item]
+
+
+def _long_duration_offenders(css: str):
+    """Return long timings that are not the one named skeleton animation."""
+    offenders = []
+    for prop, value in _DURATION_DECL.findall(css):
+        for item in _split_css_list(value):
+            long_times = [ms for ms in _durations_ms(item) if ms > 300]
+            if not long_times:
+                continue
+            exemption = next(
+                (
+                    (name, expected)
+                    for name, expected in _LONG_DURATION_EXEMPTIONS.items()
+                    if prop.lower() == "animation"
+                    and re.search(rf"(?<![\\w-]){re.escape(name)}(?![\\w-])", item)
+                ),
+                None,
+            )
+            if exemption and long_times == [exemption[1]]:
+                continue
+            offenders.extend(f"{prop}: {item} -> {ms:g}ms" for ms in long_times)
+    return offenders
+
+
 def test_every_duration_stays_under_the_300ms_ceiling():
     """The ceiling, enforced in whatever unit it is written in.
 
@@ -314,12 +367,7 @@ def test_every_duration_stays_under_the_300ms_ceiling():
     numbers actually live, since the transition rules reference tokens.
     """
     css = _strip_comments(_css())
-    offenders = []
-    for prop, value in _DURATION_DECL.findall(css):
-        exempt = any(name in value for name in _LONG_DURATION_EXEMPTIONS)
-        for ms in _durations_ms(value):
-            if ms > 300 and not exempt:
-                offenders.append(f"{prop}: {value.strip()} -> {ms:g}ms")
+    offenders = _long_duration_offenders(css)
     assert not offenders, "durations above the 300ms UI ceiling:\n" + "\n".join(
         offenders
     )
@@ -330,18 +378,25 @@ def test_the_only_long_duration_is_the_named_skeleton_pulse():
     NAME, so it cannot be borrowed by an unrelated rule that merely happens to
     also want 1.4s."""
     css = _strip_comments(_css())
-    long_ones = []
-    for _prop, value in _DURATION_DECL.findall(css):
-        for ms in _durations_ms(value):
-            if ms > 300:
-                long_ones.append((value.strip(), ms))
-    for value, ms in long_ones:
-        name = next((n for n in _LONG_DURATION_EXEMPTIONS if n in value), None)
-        assert name, f"un-exempted long duration: {value} ({ms:g}ms)"
-        assert ms == _LONG_DURATION_EXEMPTIONS[name], (
-            f"{name} is exempt at {_LONG_DURATION_EXEMPTIONS[name]}ms, "
-            f"found {ms:g}ms — the exemption is a value, not a licence"
-        )
+    long_ones = [
+        (prop.lower(), item, ms)
+        for prop, value in _DURATION_DECL.findall(css)
+        for item in _split_css_list(value)
+        for ms in _durations_ms(item)
+        if ms > 300
+    ]
+    assert long_ones == [
+        ("animation", "tl-skeleton-pulse 1.4s ease-in-out infinite", 1400.0)
+    ]
+
+
+def test_a_named_exemption_cannot_cover_a_sibling_animation():
+    css = (
+        ".x { animation: tl-skeleton-pulse 1.4s ease-in-out infinite, "
+        "unrelated-motion 1.4s ease; }"
+    )
+    offenders = _long_duration_offenders(css)
+    assert offenders == ["animation: unrelated-motion 1.4s ease -> 1400ms"]
 
 
 def test_the_duration_guard_reads_seconds_as_well_as_milliseconds():
@@ -355,3 +410,13 @@ def test_the_duration_guard_reads_seconds_as_well_as_milliseconds():
     assert _durations_ms("opacity 0.2s ease, transform 120ms ease") == [200.0, 120.0]
     # An easing curve's bare numbers are not durations.
     assert _durations_ms("cubic-bezier(0.23, 1, 0.32, 1)") == []
+    assert _split_css_list("opacity 0.2s ease, transform 120ms ease") == [
+        "opacity 0.2s ease",
+        "transform 120ms ease",
+    ]
+    assert _split_css_list(
+        "fade 160ms cubic-bezier(0.23, 1, 0.32, 1), slide 120ms ease"
+    ) == [
+        "fade 160ms cubic-bezier(0.23, 1, 0.32, 1)",
+        "slide 120ms ease",
+    ]
