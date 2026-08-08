@@ -915,4 +915,13 @@ lens = (
 st.session_state[_LENS_KEY] = lens
 
 st.markdown(render_section_header(lens, _LENS_QUESTIONS[lens]), unsafe_allow_html=True)
-_LENS_BODIES[lens](df)
+
+# The key carries the lens name, which is what makes the panel's reveal
+# honest: Streamlit mounts a NEW element only when the key changes, so the
+# animation fires on a lens change and on nothing else. Every other rerun on
+# this page — a chart interaction, a widget, a sidebar navigation that lands
+# back here — keeps the same key, keeps the same element, and does not replay.
+# Deriving the key from the lens rather than from a counter is the whole
+# point; a counter would tick on every rerun and re-animate the page.
+with st.container(key=f"tl_lens_{lens.lower()}"):
+    _LENS_BODIES[lens](df)

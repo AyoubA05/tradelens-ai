@@ -602,6 +602,42 @@ def build_css() -> str:
   overflow-y: auto;
   box-shadow: var(--tl-shadow-overlay);
 }}
+
+/* Drawer entrance — the one place `--tl-ease-drawer` and `--tl-dur-drawer`
+   are used. Both tokens were defined in Phase 2 and applied nowhere: the
+   drawer simply existed on one frame and not the previous one, a 420px panel
+   appearing over the work with no account of where it came from.
+
+   It comes from the launcher, so it enters from the launcher's corner —
+   `transform-origin: 100% 100%` with an 8px rise, which reads as the panel
+   growing out of the button a trader just pressed rather than arriving from
+   off-screen. Scale starts at 0.98, never 0.
+
+   ENTER ONLY, and the reason is structural rather than an omission.
+   `render_partner_drawer` returns before rendering anything when
+   `partner_open` is false, so on close the server removes the element from
+   the DOM on the next rerun — there is no node left to animate out. Keeping
+   it mounted to buy an exit would put the drawer's Close button, composer and
+   chips back in the tab order while invisible, which is precisely the
+   accessibility decision Phase 2 made deliberately with `display: none`. A
+   240ms exit is not worth a keyboard user reaching controls they cannot see.
+
+   Rapid open/close is therefore safe by construction rather than by damping:
+   the element is either present or absent, never half-transitioned, so there
+   is no interruptible state for a fast toggle to corrupt. Each open remounts
+   and replays the entrance from its own start — which is also why this is a
+   keyframe rather than a transition, against the usual preference: there is
+   no persistent element for a transition to retarget on. */
+@media (prefers-reduced-motion: no-preference) {{
+  .st-key-tl_partner_drawer {{
+    animation: tl-drawer-in var(--tl-dur-drawer) var(--tl-ease-drawer) both;
+    transform-origin: 100% 100%;
+  }}
+  @keyframes tl-drawer-in {{
+    from {{ opacity: 0; transform: translateY(8px) scale(0.98); }}
+    to {{ opacity: 1; transform: none; }}
+  }}
+}}
 .st-key-tl_partner_drawer .stButton button {{ min-height: 44px; }}
 /* The chat control is not a `.stButton`, so the drawer's rule above never
    reached it: measured at 1440 the field was 378x40 and its submit button
@@ -932,7 +968,8 @@ def build_css() -> str:
   font-family: var(--tl-font-ui);
   font-weight: 500;
   transition: background var(--tl-dur-state) var(--tl-ease-out),
-              border-color var(--tl-dur-state) var(--tl-ease-out);
+              border-color var(--tl-dur-state) var(--tl-ease-out),
+              transform var(--tl-dur-press) var(--tl-ease-out);
 }}
 @media (hover: hover) and (pointer: fine) {{
   .stButton button:hover,
@@ -946,9 +983,30 @@ def build_css() -> str:
   outline: 2px solid var(--tl-accent-action);
   outline-offset: 2px;
 }}
+/* Press feedback. The rail's one filled action and the mobile tabs already
+   scale on press; every other button in the product changed colour only, so
+   the same gesture answered differently depending on which control a trader
+   hit. 0.97 at --tl-dur-press, on transform, which neither reflows nor
+   repaints — a pressed button must not be able to move the row it sits in.
+
+   This is direct manipulation, not an entrance: it lasts exactly as long as
+   the finger is down, so the "never animate what is repeated" rule does not
+   apply to it the way it applies to the tabs' own reveal.
+
+   `:not(:focus-visible)` is what keeps this off the keyboard, and it is load
+   bearing. `:active` DOES match while Space is held on a focused button, so
+   a bare `:active` would animate a keyboard activation — the one thing the
+   brief forbids outright. A button focused by pointer or touch does not match
+   `:focus-visible` in any engine we target, and one focused by Tab always
+   does, so the negation splits the two activations exactly. Colour still
+   changes on both; only the movement is pointer-only. */
 .stButton button:active,
 .stFormSubmitButton button:active {{
   background: var(--tl-primary-hover);
+}}
+.stButton button:active:not(:focus-visible),
+.stFormSubmitButton button:active:not(:focus-visible) {{
+  transform: scale(0.97);
 }}
 /* The rail holds exactly ONE filled action — "Log completed trade". Sign
    out is a utility control, so it is outlined: two filled teal buttons in
@@ -2331,6 +2389,30 @@ def build_css() -> str:
   }}
 }}
 
+/* Analytics lens replacement. Switching lens replaces the entire panel under
+   a header that stays put, so without a reveal the page reads as a jump cut
+   and it is briefly unclear whether anything was answered. The key on the
+   container carries the lens name (pages/4_Analytics.py), so this mounts and
+   replays on a lens change and cannot fire on any other rerun.
+
+   170ms — the same reveal as the AI Reviews section index, because they are
+   the same gesture: the reader chose a different view of the same subject.
+   Reusing the rhythm rather than picking a third value is the point.
+
+   Opacity and a 4px lift only. The charts inside keep their fixed 360/240
+   heights, so nothing here can shift layout while it plays, and the lens
+   selector itself never animates — it is a control, and it must answer
+   instantly at the moment it is clicked. */
+@media (prefers-reduced-motion: no-preference) {{
+  [class*="st-key-tl_lens_"] {{
+    animation: tl-lens-in 170ms var(--tl-ease-out) both;
+  }}
+  @keyframes tl-lens-in {{
+    from {{ opacity: 0; transform: translateY(4px); }}
+    to {{ opacity: 1; transform: none; }}
+  }}
+}}
+
 /* === TRADE WIZARD (components/trade_wizard.py + pages/1_NewTrade.py) === */
 
 /* Step transition. The step container's key changes with the step, so
@@ -2715,11 +2797,26 @@ def build_css() -> str:
   [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {{
     transition: none;
   }}
-  /* Colour feedback stays; the movement goes. */
+  /* Colour feedback stays; the movement goes. The two button rules are Phase
+     4 additions and are listed for the same reason the originals are: each
+     is a transform, and a transform is exactly what reduced motion asks us
+     to drop. The `:active` background change survives, so a trader who
+     reduces motion is still told the control heard them — they are simply
+     not moved. Nothing is replaced by a delayed transition. */
   .tl-mobile-nav-item:active,
-  .st-key-tl_nav_action [data-testid="stPageLink-NavLink"]:active {{
+  .st-key-tl_nav_action [data-testid="stPageLink-NavLink"]:active,
+  .stButton button:active,
+  .stButton button:active:not(:focus-visible),
+  .stFormSubmitButton button:active,
+  .stFormSubmitButton button:active:not(:focus-visible) {{
     transform: none;
   }}
+  /* The rail's hover icon scale is NOT listed here on purpose. It is
+     declared ~150 lines below this block with identical specificity, so a
+     kill switch here would lose on source order and do nothing. It carries
+     `prefers-reduced-motion: no-preference` in its own media query instead —
+     see the note beside it. Anything added to this file after that rule must
+     make the same choice rather than assuming this block still reaches. */
   [class*="st-key-tl_step_"],
   .st-key-tl_trade_detail,
   .st-key-tl_playbook_form
@@ -2815,6 +2912,46 @@ def build_css() -> str:
    and the teal action's icon stays dark, from one rule. */
 [data-testid="stSidebar"] [data-testid="stIconMaterial"] {{
   color: inherit;
+}}
+
+/* Dock-inspired rail feedback, reduced to the one part of a dock that is
+   actually information: the icon under the cursor acknowledges the pointer.
+
+   What was deliberately NOT taken from the dock. Magnification needs the
+   pointer's x-position fed into a width, which needs JavaScript this phase
+   forbids and Streamlit cannot supply server-side. Neighbour displacement
+   would move the destination a trader is aiming at while they aim at it —
+   a rail is a target list, not a toy, and Fitts's law is not negotiable for
+   navigation. Nothing here animates width, so no row can push another.
+
+   1.06 sits inside the approved 1.05-1.08 band. The icon is a flex item of
+   the NavLink (`display: flex`), so it is blockified and `transform` applies
+   without the inline-element caveat, and scaling it moves no text: the label
+   is a sibling, not a child, so the row's layout is untouched at every frame.
+
+   Hover only, and gated — on a touch device `:hover` latches after a tap and
+   would leave one icon permanently enlarged, reading as a second active
+   state beside the real one. The active destination's three cues (indicator
+   bar, heavier label, raised surface) are untouched, so hover never competes
+   with "where am I". Keyboard focus is deliberately absent from this rule:
+   Tab moves between destinations constantly and must land instantly.
+
+   The reduced-motion guard is HERE, stacked onto the pointer query, rather
+   than in the global kill switch earlier in this file — and that is a
+   correctness fix, not a style preference. This rule sits ~150 lines AFTER
+   that block with identical specificity (0,5,0), so a `transform: none`
+   listed up there loses on source order and the icon would have kept scaling
+   under reduced motion. Guarding at the point of declaration cannot be
+   defeated by where the rule happens to live. */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {{
+  [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]
+    [data-testid="stIconMaterial"] {{
+    transition: transform var(--tl-dur-state) var(--tl-ease-out);
+  }}
+  [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover
+    [data-testid="stIconMaterial"] {{
+    transform: scale(1.06);
+  }}
 }}
 
 /* === STREAMLIT'S OWN SECONDARY TEXT ===

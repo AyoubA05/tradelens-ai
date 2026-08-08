@@ -20,7 +20,21 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 3 + AMENDMENT COMPLETE, AWAITING CODEX RE-REVIEW`
+- Current phase: `PHASE 4 COMPLETE, AWAITING CODEX REVIEW`
+- Phase 3 is APPROVED by Codex at `2c29a20`. Phase 4 begins there and is one
+  commit on top of it. Review it with `git diff 2c29a20 HEAD`.
+- Next owner: **`CODEX`**.
+- Next action: **Codex review of the Phase 4 diff.** Presentation-only:
+  `git diff 2c29a20 -- src/tradelens/services/ src/tradelens/db/
+  src/tradelens/prompts/ alembic/ src/tradelens/config.py` is empty, `auth.py`
+  and `auth_screen.py` are untouched, and no marketing-site file was opened.
+- Verification: `2087 passed, 7 skipped` (Phase 3 approved at `2069/7`; +18,
+  all of them the new Phase 4 guards). Ruff clean · Black clean ·
+  `git diff --check` clean. No database file was modified.
+- **Deferred to a Codex-owned phase: the password-strength meter.** The audit
+  that decided this is recorded in the Phase 4 log entry below. Two real
+  new-password forms exist, but both sit inside `st.form`, and the enforced
+  policy is a single rule. Neither is Claude's to change.
 - **Phase 2 is APPROVED.** Codex approved Phase 2 at `7ffd9a1` — the Partner
   amendments round 4 commit and, with it, Tasks 1–17 and every amendment round
   that preceded them. The final focused Codex re-review named in the previous
@@ -325,6 +339,173 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-08 — Phase 4: motion and interaction refinement (Claude)
+
+Presentation only. Four motions added, one brittle locator repaired, and two
+opportunities rejected outright. Phase 2 had already applied the decision
+framework carefully — the rail, the tabs, the wizard step, the Journal detail
+and the More sheet all carry reasoned motion with frequency arguments in their
+comments — so this phase is refinement, not construction. The motion token
+system (`--tl-ease-out/-in-out/-drawer`, `--tl-dur-press/-state/-panel/
+-drawer`) already existed and was reused; no new timing or easing literal was
+introduced.
+
+**The four that earned their place.**
+
+1. **The Partner drawer had no motion at all**, and `--tl-ease-drawer` /
+   `--tl-dur-drawer` had been defined in Phase 2 and applied *nowhere*. A
+   420px panel appeared over the work with no account of where it came from.
+   It now enters on its own curve from the launcher's corner
+   (`transform-origin: 100% 100%`, 8px rise, scale 0.98 — never 0).
+   **Enter only, and structurally so:** `render_partner_drawer` returns before
+   rendering anything when `partner_open` is false, so on close the server
+   removes the element and there is no node left to animate. Keeping it
+   mounted to buy an exit would put its Close button, composer and chips back
+   in the tab order while invisible — reversing Phase 2's deliberate
+   `display: none` decision. Rapid open/close is safe by construction rather
+   than by damping: the element is present or absent, never half-transitioned.
+2. **Press feedback was inconsistent.** The rail's filled action and the
+   mobile tabs scaled on press; every other button changed colour only, so the
+   same gesture answered differently depending on which control was hit.
+   Now `scale(0.97)` at `--tl-dur-press`.
+3. **The rail's dock-inspired refinement** — icon `scale(1.06)` on fine-pointer
+   hover, inside the approved 1.05-1.08 band. Magnification and neighbour
+   displacement were rejected: both need pointer x-position fed to a width,
+   which needs JavaScript, and displacement would move a destination while a
+   trader is aiming at it. Nothing animates width, so no row can push another.
+4. **The Analytics lens change** reveals at 170ms — the same rhythm as the AI
+   Reviews section index, because it is the same gesture. The container key
+   carries the lens name, so it replays on a lens change and on nothing else.
+
+**Rejected, with reasons.** Page transitions (Streamlit reruns the whole
+script; large page-entry choreography was forbidden and would fire on every
+navigation). Widening the expander reveal beyond the playbook form (Phase 2
+scoped it deliberately; widening puts motion on five pages that asked for
+none). Dashboard widget stagger, ambient motion, and any AI-content
+replacement animation — the existing skeleton already preserves the note's
+geometry and, per the Phase 3 audit, regeneration does not hide the note.
+Rail press *movement* was also rejected: Phase 2's comment that these rows are
+"visited dozens of times a session" still governs, so they keep colour only.
+
+**One correctness fix inside my own work, worth recording.** The rail icon
+rule sits ~150 lines AFTER the global reduced-motion kill switch with
+identical specificity (0,5,0). Listing `transform: none` in that switch loses
+on source order and does nothing — the icon would have kept scaling under
+reduced motion. The guard is now on the declaration's own media query, and
+`test_the_rail_icon_scale_is_guarded_where_it_is_declared` fails if it is
+moved back. The kill switch carries a comment telling the next author why the
+rule is deliberately absent from it.
+
+**`:active` fires on the keyboard, and the brief forbids that.** A bare
+`:active` scale would animate a Space-held activation. The movement is
+therefore split onto `:active:not(:focus-visible)`; colour still changes on
+both paths. **Measured, not reasoned:** with real `Input.dispatchKeyEvent` Tab
+traversal (never `element.focus()`, which `:focus-visible` does not match) the
+keyboard-focused button reports `active: true`, `focusVisible: true`,
+`outline: 2px solid` and **`transform: none`**. 8 tab stops reached forward,
+Shift+Tab reverse traversal confirmed.
+
+**Browser evidence — 7 configurations, pointer and reduced-motion state read
+back from the page on every row.**
+
+| Config | pointer | reduced | rail icon | lens | drawer |
+|---|---|---|---|---|---|
+| 1440 fine | fine | no | `transform .16s` ease-out | — | `tl-drawer-in .24s` drawer curve |
+| 1024 fine | fine | no | `transform .16s` | — | — |
+| coarse 768 | **coarse** | no | **not applied** | — | — |
+| coarse 375 | **coarse** | no | **not applied** | — | `display: none` (phone rule intact) |
+| 1440 reduced | fine | **yes** | **not applied** | — | **`animation-name: none`** |
+| 1440 Analytics | fine | no | applied | `tl-lens-in .17s` | — |
+| coarse 375 Analytics | **coarse** | **yes** | not applied | **`none`** | — |
+
+Zero horizontal overflow, zero rendered exceptions, at all seven. The drawer
+keyframes read out of the live stylesheet animate opacity and transform only.
+
+**Three probe defects found and corrected before any claim was made** —
+recorded because each produced or would have produced false evidence:
+
+1. **CDP emulation is session-scoped.** The first probe set device metrics on
+   one websocket connection, closed it, then measured on a new one — so the
+   overrides were reverted and `(pointer: coarse)` never flipped. The "coarse
+   768/375" rows of that run were fine-pointer runs wearing a phone width. The
+   probe's own pointer assertion is what caught it. Everything now happens on
+   one connection.
+2. **`rule.style.animationName` is empty when the shorthand contains
+   `var()`.** A shorthand with a variable is stored as a pending-substitution
+   value, so the CSSOM read reported the drawer and lens rules as absent when
+   both were present and valid. Computed style resolves variables; the CSSOM
+   declaration does not.
+3. **`button.click()` does not open the Partner drawer.** Streamlit needs a
+   trusted event and a server round trip. The drawer's cascade was therefore
+   measured on a synthetic element carrying its class — which proves the rule
+   reaches that class in each configuration, and is **not** a claim that the
+   drawer was opened in a browser.
+
+**Guards: 18 new tests in `tests/test_phase4_motion.py`, mutation-checked.**
+Five mutations, each caught by the right test: the rail guard moved back to
+the kill switch; the press scale losing `:not(:focus-visible)`; the drawer
+swapping its curve for the generic ease-out; the icon scale pushed past the
+band; the drawer losing its `transform-origin`. File-wide rules are pinned
+too: no `transition: all`, nothing entering from `scale(0)`, no bare
+`ease-in`, no duration above 300ms.
+
+**One existing test was repaired, not weakened.**
+`test_the_more_reveal_is_withdrawn_under_reduced_motion` located its subject
+as *the first* `no-preference` block in the file. Phase 4 added earlier ones,
+so that locator stopped naming the block the test is about. Both assertions
+are unchanged in strength — the reveal must sit inside an opt-in block and
+must never be declared outside one; only the locator learned to find its own
+subject, via a helper that walks back from the declaration to its own guard.
+
+**A process failure, recorded because it cost real work.** A mutation-testing
+loop used `git checkout --` to revert a mutation and instead reverted every
+Phase 4 edit in `design_system.py`, because the file was not yet committed.
+All six edits were reapplied and re-verified. Mutations after that point
+restore from a scratchpad copy, never from Git.
+
+**NOT verified, stated rather than implied.** No physical device was used;
+coarse pointer is Chrome emulation (`setDeviceMetricsOverride` with
+`mobile: true` plus touch emulation), asserted from the page but still
+emulation. Slow-motion and frame-by-frame inspection were not performed —
+durations, easings, delays and animated properties were read as computed
+values instead. Rapid repeated activation and mid-transition reversal were
+reasoned about structurally for the drawer (present-or-absent, so no
+half-state exists) but not driven in a browser, because `button.click()` does
+not open it.
+
+**The password-strength meter is specified, not implemented, and the audit is
+the reason.**
+
+- Two real new-password forms exist: signup (`auth_screen.py`, key
+  `signup_password`) and reset (key `reset_new_password`). Login is
+  `current-password` and was correctly excluded from scope.
+- **The enforced policy is one rule: `MIN_PASSWORD_LEN = 8`** in
+  `services/users.py`, applied by `validate_signup` and by
+  `complete_reset`. There is no uppercase, digit, or symbol requirement.
+  The 21.dev component presents four rules including a 12-character minimum —
+  presenting any of them would show a trader requirements authentication does
+  not enforce, which the brief forbids.
+- **Both fields sit inside `st.form`, which batches widget state.** No rerun
+  fires on keystroke, so a live meter cannot update until submit. Making it
+  live means moving the password field out of the form — a change to
+  authentication form structure, error handling and submit semantics.
+
+Either fixing the rule set to match policy, or raising the policy to match the
+rules, or restructuring the form, is Codex-owned. Recommended next phase:
+Codex rules on the policy, then the meter is built natively (segmented bars on
+existing tokens, textual label, requirements checklist, common-pattern
+warning, `aria-live` announcement, reduced-motion safe) against whatever
+policy it rules for. No TSX was copied and no React dependency was added.
+
+**Also rejected on the same grounds: the animated dock as given.** It requires
+`motion/react`, `next/link`, `clsx` and `tailwind-merge`, and the repo has no
+`package.json`, `tsconfig`, Tailwind config or a single `.tsx` file. The
+approved CSS-only adaptation shipped instead; see item 3 above.
+
+**Marketing hero: reviewed, proposal only, nothing changed.** `site/` is
+untouched. The findings are in the Phase 4 report to the user and are not
+implemented, per the brief.
 
 ### 2026-08-08 — Phase 3 amendment: shape before colour, and a narrower ignore (Claude)
 

@@ -525,20 +525,45 @@ def test_the_more_sheet_meets_the_touch_floor():
     assert "min-height: 44px" in block
 
 
+def _enclosing_opt_in_block(css: str, needle: str) -> tuple[str, int]:
+    """Return (block_text, block_start) for the `no-preference` media block
+    that encloses ``needle``.
+
+    Finding a guard by its position in the file is what broke when Phase 4
+    added more guarded blocks. This walks back from the declaration to its
+    OWN guard, so the answer stays correct however many blocks exist and
+    whatever order they are written in.
+    """
+    opt_in_at = css.rfind(
+        "@media (prefers-reduced-motion: no-preference)", 0, css.index(needle)
+    )
+    assert opt_in_at != -1, f"{needle!r} is not inside a no-preference block"
+    depth, i = 0, css.index("{", opt_in_at)
+    while i < len(css):
+        depth += (css[i] == "{") - (css[i] == "}")
+        if depth == 0:
+            break
+        i += 1
+    block = css[opt_in_at : i + 1]
+    assert needle in block, f"{needle!r} escapes the nearest no-preference block"
+    return block, opt_in_at
+
+
 def test_the_more_reveal_is_withdrawn_under_reduced_motion():
     """Emil: opening a panel over a fixed bar is a state change worth
     conveying, but only for readers who have not asked for less motion."""
     from src.tradelens.ui import design_system as ds
 
     css = ds.build_css()
-    start = css.index("@media (prefers-reduced-motion: no-preference)")
-    depth, i = 0, css.index("{", start)
-    while i < len(css):
-        depth += (css[i] == "{") - (css[i] == "}")
-        if depth == 0:
-            break
-        i += 1
-    opt_in = css[start : i + 1]
+    # Locate the no-preference block that actually CONTAINS the More reveal,
+    # not simply the first one in the file. Phase 4 added opt-in blocks for
+    # the Partner drawer and the Analytics lens, and the drawer's is declared
+    # earlier than this one — so "the first block" stopped naming the block
+    # this test is about, and the assertion below started measuring the wrong
+    # rule. The assertions themselves are unchanged in strength: the reveal
+    # must sit inside an opt-in block, and it must never be declared outside
+    # one. Only the locator learned to find its own subject.
+    opt_in, start = _enclosing_opt_in_block(css, "animation: tl-more-in")
     assert "tl-more-in" in opt_in
     assert "animation: tl-more-in" not in css[:start]
     frames = re.search(r"@keyframes tl-more-in \{(.*?)\n  \}", css, re.S)
