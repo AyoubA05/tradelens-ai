@@ -338,6 +338,45 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
 9. Codex runs the final security, tenant-isolation, AI-safety, full-test, CI,
    and browser gates before any commit/push/PR decision.
 
+## Open security finding for Codex — auth fail-open (raised during Phase 4)
+
+Raised by an automated security review while Phase 4 was being reported.
+**Not touched, and not Claude's to touch:** `auth.py` is Codex-owned, the
+Phase 4 brief forbids modifying authentication, and the writer lock is
+`NONE`. Recorded here so it is not lost with the session.
+
+**The chain, read from the current source:**
+
+1. `expected_credentials()` (`auth.py:155`) falls back to
+   `_DEFAULT_USERNAME = "demo"` / `_DEFAULT_PASSWORD = "tradelens2025"`
+   (`auth.py:34-35`) when `TRADELENS_USERNAME` / `TRADELENS_PASSWORD` are
+   unset. There is no empty-value guard.
+2. `verify_credentials()` compares against that pair with no check that it
+   was actually configured.
+3. `authenticate_login()` (`auth.py:196`) catches every exception from
+   `users.users_exist()` and sets `has_db_users = False`, which routes to
+   `verify_credentials()`.
+
+So on a deployment where real accounts exist, **a database outage downgrades
+login to the single-user secrets path** — and if those secrets are unset, to a
+credential pair committed in the repository. The session it grants carries
+`user_id = None`, the legacy tenant.
+
+**One correction to the review's framing, because it changes triage.** The
+review describes this as a regression and suggests restoring a
+`TRADELENS_ALLOW_DEMO_LOGIN` opt-in that "the removed code did". That flag has
+**never existed in this repository** — `git log -S TRADELENS_ALLOW_DEMO_LOGIN
+--all` is empty. The defaults date from `a0ef59b` and the fail-open from
+`7bdf825`, both long before the redesign. This is long-standing behaviour, not
+something a recent commit broke, and nothing in Phases 2-4 touched it:
+`git diff 7ffd9a1 HEAD -- src/tradelens/ui/components/auth.py` is empty apart
+from the Phase 2 Partner-key prefix fix already recorded above.
+
+**Not assessed by Claude:** whether the deployed Streamlit Cloud instance sets
+those two secrets. That determines whether the fallback lands on published
+defaults or merely on a legacy-tenant bypass, and it is a deployment question,
+not a code one.
+
 ## Handoff log
 
 ### 2026-08-08 — Phase 4: motion and interaction refinement (Claude)
