@@ -20,7 +20,21 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 4 COMPLETE, AWAITING CODEX REVIEW`
+- Current phase: `PHASE 4 REVIEWED (no blocking findings) + AUTH FAIL-CLOSED
+  CORRECTION COMPLETE. AWAITING OWNER DECISION.`
+- **Phase 4 review outcome: no blocking findings.** The diff `2c29a20..6b3d33c`
+  is presentation-only and its boundary claims re-verified empty. It is NOT
+  marked approved here, because approval was withheld pending the
+  authentication blocker, which is now fixed in a separate commit —
+  the owner takes the approval decision.
+- **Security blocker: CLOSED** at `950bc8f`. Details in the log entry below.
+- Verification: `2107 passed, 7 skipped` (Phase 4 left it at `2087/7`; +20).
+  Ruff clean · Black clean · `git diff --check` clean.
+- **Open, NOT fixed, needs an owner ruling** — a misconfigured `DATABASE_URL`
+  renders a Python traceback containing the DSN into the browser. Found while
+  building the login browser evidence. Out of the scope of this correction
+  (it is a boot-time import failure, not the login path) and recorded below.
+- Next owner: **`OWNER`**, then Codex.
 - Phase 3 is APPROVED by Codex at `2c29a20`. Phase 4 begins there and is one
   commit on top of it. Review it with `git diff 2c29a20 HEAD`.
 - Next owner: **`CODEX`**.
@@ -338,7 +352,85 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
 9. Codex runs the final security, tenant-isolation, AI-safety, full-test, CI,
    and browser gates before any commit/push/PR decision.
 
-## Open security finding for Codex — auth fail-open (raised during Phase 4)
+## RESOLVED — auth fail-open, fixed at `950bc8f`
+
+The finding recorded below was confirmed in full and is now closed. The
+original text is kept underneath because it states the defect as it stood.
+
+**Phase 4 review, performed first and separately: no blocking findings.**
+`git diff 2c29a20 6b3d33c` touches five files and its boundary claims
+re-verified empty — services, db, prompts, alembic, config, `auth.py`,
+`auth_screen.py`, `partner_panel.py` and `site/` are all untouched by it, no
+`unsafe_allow_html` was added, and no script/JS was introduced. Two review
+notes, neither blocking:
+- `test_every_duration_stays_under_the_300ms_ceiling` matches `\d+ms` only, so
+  a second-denominated duration would pass unseen. The one that exists (the
+  1.4s skeleton pulse) is the documented intended exception.
+- The lens container's "replays only on lens change" property is argued from
+  Streamlit's keyed-element reconciliation and is covered by a source test,
+  but was not driven in a browser with an unrelated widget interaction.
+
+**What changed in the fix.**
+
+| | Before | After |
+|---|---|---|
+| Secrets unset | `("demo", "tradelens2025")` accepted | `("", "")`, legacy login unavailable |
+| Blank / whitespace config | authenticated | unavailable |
+| One half configured | the set half plus a default | unavailable |
+| `users_exist()` raises | `has_db_users = False` → legacy branch | `AuthUnavailableError`, no decision |
+| DB user wrong password | rejected | rejected (unchanged) |
+| DB-backed + legacy pair | rejected | rejected, and now guarded by a test |
+| Outage message | "Incorrect username or password." | "Sign-in is temporarily unavailable." |
+| Outage log | none | exception TYPE NAME only |
+| Configured legacy + empty DB | signs in, `user_id=None` | unchanged — compatibility preserved |
+
+**No new environment flag.** `TRADELENS_USERNAME` / `TRADELENS_PASSWORD`
+already express every supported mode: both set means legacy login exists,
+anything else means it does not. A third flag would have added a way to
+misconfigure the system without adding a capability.
+
+**Deployment state — presence only, values never read.**
+
+| Location | `TRADELENS_USERNAME` | `TRADELENS_PASSWORD` |
+|---|---|---|
+| `.env.example` (template) | defined | defined |
+| `/Users/ayoub/tradelens-ai/.streamlit/secrets.toml` (local dev) | defined, non-blank | defined, non-blank |
+| this worktree `.streamlit/secrets.toml` | absent | absent |
+| process environment | not set | not set |
+| tracked in Git | none — no `.env` or `secrets.toml` is tracked | — |
+
+**LIMITATION: the live Streamlit Community Cloud secrets are not readable from
+this worktree**, so whether the deployed app configures the legacy pair is
+UNKNOWN here. The owner must check it directly:
+
+> share.streamlit.io → the TradeLens app → **Settings → Secrets**, and confirm
+> whether `TRADELENS_USERNAME` and `TRADELENS_PASSWORD` are present and
+> non-blank.
+
+Either answer is now safe, which is the point of the fix — unset means legacy
+login is closed rather than open on a published default. But the answer
+changes what the deploy did *before* this commit: if they were unset, the
+published pair was live on the internet, and **the owner should treat that as
+a disclosed credential** and rotate anything that reused it.
+
+## Open — DSN in a rendered traceback (NOT fixed)
+
+Found while building the login browser evidence, and reported rather than
+silently fixed because it is outside this correction's path.
+
+With `DATABASE_URL` pointing somewhere unusable, `src/tradelens/db/session.py`
+raises at **module import**, before any page renders. The browser then shows
+Streamlit's default error view containing a full traceback **including the
+connection string** — measured: the rendered page contained both `Traceback`
+and `sqlite:///`.
+
+This is not the login path and the fail-closed change does not address it: the
+app never reaches `authenticate_login`. Two candidate remedies, both an owner
+call: set `client.showErrorDetails = false` in `.streamlit/config.toml` for
+deployed environments, and/or catch the engine-construction failure and render
+a generic unavailable page. Recorded, not chosen.
+
+## Original finding (now resolved) — auth fail-open (raised during Phase 4)
 
 Raised by an automated security review while Phase 4 was being reported.
 **Not touched, and not Claude's to touch:** `auth.py` is Codex-owned, the
