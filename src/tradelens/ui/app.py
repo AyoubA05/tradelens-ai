@@ -8,11 +8,33 @@ _root = str(Path(__file__).resolve().parents[3])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
+import streamlit as _st_boot  # noqa: E402
+
 from src.tradelens.db.init_db import init_db  # noqa: E402
+from src.tradelens.db.session import DatabaseUnavailableError  # noqa: E402
 
 # Idempotent: creates tables on first run, no-op if already exist.
 # Required on Streamlit Cloud where SQLite starts fresh on each deploy.
-init_db()
+#
+# Wrapped because this is the FIRST thing that touches the database, and an
+# unhandled failure here is handled by Streamlit rather than by us — which
+# means its own error view, a traceback, and the connection string printed
+# into the browser. Measured with a deliberately unusable DATABASE_URL: the
+# rendered page contained both `Traceback` and the DSN.
+#
+# `st.stop()` is what makes this fail closed. The script ends here; no page
+# body runs, no service is called, no authentication path is entered, and
+# nothing downgrades to a local file.
+try:
+    init_db()
+except DatabaseUnavailableError:
+    _st_boot.error("TradeLens is temporarily unavailable. Please try again shortly.")
+    _st_boot.stop()
+except Exception:  # noqa: BLE001 — same containment for any other DB failure
+    # No `exc` binding on purpose: there is no branch here that could be
+    # tempted to render or log it, and a driver's message carries the DSN.
+    _st_boot.error("TradeLens is temporarily unavailable. Please try again shortly.")
+    _st_boot.stop()
 Path(__file__).resolve().parents[3].joinpath("data", "screenshots").mkdir(
     parents=True, exist_ok=True
 )

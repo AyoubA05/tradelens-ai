@@ -27,3 +27,16 @@ showSidebarNavigation = false
 # docs): hides deploy button + dev menu without CSS hacks on unproven
 # selectors like stToolbar/stDecoration.
 toolbarMode = "minimal"
+# An uncaught exception must never paint its own traceback into the browser.
+# This is the OUTER half of a defence in depth: the inner half is that the
+# database bootstrap in ui/app.py catches its own failures and stops the
+# script, so nothing reaches Streamlit's error view in the first place. Config
+# alone would be one setting away from a disclosure, and containment alone
+# would leave every OTHER uncaught exception free to print a traceback.
+#
+# The value is "none", not `false`. Verified against the pinned streamlit
+# 1.50.0: `client.showErrorDetails` is a STRING option whose enum is
+# full | stacktrace | type | none (config.ShowErrorDetailsConfigOptions), and
+# `false` survives only as a legacy variation that the loader special-cases.
+# "none" is the canonical spelling and will not depend on that shim.
+showErrorDetails = "none"

@@ -201,14 +201,52 @@ def test_the_analytics_lens_panel_is_keyed_by_the_lens():
 
 
 def test_the_lens_reveal_is_withdrawn_under_reduced_motion():
-    prelude = _enclosing_media(_strip_comments(_css()), "animation: tl-lens-in")
+    prelude = _enclosing_media(
+        _strip_comments(_css()), "animation: tl-lens-in-performance"
+    )
     assert "prefers-reduced-motion: no-preference" in prelude
 
 
 def test_the_lens_reveal_animates_nothing_that_costs_layout():
-    frames = _keyframes(_strip_comments(_css()), "tl-lens-in")
-    for banned in ("width", "height", "margin", "padding", "top", "left"):
-        assert banned not in frames, f"lens reveal animates {banned}"
+    css = _strip_comments(_css())
+    for name in ("performance", "risk", "timing", "setups"):
+        frames = _keyframes(css, f"tl-lens-in-{name}")
+        for banned in ("width", "height", "margin", "padding", "top", "left"):
+            assert banned not in frames, f"lens reveal {name} animates {banned}"
+
+
+def test_each_lens_has_its_own_animation_name():
+    """The fix for a defect the browser found, and the guard that keeps it.
+
+    A single rule on `[class*="st-key-tl_lens_"]` matched every lens, so when
+    Streamlit reused the container node and swapped only its class,
+    `animation-name` never changed and the entrance never retriggered.
+    Measured with real `animationstart` events: it fired on an unrelated rerun
+    that remounted the page, and did NOT fire on the lens change itself.
+
+    One name per lens is what makes a lens change a change of animation-name.
+    A shared substring selector reintroduces the defect, so it must not
+    return.
+    """
+    css = _strip_comments(_css())
+    assert (
+        '[class*="st-key-tl_lens_"]' not in css
+    ), "a shared lens selector cannot retrigger on a lens change"
+    for name in ("performance", "risk", "timing", "setups"):
+        assert f".st-key-tl_lens_{name} {{" in css
+        assert f"animation: tl-lens-in-{name}" in css
+        assert f"@keyframes tl-lens-in-{name}" in css
+
+
+def test_the_lens_keyframes_do_not_drift_apart():
+    """They are generated from one template; this pins that they stay
+    identical, so a lens cannot quietly acquire a different entrance."""
+    css = _strip_comments(_css())
+    bodies = {
+        name: " ".join(_keyframes(css, f"tl-lens-in-{name}").split())
+        for name in ("performance", "risk", "timing", "setups")
+    }
+    assert len(set(bodies.values())) == 1, bodies
 
 
 # ── File-wide rules ───────────────────────────────────────────────────────
@@ -236,9 +274,84 @@ def test_no_ui_motion_uses_ease_in():
     assert not re.search(r"ease-in(?![-a-z])", css), "a bare ease-in is present"
 
 
+# The single permitted duration above the ceiling, named rather than implied.
+# It is a constant loop reporting ongoing work, not a transition between two
+# states, so the "UI motion stays under 300ms" rule does not describe it.
+_LONG_DURATION_EXEMPTIONS = {"tl-skeleton-pulse": 1400}
+
+# Every declaration that can carry a duration. `--tl-dur-*` is included
+# because the transition rules reference the tokens rather than literals, so a
+# scan of `transition:` alone would read `var(--tl-dur-state)` and see no
+# number at all.
+_DURATION_DECL = re.compile(
+    r"(--tl-dur-[a-z-]+|transition-duration|animation-duration|transition|animation)"
+    r"\s*:\s*([^;{}]+)[;}]",
+    re.I,
+)
+_TIME_TOKEN = re.compile(r"(?<![\w.-])(\d*\.?\d+)(ms|s)(?![\w-])", re.I)
+
+
+def _durations_ms(value: str):
+    """Every time literal in a declaration value, normalised to milliseconds.
+
+    Handles integer and decimal seconds as well as milliseconds, and returns
+    one entry per value in a multi-value declaration such as
+    ``transition-duration: 160ms, 120ms``.
+    """
+    out = []
+    for number, unit in _TIME_TOKEN.findall(value):
+        ms = float(number) * (1000.0 if unit.lower() == "s" else 1.0)
+        out.append(ms)
+    return out
+
+
 def test_every_duration_stays_under_the_300ms_ceiling():
-    """The one exception is the skeleton pulse, which is a constant loop
-    reporting ongoing work rather than a transition between two states."""
+    """The ceiling, enforced in whatever unit it is written in.
+
+    The previous form matched `(\\d+)ms` only. A second-denominated duration —
+    `0.4s`, `1s`, `.5s` — was invisible to it, so the rule could be broken by
+    changing units. It also never looked at `--tl-dur-*`, which is where the
+    numbers actually live, since the transition rules reference tokens.
+    """
     css = _strip_comments(_css())
-    for value in re.findall(r"(\d+)ms", css):
-        assert int(value) <= 300, f"{value}ms exceeds the 300ms UI ceiling"
+    offenders = []
+    for prop, value in _DURATION_DECL.findall(css):
+        exempt = any(name in value for name in _LONG_DURATION_EXEMPTIONS)
+        for ms in _durations_ms(value):
+            if ms > 300 and not exempt:
+                offenders.append(f"{prop}: {value.strip()} -> {ms:g}ms")
+    assert not offenders, "durations above the 300ms UI ceiling:\n" + "\n".join(
+        offenders
+    )
+
+
+def test_the_only_long_duration_is_the_named_skeleton_pulse():
+    """The exemption is narrow by construction: it is keyed to an animation
+    NAME, so it cannot be borrowed by an unrelated rule that merely happens to
+    also want 1.4s."""
+    css = _strip_comments(_css())
+    long_ones = []
+    for _prop, value in _DURATION_DECL.findall(css):
+        for ms in _durations_ms(value):
+            if ms > 300:
+                long_ones.append((value.strip(), ms))
+    for value, ms in long_ones:
+        name = next((n for n in _LONG_DURATION_EXEMPTIONS if n in value), None)
+        assert name, f"un-exempted long duration: {value} ({ms:g}ms)"
+        assert ms == _LONG_DURATION_EXEMPTIONS[name], (
+            f"{name} is exempt at {_LONG_DURATION_EXEMPTIONS[name]}ms, "
+            f"found {ms:g}ms — the exemption is a value, not a licence"
+        )
+
+
+def test_the_duration_guard_reads_seconds_as_well_as_milliseconds():
+    """A guard for the guard. If the parser stops understanding seconds, the
+    ceiling silently stops being enforced, and nothing else would notice."""
+    assert _durations_ms("0.4s") == [400.0]
+    assert _durations_ms("1s") == [1000.0]
+    assert _durations_ms(".5s") == [500.0]
+    assert _durations_ms("160ms") == [160.0]
+    assert _durations_ms("160ms, 120ms") == [160.0, 120.0]
+    assert _durations_ms("opacity 0.2s ease, transform 120ms ease") == [200.0, 120.0]
+    # An easing curve's bare numbers are not durations.
+    assert _durations_ms("cubic-bezier(0.23, 1, 0.32, 1)") == []

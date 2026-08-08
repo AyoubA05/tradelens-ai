@@ -1,6 +1,6 @@
 from sqlalchemy import inspect, text
 
-from .session import engine as _default_engine, Base
+from .session import engine as _default_engine, Base, DatabaseUnavailableError
 from .models import Strategy, Trade, Screenshot  # noqa: F401
 
 
@@ -44,6 +44,11 @@ def _reconcile_columns(engine) -> None:
 
 def init_db(engine=None):
     engine = engine or _default_engine
+    if engine is None:
+        # Fail closed. `create_all(bind=None)` would raise on its own, but with
+        # SQLAlchemy's own wording and traceback rather than a type the caller
+        # can recognise and report without leaking the URL.
+        raise DatabaseUnavailableError("database unavailable")
     Base.metadata.create_all(bind=engine)
     _reconcile_columns(engine)
 

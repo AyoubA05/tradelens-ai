@@ -170,6 +170,32 @@ TL_EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)"
 TL_EASE_IN_OUT = "cubic-bezier(0.77, 0, 0.175, 1)"
 TL_EASE_DRAWER = "cubic-bezier(0.32, 0.72, 0, 1)"
 
+# --- Analytics lens entrance: one animation NAME per lens ------------------
+# A single shared rule on `[class*="st-key-tl_lens_"]` does not work, and the
+# browser is what proved it. Streamlit reuses the container's DOM node across
+# a lens change and only swaps the class, so a substring selector matches
+# before AND after: `animation-name` never changes, and a CSS animation only
+# restarts when the element is newly inserted or the name changes. Measured
+# with real `animationstart` events — the entrance fired on an unrelated
+# rerun that remounted the page, and did NOT fire on the lens change itself.
+# Exactly backwards from the intent.
+#
+# Giving each lens its own animation name makes the change of lens a change
+# of `animation-name`, which is the one thing that reliably retriggers. The
+# names are generated rather than written out four times so the keyframes
+# cannot drift apart from each other.
+_LENS_NAMES = ("performance", "risk", "timing", "setups")
+_LENS_MOTION_CSS = "\n".join(
+    f"""  .st-key-tl_lens_{name} {{
+    animation: tl-lens-in-{name} 170ms var(--tl-ease-out) both;
+  }}
+  @keyframes tl-lens-in-{name} {{
+    from {{ opacity: 0; transform: translateY(4px); }}
+    to {{ opacity: 1; transform: none; }}
+  }}"""
+    for name in _LENS_NAMES
+)
+
 _FONT_IMPORT = (
     "https://fonts.googleapis.com/css2?"
     "family=Schibsted+Grotesk:wght@500;600;700&"
@@ -2404,13 +2430,7 @@ def build_css() -> str:
    selector itself never animates — it is a control, and it must answer
    instantly at the moment it is clicked. */
 @media (prefers-reduced-motion: no-preference) {{
-  [class*="st-key-tl_lens_"] {{
-    animation: tl-lens-in 170ms var(--tl-ease-out) both;
-  }}
-  @keyframes tl-lens-in {{
-    from {{ opacity: 0; transform: translateY(4px); }}
-    to {{ opacity: 1; transform: none; }}
-  }}
+{_LENS_MOTION_CSS}
 }}
 
 /* === TRADE WIZARD (components/trade_wizard.py + pages/1_NewTrade.py) === */
