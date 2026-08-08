@@ -544,6 +544,132 @@ def test_compact_calendar_renders_every_day_of_the_month():
 
 
 # ---------------------------------------------------------------------------
+# Calendar outcome marks must survive greyscale.
+#
+# Until the Phase 3 amendment the three outcomes differed only in hue — green,
+# red, grey — on the Overview grid, the Journal grid and the legend alike. A
+# red/green-blind trader read a month of identical dots. These two tests pin
+# the non-colour channel: the first on the rule that declares it, the second on
+# the markup that carries it.
+# ---------------------------------------------------------------------------
+
+# `clip-path` rather than `transform`: the diamond is clipped, not rotated,
+# because Chrome reported a pseudo-element's computed transform as `none` at
+# coarse 375 while returning the rotation matrix at 1440 — the mark silently
+# stayed a rounded square on a phone. Keep `transform` in the tuple anyway so
+# a future rotation-based mark is still counted rather than ignored.
+_SHAPE_PROPS = ("width", "height", "border-radius", "transform", "clip-path")
+
+
+def _declarations(css: str, selector: str) -> dict:
+    """Every declaration under an exact selector, later rules winning."""
+    import re
+
+    out = {}
+    pattern = re.escape(selector) + r"\s*\{([^{}]*)\}"
+    for match in re.finditer(pattern, css):
+        for decl in match.group(1).split(";"):
+            if ":" not in decl:
+                continue
+            prop, _, value = decl.partition(":")
+            out[prop.strip()] = value.strip()
+    return out
+
+
+def _greyscale_signature(css: str, base: str, modifier: str) -> tuple:
+    """How this mark reads with the colour removed.
+
+    Geometry plus one bit for filled-vs-hollow. `background: transparent` and
+    a solid fill are not a colour difference — a ring and a disc are still two
+    different marks in greyscale, which is exactly the property under test.
+    """
+    merged = _declarations(css, base)
+    merged.update(_declarations(css, modifier) if modifier else {})
+    shape = tuple(merged.get(prop, "initial") for prop in _SHAPE_PROPS)
+    filled = merged.get("background", "transparent") != "transparent"
+    return shape + (filled,)
+
+
+@pytest.mark.parametrize(
+    "base,positive,negative",
+    [
+        (
+            ".tl-cal-dot",
+            ".tl-cal-dot.positive",
+            ".tl-cal-dot.negative",
+        ),
+        (
+            '[class*="st-key-calday_"] button::before',
+            '[class*="st-key-calday_"][class*="_positive"] button::before',
+            '[class*="st-key-calday_"][class*="_negative"] button::before',
+        ),
+    ],
+    ids=["overview-grid-and-legend", "journal-grid"],
+)
+def test_calendar_outcomes_are_distinguishable_without_colour(base, positive, negative):
+    """Both calendars, and the legend that explains them, on one shape system."""
+    from src.tradelens.ui import design_system as ds
+
+    css = ds.build_css()
+
+    breakeven_sig = _greyscale_signature(css, base, None)
+    positive_sig = _greyscale_signature(css, base, positive)
+    negative_sig = _greyscale_signature(css, base, negative)
+
+    named = {
+        "breakeven": breakeven_sig,
+        "positive": positive_sig,
+        "negative": negative_sig,
+    }
+    assert len(set(named.values())) == 3, (
+        "two outcomes render as the same mark once colour is removed: " f"{named}"
+    )
+
+    # And specifically: the marks must not be relying on fill alone either.
+    # Three identical circles that differ only by being filled or not would
+    # pass the check above but collapse the moment one of them is tinted.
+    assert len({sig[:-1] for sig in named.values()}) >= 2, named
+
+
+def test_calendar_legend_uses_the_same_marks_it_explains():
+    """The key is built from `.tl-cal-dot`, so it cannot drift from the grid."""
+    from src.tradelens.ui.components import trade_calendar
+
+    src = Path(trade_calendar.__file__).read_text(encoding="utf-8")
+    legend = src[src.index("tl-cal-legend") :][:600]
+    for variant in ("tl-cal-dot positive", "tl-cal-dot negative", 'tl-cal-dot"'):
+        assert variant in legend, variant
+
+
+def test_compact_calendar_marks_carry_shape_class_and_hidden_text():
+    """Rendered markup: each outcome emits its own class and its own words.
+
+    The hidden text is the assistive-technology channel and stays regardless of
+    the shapes; the class is what selects the shape. Losing either one puts the
+    outcome back behind colour.
+    """
+    from src.tradelens.ui.components.trade_calendar import compact_month_html
+
+    daily = {
+        "2026-07-01": {"pnl": 120.0, "trades": 1, "outcome": "positive"},
+        "2026-07-02": {"pnl": -40.0, "trades": 2, "outcome": "negative"},
+        "2026-07-03": {"pnl": 0.0, "trades": 1, "outcome": "breakeven"},
+    }
+    html = compact_month_html(2026, 7, daily)
+
+    assert 'class="tl-cal-dot positive"' in html
+    assert 'class="tl-cal-dot negative"' in html
+    assert 'class="tl-cal-dot"' in html  # breakeven keeps the bare base class
+
+    for phrase in ("net positive", "net negative", "breakeven"):
+        assert f'<span class="tl-visually-hidden">{phrase}</span>' in html, phrase
+
+    # Three marks, three labels — no day silently loses one of the two.
+    assert html.count('class="tl-cal-dot') == 3
+    assert html.count("tl-visually-hidden") == 3
+
+
+# ---------------------------------------------------------------------------
 # Dominant-instrument threshold.
 # ---------------------------------------------------------------------------
 

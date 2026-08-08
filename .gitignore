@@ -251,8 +251,14 @@ data/
 # Local Git worktrees
 .worktrees/
 
-# Impeccable detector hook cache. Machine-written, per-session: it holds
-# session UUIDs and absolute scratchpad paths from whoever ran the tool, and
-# nothing a reviewer or another machine can use. Ignored rather than left
-# untracked so it is never swept into a commit by a broad `git add`.
-.impeccable/
+# Impeccable: ignore ONLY the machine-local detector cache, never the
+# directory. `.impeccable/` also holds durable shared context — live/config
+# .json, design.json, surface briefs, critiques, mocks and approval records —
+# and ignoring the whole directory would have hidden all of it from review and
+# from every other machine. hook.cache.json is the one file that is genuinely
+# local: it carries session UUIDs and absolute scratchpad paths belonging to
+# whoever last ran the tool. Both forms are needed — the first is anchored to
+# this file's directory, the second catches nested project copies such as
+# src/tradelens/ui/.impeccable/.
+.impeccable/hook.cache.json
+**/.impeccable/hook.cache.json

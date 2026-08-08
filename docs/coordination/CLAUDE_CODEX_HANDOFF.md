@@ -20,7 +20,7 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 3 — IMPECCABLE FORENSIC AUDIT AND POLISH COMPLETE, AWAITING CODEX REVIEW`
+- Current phase: `PHASE 3 + AMENDMENT COMPLETE, AWAITING CODEX RE-REVIEW`
 - **Phase 2 is APPROVED.** Codex approved Phase 2 at `7ffd9a1` — the Partner
   amendments round 4 commit and, with it, Tasks 1–17 and every amendment round
   that preceded them. The final focused Codex re-review named in the previous
@@ -66,18 +66,38 @@ the same time.
   and bottom bar never both on screen. The Journal calendar was re-verified
   after the shared key rename.
 - Next owner: **`CODEX`**.
-- **Exact diff state:** Phase 3 is commit `548acc5`, sitting directly on the
-  approved `7ffd9a1`. Review it with `git diff 7ffd9a1 548acc5`. Seven files:
-  `design_system.py`, `components/theme.py`, `components/trade_calendar.py`,
-  `pages/1_NewTrade.py`, `tests/test_premium_page_contracts.py`, `.gitignore`,
-  and this handoff. Nothing is pushed; the branch is local.
+- **Exact diff state:** review the whole of Phase 3 with
+  `git diff 7ffd9a1 HEAD`. It is three commits on the approved `7ffd9a1`:
+  `548acc5` (the four defects), `542a7f3` (recording that SHA here), and the
+  amendment commit named at the end of this block. Files touched across all
+  three: `design_system.py`, `components/theme.py`,
+  `components/trade_calendar.py`, `pages/1_NewTrade.py`,
+  `tests/test_premium_page_contracts.py`, `tests/test_dashboard.py`,
+  `.gitignore`, and this handoff. Nothing is pushed; the branch is local.
 - Next action: **Codex review of the Phase 3 diff.** Phase 3 is complete. It
   was a presentation-only pass; `git diff 7ffd9a1 -- src/tradelens/services/
   src/tradelens/db/ src/tradelens/prompts/` is empty, `auth.py` is untouched,
   and no schema, secret, tenant-scoping, or marketing-site file was opened.
   Motion work remains deferred to Phase 4 and was not started.
-- **Phase 3 verification:** `2065 passed, 7 skipped` (Phase 2 approved at
-  `2064/7`; the +1 is the new selector guard). Ruff clean · Black clean ·
+- **Verification after the amendment:** `2069 passed, 7 skipped` (Phase 2
+  approved at `2064/7`; +1 selector guard, +4 calendar guards). The calendar
+  guards are mutation-tested — reverting the shape channel to colour-only
+  fails them on both surfaces. Browser: both calendars and the legend at 1440,
+  1024, coarse 768, coarse 375 and reduced motion, 10 runs, every one with
+  zero overflow, zero sub-44px targets, zero contrast failures, zero stale
+  light surfaces, and every mark surface fully distinct without colour.
+  - Limitation, stated rather than papered over: the Journal grid's rendered
+    evidence shows two of the three outcomes, because the month on screen has
+    no breakeven day. The **legend** renders all three at all five
+    configurations, and the structural test proves the Journal grid's own
+    three selectors produce three distinct greyscale signatures.
+  - This required real trades, so the sweep ran against a **throwaway seeded
+    SQLite file in the scratchpad**, never the project database. In DEMO_MODE
+    the Journal takes a demo-data branch that renders a plain table and never
+    mounts the calendar at all — which is why the first Phase 3 sweep found no
+    day marks to measure.
+- **Phase 3 verification (pre-amendment):** `2065 passed, 7 skipped`.
+  Ruff clean · Black clean ·
   `git diff --check` clean. Browser evidence: 8 destinations x 4 viewports
   (1440, 1024, coarse 768, coarse 375) plus a reduced-motion pass over all 8
   at 1440 — 40 measured runs before the fixes and 40 after. The coarse-pointer
@@ -109,16 +129,34 @@ the same time.
   _buttons`, asserts the colour-declaring rule never regains a `>`, so the
   next control passing `help=` inherits the fix instead of rediscovering the
   bug.
-- **Unresolved, needs an owner/Codex ruling:** the calendars still encode day
-  outcome by **hue alone** for sighted users (green / red / grey dots, and a
-  legend keyed the same way). Every non-colour channel that would fix it —
-  dot shape, a ring for breakeven, a glyph — changes approved pixels, which
-  Phase 3 was told not to do. Flagged rather than decided.
-- **`.impeccable/` was inspected and nothing from it is in this commit.** Both
-  copies (`./` and `src/tradelens/ui/`) hold only `hook.cache.json`, a
-  machine-written per-session detector cache carrying session UUIDs and
-  absolute scratchpad paths. It is now in `.gitignore` so a broad `git add`
-  cannot sweep it in.
+- **RESOLVED by the amendment — colour-only calendar meaning.** Outcome is now
+  carried by shape first: **filled circle** net-positive, **filled diamond**
+  net-negative, **hollow ring** breakeven. One `.tl-cal-dot` definition serves
+  the Overview grid and the legend, and the Journal grid's `::before` marks use
+  the same three shapes, so the key cannot drift from the marks it explains.
+  The visually-hidden outcome text stays. Calendar geometry is unchanged: the
+  marks are still 7-8px inside the same cells.
+  - The diamond is a **`clip-path` polygon, not `transform: rotate(45deg)`**.
+    The rotation was the first implementation and measurement rejected it:
+    Chrome reported the day marks' computed transform as `none` at coarse 375
+    while returning the rotation matrix at 1440, so the mark silently stayed a
+    rounded square on a phone. clip-path holds at all five configurations.
+  - **A regression this phase itself introduced was caught here and fixed.**
+    Widening the button colour rule to the descendant combinator (Phase 3
+    defect 2) also made it reach the calendar's day buttons, which pass
+    `help=` — so every traded day became a filled teal action button, exactly
+    the treatment Analytics retired when it dropped its own calendar. The day
+    rule now declares its own surface (panel, hairline border, mono figure)
+    instead of depending on whether the global rule reaches it.
+- **Amendment 2 — the `.impeccable/` ignore rule is narrowed.** The previous
+  blanket `.impeccable/` would have hidden durable shared artifacts. Only the
+  machine-local cache is ignored now, via `.impeccable/hook.cache.json` and
+  `**/.impeccable/hook.cache.json` (the second catches nested project copies
+  such as `src/tradelens/ui/.impeccable/`). Verified with `git check-ignore`
+  against real probe files: both cache copies ignored; `live/config.json`,
+  `design.json`, `critiques/`, `briefs/`, `mocks/` and `approvals/` all remain
+  visible to Git at both the root and the nested path. Nothing from
+  `.impeccable/` is staged in any commit.
 - Three cosmetic orphan classes remain emitted with no rule and no visual
   effect — `.tl-evidence-sample`, `.tl-note-thesis-label`, `.tl-partner-head`;
   each is a dead styling hook whose siblings or children carry the styling.
@@ -287,6 +325,55 @@ persistence, Settings tenant isolation, and authentication/recovery flows.
    and browser gates before any commit/push/PR decision.
 
 ## Handoff log
+
+### 2026-08-08 — Phase 3 amendment: shape before colour, and a narrower ignore (Claude)
+
+Two amendments Codex asked for before approval, plus one regression the first
+of them uncovered.
+
+**Colour is no longer the only channel.** Circle, diamond, ring — net-positive,
+net-negative, breakeven — on the Overview grid, the Journal grid and the legend
+that explains them. The legend is built from the same `.tl-cal-dot` class as
+the Overview marks, so it cannot fall out of step with them; the Journal's
+`::before` marks repeat the three shapes deliberately rather than inventing a
+second vocabulary. Geometry is untouched: the marks are 7-8px in the same cells
+they always occupied, and the visually-hidden outcome text stays for assistive
+technology, which shape does not serve.
+
+**The diamond is clipped, not rotated, and measurement is why.** The first
+implementation used `transform: rotate(45deg)`. At coarse 375 the probe read
+the day marks' computed transform as `none` while 1440 returned the rotation
+matrix, so on a phone the negative mark was a rounded square — still distinct
+from a circle, but not the mark the legend was promising, and different from
+what every other width showed. `clip-path` is a paint-level property with no
+such caveat and no interaction with any `transform: none` rule in the
+reduced-motion block. Verified as the polygon at all five configurations.
+
+**A regression from Phase 3's own defect-2 fix, caught here.** Widening the
+button colour rule to the descendant combinator fixed the white-on-teal label,
+and also reached the calendar's day buttons, which pass `help=`. Every traded
+day became a filled teal action button — a month of primary actions, and
+precisely the treatment Analytics had already retired for being the colour
+reserved for actions. It was invisible in the first sweep because DEMO_MODE
+sends the Journal down a demo-data branch that renders a table and never mounts
+the calendar. The day rule now states its own surface instead of inheriting
+whatever the global rule happens to reach, which makes it immune in both
+directions. Finding it required a throwaway seeded database; the project
+database was never touched.
+
+**The ignore rule was too broad and is now exact.** `.impeccable/` holds
+durable shared context as well as a machine-local cache, so the blanket
+directory ignore would have hidden config, design records, briefs, critiques,
+mocks and approvals from review and from every other machine. Only
+`hook.cache.json` is ignored now, at the root and in nested project copies,
+and that was checked with `git check-ignore` against real probe files of each
+durable shape rather than reasoned about.
+
+**Guards.** Four new tests, mutation-tested: reverting the shape channel to
+colour-only fails them on both calendar surfaces. They compare a greyscale
+signature — geometry plus filled-vs-hollow, colour discarded — so a future
+change that keeps three colours but collapses two shapes fails rather than
+passes.
 
 ### 2026-08-08 — Phase 3: the Impeccable forensic audit and polish (Claude)
 

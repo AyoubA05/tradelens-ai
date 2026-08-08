@@ -2304,9 +2304,31 @@ def build_css() -> str:
    44px floor as every other control — at every width, not just on a phone.
    Descendant combinator, not `>`: these buttons pass `help=`, which wraps
    them in a tooltip div, so `.stButton > button` never matches them.
-   Keyed on the calendar form so every page mounting it inherits one rule. */
+   Keyed on the calendar form so every page mounting it inherits one rule.
+
+   The surface is declared here rather than inherited. A day is a SELECTION,
+   not an action, and this rule used to set only the height — which meant the
+   day's appearance depended on whether the global button rule happened to
+   reach it. When that rule was widened to descendant (so `help=` buttons stop
+   losing their label colour to Streamlit) every traded day in the month
+   turned into a filled teal action button, which is precisely the treatment
+   Analytics removed when it retired its own calendar: teal is the colour
+   reserved for actions, and a month of them makes the one real action on the
+   page impossible to find. Stating the surface makes the day's look
+   independent of the global rule's reach in either direction. */
 .st-key-tl_full_calendar [data-testid="stColumn"] .stButton button {{
   min-height: 44px;
+  background: var(--tl-surface-panel);
+  color: var(--tl-content-primary);
+  border: 1px solid var(--tl-line-hairline);
+  font-family: var(--tl-font-mono);
+  font-weight: 400;
+}}
+@media (hover: hover) and (pointer: fine) {{
+  .st-key-tl_full_calendar [data-testid="stColumn"] .stButton button:hover {{
+    background: var(--tl-surface-elevated);
+    border-color: var(--tl-line-strong);
+  }}
 }}
 
 /* === TRADE WIZARD (components/trade_wizard.py + pages/1_NewTrade.py) === */
@@ -2587,25 +2609,37 @@ def build_css() -> str:
 }}
 
 /* === TRADE CALENDAR (dashboard month view) ===
-   Flat outcome dots — green net-positive, red net-negative, muted gray
-   breakeven — replacing emoji markers. The outcome rides in the widget
-   key, so the st-key-… container class carries it; the descendant
-   selector tolerates the tooltip wrapper around buttons with help=. */
+   Flat outcome marks replacing emoji markers. The outcome rides in the widget
+   key, so the st-key-… container class carries it; the descendant selector
+   tolerates the tooltip wrapper around buttons with help=.
+
+   Same three shapes as `.tl-cal-dot` above — ring breakeven, disc positive,
+   diamond negative — because this is the Journal's calendar and the Overview's
+   preview of it. Two calendars in one product that agreed on hue and disagreed
+   on shape would be a worse answer than the colour-only one they replaced. */
 [class*="st-key-calday_"] button::before {{
   content: '';
   display: inline-block;
   width: 7px;
   height: 7px;
+  box-sizing: border-box;
   border-radius: var(--tl-radius-full);
   margin-right: 6px;
   vertical-align: 1px;
-  background: var(--tl-content-secondary);
+  background: transparent;
+  border: 1.5px solid var(--tl-content-secondary);
 }}
 [class*="st-key-calday_"][class*="_positive"] button::before {{
   background: var(--tl-success);
+  border-color: var(--tl-success);
 }}
 [class*="st-key-calday_"][class*="_negative"] button::before {{
+  width: 8px;
+  height: 8px;
   background: var(--tl-danger);
+  border: none;
+  border-radius: 0;
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
 }}
 .tl-cal-legend {{
   display: flex;
@@ -2621,15 +2655,48 @@ def build_css() -> str:
   align-items: center;
   gap: 6px;
 }}
+/* Outcome is carried by SHAPE first and colour second, so the month is
+   readable in greyscale and to a red/green-blind trader. Hue alone was the
+   whole channel until the Phase 3 amendment.
+
+   Base is breakeven: a hollow ring. Positive fills it into a disc. Negative
+   fills it and clips it to a diamond — 8px point-to-point, which reads the
+   same optical size as a 7px disc because a diamond covers half its box.
+   `box-sizing` is what keeps the ring the same 7px as the disc instead of
+   9px once its border is added.
+
+   `clip-path`, not `transform: rotate(45deg)`. The rotation was the first
+   implementation and it is not dependable here: measured at coarse 375 the
+   day marks are `::before` pseudo-elements, and Chrome reported their
+   computed transform as `none` at that width while returning the rotation
+   matrix at 1440 — the mark stayed a rounded square on a phone. clip-path is
+   a paint-level property with no such caveat, and it also keeps these marks
+   clear of every `transform: none` rule in the reduced-motion block. Nothing
+   here animates either way.
+
+   One `.tl-cal-dot` definition serves the Overview grid AND the legend, so
+   the key can never drift from the marks it explains. */
 .tl-cal-dot {{
   width: 7px;
   height: 7px;
+  box-sizing: border-box;
   border-radius: var(--tl-radius-full);
-  background: var(--tl-content-secondary);
+  background: transparent;
+  border: 1.5px solid var(--tl-content-secondary);
   display: inline-block;
 }}
-.tl-cal-dot.positive {{ background: var(--tl-success); }}
-.tl-cal-dot.negative {{ background: var(--tl-danger); }}
+.tl-cal-dot.positive {{
+  background: var(--tl-success);
+  border-color: var(--tl-success);
+}}
+.tl-cal-dot.negative {{
+  width: 8px;
+  height: 8px;
+  background: var(--tl-danger);
+  border: none;
+  border-radius: 0;
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+}}
 
 /* === MOTION (accessibility — PRODUCT.md) ===
    Reduced motion means fewer and gentler, not zero: color feedback that
