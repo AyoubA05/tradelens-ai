@@ -20,8 +20,24 @@ the same time.
 ## Current handoff state
 
 - Active writer: `NONE`
-- Current phase: `PHASE 4 REVIEWED (no blocking findings) + AUTH FAIL-CLOSED
-  CORRECTION COMPLETE. AWAITING OWNER DECISION.`
+- Current phase: `PHASE 4 APPROVED. AUTH BYPASS CLOSED. DSN DISCLOSURE CLOSED.
+  BRANCH NOT FINISHED — awaiting owner.`
+- **Phase 4 presentation review: APPROVED** by the owner at `6b3d33c`.
+- **Authentication bypass: CLOSED** at `950bc8f`, accepted by the owner.
+- **DATABASE_URL disclosure: CLOSED** at `7c046fc`, together with both Phase 4
+  verification gaps. Details in the log entry below.
+- Verification: `2128 passed, 7 skipped` (Phase 4 approved at `2087/7`; +41
+  across the two security commits and the hardening). Ruff clean · Black clean
+  · `git diff --check` clean · working tree clean.
+- **STILL REQUIRED FROM THE OWNER — deployment secret check.** Not doable from
+  this worktree. share.streamlit.io → the TradeLens app → **Settings →
+  Secrets** → confirm whether `TRADELENS_USERNAME` and `TRADELENS_PASSWORD`
+  are present and non-blank. Either answer is safe now; if they were UNSET
+  before `950bc8f`, the previously committed demo pair was live on the public
+  deploy and must be treated as a disclosed credential and rotated wherever it
+  was reused.
+- Next owner: **`OWNER`**. Not pushed, not merged, not deployed. The
+  password-strength feature is not started and the branch is not finished.
 - **Phase 4 review outcome: no blocking findings.** The diff `2c29a20..6b3d33c`
   is presentation-only and its boundary claims re-verified empty. It is NOT
   marked approved here, because approval was withheld pending the
@@ -413,7 +429,92 @@ changes what the deploy did *before* this commit: if they were unset, the
 published pair was live on the internet, and **the owner should treat that as
 a disclosed credential** and rotate anything that reused it.
 
-## Open — DSN in a rendered traceback (NOT fixed)
+## RESOLVED — DSN disclosure and two Phase 4 gaps, at `7c046fc`
+
+### 1. DATABASE_URL disclosure — closed, defence in depth
+
+Reproduced first with a sentinel DSN
+(`nosuchdriver+nodbapi://SENTINELUSER:SENTINELPASSWORD@sentinel-host.invalid
+:5432/sentineldb`) so a leak would be unambiguous.
+
+| | Before | After |
+|---|---|---|
+| Engine build fails | raises at module import | contained; `engine = None` |
+| Fallback | — | none: no SQLite, no empty DB, no other tenant |
+| `SessionLocal()` | session bound to nothing | `DatabaseUnavailableError` |
+| `init_db()` | SQLAlchemy's own error | `DatabaseUnavailableError` |
+| App boot | Streamlit's error view | one generic line, then `st.stop()` |
+| Rendered page | `Traceback` **and the DSN** | calm copy, zero sentinels |
+| Widgets rendered | 5 text inputs, 3 buttons | **0 and 0** |
+| Log | nothing of ours | exception **type name only** |
+| `showErrorDetails` | default `full` | `"none"` |
+
+`showErrorDetails = "none"` and not `false`: verified against the pinned
+streamlit **1.50.0** that the option is a STRING whose enum is
+`full | stacktrace | type | none` (`config.ShowErrorDetailsConfigOptions`),
+and that `false` survives only as a legacy variation the loader special-cases.
+"none" is canonical and does not depend on that shim. Config alone would be
+one setting away from a disclosure; containment alone would leave every other
+uncaught exception free to print a traceback — hence both.
+
+**`st.stop()` is load bearing, and a mutation proved it.** Without it the
+script runs on into `require_auth()` and paints a full login form on a
+deployment with no data store. The first version of the test missed this: it
+asserted a sentinel `print` was not reached, and passed with the stop deleted
+because the script died a few lines later anyway. It was measuring the crash,
+not the stop. It now asserts the rendered widget count.
+
+**Browser cold-start evidence** (real server, sentinel DSN, CDP): rendered
+text was exactly `TradeLens is temporarily unavailable. Please try again
+shortly.`; zero sentinels in the full `outerHTML`; no `Traceback`; 0 inputs,
+0 buttons, 0 `stException`; and zero sentinel occurrences in the server log.
+
+**17 subprocess tests** in `tests/test_database_url_containment.py` — cold
+start is the point, and `importlib.reload(session)` would rebind `engine` and
+`SessionLocal` while every service still held the old references, poisoning
+the suite to test an import. Five mutations, all caught after the stop-test
+was repaired: containment removed, SQLite fallback, `str(exc)` logged,
+`st.stop()` removed, `showErrorDetails` back to `full`.
+
+### 2. Duration guard — was unit-blind
+
+Matched `(\d+)ms` only, so `0.4s` was invisible and the ceiling could be
+evaded by changing units; and it never read `--tl-dur-*`, where the numbers
+actually live. Now normalises ms and integer/decimal seconds across
+`transition`, `animation`, both `-duration` longhands, the tokens, and
+multi-value declarations. The 1.4s skeleton pulse remains a **named**
+exemption, keyed to its animation name and pinned to its value. Mutations
+caught: an unauthorised `0.4s` transition, a `1s` animation, and a token
+raised to `420ms`.
+
+### 3. Lens replay — the browser found a real defect, now fixed
+
+**The Phase 4 claim was wrong.** Measured with real `animationstart` events
+and a `MutationObserver` confirming a rerun actually occurred:
+
+| Event | Before the fix | After |
+|---|---|---|
+| Unrelated rerun that remounts the page | **replayed** | replays (fresh mount — correct) |
+| **Lens change** | **did NOT fire** | **fires exactly once** |
+| Reduced motion, lens change | — | `animation-name: none`, `transform: none` |
+
+Cause: one rule on `[class*="st-key-tl_lens_"]` matched every lens, so when
+Streamlit reused the container node and swapped only its class,
+`animation-name` never changed — and a CSS animation restarts only on
+insertion or a name change. The keyed-reconciliation argument was wrong about
+the mechanism.
+
+Fix: one animation name per lens, generated from a single template so the four
+keyframe sets cannot drift. No JavaScript, no dependency.
+
+**Not verified, stated plainly:** a rerun caused by an unrelated *widget* on
+the Analytics page. The only candidate is the Partner launcher, and a
+synthetic `.click()` does not drive a Streamlit button — the observer recorded
+`muts: 0`, i.e. no rerun happened, so that run proves nothing either way. The
+structural argument is now stronger than before (the name changes only when
+the lens changes) but it is an argument, not a measurement.
+
+## Superseded — DSN in a rendered traceback (now fixed at `7c046fc`)
 
 Found while building the login browser evidence, and reported rather than
 silently fixed because it is outside this correction's path.
