@@ -19,19 +19,17 @@ the same time.
 
 ## Current handoff state
 
-- Active writer: `NONE`
-- Current phase: `FINAL INDEPENDENT CODEX REVIEW APPROVED — READY FOR BRANCH
-  FINISHING AFTER THE OWNER'S DEPLOYMENT-SECRET CHECK.`
+- Active writer: `CODEX`
+- Current phase: `PRIORITY REMEDIATION — SUBAGENT-DRIVEN EXECUTION PREFLIGHT.`
 - **Phase 2:** APPROVED at `7ffd9a1`.
 - **Phase 3:** APPROVED at `2c29a20`.
 - **Phase 4:** APPROVED at `6b3d33c`; independently re-reviewed through
   `ad8a8ce`, with the review-contract correction committed at `6f08590`.
 - **Authentication bypass:** CLOSED at `950bc8f`.
 - **DATABASE_URL disclosure:** CLOSED at `7c046fc`.
-- Verification: `2129 passed, 7 skipped`; Ruff clean; Black clean (217 files);
-  `git diff --check` clean. Live Analytics CDP check: one animation on a lens
-  change, zero replays on a real filter rerun, and no positional animation in
-  reduced-motion mode.
+- Verification: prior approved baseline `2129 passed, 7 skipped`; the fresh
+  execution baseline is running before Task 1. Ruff, Black, and browser gates
+  remain mandatory per task and at the final audit.
 - **STILL REQUIRED FROM THE OWNER — deployment secret check.** Not doable from
   this worktree. share.streamlit.io → the TradeLens app → **Settings →
   Secrets** → confirm whether `TRADELENS_USERNAME` and `TRADELENS_PASSWORD`
@@ -39,8 +37,27 @@ the same time.
   before `950bc8f`, the previously committed demo pair was live on the public
   deploy and must be treated as a disclosed credential and rotated wherever it
   was reused.
-- Next owner: **`OWNER`**. Not pushed, not merged, not deployed. The
-  password-strength feature is not started and the branch is not finished.
+- Next owner: **`CODEX`** through the eight-task remediation plan, using one
+  implementation writer at a time and an independent review gate after every
+  task. Not pushed, not merged, not deployed. The password-strength feature is
+  not started and the branch is not finished.
+
+## Priority-remediation execution checkpoint — 2026-08-09
+
+- Plan: `docs/superpowers/plans/2026-08-09-dark-workspace-priority-remediation.md`.
+- Starting product HEAD: `63421f7`.
+- Scope: repair demo data coherence, Journal presentation, ownerless Partner
+  truthfulness, Strategy onboarding, AI Review date selection, terminology and
+  structural-icon residue, then capture clean product screenshots and re-score
+  the 10K checklist.
+- Workflow: Superpowers subagent-driven development. Each numbered task gets a
+  fresh implementer, a separate spec-and-quality reviewer, focused tests, a
+  commit boundary, and a ledger entry before the next task starts.
+- Boundaries remain unchanged: no push, merge, deployment, authentication or
+  database-schema changes, AI routing/prompt changes, tenant-scope changes,
+  secret changes, JavaScript injection, React surface, or new dependency.
+- The owner's deployment-secret check remains required before deployment; it
+  does not block local remediation work.
 
 ## Superseded state snapshots (historical; not current)
 
