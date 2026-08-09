@@ -20,17 +20,17 @@ the same time.
 ## Current handoff state
 
 - **Active writer:** `CODEX`
-- **Phase:** `PRIORITY REMEDIATION — TASK 1 IMPLEMENTED; REVIEW PENDING`
+- **Phase:** `PRIORITY REMEDIATION — TASK 1 TEST AMENDMENT IMPLEMENTED; REVIEW PENDING`
 - **Phase 2:** APPROVED at `7ffd9a1`.
 - **Phase 3:** APPROVED at `2c29a20`.
 - **Phase 4:** APPROVED at `6b3d33c`; independently re-reviewed through
   `ad8a8ce`, with the review-contract correction committed at `6f08590`.
 - **Authentication bypass:** CLOSED at `950bc8f`.
 - **DATABASE_URL disclosure:** CLOSED at `7c046fc`.
-- Verification: fresh full baseline `2129 passed, 7 skipped`; Task 1 focused
-  tests `231 passed`; capture lifecycle `23 passed`; Ruff, Black, and
-  `git diff --check` clean. Browser gates remain mandatory where required by
-  later tasks and at the final audit.
+- Verification: fresh full baseline `2129 passed, 7 skipped`; original Task 1
+  focused tests `231 passed`; test-amendment focused suites `239 passed`; Ruff,
+  Black, and `git diff --check` clean. Browser gates remain mandatory where
+  required by later tasks and at the final audit.
 - **STILL REQUIRED FROM THE OWNER — deployment secret check.** Not doable from
   this worktree. share.streamlit.io → the TradeLens app → **Settings →
   Secrets** → confirm whether `TRADELENS_USERNAME` and `TRADELENS_PASSWORD`
@@ -41,7 +41,8 @@ the same time.
 - **Next owner:** **`CODEX`**, as a fresh Task 1 spec-and-quality reviewer.
   Not pushed, not merged, not deployed. The password-strength feature is not
   started and the branch is not finished.
-- **Next action:** Review Task 1's commit and evidence before Task 2 begins.
+- **Next action:** Review Task 1's implementation and test-amendment evidence
+  before Task 2 begins.
 
 ## Priority-remediation execution checkpoint — 2026-08-09
 
@@ -62,7 +63,8 @@ the same time.
 
 ### 2026-08-09 — Priority remediation Task 1 implementation (Codex)
 
-**Commit:** this commit, `fix(demo): bound sample data to one coherent account`.
+**Commit:** `a59839ac85a92b039e7a2fad3c0040dc3211f1de`,
+`fix(demo): bound sample data to one coherent account`.
 Task 1 only; Task 2 not started.
 
 `get_demo_df(*, as_of=None)` now generates exactly 60 weekdays ending no later
@@ -95,6 +97,34 @@ marketing-site, or dependency file changed.
 page's real six-section semantics instead of the sketch's looser Identity and
 Setups groups. Dedicated tests pin `trading_style` alone as incomplete Identity
 and `news_session_rules` as completing Setups.
+
+### 2026-08-09 — Priority remediation Task 1 review-test amendment (Codex)
+
+**Code commit:** `05dc3b0c90d682161568bc9115b25c2a68cd87ca`,
+`test(demo): pin task one regression contracts`. Task 2 remains unstarted.
+
+The amendment adds behavioral protections the independent review found
+missing: the no-argument demo call cannot return dates later than today; the
+ordered 32-field legacy row schema is exact; and the deterministic result split
+is exactly 33 Wins, 21 Losses, and 6 Breakevens. It also compares every subset
+of the nine persisted completion fields to an independently expressed six-group
+reference, uses blank values for unset fields, and specifically requires Risk
+and Self-Awareness to count once each.
+
+**Mutation evidence:** the exact demo mutation (future default anchor, seven
+metadata fields removed, and 59/1 collapsed Win/Loss results) made all three
+new demo tests fail. The exact completion mutation (Risk omitted and
+Self-Awareness duplicated) made both the exhaustive matrix and the targeted
+Risk/Self-Awareness test fail. Production files were restored unchanged after
+each temporary mutation.
+
+**Verification:** `pytest tests/test_demo.py tests/test_page_polish.py
+tests/test_premium_page_contracts.py -q` → `239 passed`; Ruff clean; Black
+clean; `git diff --check` clean. The test-only amendment changed no production,
+auth, schema, AI-routing/prompt, tenant, secret, dependency, capture, or
+marketing-site file. No browser run was needed because no rendered behavior
+changed. See the complete fix report at
+`.superpowers/sdd/2026-08-09-dark-workspace-priority-remediation/task-1-fix-report.md`.
 
 ## Superseded state snapshots (historical; not current)
 
