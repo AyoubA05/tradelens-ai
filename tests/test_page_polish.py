@@ -6,6 +6,7 @@ deterministic, and self-documenting so future sessions can extend them. They do
 NOT import the pages (pages run Streamlit at import time); they read source text.
 """
 
+import itertools
 import re
 from pathlib import Path
 
@@ -552,6 +553,53 @@ def test_profile_completion_matches_the_pages_six_section_grouping():
     assert profile_completion({"trading_style": "ICT / SMC"}) == (0, 6)
     assert profile_completion({"stop_rules": "At the swing"}) == (1, 6)
     assert profile_completion({"news_session_rules": "No news entries"}) == (1, 6)
+
+
+_COMPLETION_SECTION_FIELDS = (
+    ("name",),
+    ("entry_rules",),
+    ("stop_rules", "take_profit_rules"),
+    ("risk_rules",),
+    ("setups_traded", "setups_avoided", "news_session_rules"),
+    ("common_mistakes",),
+)
+_COMPLETION_FIELDS = tuple(
+    field for section in _COMPLETION_SECTION_FIELDS for field in section
+)
+
+
+def test_profile_completion_matches_all_six_section_semantics():
+    """Risk and Self-Awareness each count once across every field combination."""
+    from src.tradelens.ui.components.strategy_profile import profile_completion
+
+    for values in itertools.product((False, True), repeat=len(_COMPLETION_FIELDS)):
+        profile = {
+            field: "written" if value else " \t "
+            for field, value in zip(_COMPLETION_FIELDS, values)
+        }
+        expected_sections = sum(
+            any(values[_COMPLETION_FIELDS.index(field)] for field in section)
+            for section in _COMPLETION_SECTION_FIELDS
+        )
+
+        assert profile_completion(profile) == (expected_sections, 6), profile
+
+
+def test_profile_completion_counts_risk_and_self_awareness_once_each():
+    from src.tradelens.ui.components.strategy_profile import profile_completion
+
+    assert profile_completion({"risk_rules": "Risk is defined"}) == (1, 6)
+    assert profile_completion({"common_mistakes": "FOMO"}) == (1, 6)
+    assert profile_completion(
+        {"risk_rules": "Risk is defined", "common_mistakes": "FOMO"}
+    ) == (2, 6)
+
+
+@pytest.mark.parametrize("field", ("trading_style", "markets", "timeframes"))
+def test_profile_completion_does_not_count_identity_metadata_without_a_name(field):
+    from src.tradelens.ui.components.strategy_profile import profile_completion
+
+    assert profile_completion({field: "written"}) == (0, 6)
 
 
 # --- Task 9, the plan's tests transcribed verbatim to record their result ---

@@ -6,6 +6,7 @@ guarantee for every AI feature.
 
 import datetime as dt
 import io
+from collections import Counter
 from pathlib import Path
 from unittest.mock import patch
 
@@ -43,6 +44,44 @@ DEMO_COLUMNS = [
     "emotions_after",
 ]
 
+# The complete legacy demo-row contract.  ``DEMO_COLUMNS`` above remains the
+# original model-facing subset; this pins every field rendered or consumed by
+# the existing demo experience, including its metadata fields.
+FULL_LEGACY_DEMO_COLUMNS = [
+    "id",
+    "trade_date",
+    "day_of_week",
+    "asset",
+    "asset_class",
+    "session",
+    "timeframe",
+    "strategy_used",
+    "setup_type",
+    "direction",
+    "entry_price",
+    "exit_price",
+    "pnl",
+    "result",
+    "rr_realized",
+    "ai_grade",
+    "user_grade",
+    "killzone",
+    "htf_bias",
+    "liquidity_sweep",
+    "fvg_used",
+    "order_block_used",
+    "bos",
+    "choch",
+    "confirmation_model",
+    "entry_type",
+    "mistake_tags",
+    "followed_rules",
+    "emotions_before",
+    "emotions_during",
+    "emotions_after",
+    "updated_at",
+]
+
 
 # ---------------------------------------------------------------------------
 # get_demo_df
@@ -70,6 +109,24 @@ def test_get_demo_df_has_wins_and_losses():
     assert "win" in results and "loss" in results
 
 
+def test_get_demo_df_preserves_the_complete_legacy_row_schema():
+    """Dropping display metadata must not silently narrow demo rows."""
+    from src.tradelens.services.demo import get_demo_df
+
+    assert list(get_demo_df().columns) == FULL_LEGACY_DEMO_COLUMNS
+
+
+def test_get_demo_df_preserves_the_intended_result_distribution():
+    """A collapsed pseudo-random branch would misrepresent demo analytics."""
+    from src.tradelens.services.demo import get_demo_df
+
+    assert Counter(get_demo_df()["result"]) == {
+        "Win": 33,
+        "Loss": 21,
+        "Breakeven": 6,
+    }
+
+
 def test_get_demo_df_no_db_access():
     """Demo data is synthetic — it must never query the database."""
     from src.tradelens.services.demo import get_demo_df
@@ -88,6 +145,17 @@ def test_demo_rows_never_extend_beyond_the_supplied_view_date():
 
     assert len(frame) == 60
     assert dates.max() <= dt.date(2026, 8, 8)
+    assert all(day.weekday() < 5 for day in dates)
+
+
+def test_default_demo_rows_never_extend_beyond_today():
+    """The compatibility call must anchor to today, never a fixed future date."""
+    from src.tradelens.services.demo import get_demo_df
+
+    dates = get_demo_df()["trade_date"].map(dt.date.fromisoformat)
+
+    assert len(dates) == 60
+    assert dates.max() <= dt.date.today()
     assert all(day.weekday() < 5 for day in dates)
 
 
