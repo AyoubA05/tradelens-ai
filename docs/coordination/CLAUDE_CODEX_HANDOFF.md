@@ -20,7 +20,7 @@ the same time.
 ## Current handoff state
 
 - **Active writer:** `NONE`
-- **Phase:** `PRIORITY REMEDIATION COMPLETE — AWAITING OWNER REVIEW`
+- **Phase:** `FINAL EVIDENCE CORRECTED — AWAITING OWNER REVIEW`
 - **Phase 2:** APPROVED at `7ffd9a1`.
 - **Phase 3:** APPROVED at `2c29a20`.
 - **Phase 4:** APPROVED at `6b3d33c`; independently re-reviewed through
@@ -32,7 +32,16 @@ the same time.
   The 40-row browser matrix passed at 1440, 1024, genuine coarse 768, genuine
   coarse 375, and reduced-motion 1440: zero exceptions, overflow, undersized
   visible targets, opaque stale-light surfaces, contrast flags, demo/date/copy/
-  label/icon defects, or hidden AI usage. All 13 artifacts were re-inspected.
+  label/icon defects, or hidden AI usage. The ready-owner Partner presentation
+  was exclusive at every applicable responsive configuration; availability
+  states are covered separately by tracked tests. All 13 destination/
+  presentation artifacts were re-inspected.
+- Final evidence correction: `107 passed` across capture, cleanup,
+  contradiction, and marketing-site tests; Ruff clean; Black clean (221
+  files); 80 audit links parsed, with all 78 local targets tracked and no
+  ignored `.superpowers` reference; the live read-only contradiction audit
+  found no contradictory record; `git diff --check` and the protected-boundary
+  diff are empty.
 - **STILL REQUIRED FROM THE OWNER — deployment secret check.** Not doable from
   this worktree. share.streamlit.io → the TradeLens app → **Settings →
   Secrets** → confirm whether `TRADELENS_USERNAME` and `TRADELENS_PASSWORD`
@@ -46,6 +55,54 @@ the same time.
 - **Next action:** Review
   `docs/superpowers/audits/2026-08-09-priority-remediation-review.md` and decide
   whether to finish, push, or deploy the branch.
+
+## Final evidence correction — 2026-08-09
+
+**Commit:** this commit, `docs(audit): make final evidence durable`. The writer
+lock is released to `NONE`; the owner decides whether to finish, push, or deploy
+the branch.
+
+The committed audit now embeds the browser matrix, keyboard accounting,
+ready-owner responsive Partner exclusivity and `0 → 0` usage observation,
+artifact inspection, and probe qualifications that previously depended on an
+ignored local report. Every committed audit link now resolves to a tracked
+test, asset, or document. Ownerless, AI-unavailable, no-trades, and no-profile
+Partner states are cited as tracked behavioral-test evidence rather than
+misreported as live matrix states.
+
+The audit now distinguishes the 13 retained destination/presentation images
+from key-state coverage. It states that 1024, coarse 768, and reduced-motion
+results have no retained pixels; the 375 image is Partner only; the AI Reviews
+Evidence Rail is below the retained crop; and alternate Journal, Analytics, AI
+Reviews, Strategy, and Partner states are behavioral-test rather than retained
+visual evidence. Mobile claims are qualified as Chrome-emulated geometry and
+behavior rather than a physical-device, assistive-technology, or complete
+mobile screenshot pass.
+
+The Overview marketing `alt` now names the pixels actually retained: masthead,
+KPI/risk bands, and the opening equity trajectory. The imagery score remains
+7.5 only because the four refreshed marketing stills are relevant, legible,
+coherently seeded, production-only, clean of capture chrome, and accurately
+described after this correction. It is capped there because they remain
+repeated full-shell views, the Overview trajectory is only partly in frame,
+and none is a distinct editorial composition. The exact subtotal is
+`8.5 + 8.5 + 9.0 + 8.5 + 7.5 + 7.5 + 8.0 + 7.5 = 65.0/80`.
+
+**Verification:** focused capture, cleanup, audit-contradiction, and marketing
+site suites passed `107/107`; Ruff reported all checks passed; Black reported
+221 files unchanged. The audit link checker parsed 80 Markdown links, verified
+all 78 local targets exist and are tracked, and found no ignored
+`.superpowers` reference. The read-only contradiction command reported `No
+contradictory records. Stored outcomes all match their P&L.` `git diff --check`
+and the exact protected diff from `63421f7` across AI routing, Partner safety,
+database, authentication, migrations, and Streamlit config were empty.
+
+Only `docs/superpowers/audits/2026-08-09-priority-remediation-review.md`,
+`site/index.html`, and this handoff changed. No image pixels, product code,
+service, auth, schema, database, marketing layout, push, merge, deployment, or
+branch-finish action changed. No new browser matrix was needed because this is
+an evidence-text and accessible-description correction; the retained Overview
+asset was re-opened at original detail to confirm the amended description.
 
 ## Priority-remediation execution checkpoint — 2026-08-09
 
