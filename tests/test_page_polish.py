@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 PAGES_DIR = Path(__file__).resolve().parents[1] / "src" / "tradelens" / "ui" / "pages"
+SIDEBAR_COMPONENT = PAGES_DIR.parent / "components" / "sidebar.py"
 
 # Session A: only the active (non-archived) pages are linted. Home/TradeDetail/
 # Calendar/Weekly/AI Partner now live in pages/_archive/ (Calendar + Weekly are
@@ -530,6 +531,19 @@ def test_the_strategy_page_consumes_the_shared_profile_fixture():
         "upsert_strategy_profile(CAPTURE_USER_ID, **demo_strategy_profile())" in capture
     )
     assert "ast.parse" not in capture
+
+
+def test_strategy_page_and_sidebar_select_the_shared_demo_profile():
+    """Fast wiring guard; AppTest separately proves this branch is rendered
+    read-only and cannot reach persistence."""
+    page = _src("5_Strategy.py")
+    sidebar = SIDEBAR_COMPONENT.read_text(encoding="utf-8")
+
+    assert "demo_preview" in page
+    assert "demo_strategy_profile()" in page
+    assert 'st.expander("Build a playbook manually", expanded=False)' in page
+    assert "demo_strategy_profile" in sidebar
+    assert "Sample strategy" in sidebar
 
 
 def test_demo_strategy_fixture_is_complete_and_returns_a_fresh_copy():

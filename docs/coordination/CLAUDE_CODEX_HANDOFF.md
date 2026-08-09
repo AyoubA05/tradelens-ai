@@ -20,17 +20,17 @@ the same time.
 ## Current handoff state
 
 - **Active writer:** `NONE`
-- **Phase:** `PRIORITY REMEDIATION — TASK 3 REVIEW AMENDMENT IMPLEMENTED; REVIEW PENDING`
+- **Phase:** `PRIORITY REMEDIATION — TASK 4 IMPLEMENTED; REVIEW PENDING`
 - **Phase 2:** APPROVED at `7ffd9a1`.
 - **Phase 3:** APPROVED at `2c29a20`.
 - **Phase 4:** APPROVED at `6b3d33c`; independently re-reviewed through
   `ad8a8ce`, with the review-contract correction committed at `6f08590`.
 - **Authentication bypass:** CLOSED at `950bc8f`.
 - **DATABASE_URL disclosure:** CLOSED at `7c046fc`.
-- Verification: fresh full baseline `2129 passed, 7 skipped`; amended Task 3
-  focused suites `195 passed`; adjacent Partner/privacy suites `88 passed`; Ruff,
-  Black, and `git diff --check` clean. Browser gates remain mandatory where
-  required by later tasks and at the final audit.
+- Verification: fresh full baseline `2129 passed, 7 skipped`; Task 4 focused
+  suites `322 passed`; adjacent shell suite `45 passed`; Ruff, Black, and
+  `git diff --check` clean. Browser gates remain mandatory where required by
+  later tasks and at the final audit.
 - **STILL REQUIRED FROM THE OWNER — deployment secret check.** Not doable from
   this worktree. share.streamlit.io → the TradeLens app → **Settings →
   Secrets** → confirm whether `TRADELENS_USERNAME` and `TRADELENS_PASSWORD`
@@ -38,11 +38,10 @@ the same time.
   before `950bc8f`, the previously committed demo pair was live on the public
   deploy and must be treated as a disclosed credential and rotated wherever it
   was reused.
-- **Next owner:** **`CODEX`**, as the Task 3 amendment coordinator/reviewer.
+- **Next owner:** **`CODEX`**, as the Task 4 coordinator/reviewer.
   Not pushed, not merged, not deployed. The password-strength feature is not
   started and the branch is not finished.
-- **Next action:** Review the Task 3 amendment diff and evidence before Task 4
-  begins.
+- **Next action:** Review the Task 4 diff and evidence before Task 5 begins.
 
 ## Priority-remediation execution checkpoint — 2026-08-09
 
@@ -244,6 +243,48 @@ and ownerless states; responsive CSS/source contracts tie their rendered
 elements to the complementary keyed presentations. No AI service, prompt,
 routing, cost, auth, database/schema, tenant, secret, dependency, marketing,
 or coordinator-owned ledger file changed.
+
+### 2026-08-09 — Priority remediation Task 4 implementation (Codex)
+
+**Commit:** this commit, `fix(strategy): align demo truth and simplify
+onboarding`. Task 4 only; Task 5 not started.
+
+The Strategy page and global sidebar now select the same shared Task 1 sample
+profile whenever demo mode has no stored profile. The page presents the
+complete `ICT/SMC Day Trading` playbook as a read-only preview, reports `6 of
+6 sections written`, and offers no starter, form, Save control, or persistence
+path. The sidebar labels that same fixture as `Sample strategy` rather than
+claiming the preview has no active context.
+
+Real empty accounts retain the starter save as their single primary action,
+with explicit persistence copy, while manual construction sits behind one
+collapsed `Build a playbook manually` expander. Stored profiles render the
+same keyed form directly. All field keys, validation state, protected `_write`
+path, starter failure handling, toast timing, persistence semantics, and
+Strategy-scoped motion/44px/reduced-motion contracts remain intact.
+
+**TDD evidence:** the shared-fixture wiring, ownerless-demo behavior, and
+real-empty onboarding guards first failed against the old page; the stored
+maintenance baseline passed. The intended failures were the missing demo
+branch/sample sidebar and the old starter help/unwrapped manual form. All four
+guards passed after the state split.
+
+**Mutation evidence:** forcing demo selection false made the ownerless AppTest
+fail on the missing complete profile; reversing the empty/stored form-shell
+condition made both onboarding and maintenance AppTests fail; suppressing the
+sidebar sample treatment made the coherence AppTest fail. Each mutation was
+removed before final verification.
+
+**Verification:** `pytest tests/test_page_polish.py
+tests/test_premium_page_contracts.py tests/test_pages_boot.py
+tests/test_strategy.py tests/test_strategy_parsing.py -q` → `322 passed`;
+adjacent `test_premium_shell.py` → `45 passed`; Ruff clean; Black clean;
+`git diff --check` clean. Browser testing was intentionally omitted for this
+bounded task because AppTest directly proves rendered text, control absence,
+primary-button type, collapsed expander state, direct stored fields, sidebar
+markup, and database persistence. No authentication, AI service/routing/prompt,
+database/schema, tenant, secret, dependency, marketing-site, or
+coordinator-owned SDD ledger file changed.
 
 ## Superseded state snapshots (historical; not current)
 

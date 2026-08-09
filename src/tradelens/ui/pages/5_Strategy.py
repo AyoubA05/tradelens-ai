@@ -20,6 +20,7 @@ if _root not in sys.path:
 
 import streamlit as st  # noqa: E402
 
+from src.tradelens.services.demo import is_demo  # noqa: E402
 from src.tradelens.services.strategy import (  # noqa: E402
     get_active_strategy,
     parse_markets,
@@ -178,41 +179,15 @@ def _render_profile_summary(profile: dict) -> None:
 
 
 # ── Load, summarize, offer a starting point ───────────────────────
-profile = get_active_strategy(uid) if uid is not None else None
+stored_profile = get_active_strategy(uid) if uid is not None else None
+demo_preview = bool(is_demo() and stored_profile is None)
+profile = demo_strategy_profile() if demo_preview else stored_profile
 
 if st.session_state.pop("_strategy_saved", False):
     st.toast("Playbook saved — AI reviews will now use your rules.", icon="✅")
 
 _render_profile_summary(profile or {})
 
-# This writes immediately — it is a save, not a draft — so the label, the
-# help and the confirmation all say so. Copy that promises a review step
-# before anything is stored would be describing a different button.
-_starter_clicked = st.button(
-    "Apply the ICT/SMC starter playbook",
-    key="strategy_starter",
-    type="secondary" if profile else "primary",
-    disabled=uid is None,
-    help=(
-        "Saves a complete starter playbook as your active profile; "
-        "review and customize it afterward."
-    ),
-)
-# The failure belongs beside the control that caused it, not at the foot of
-# a form the trader never touched.
-starter_error_slot = st.empty()
-
-if _starter_clicked:
-    if _write(_STARTER_ERROR_KEY, **dict(STARTER_TEMPLATE)):
-        st.toast("Starter playbook saved as your active profile.", icon="✅")
-        st.rerun()
-
-if st.session_state.get(_STARTER_ERROR_KEY):
-    starter_error_slot.markdown(
-        error_box(str(st.session_state[_STARTER_ERROR_KEY])), unsafe_allow_html=True
-    )
-
-p = profile or {}
 
 # ── The playbook form ─────────────────────────────────────────────
 # Identity is open because it is the one section that cannot be skipped;
@@ -224,7 +199,8 @@ p = profile or {}
 # Journal's filters, the wizard's screenshot panel, Settings and the auth
 # screen too — a page-load flicker on five pages that asked for none.
 # st.container(key=…) renders .st-key-tl_playbook_form around this form.
-with st.container(key="tl_playbook_form"), st.form("strategy_form"):
+def render_strategy_fields(p: dict) -> tuple:
+    """Render the unchanged editable field declarations and return values."""
     # Two hashes, not five. This is the first heading under the page title
     # and there is no h2 between them, so it IS the h2 — the original h5
     # skipped three levels, and a first correction to h3 still skipped one.
@@ -323,47 +299,113 @@ with st.container(key="tl_playbook_form"), st.form("strategy_form"):
             placeholder="e.g. Entering too early before confirmation, revenge trading",
         )
 
-    # Anchored at the end of the form it submits, at its own width. A
-    # stretched primary button reads as a banner, not an action.
-    submitted = st.form_submit_button("Save playbook", type="primary")
-    save_error_slot = st.empty()
+    return (
+        name,
+        trading_style,
+        markets,
+        timeframes,
+        entry_rules,
+        stop_rules,
+        take_profit_rules,
+        risk_rules,
+        setups_traded,
+        setups_avoided,
+        news_session_rules,
+        common_mistakes,
+        name_error_slot,
+    )
 
-if submitted:
-    if uid is None:
-        st.session_state[_SAVE_ERROR_KEY] = (
-            "A database-backed account is required to save a playbook."
-        )
-    elif not name.strip():
-        st.session_state[_NAME_ERROR_KEY] = True
-        st.session_state.pop(_SAVE_ERROR_KEY, None)
-    else:
-        st.session_state.pop(_NAME_ERROR_KEY, None)
-        if _write(
-            _SAVE_ERROR_KEY,
-            name=name.strip(),
-            trading_style=trading_style.strip() or None,
-            markets=markets.strip() or None,
-            timeframes=timeframes.strip() or None,
-            entry_rules=entry_rules.strip() or None,
-            stop_rules=stop_rules.strip() or None,
-            take_profit_rules=take_profit_rules.strip() or None,
-            risk_rules=risk_rules.strip() or None,
-            setups_traded=setups_traded.strip() or None,
-            setups_avoided=setups_avoided.strip() or None,
-            news_session_rules=news_session_rules.strip() or None,
-            common_mistakes=common_mistakes.strip() or None,
-        ):
-            st.session_state["_strategy_saved"] = True
+
+if demo_preview:
+    st.caption("Sample playbook used by demo reviews. It is read-only in this preview.")
+else:
+    # This writes immediately, so its help says exactly what is saved.
+    _starter_clicked = st.button(
+        "Apply the ICT/SMC starter playbook",
+        key="strategy_starter",
+        type="secondary" if profile else "primary",
+        disabled=uid is None,
+        help=(
+            "Saves this complete starter playbook as your active profile. "
+            "You can edit every rule afterward."
+        ),
+    )
+    starter_error_slot = st.empty()
+
+    if _starter_clicked:
+        if _write(_STARTER_ERROR_KEY, **dict(STARTER_TEMPLATE)):
+            st.toast("Starter playbook saved as your active profile.", icon="✅")
             st.rerun()
 
-# Both messages are state, so they survive the rerun a toast would not.
-if st.session_state.get(_NAME_ERROR_KEY):
-    name_error_slot.markdown(
-        '<p class="tl-field-error" role="alert">Strategy name is required — '
-        "it is how reviews refer to this playbook.</p>",
-        unsafe_allow_html=True,
+    if st.session_state.get(_STARTER_ERROR_KEY):
+        starter_error_slot.markdown(
+            error_box(str(st.session_state[_STARTER_ERROR_KEY])),
+            unsafe_allow_html=True,
+        )
+
+    form_shell = (
+        st.expander("Build a playbook manually", expanded=False)
+        if profile is None
+        else st.container()
     )
-if st.session_state.get(_SAVE_ERROR_KEY):
-    save_error_slot.markdown(
-        error_box(str(st.session_state[_SAVE_ERROR_KEY])), unsafe_allow_html=True
-    )
+    with form_shell:
+        # The keyed container preserves the Strategy-only reveal, reduced
+        # motion override, and 44px disclosure targets around the same form.
+        with st.container(key="tl_playbook_form"), st.form("strategy_form"):
+            (
+                name,
+                trading_style,
+                markets,
+                timeframes,
+                entry_rules,
+                stop_rules,
+                take_profit_rules,
+                risk_rules,
+                setups_traded,
+                setups_avoided,
+                news_session_rules,
+                common_mistakes,
+                name_error_slot,
+            ) = render_strategy_fields(profile or {})
+            submitted = st.form_submit_button("Save playbook", type="primary")
+            save_error_slot = st.empty()
+
+    if submitted:
+        if uid is None:
+            st.session_state[_SAVE_ERROR_KEY] = (
+                "A database-backed account is required to save a playbook."
+            )
+        elif not name.strip():
+            st.session_state[_NAME_ERROR_KEY] = True
+            st.session_state.pop(_SAVE_ERROR_KEY, None)
+        else:
+            st.session_state.pop(_NAME_ERROR_KEY, None)
+            if _write(
+                _SAVE_ERROR_KEY,
+                name=name.strip(),
+                trading_style=trading_style.strip() or None,
+                markets=markets.strip() or None,
+                timeframes=timeframes.strip() or None,
+                entry_rules=entry_rules.strip() or None,
+                stop_rules=stop_rules.strip() or None,
+                take_profit_rules=take_profit_rules.strip() or None,
+                risk_rules=risk_rules.strip() or None,
+                setups_traded=setups_traded.strip() or None,
+                setups_avoided=setups_avoided.strip() or None,
+                news_session_rules=news_session_rules.strip() or None,
+                common_mistakes=common_mistakes.strip() or None,
+            ):
+                st.session_state["_strategy_saved"] = True
+                st.rerun()
+
+    # Both messages are state, so they survive the rerun a toast would not.
+    if st.session_state.get(_NAME_ERROR_KEY):
+        name_error_slot.markdown(
+            '<p class="tl-field-error" role="alert">Strategy name is required — '
+            "it is how reviews refer to this playbook.</p>",
+            unsafe_allow_html=True,
+        )
+    if st.session_state.get(_SAVE_ERROR_KEY):
+        save_error_slot.markdown(
+            error_box(str(st.session_state[_SAVE_ERROR_KEY])), unsafe_allow_html=True
+        )

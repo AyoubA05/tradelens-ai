@@ -251,10 +251,17 @@ def _brand_html(logo_b64: str = "") -> str:
     )
 
 
-def _strategy_badge_html(strategy_name: str | None) -> str:
+def _strategy_badge_html(
+    strategy_name: str | None, *, demo_profile: bool = False
+) -> str:
     """Active-strategy context. Compact by design: it tells the trader which
     playbook their reviews are graded against, without competing with the
     destinations above it."""
+    if demo_profile and strategy_name:
+        return (
+            '<div class="tl-side-note active">Sample strategy: '
+            f"<b>{escape(strategy_name)}</b></div>"
+        )
     if strategy_name:
         return (
             '<div class="tl-side-note active">Active strategy: '
@@ -295,16 +302,21 @@ def render_sidebar(df=None, today=None) -> None:
     """
     import streamlit as st
 
+    from src.tradelens.services.demo import is_demo
     from src.tradelens.services.strategy import get_active_strategy
     from src.tradelens.ui.components.auth import (
         current_user,
         current_user_id,
         render_logout_button,
     )
+    from src.tradelens.ui.components.strategy_profile import demo_strategy_profile
     from src.tradelens.ui.design_system import get_asset_as_base64
 
     uid = current_user_id()
     strategy = get_active_strategy(uid) if uid is not None else None
+    demo_profile = bool(is_demo() and strategy is None)
+    if demo_profile:
+        strategy = demo_strategy_profile()
     strategy_name = (strategy or {}).get("name")
     active = _active_slug(st)
 
@@ -331,7 +343,10 @@ def render_sidebar(df=None, today=None) -> None:
                         unsafe_allow_html=True,
                     )
 
-        st.markdown(_strategy_badge_html(strategy_name), unsafe_allow_html=True)
+        st.markdown(
+            _strategy_badge_html(strategy_name, demo_profile=demo_profile),
+            unsafe_allow_html=True,
+        )
 
         st.divider()
         for path, slug, label, icon in UTILITY_NAV:

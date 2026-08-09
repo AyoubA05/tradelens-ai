@@ -41,6 +41,13 @@ def _stored():
     return get_active_strategy(UID)
 
 
+def _use_real_account_mode():
+    """Strategy maintenance scenarios are not public-demo previews."""
+    from src.tradelens.config import settings
+
+    settings.demo_mode = False
+
+
 def _app(root: str, **state):
     from streamlit.testing.v1 import AppTest
 
@@ -50,6 +57,14 @@ def _app(root: str, **state):
     for key, value in state.items():
         at.session_state[key] = value
     return at.run()
+
+
+def _rendered(at) -> str:
+    """All user-facing page and sidebar text AppTest can inspect."""
+    return "\n".join(
+        [element.value for element in at.markdown]
+        + [element.value for element in at.caption]
+    )
 
 
 def _button(at, fragment: str):
@@ -85,8 +100,117 @@ def _fail(message: str) -> int:
     return 1
 
 
+def scenario_ownerless_demo_is_one_read_only_profile(root: str) -> int:
+    """The public demo shows one complete sample without offering a write."""
+    from src.tradelens.services import strategy as strategy_service
+
+    def _write_without_owner(*_args, **_kwargs):
+        raise AssertionError("ownerless demo attempted strategy persistence")
+
+    real_upsert = strategy_service.upsert_strategy_profile
+    strategy_service.upsert_strategy_profile = _write_without_owner
+    try:
+        at = _app(root, current_user_id=None)
+    finally:
+        strategy_service.upsert_strategy_profile = real_upsert
+
+    if at.exception:
+        return _fail(f"ownerless demo raised: {at.exception}")
+
+    rendered = _rendered(at)
+    for expected in (
+        "ICT/SMC Day Trading",
+        "6 of 6 sections written",
+        "Sample playbook used by demo reviews",
+        "Sample strategy: <b>ICT/SMC Day Trading",
+    ):
+        if expected not in rendered:
+            return _fail(f"ownerless demo omitted {expected!r}")
+    if "No playbook yet" in rendered:
+        return _fail("ownerless demo presented the sample as an empty account")
+
+    write_labels = {
+        button.label
+        for button in at.button
+        if button.label in {"Apply the ICT/SMC starter playbook", "Save playbook"}
+    }
+    if write_labels:
+        return _fail(f"ownerless demo offered write actions: {sorted(write_labels)!r}")
+    strategy_fields = {
+        widget.label for widget in list(at.text_input) + list(at.text_area)
+    }
+    if "Strategy Name" in strategy_fields:
+        return _fail("ownerless demo rendered the editable strategy form")
+
+    print("OK")
+    return 0
+
+
+def scenario_real_empty_account_has_collapsed_onboarding(root: str) -> int:
+    """A real empty account gets one starter action and a quiet manual route."""
+    _account()
+    _use_real_account_mode()
+    at = _app(root)
+    if at.exception:
+        return _fail(f"real empty account raised: {at.exception}")
+
+    rendered = _rendered(at)
+    if "No playbook yet" not in rendered or "0 of 6 sections written" not in rendered:
+        return _fail("real empty account did not render its truthful empty summary")
+
+    starter = _button(at, "Apply the ICT/SMC starter playbook")
+    if starter is None:
+        return _fail("real empty account has no starter save action")
+    if starter.proto.type != "primary":
+        return _fail(f"starter action is not primary: {starter.proto.type!r}")
+    expected_help = (
+        "Saves this complete starter playbook as your active profile. "
+        "You can edit every rule afterward."
+    )
+    if starter.help != expected_help:
+        return _fail(f"starter help is {starter.help!r}")
+
+    manual = [e for e in at.expander if e.label == "Build a playbook manually"]
+    if len(manual) != 1:
+        return _fail(f"expected one manual onboarding expander, found {len(manual)}")
+    if manual[0].proto.expanded:
+        return _fail("manual onboarding is expanded by default")
+    if _save(at) is None:
+        return _fail("manual onboarding lost its Save playbook action")
+
+    print("OK")
+    return 0
+
+
+def scenario_stored_profile_is_directly_editable(root: str) -> int:
+    """Saved-profile maintenance stays open and persists through the same form."""
+    result = scenario_editing_preserves_untouched_fields(root)
+    if result:
+        return result
+
+    _use_real_account_mode()
+    at = _app(root)
+    if at.exception:
+        return _fail(f"stored profile rerun raised: {at.exception}")
+    if any(e.label == "Build a playbook manually" for e in at.expander):
+        return _fail("saved profile maintenance was hidden behind onboarding")
+    name = _field(at, "Strategy Name")
+    if name is None or name.value != "Asia Range":
+        return _fail(
+            "saved profile fields were not rendered directly with stored values"
+        )
+    save = _save(at)
+    if save.proto.type != "primary":
+        return _fail(f"saved-profile Save action is not primary: {save.proto.type!r}")
+
+    print("OK")
+    return 0
+
+
 def scenario_starter_template_persists(root: str) -> int:
     """The starter button says it saves. It has to actually save."""
+    _account()
+    _use_real_account_mode()
     at = _app(root)
     if at.exception:
         return _fail(f"initial run raised: {at.exception}")
@@ -128,6 +252,7 @@ def scenario_starter_template_persists(root: str) -> int:
 def scenario_blank_name_is_refused(root: str) -> int:
     """Submitting with no name must not write, and must say so in place."""
     _account()
+    _use_real_account_mode()
     at = _app(root)
     if at.exception:
         return _fail(f"initial run raised: {at.exception}")
@@ -154,6 +279,7 @@ def scenario_blank_name_is_refused(root: str) -> int:
 def scenario_correcting_the_name_saves(root: str) -> int:
     """The draft survives the refusal, and the corrected form writes."""
     _account()
+    _use_real_account_mode()
     at = _app(root)
     at = _save(at).click().run()
     if not _flag(at, "_strategy_name_error"):
@@ -197,6 +323,7 @@ def scenario_correcting_the_name_saves(root: str) -> int:
 def scenario_editing_preserves_untouched_fields(root: str) -> int:
     """Editing one section must not blank the five the trader left alone."""
     _account()
+    _use_real_account_mode()
     from src.tradelens.services.strategy import upsert_strategy_profile
 
     original = dict(
@@ -266,6 +393,7 @@ def scenario_starter_write_failure_is_contained(root: str) -> int:
     there is no playbook yet and when there is one to protect.
     """
     _account()
+    _use_real_account_mode()
 
     def _explode(*_args, **_kwargs):
         raise RuntimeError(_LEAKY)
@@ -353,11 +481,14 @@ def scenario_starter_write_failure_is_contained(root: str) -> int:
 
 
 _SCENARIOS = {
+    "ownerless_demo_is_one_read_only_profile": scenario_ownerless_demo_is_one_read_only_profile,
+    "real_empty_account_has_collapsed_onboarding": scenario_real_empty_account_has_collapsed_onboarding,
     "starter_write_failure_is_contained": scenario_starter_write_failure_is_contained,
     "starter_template_persists": scenario_starter_template_persists,
     "blank_name_is_refused": scenario_blank_name_is_refused,
     "correcting_the_name_saves": scenario_correcting_the_name_saves,
     "editing_preserves_untouched_fields": scenario_editing_preserves_untouched_fields,
+    "stored_profile_is_directly_editable": scenario_stored_profile_is_directly_editable,
 }
 
 

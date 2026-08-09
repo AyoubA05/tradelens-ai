@@ -1329,7 +1329,8 @@ def test_expander_count_matches_the_five_collapsed_sections():
     become Exit Rules; setups traded, avoided and session filters become
     Setups."""
     src = _strategy_src()
-    assert src.count("st.expander(") == 5
+    assert src.count("st.expander(PLAYBOOK_SECTIONS[") == 5
+    assert src.count('st.expander("Build a playbook manually"') == 1
 
 
 def test_profile_completion_is_reported():
@@ -1506,7 +1507,8 @@ def test_the_starter_button_says_that_it_saves():
     step before anything is stored describes a different button."""
     src = _strategy_src()
     assert "Apply the ICT/SMC starter playbook" in src
-    assert "Saves a complete starter playbook as your active profile" in src
+    assert "Saves this complete starter playbook as your active profile" in src
+    assert "You can edit every rule afterward." in src
     # the retired promises
     for lie in ("edit before saving", "review and save", "Starter template loaded"):
         assert lie not in src, lie
@@ -1525,7 +1527,7 @@ def test_both_writes_go_through_the_one_protected_path():
     ]
     assert len(calls) == 1, f"writes outside _write(): {calls}"
     assert "_write(_STARTER_ERROR_KEY, **dict(STARTER_TEMPLATE))" in src
-    assert "_write(\n            _SAVE_ERROR_KEY," in src
+    assert "_write(\n                _SAVE_ERROR_KEY," in src
 
 
 def test_a_failed_starter_write_reports_beside_its_own_button():
@@ -1617,6 +1619,22 @@ def test_editing_one_section_preserves_the_untouched_ones(tmp_path):
     this catches is a collapsed section's widget defaulting to "" instead
     of the stored value, which silently blanks it on the next save."""
     _strategy_flow("editing_preserves_untouched_fields", tmp_path)
+
+
+def test_ownerless_demo_is_complete_read_only_and_sidebar_coherent(tmp_path):
+    """The page and rail consume one complete demo fixture, with no write UI
+    and no ownerless persistence call available behind that presentation."""
+    _strategy_flow("ownerless_demo_is_one_read_only_profile", tmp_path)
+
+
+def test_real_empty_account_has_one_primary_and_collapsed_manual_route(tmp_path):
+    """Starter save leads; manual construction remains reachable but quiet."""
+    _strategy_flow("real_empty_account_has_collapsed_onboarding", tmp_path)
+
+
+def test_stored_profile_maintenance_stays_direct_and_persistent(tmp_path):
+    """Onboarding disclosure must not wrap a profile after it exists."""
+    _strategy_flow("stored_profile_is_directly_editable", tmp_path)
 
 
 # ---------------------------------------------------------------------------

@@ -39,10 +39,18 @@ ALL_PAGES = [
 SEED_PAGES = ["2_Trades.py", "4_Analytics.py", "6_Insights.py"]
 
 
-def _boot(page: str, db_path: Path, seed: str, marker: str = "-", state: str = "{}"):
+def _boot(
+    page: str,
+    db_path: Path,
+    seed: str,
+    marker: str = "-",
+    state: str = "{}",
+    *,
+    demo_mode: bool = True,
+):
     env = dict(os.environ)
     env["DATABASE_URL"] = f"sqlite:///{db_path}"
-    env["DEMO_MODE"] = "true"  # never touch the network on boot
+    env["DEMO_MODE"] = "true" if demo_mode else "false"
     proc = subprocess.run(
         [
             sys.executable,
@@ -382,11 +390,25 @@ def test_strategy_empty_profile_says_what_is_lost_until_it_is_filled(tmp_path):
     present twelve empty fields. (The starter-template button is the other
     half of the invitation; buttons are not markdown, so it is asserted in
     the page contracts instead.)"""
-    _boot(_STRATEGY, tmp_path / "s-empty.db", "0", "fall back to generic")
+    _boot(
+        _STRATEGY,
+        tmp_path / "s-empty.db",
+        "0",
+        "fall back to generic",
+        _SIGNED_IN,
+        demo_mode=False,
+    )
 
 
 def test_strategy_empty_profile_reports_zero_completion(tmp_path):
-    _boot(_STRATEGY, tmp_path / "s-zero.db", "0", "0 of 6 sections")
+    _boot(
+        _STRATEGY,
+        tmp_path / "s-zero.db",
+        "0",
+        "0 of 6 sections",
+        _SIGNED_IN,
+        demo_mode=False,
+    )
 
 
 def test_strategy_summarizes_a_saved_profile(tmp_path):
@@ -417,7 +439,8 @@ def test_strategy_name_error_survives_the_rerun(tmp_path):
         tmp_path / "s-err.db",
         "0",
         "Strategy name is required",
-        json.dumps({"_strategy_name_error": True}),
+        json.dumps({"current_user_id": 1, "_strategy_name_error": True}),
+        demo_mode=False,
     )
 
 
