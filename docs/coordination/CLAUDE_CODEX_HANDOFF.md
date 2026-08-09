@@ -20,17 +20,17 @@ the same time.
 ## Current handoff state
 
 - **Active writer:** `NONE`
-- **Phase:** `PRIORITY REMEDIATION — TASK 4 IMPLEMENTED; REVIEW PENDING`
+- **Phase:** `PRIORITY REMEDIATION — TASK 5 IMPLEMENTED; INDEPENDENT REVIEW PENDING`
 - **Phase 2:** APPROVED at `7ffd9a1`.
 - **Phase 3:** APPROVED at `2c29a20`.
 - **Phase 4:** APPROVED at `6b3d33c`; independently re-reviewed through
   `ad8a8ce`, with the review-contract correction committed at `6f08590`.
 - **Authentication bypass:** CLOSED at `950bc8f`.
 - **DATABASE_URL disclosure:** CLOSED at `7c046fc`.
-- Verification: fresh full baseline `2129 passed, 7 skipped`; Task 4 focused
-  suites `322 passed`; adjacent shell suite `45 passed`; Ruff, Black, and
-  `git diff --check` clean. Browser gates remain mandatory where required by
-  later tasks and at the final audit.
+- Verification: fresh full baseline `2129 passed, 7 skipped`; Task 5 final
+  focused and adjacent verification `201 passed`; Ruff, Black,
+  `git diff --check`, and the forbidden-scope diff clean. Browser gates remain
+  mandatory where required by later tasks and at the final audit.
 - **STILL REQUIRED FROM THE OWNER — deployment secret check.** Not doable from
   this worktree. share.streamlit.io → the TradeLens app → **Settings →
   Secrets** → confirm whether `TRADELENS_USERNAME` and `TRADELENS_PASSWORD`
@@ -38,10 +38,11 @@ the same time.
   before `950bc8f`, the previously committed demo pair was live on the public
   deploy and must be treated as a disclosed credential and rotated wherever it
   was reused.
-- **Next owner:** **`CODEX`**, as the Task 4 coordinator/reviewer.
+- **Next owner:** **`CODEX`**, as the Task 5 coordinator/reviewer.
   Not pushed, not merged, not deployed. The password-strength feature is not
   started and the branch is not finished.
-- **Next action:** Review the Task 4 diff and evidence before Task 5 begins.
+- **Next action:** Independently review the Task 5 diff and evidence before
+  Task 6 begins.
 
 ## Priority-remediation execution checkpoint — 2026-08-09
 
@@ -285,6 +286,47 @@ primary-button type, collapsed expander state, direct stored fields, sidebar
 markup, and database persistence. No authentication, AI service/routing/prompt,
 database/schema, tenant, secret, dependency, marketing-site, or
 coordinator-owned SDD ledger file changed.
+
+### 2026-08-09 — Priority remediation Task 5 implementation (Codex)
+
+**Commit:** this commit, `fix(reviews): offer only populated review periods`.
+Task 5 only; Task 6 not started.
+
+The pure `components/review_dates.py` adapter now returns unique completed
+trading days and containing Mondays newest-first, tolerates a truly empty or
+missing-column frame, and converts one selected demo day into the complete row
+objects the debrief consumes. Daily Debrief and Weekly Recap use selectboxes
+whose options come only from that adapter. Daily uses the selected in-memory
+demo rows rather than the empty database, and the demo-only Weekly path uses
+the existing public weekly fixture plus the selected demo frame's public
+period statistics. It makes no model call and persists no sample review.
+
+The shared Task 1 `ICT/SMC Day Trading` profile is supplied only when demo mode
+has no stored profile. True-empty Daily and Weekly states render their exact
+recovery copy and `Open Journal →`, then return before generator, usage, or
+persistence calls. Live saved-note reuse, the sample-size gate, regeneration
+containment, failed-regeneration note preservation, and safe Markdown rendering
+remain unchanged. Week labels handle same-month, cross-month, and cross-year
+ranges accurately.
+
+**TDD and review evidence:** pure adapter tests first failed on the missing
+module. The rendered AppTest next failed because Daily queried the database;
+the unpatched demo Weekly check failed on the old empty caption. Independent
+task review then reproduced a true zero-column crash and found runtime proof
+gaps. Fix-round tests failed on the real `AttributeError`, missing-column row
+access, and the cross-year label before the minimal guards and formatter branch
+were added. Mutations that reversed option order, restored the Daily database
+query, removed the demo Weekly adapter, and ignored a selected non-default day
+were all killed. Scoped re-review approved every finding with no new breakage.
+
+**Verification:** the required Task 5 suites and adjacent Weekly, Daily,
+demo-data, review-reader, and Strategy suites passed `201/201`. Ruff and Black
+were clean on all five changed code/test files; `git diff --check` and the diff
+against services, prompts, auth, database/schema, tenant/config/secret, and
+marketing paths were clean. AppTest subprocesses provide the required rendered
+and runtime evidence, so no browser run was added for this bounded task. No
+service, prompt, auth, schema, tenant, secret, dependency, marketing, or Task 6
+file changed.
 
 ## Superseded state snapshots (historical; not current)
 

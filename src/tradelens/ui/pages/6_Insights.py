@@ -31,7 +31,11 @@ from src.tradelens.services.debrief import (  # noqa: E402
     DebriefError,
     generate_debrief,
 )
-from src.tradelens.services.demo import get_demo_df, is_demo  # noqa: E402
+from src.tradelens.services.demo import (  # noqa: E402
+    get_demo_df,
+    is_demo,
+    load_demo_fixture,
+)
 from src.tradelens.services.patterns import (  # noqa: E402
     generate_insights,
 )
@@ -52,9 +56,17 @@ from src.tradelens.services.weekly import (  # noqa: E402
 )
 from src.tradelens.ui.components.auth import current_user_id, require_auth  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
+from src.tradelens.ui.components.review_dates import (  # noqa: E402
+    demo_rows_for_day,
+    review_day_options,
+    review_week_options,
+)
 from src.tradelens.ui.components.sidebar import (  # noqa: E402
     render_sidebar,
     route_href,
+)
+from src.tradelens.ui.components.strategy_profile import (  # noqa: E402
+    demo_strategy_profile,
 )
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import error_box  # noqa: E402
@@ -153,9 +165,11 @@ if df.empty and is_demo():
     df = get_demo_df()
 
 _strategy = get_active_strategy(uid) if uid is not None else None
+if is_demo() and _strategy is None:
+    _strategy = demo_strategy_profile()
 _ai_on = is_ai_enabled() or is_demo()
 
-if df.empty:
+if df.empty and not is_demo():
     st.markdown(
         render_empty_state(
             "psychology",
@@ -413,6 +427,44 @@ def _default_week(frame: pd.DataFrame) -> datetime.date:
     return datetime.date.today()
 
 
+def _format_review_week(monday: datetime.date) -> str:
+    sunday = monday + datetime.timedelta(days=6)
+    if monday.year != sunday.year:
+        return f"{monday:%b} {monday.day}, {monday:%Y}–{sunday:%b} {sunday.day}, {sunday:%Y}"
+    if monday.year == sunday.year and monday.month == sunday.month:
+        return f"{monday:%b} {monday.day}–{sunday.day}, {monday:%Y}"
+    return f"{monday:%b} {monday.day}–{sunday:%b} {sunday.day}, {sunday:%Y}"
+
+
+def _render_journal_route() -> None:
+    href = escape(route_href("/Trades", st.query_params.get("auth")), quote=True)
+    st.markdown(
+        f'<a href="{href}" target="_self">Open Journal →</a>',
+        unsafe_allow_html=True,
+    )
+
+
+def _demo_weekly_review(monday: str, sunday: str):
+    """Canned demo note over the selected in-memory demo period.
+
+    The demo DataFrame deliberately never reaches the database, so the live
+    weekly service correctly sees no rows. This adapter keeps the public demo
+    fixture and the note-reader contract together without saving a fake note.
+    """
+    content = load_demo_fixture("weekly")
+    if not content:
+        return None
+    period = df.loc[
+        df["trade_date"].astype(str).between(monday, sunday, inclusive="both")
+    ]
+    return {
+        "week_start": monday,
+        "empty": False,
+        "content_md": content,
+        "stats": period_stats(period),
+    }
+
+
 def _trade_rows_for_activation():
     """The page's own user-scoped frame as row objects, for milestone counting."""
     from types import SimpleNamespace
@@ -455,9 +507,23 @@ def _auto_run_weekly(monday: str, uid) -> None:
 
 
 def _render_weekly_lens() -> None:
-    picked = st.date_input(
-        "Pick any day in the week to review",
-        value=_default_week(df),
+    weeks = review_week_options(df)
+    if not weeks:
+        st.markdown(
+            render_empty_state(
+                "rate_review",
+                "No completed week to review",
+                "Log completed trades, then return here for a weekly recap.",
+            ),
+            unsafe_allow_html=True,
+        )
+        _render_journal_route()
+        return
+
+    picked = st.selectbox(
+        "Week to review",
+        weeks,
+        format_func=_format_review_week,
         key="ins_wk_pick",
     )
     monday, sunday = week_bounds(picked)
@@ -479,8 +545,13 @@ def _render_weekly_lens() -> None:
         )
         return
 
-    _auto_run_weekly(monday, uid)
     existing = get_weekly_review(monday, uid)
+    if existing is None:
+        if is_demo():
+            existing = _demo_weekly_review(monday, sunday)
+        else:
+            _auto_run_weekly(monday, uid)
+            existing = get_weekly_review(monday, uid)
     err = st.session_state.get(f"_wk_err_{monday}")
 
     if existing is not None:
@@ -491,7 +562,7 @@ def _render_weekly_lens() -> None:
             f"{monday} → {sunday}",
             key="_ins_weekly_section",
         )
-        if _ai_on:
+        if _ai_on and not is_demo():
             busy_key = f"_wk_busy_{monday}"
             busy = bool(st.session_state.get(busy_key))
             clicked = st.button(
@@ -578,12 +649,32 @@ def _run_daily_debrief(day_iso: str, day_trades: list, cache_key: str) -> None:
 
 
 def _render_daily_lens() -> None:
-    day = st.date_input(
-        "Trading day to review", value=_latest_trade_date(df), key="ins_dbf_day"
+    days = review_day_options(df)
+    if not days:
+        st.markdown(
+            render_empty_state(
+                "psychology",
+                "No completed trading day to review",
+                "Log completed trades, then return here for a daily debrief.",
+            ),
+            unsafe_allow_html=True,
+        )
+        _render_journal_route()
+        return
+
+    day = st.selectbox(
+        "Trading day to review",
+        days,
+        format_func=lambda value: f"{value:%b} {value.day}, {value:%Y}",
+        key="ins_dbf_day",
     )
     day_iso = day.isoformat()
     cache_key = f"_dbf_{uid}_{day_iso}"
-    day_trades = get_trades(start_date=day_iso, end_date=day_iso, user_id=uid)
+    day_trades = (
+        demo_rows_for_day(df, day)
+        if is_demo()
+        else get_trades(start_date=day_iso, end_date=day_iso, user_id=uid)
+    )
 
     if not day_trades:
         st.caption("No trades logged on this day — pick a day you traded.")

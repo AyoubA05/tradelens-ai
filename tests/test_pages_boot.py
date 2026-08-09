@@ -19,6 +19,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 PAGES_DIR = ROOT / "src" / "tradelens" / "ui" / "pages"
 RUNNER = ROOT / "tests" / "app_boot_check.py"
+REVIEW_OPTIONS_RUNNER = ROOT / "tests" / "insights_review_options_check.py"
 
 # Session A: the sidebar now exposes exactly these five pages (plus app.py, the
 # Dashboard, covered by test_dashboard). Home/TradeDetail/Calendar/Weekly/AI
@@ -334,6 +335,21 @@ def test_ai_review_lens_boots_with_one_trade(lens, tmp_path):
         "-",
         json.dumps({"ai_review_lens": lens}),
     )
+
+
+def test_demo_review_periods_use_demo_rows_and_offer_empty_recovery(tmp_path):
+    """Only populated demo periods may reach generation, with a safe exit otherwise."""
+    env = dict(os.environ)
+    env["DATABASE_URL"] = f"sqlite:///{tmp_path / 'review-options.db'}"
+    env["DEMO_MODE"] = "true"
+    proc = subprocess.run(
+        [sys.executable, str(REVIEW_OPTIONS_RUNNER), str(ROOT)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert proc.returncode == 0, proc.stderr
 
 
 def test_patterns_lens_renders_a_research_note(tmp_path):

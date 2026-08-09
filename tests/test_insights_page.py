@@ -8,7 +8,10 @@ contract: one merged page, auto-run (not button-gated), a loading indicator,
 session-state caching, and specific inline errors instead of "AI unavailable".
 """
 
+import datetime as dt
 from pathlib import Path
+
+import pandas as pd
 
 PAGE = (
     Path(__file__).resolve().parents[1]
@@ -66,6 +69,65 @@ def test_specific_inline_error_not_generic_unavailable():
     # Errors surface the actual reason; never the generic "AI is unavailable".
     assert "AI is unavailable" not in src
     assert "couldn't run:" in src or "Could not" in src
+
+
+def test_review_options_only_include_periods_with_completed_trades():
+    """A selectable review period must contain at least one completed trade."""
+    from src.tradelens.ui.components.review_dates import (
+        review_day_options,
+        review_week_options,
+    )
+
+    frame = pd.DataFrame(
+        {"trade_date": ["2026-08-03", "2026-08-03", "2026-08-07", "2026-08-10"]}
+    )
+
+    assert review_day_options(frame) == (
+        dt.date(2026, 8, 10),
+        dt.date(2026, 8, 7),
+        dt.date(2026, 8, 3),
+    )
+    assert review_week_options(frame) == (
+        dt.date(2026, 8, 10),
+        dt.date(2026, 8, 3),
+    )
+
+
+def test_demo_rows_for_day_preserve_fields_used_by_debrief():
+    """Demo daily debriefs need the complete selected demo records, not DB rows."""
+    from src.tradelens.services.demo import get_demo_df
+    from src.tradelens.ui.components.review_dates import (
+        demo_rows_for_day,
+        review_day_options,
+    )
+
+    frame = get_demo_df(as_of=dt.date(2026, 8, 8))
+    day = review_day_options(frame)[0]
+    rows = demo_rows_for_day(frame, day)
+
+    assert rows
+    assert all(row.trade_date == day.isoformat() for row in rows)
+    assert all(hasattr(row, "pnl") for row in rows)
+
+
+def test_review_date_adapter_handles_a_true_empty_frame():
+    """An empty demo fixture has no reviewable periods rather than an exception."""
+    from src.tradelens.ui.components.review_dates import (
+        review_day_options,
+        review_week_options,
+    )
+
+    frame = pd.DataFrame()
+
+    assert review_day_options(frame) == ()
+    assert review_week_options(frame) == ()
+
+
+def test_demo_rows_for_day_handles_a_true_empty_frame():
+    """The page can safely ask an empty demo fixture for one day's records."""
+    from src.tradelens.ui.components.review_dates import demo_rows_for_day
+
+    assert demo_rows_for_day(pd.DataFrame(), dt.date(2026, 8, 7)) == []
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +260,17 @@ from tests.source_probe import function_source  # noqa: E402
 
 _REGEN_CHECK = Path(__file__).resolve().parent / "insights_regen_check.py"
 _ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_week_labels_keep_both_years_at_a_new_year_boundary():
+    """A week spanning New Year must not assign its Monday the ending year."""
+    ns = {"datetime": dt}
+    exec(function_source(_src(), "_format_review_week"), ns)  # noqa: S102
+    format_week = ns["_format_review_week"]
+
+    assert format_week(dt.date(2026, 8, 3)) == "Aug 3–9, 2026"
+    assert format_week(dt.date(2026, 7, 27)) == "Jul 27–Aug 2, 2026"
+    assert format_week(dt.date(2025, 12, 29)) == "Dec 29, 2025–Jan 4, 2026"
 
 
 def _regen(mode: str, db_path: Path) -> subprocess.CompletedProcess:
