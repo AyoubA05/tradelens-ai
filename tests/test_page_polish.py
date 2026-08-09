@@ -505,11 +505,9 @@ def test_the_capture_never_prints_the_session_token():
         assert "token" not in printed.lower(), ast.unparse(node)
 
 
-def test_the_starter_playbook_has_exactly_one_definition():
-    """The capture reads it out of the page that owns it rather than
-    keeping a second copy that would drift."""
-    from scripts.capture_app_screenshots import starter_playbook
-
+def test_the_strategy_page_consumes_the_shared_profile_fixture():
+    """The page and capture seed share one pure fixture rather than parsing
+    or copying a constant owned by an executable Streamlit page."""
     page = (
         Path(__file__).resolve().parents[1]
         / "src"
@@ -518,12 +516,42 @@ def test_the_starter_playbook_has_exactly_one_definition():
         / "pages"
         / "5_Strategy.py"
     ).read_text(encoding="utf-8")
-    assert page.count("STARTER_TEMPLATE = {") == 1
-    playbook = starter_playbook()
-    assert playbook["name"] == "ICT/SMC Day Trading"
-    # every playbook section is filled, which is what "6 of 6" depends on
-    for field in ("entry_rules", "stop_rules", "risk_rules", "common_mistakes"):
-        assert playbook[field].strip()
+    assert "from src.tradelens.ui.components.strategy_profile import (" in page
+    for name in ("STARTER_TEMPLATE", "demo_strategy_profile", "profile_completion"):
+        assert name in page
+
+    capture = _CAPTURE.read_text(encoding="utf-8")
+    assert (
+        "from src.tradelens.ui.components.strategy_profile import "
+        "demo_strategy_profile" in capture
+    )
+    assert (
+        "upsert_strategy_profile(CAPTURE_USER_ID, **demo_strategy_profile())" in capture
+    )
+    assert "ast.parse" not in capture
+
+
+def test_demo_strategy_fixture_is_complete_and_returns_a_fresh_copy():
+    from src.tradelens.ui.components.strategy_profile import (
+        demo_strategy_profile,
+        profile_completion,
+    )
+
+    first = demo_strategy_profile()
+    second = demo_strategy_profile()
+    first["name"] = "Changed locally"
+
+    assert second["name"] == "ICT/SMC Day Trading"
+    assert profile_completion(second) == (6, 6)
+
+
+def test_profile_completion_matches_the_pages_six_section_grouping():
+    from src.tradelens.ui.components.strategy_profile import profile_completion
+
+    assert profile_completion({"name": "My playbook"}) == (1, 6)
+    assert profile_completion({"trading_style": "ICT / SMC"}) == (0, 6)
+    assert profile_completion({"stop_rules": "At the swing"}) == (1, 6)
+    assert profile_completion({"news_session_rules": "No news entries"}) == (1, 6)
 
 
 # --- Task 9, the plan's tests transcribed verbatim to record their result ---

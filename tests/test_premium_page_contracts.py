@@ -1273,7 +1273,9 @@ def test_expander_count_matches_the_five_collapsed_sections():
 
 def test_profile_completion_is_reported():
     src = _strategy_src()
-    assert "def _profile_completion(" in src
+    component = _src_component("strategy_profile.py")
+    assert "def profile_completion(" in component
+    assert "profile_completion(profile)" in src
     assert "_render_profile_summary(" in src
 
 
@@ -1355,7 +1357,7 @@ def test_completion_is_read_from_the_saved_profile_not_the_form():
     it has not been given."""
     src = _strategy_src()
     assert "_render_profile_summary(profile or {})" in src
-    body = src[src.index("def _profile_completion(") : src.index("def _facet(")]
+    body = _src_component("strategy_profile.py")
     assert "profile.get(" in body
     assert "st.session_state" not in body
 
@@ -1461,7 +1463,7 @@ def test_both_writes_go_through_the_one_protected_path():
         if "upsert_strategy_profile(" in line and "def " not in line
     ]
     assert len(calls) == 1, f"writes outside _write(): {calls}"
-    assert "_write(_STARTER_ERROR_KEY, **STARTER_TEMPLATE)" in src
+    assert "_write(_STARTER_ERROR_KEY, **dict(STARTER_TEMPLATE))" in src
     assert "_write(\n            _SAVE_ERROR_KEY," in src
 
 

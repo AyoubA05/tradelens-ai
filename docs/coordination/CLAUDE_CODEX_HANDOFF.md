@@ -19,17 +19,18 @@ the same time.
 
 ## Current handoff state
 
-- Active writer: `CODEX`
-- Current phase: `PRIORITY REMEDIATION — SUBAGENT-DRIVEN EXECUTION PREFLIGHT.`
+- **Active writer:** `CODEX`
+- **Phase:** `PRIORITY REMEDIATION — TASK 1 IMPLEMENTED; REVIEW PENDING`
 - **Phase 2:** APPROVED at `7ffd9a1`.
 - **Phase 3:** APPROVED at `2c29a20`.
 - **Phase 4:** APPROVED at `6b3d33c`; independently re-reviewed through
   `ad8a8ce`, with the review-contract correction committed at `6f08590`.
 - **Authentication bypass:** CLOSED at `950bc8f`.
 - **DATABASE_URL disclosure:** CLOSED at `7c046fc`.
-- Verification: prior approved baseline `2129 passed, 7 skipped`; the fresh
-  execution baseline is running before Task 1. Ruff, Black, and browser gates
-  remain mandatory per task and at the final audit.
+- Verification: fresh full baseline `2129 passed, 7 skipped`; Task 1 focused
+  tests `231 passed`; capture lifecycle `23 passed`; Ruff, Black, and
+  `git diff --check` clean. Browser gates remain mandatory where required by
+  later tasks and at the final audit.
 - **STILL REQUIRED FROM THE OWNER — deployment secret check.** Not doable from
   this worktree. share.streamlit.io → the TradeLens app → **Settings →
   Secrets** → confirm whether `TRADELENS_USERNAME` and `TRADELENS_PASSWORD`
@@ -37,10 +38,10 @@ the same time.
   before `950bc8f`, the previously committed demo pair was live on the public
   deploy and must be treated as a disclosed credential and rotated wherever it
   was reused.
-- Next owner: **`CODEX`** through the eight-task remediation plan, using one
-  implementation writer at a time and an independent review gate after every
-  task. Not pushed, not merged, not deployed. The password-strength feature is
-  not started and the branch is not finished.
+- **Next owner:** **`CODEX`**, as a fresh Task 1 spec-and-quality reviewer.
+  Not pushed, not merged, not deployed. The password-strength feature is not
+  started and the branch is not finished.
+- **Next action:** Review Task 1's commit and evidence before Task 2 begins.
 
 ## Priority-remediation execution checkpoint — 2026-08-09
 
@@ -58,6 +59,42 @@ the same time.
   secret changes, JavaScript injection, React surface, or new dependency.
 - The owner's deployment-secret check remains required before deployment; it
   does not block local remediation work.
+
+### 2026-08-09 — Priority remediation Task 1 implementation (Codex)
+
+**Commit:** this commit, `fix(demo): bound sample data to one coherent account`.
+Task 1 only; Task 2 not started.
+
+`get_demo_df(*, as_of=None)` now generates exactly 60 weekdays ending no later
+than its anchor. Its row contents and schema retain the existing index-driven
+distribution, while the dates are deterministic for a supplied anchor and the
+default anchor is the current local date.
+
+The complete ICT/SMC starter profile and six-section completion rule now live
+in the pure `components/strategy_profile.py`. The Strategy page imports the
+immutable mapping and completion function; the screenshot capture imports a
+fresh dict fixture directly instead of parsing an executable Streamlit page's
+AST. Completion matches the page's actual grouping: Identity is the required
+name, Exit accepts either stop or take-profit rules, and Setups includes the
+stored news/session rule.
+
+**TDD evidence:** the two time-anchor tests first failed with `TypeError:
+get_demo_df() got an unexpected keyword argument 'as_of'`; the shared-profile
+tests first failed because the component did not exist; the screenshot-reader
+contract then failed while AST extraction remained. Each passed after its
+minimal implementation.
+
+**Verification:** focused Task 1 suites `231 passed`; capture lifecycle
+`23 passed`; Ruff clean; Black clean; `git diff --check` clean. The fresh full
+baseline before Task 1 was `2129 passed, 7 skipped`; it was not repeated for
+this bounded task. No browser run was required because no rendered composition,
+copy, or styling changed. No auth, schema, AI routing/prompt, tenant, secret,
+marketing-site, or dependency file changed.
+
+**Deviation from the illustrative plan:** `SECTION_FIELDS` preserves the
+page's real six-section semantics instead of the sketch's looser Identity and
+Setups groups. Dedicated tests pin `trading_style` alone as incomplete Identity
+and `news_session_rules` as completing Setups.
 
 ## Superseded state snapshots (historical; not current)
 

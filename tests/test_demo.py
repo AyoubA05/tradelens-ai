@@ -4,6 +4,7 @@ Gates for the DEMO_MODE system (Phase 4, week6-d4): services/demo.py
 guarantee for every AI feature.
 """
 
+import datetime as dt
 import io
 from pathlib import Path
 from unittest.mock import patch
@@ -77,6 +78,27 @@ def test_get_demo_df_no_db_access():
         df = get_demo_df()
     mock_session.assert_not_called()
     assert not df.empty
+
+
+def test_demo_rows_never_extend_beyond_the_supplied_view_date():
+    from src.tradelens.services.demo import get_demo_df
+
+    frame = get_demo_df(as_of=dt.date(2026, 8, 8))
+    dates = frame["trade_date"].map(dt.date.fromisoformat)
+
+    assert len(frame) == 60
+    assert dates.max() <= dt.date(2026, 8, 8)
+    assert all(day.weekday() < 5 for day in dates)
+
+
+def test_demo_rows_are_deterministic_for_one_anchor():
+    from src.tradelens.services.demo import get_demo_df
+
+    left = get_demo_df(as_of=dt.date(2026, 8, 8))
+    right = get_demo_df(as_of=dt.date(2026, 8, 8))
+
+    assert left.to_dict("records") == right.to_dict("records")
+    assert left.iloc[-1]["trade_date"] == "2026-08-07"
 
 
 # ---------------------------------------------------------------------------

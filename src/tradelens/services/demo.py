@@ -36,6 +36,7 @@ _EMOTIONS = ["Calm", "Confident", "Anxious", "FOMO", "Neutral"]
 _MISTAKES = ["Early Entry", "Late Entry", "Moved Stop", "FOMO", "Overtrading"]
 _GRADES = ["A+", "A", "A-", "B+", "B", "C+", "C", "D", "F"]
 _DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+DEMO_TRADE_COUNT = 60
 
 
 def is_demo() -> bool:
@@ -43,17 +44,74 @@ def is_demo() -> bool:
     return bool(settings.demo_mode)
 
 
-def get_demo_df():
-    """Return a deterministic synthetic 60-trade DataFrame (no DB access).
+def _demo_dates(
+    *, as_of: dt.date, count: int = DEMO_TRADE_COUNT
+) -> tuple[dt.date, ...]:
+    dates = []
+    cursor = as_of
+    while len(dates) < count:
+        if cursor.weekday() < 5:
+            dates.append(cursor)
+        cursor -= dt.timedelta(days=1)
+    return tuple(reversed(dates))
 
-    Columns are a superset of what the dashboard and analytics pages consume,
-    using the canonical model names (asset, rr_realized).
-    """
+
+def _demo_row(
+    *,
+    i: int,
+    day: dt.date,
+    a: int,
+    pnl: float,
+    rr: float,
+    result: str,
+    followed: int,
+    mistakes: list[str],
+    grade: str,
+) -> dict[str, object]:
+    return {
+        "id": i + 1,
+        "trade_date": day.isoformat(),
+        "day_of_week": _DOW[day.weekday()],
+        "asset": _ASSETS[i % len(_ASSETS)],
+        "asset_class": "Futures",
+        "session": ["London", "NY AM", "NY PM", "Asia"][i % 4],
+        "timeframe": ["5m", "15m", "1H"][i % 3],
+        "strategy_used": "ICT OB Strategy",
+        "setup_type": _SETUPS[i % len(_SETUPS)],
+        "direction": "Long" if i % 2 == 0 else "Short",
+        "entry_price": round(100 + a * 0.5, 2),
+        "exit_price": round(100 + a * 0.5 + (pnl / 10.0), 2),
+        "pnl": pnl,
+        "result": result,
+        "rr_realized": rr,
+        "ai_grade": grade,
+        "user_grade": grade if i % 3 else None,
+        "killzone": _KILLZONES[i % len(_KILLZONES)],
+        "htf_bias": ["bullish", "bearish", "neutral"][i % 3],
+        "liquidity_sweep": i % 2,
+        "fvg_used": (i + 1) % 2,
+        "order_block_used": i % 2,
+        "bos": (i + 1) % 2,
+        "choch": i % 3 == 0,
+        "confirmation_model": _CONFIRMATIONS[i % len(_CONFIRMATIONS)],
+        "entry_type": _ENTRY_TYPES[i % len(_ENTRY_TYPES)],
+        "mistake_tags": json.dumps(mistakes),
+        "followed_rules": followed,
+        "emotions_before": _EMOTIONS[i % len(_EMOTIONS)],
+        "emotions_during": _EMOTIONS[(i + 1) % len(_EMOTIONS)],
+        "emotions_after": _EMOTIONS[(i + 2) % len(_EMOTIONS)],
+        "updated_at": f"{day.isoformat()}T12:00:00",
+    }
+
+
+def get_demo_df(*, as_of: Optional[dt.date] = None):
+    """Return 60 deterministic completed trades ending no later than ``as_of``."""
     import pandas as pd  # local import keeps module import light
 
-    start = dt.date(2026, 6, 1)
+    anchor = as_of or dt.date.today()
+    dates = _demo_dates(as_of=anchor)
     rows = []
-    for i in range(60):
+    for i, day in enumerate(dates):
         # Deterministic pseudo-randomness from the index — no RNG state.
         a = (i * 37) % 100
         b = (i * 53) % 100
@@ -67,50 +125,22 @@ def get_demo_df():
         else:
             pnl, rr = 0.0, 0.0
 
-        # Trading days only — step through weekdays.
-        day = start + dt.timedelta(days=int(i * 1.4))
-        while day.weekday() >= 5:
-            day += dt.timedelta(days=1)
-
         followed = 0 if (i % 5 == 0) else 1
         mistakes = [] if followed else [_MISTAKES[i % len(_MISTAKES)]]
         grade = _GRADES[i % len(_GRADES)]
 
         rows.append(
-            {
-                "id": i + 1,
-                "trade_date": day.isoformat(),
-                "day_of_week": _DOW[day.weekday()],
-                "asset": _ASSETS[i % len(_ASSETS)],
-                "asset_class": "Futures",
-                "session": ["London", "NY AM", "NY PM", "Asia"][i % 4],
-                "timeframe": ["5m", "15m", "1H"][i % 3],
-                "strategy_used": "ICT OB Strategy",
-                "setup_type": _SETUPS[i % len(_SETUPS)],
-                "direction": "Long" if i % 2 == 0 else "Short",
-                "entry_price": round(100 + a * 0.5, 2),
-                "exit_price": round(100 + a * 0.5 + (pnl / 10.0), 2),
-                "pnl": pnl,
-                "result": result,
-                "rr_realized": rr,
-                "ai_grade": grade,
-                "user_grade": grade if i % 3 else None,
-                "killzone": _KILLZONES[i % len(_KILLZONES)],
-                "htf_bias": ["bullish", "bearish", "neutral"][i % 3],
-                "liquidity_sweep": i % 2,
-                "fvg_used": (i + 1) % 2,
-                "order_block_used": i % 2,
-                "bos": (i + 1) % 2,
-                "choch": i % 3 == 0,
-                "confirmation_model": _CONFIRMATIONS[i % len(_CONFIRMATIONS)],
-                "entry_type": _ENTRY_TYPES[i % len(_ENTRY_TYPES)],
-                "mistake_tags": json.dumps(mistakes),
-                "followed_rules": followed,
-                "emotions_before": _EMOTIONS[i % len(_EMOTIONS)],
-                "emotions_during": _EMOTIONS[(i + 1) % len(_EMOTIONS)],
-                "emotions_after": _EMOTIONS[(i + 2) % len(_EMOTIONS)],
-                "updated_at": f"{day.isoformat()}T12:00:00",
-            }
+            _demo_row(
+                i=i,
+                day=day,
+                a=a,
+                pnl=pnl,
+                rr=rr,
+                result=result,
+                followed=followed,
+                mistakes=mistakes,
+                grade=grade,
+            )
         )
     return pd.DataFrame(rows)
 

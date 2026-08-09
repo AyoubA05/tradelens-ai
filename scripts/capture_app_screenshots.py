@@ -120,6 +120,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.tradelens.ui.components.strategy_profile import demo_strategy_profile
+
 APP_URL = os.environ.get("TL_CAPTURE_APP", "http://localhost:8599")
 CDP_URL = os.environ.get("TL_CAPTURE_CDP", "http://127.0.0.1:9333")
 
@@ -186,25 +188,6 @@ def _token() -> str:
     return _issue_token(os.environ.get("TL_CAPTURE_USER", CAPTURE_USERNAME), 1)
 
 
-def starter_playbook() -> dict:
-    """The ICT/SMC starter playbook, read from the page that owns it.
-
-    Parsed out of the module's AST rather than copied here, because a
-    second copy is a second thing to keep in step — and the page cannot be
-    imported (it runs Streamlit at import time).
-    """
-    import ast
-
-    page = ROOT / "src" / "tradelens" / "ui" / "pages" / "5_Strategy.py"
-    tree = ast.parse(page.read_text(encoding="utf-8"))
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == "STARTER_TEMPLATE" for t in node.targets
-        ):
-            return ast.literal_eval(node.value)
-    raise RuntimeError("STARTER_TEMPLATE is no longer defined in 5_Strategy.py")
-
-
 def seed_capture_db(directory: Path | None = None) -> str:
     """Build a throwaway database for the capture. Returns its DATABASE_URL.
 
@@ -248,7 +231,7 @@ def seed_capture_db(directory: Path | None = None) -> str:
     session.commit()
     session.close()
 
-    upsert_strategy_profile(CAPTURE_USER_ID, **starter_playbook())
+    upsert_strategy_profile(CAPTURE_USER_ID, **demo_strategy_profile())
     trades = load_sample_trades(CAPTURE_USER_ID)
 
     # Fail here rather than 40 seconds later with four screenshots of an
@@ -258,7 +241,7 @@ def seed_capture_db(directory: Path | None = None) -> str:
         raise RuntimeError("capture db has no active strategy after seeding")
     missing = [
         field
-        for field in starter_playbook()
+        for field in demo_strategy_profile()
         if not str(active.get(field) or "").strip()
     ]
     if missing:

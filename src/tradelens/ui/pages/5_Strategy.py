@@ -30,6 +30,11 @@ from src.tradelens.services.strategy import (  # noqa: E402
 from src.tradelens.ui.components.auth import current_user_id, require_auth  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
+from src.tradelens.ui.components.strategy_profile import (  # noqa: E402
+    STARTER_TEMPLATE,
+    demo_strategy_profile,  # noqa: F401 — shared public fixture
+    profile_completion,
+)
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
 from src.tradelens.ui.components.ui import error_box  # noqa: E402
 from src.tradelens.ui.components.workspace import (  # noqa: E402
@@ -71,18 +76,6 @@ PLAYBOOK_SECTIONS = (
     "Self-Awareness",
 )
 
-# Which stored fields count a section as written. Any one of them is enough:
-# a trader who states an exit rule but no take-profit target has still made
-# that decision.
-_SECTION_FIELDS = {
-    "Identity": ("name",),
-    "Entry Rules": ("entry_rules",),
-    "Exit Rules": ("stop_rules", "take_profit_rules"),
-    "Risk Rules": ("risk_rules",),
-    "Setups": ("setups_traded", "setups_avoided", "news_session_rules"),
-    "Self-Awareness": ("common_mistakes",),
-}
-
 _NAME_ERROR_KEY = "_strategy_name_error"
 _SAVE_ERROR_KEY = "_strategy_save_error"
 _STARTER_ERROR_KEY = "_strategy_starter_error"
@@ -113,38 +106,6 @@ def _write(error_key: str, **fields) -> bool:
     return True
 
 
-STARTER_TEMPLATE = {
-    "name": "ICT/SMC Day Trading",
-    "trading_style": "ICT / SMC",
-    "markets": "NQ, ES, EURUSD, GBP/USD",
-    "timeframes": "15m entry, 1H/4H HTF",
-    "entry_rules": (
-        "Wait for HTF POI, confirm BOS or CHoCH on LTF, enter on FVG or OB retest"
-    ),
-    "stop_rules": "Place SL below/above the swing that caused the BOS",
-    "take_profit_rules": "TP at next liquidity level or opposing HTF POI",
-    "risk_rules": "Max 1% per trade, max 2 trades per session, no revenge trading",
-    "setups_traded": "Liquidity Sweep + FVG, BOS + OB Retest, CHoCH Entry",
-    "setups_avoided": (
-        "Counter-trend without BOS, news candle entries, off-session trades"
-    ),
-    "common_mistakes": "FOMO entry, moving SL, off-session trades, overtrading",
-}
-
-
-def _profile_completion(profile: dict) -> tuple:
-    """How many of the six sections have been written, and out of how many.
-
-    Completion is read from the SAVED profile, so the figure describes what
-    the AI can actually use — not what is currently typed into the form.
-    """
-    written = 0
-    for section in PLAYBOOK_SECTIONS:
-        if any(str(profile.get(f) or "").strip() for f in _SECTION_FIELDS[section]):
-            written += 1
-    return written, len(PLAYBOOK_SECTIONS)
-
-
 def _facet(label: str, items: list, variant: str) -> str:
     """One read-only row of saved values. Empty facets are omitted entirely
     rather than rendered as a label with nothing beside it."""
@@ -161,7 +122,7 @@ def _facet(label: str, items: list, variant: str) -> str:
 def _render_profile_summary(profile: dict) -> None:
     """The compact functional header: whose playbook, how complete, what
     reads it, and the saved values worth scanning."""
-    done, total = _profile_completion(profile)
+    done, total = profile_completion(profile)
     name = str(profile.get("name") or "").strip()
     updated = (profile.get("updated_at") or "")[:10]
 
@@ -242,7 +203,7 @@ _starter_clicked = st.button(
 starter_error_slot = st.empty()
 
 if _starter_clicked:
-    if _write(_STARTER_ERROR_KEY, **STARTER_TEMPLATE):
+    if _write(_STARTER_ERROR_KEY, **dict(STARTER_TEMPLATE)):
         st.toast("Starter playbook saved as your active profile.", icon="✅")
         st.rerun()
 
