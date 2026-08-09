@@ -207,6 +207,28 @@ def test_demo_ledger_humanizes_raw_sessions_and_formats_missing_values():
     }
 
 
+def test_demo_ledger_uses_humanized_killzone_when_session_is_absent():
+    """Older demo-shaped frames name the session column ``killzone``."""
+    from src.tradelens.ui.components.ledger import demo_ledger_frame
+
+    rendered = demo_ledger_frame(
+        pd.DataFrame(
+            {
+                "trade_date": ["2026-08-07"],
+                "asset": ["NQ"],
+                "direction": ["long"],
+                "setup_type": ["order_block"],
+                "killzone": ["ny_pm"],
+                "result": ["win"],
+                "pnl": [125.0],
+                "rr_realized": [1.5],
+            }
+        )
+    )
+
+    assert rendered.loc[0, "Session"] == "New York PM"
+
+
 def test_ledger_keeps_row_selection():
     """Clicking the row is how a trader opens a trade; a ledger you cannot
     click is a report."""
