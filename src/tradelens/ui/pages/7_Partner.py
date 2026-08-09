@@ -26,6 +26,7 @@ from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: 
 from src.tradelens.ui.components.partner_panel import (  # noqa: E402
     SCOPE_NOTE,
     render_partner_body,
+    render_partner_desktop_note,
 )
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
 from src.tradelens.ui.components.theme import inject_css  # noqa: E402
@@ -66,14 +67,11 @@ st.markdown(
 # of the viewport, so at a rail width this body is still built (including one
 # context read) and then hidden by CSS. Avoiding that would need JavaScript,
 # which this phase forbids.
-st.markdown(
-    '<p class="tl-partner-desktop-note" role="status">'
-    "At this width the AI Partner opens beside your work — use "
-    "<strong>Ask about a trade</strong>, bottom right.</p>",
-    unsafe_allow_html=True,
-)
-
 # A reflective surface, not a second bright CTA competing with "Log completed
 # trade" — the one-primary-action rule still applies here.
 with st.container(key="tl_partner_page"):
-    render_partner_body(st, surface="page")
+    partner_state = render_partner_body(st, surface="page")
+
+# At rail widths the phone body above is hidden. Reuse its exact availability
+# decision so a direct route cannot point to a launcher that state suppressed.
+render_partner_desktop_note(st, partner_state)

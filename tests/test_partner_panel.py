@@ -732,6 +732,140 @@ def test_an_unavailable_launcher_is_status_only_not_a_redundant_button(monkeypat
     assert "\n".join(fake.html).count(AI_UNAVAILABLE) == 1
 
 
+class _ScopedLauncherSt(_RichFakeSt):
+    """Record which keyed presentation owns each markdown element."""
+
+    def __init__(self, state=None):
+        super().__init__(state)
+        self._container_stack = []
+        self.markdown_scopes = []
+
+    def markdown(self, body, unsafe_allow_html=False):
+        self.markdown_scopes.append((tuple(self._container_stack), str(body)))
+        super().markdown(body, unsafe_allow_html=unsafe_allow_html)
+
+    def container(self, *args, **kwargs):
+        owner = self
+        key = kwargs.get("key")
+
+        class _Scope:
+            def __enter__(self):
+                owner._container_stack.append(key)
+                return self
+
+            def __exit__(self, *_args):
+                owner._container_stack.pop()
+                return False
+
+        return _Scope()
+
+
+def test_unavailable_shell_status_belongs_to_the_keyed_launcher(monkeypatch):
+    """Phone CSS can suppress only the keyed shell presentation. A status
+    emitted beside that container leaks onto every phone route."""
+    from src.tradelens.ui.components import partner_panel as pp
+    from src.tradelens.ui.components.partner_turn import NO_TRADES_ERROR
+
+    monkeypatch.setattr("src.tradelens.ui.components.auth.current_user_id", lambda: 7)
+    monkeypatch.setattr(pp, "ai_available", lambda: True)
+    monkeypatch.setattr(
+        pp, "build_global_partner_context", lambda *, user_id: _Ctx(trades=0)
+    )
+    fake = _ScopedLauncherSt()
+
+    pp.render_partner_launcher(fake)
+
+    matches = [scope for scope, body in fake.markdown_scopes if NO_TRADES_ERROR in body]
+    assert matches == [("tl_partner_launcher",)]
+
+
+def _main_keyed_block(at, key):
+    for child in at._tree[0].children.values():
+        proto_id = str(getattr(getattr(child, "proto", None), "id", ""))
+        if proto_id.endswith(f"-{key}"):
+            return child
+    raise AssertionError(f"main block {key!r} was not rendered")
+
+
+def _markdown_below(block):
+    values = []
+    for child in block.children.values():
+        if getattr(child, "type", None) == "markdown":
+            values.append(child.value)
+        if hasattr(child, "children"):
+            values.extend(_markdown_below(child))
+    return values
+
+
+def test_owned_unavailable_partner_apptest_keeps_one_status_per_width(monkeypatch):
+    """The real page builds both complementary presentations server-side.
+    Their placement, combined with the responsive contract, leaves exactly
+    one no-trades status visible at either width."""
+    from streamlit.testing.v1 import AppTest
+
+    from src.tradelens.ui import design_system as ds
+    from src.tradelens.ui.components import auth
+    from src.tradelens.ui.components import partner_panel as pp
+    from src.tradelens.ui.components.partner_turn import NO_TRADES_ERROR
+
+    monkeypatch.setattr(auth, "current_user_id", lambda: 7)
+    monkeypatch.setattr(pp, "ai_available", lambda: True)
+    monkeypatch.setattr(
+        pp, "build_global_partner_context", lambda *, user_id: _Ctx(trades=0)
+    )
+    page = Path(__file__).resolve().parents[1] / ("src/tradelens/ui/pages/7_Partner.py")
+    at = AppTest.from_file(str(page), default_timeout=30)
+    at.session_state["authenticated"] = True
+    at = at.run()
+
+    assert not at.exception
+    launcher = _main_keyed_block(at, "tl_partner_launcher")
+    phone_page = _main_keyed_block(at, "tl_partner_page")
+    assert "\n".join(_markdown_below(launcher)).count(NO_TRADES_ERROR) == 1
+    assert "\n".join(_markdown_below(phone_page)).count(NO_TRADES_ERROR) == 1
+    loose_main = [
+        child.value
+        for child in at._tree[0].children.values()
+        if getattr(child, "type", None) == "markdown"
+    ]
+    assert NO_TRADES_ERROR not in "\n".join(loose_main)
+    assert at.chat_input == []
+
+    css = ds.build_css()
+    phone = css[css.rindex("@media (max-width: 767px)") :]
+    launcher_rule = phone[phone.index(".st-key-tl_partner_launcher") :]
+    assert "display: none" in launcher_rule[: launcher_rule.index("}")]
+
+
+def test_unavailable_launcher_status_call_is_inside_its_keyed_container():
+    """Source contract for the CSS boundary exercised by the AppTest above."""
+    launcher = next(
+        node
+        for node in ast.walk(_TREE)
+        if isinstance(node, ast.FunctionDef) and node.name == "render_partner_launcher"
+    )
+    keyed = next(
+        node
+        for node in launcher.body
+        if isinstance(node, ast.With)
+        and any(
+            isinstance(item.context_expr, ast.Call)
+            and any(
+                keyword.arg == "key"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value == "tl_partner_launcher"
+                for keyword in item.context_expr.keywords
+            )
+            for item in node.items
+        )
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "render_partner_status"
+        for node in ast.walk(keyed)
+    )
+
+
 def test_the_launcher_is_actionable_when_the_partner_is_ready(monkeypatch):
     from src.tradelens.ui.components import partner_panel as pp
 
@@ -1146,12 +1280,74 @@ def test_the_page_body_is_keyed_so_the_rule_can_reach_it():
 
 def test_the_desktop_visitor_is_told_where_the_partner_is():
     """A direct /Partner visit at a rail width must not be a blank page."""
-    from pathlib import Path
+    from src.tradelens.ui.components import partner_panel as pp
+    from src.tradelens.ui.components.partner_turn import PartnerAvailability
 
-    page = (
-        Path(__file__).resolve().parents[1] / "src/tradelens/ui/pages/7_Partner.py"
-    ).read_text(encoding="utf-8")
-    assert "tl-partner-desktop-note" in page
+    fake = _RichFakeSt()
+    pp.render_partner_desktop_note(fake, PartnerAvailability(can_send=True))
+
+    rendered = "\n".join(fake.html)
+    assert "tl-partner-desktop-note" in rendered
+    assert "Ask about a trade" in rendered
+
+
+def test_ownerless_partner_apptest_has_truthful_desktop_and_phone_states(monkeypatch):
+    """A bookmarked desktop route must not point at the launcher the same
+    availability state intentionally suppresses."""
+    from streamlit.testing.v1 import AppTest
+
+    from src.tradelens.ui.components import auth
+    from src.tradelens.ui.components import partner_panel as pp
+    from src.tradelens.ui.components.partner_turn import OWNERLESS_PREVIEW
+
+    monkeypatch.setattr(auth, "current_user_id", lambda: None)
+    monkeypatch.setattr(pp, "ai_available", lambda: True)
+    page = Path(__file__).resolve().parents[1] / ("src/tradelens/ui/pages/7_Partner.py")
+    at = AppTest.from_file(str(page), default_timeout=30)
+    at.session_state["authenticated"] = True
+    at = at.run()
+
+    assert not at.exception
+    assert not any(button.key == "partner_open_btn" for button in at.button)
+    phone_page = _main_keyed_block(at, "tl_partner_page")
+    assert "\n".join(_markdown_below(phone_page)).count(OWNERLESS_PREVIEW) == 1
+    desktop = [
+        markdown.value
+        for markdown in at.markdown
+        if markdown.value.startswith('<p class="tl-partner-desktop-note"')
+    ]
+    assert len(desktop) == 1
+    assert OWNERLESS_PREVIEW in desktop[0]
+    assert "Ask about a trade" not in desktop[0]
+    assert at.chat_input == []
+
+
+def test_partner_page_reuses_body_availability_for_the_desktop_state():
+    """The hidden phone body and visible desktop fallback must not make
+    independent availability decisions that can drift."""
+    page = Path(__file__).resolve().parents[1] / ("src/tradelens/ui/pages/7_Partner.py")
+    tree = ast.parse(page.read_text(encoding="utf-8"))
+    assignments = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Call)
+        and getattr(node.value.func, "id", None) == "render_partner_body"
+    ]
+    assert len(assignments) == 1
+    target = assignments[0].targets[0]
+    assert isinstance(target, ast.Name)
+    desktop_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "render_partner_desktop_note"
+    ]
+    assert len(desktop_calls) == 1
+    assert any(
+        isinstance(argument, ast.Name) and argument.id == target.id
+        for argument in desktop_calls[0].args
+    )
 
 
 def test_the_shell_partner_is_restored_on_the_partner_route():

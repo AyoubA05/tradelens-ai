@@ -20,15 +20,15 @@ the same time.
 ## Current handoff state
 
 - **Active writer:** `NONE`
-- **Phase:** `PRIORITY REMEDIATION — TASK 3 IMPLEMENTED; REVIEW PENDING`
+- **Phase:** `PRIORITY REMEDIATION — TASK 3 REVIEW AMENDMENT IMPLEMENTED; REVIEW PENDING`
 - **Phase 2:** APPROVED at `7ffd9a1`.
 - **Phase 3:** APPROVED at `2c29a20`.
 - **Phase 4:** APPROVED at `6b3d33c`; independently re-reviewed through
   `ad8a8ce`, with the review-contract correction committed at `6f08590`.
 - **Authentication bypass:** CLOSED at `950bc8f`.
 - **DATABASE_URL disclosure:** CLOSED at `7c046fc`.
-- Verification: fresh full baseline `2129 passed, 7 skipped`; Task 3 focused
-  suites `190 passed`; adjacent Partner/privacy suites `88 passed`; Ruff,
+- Verification: fresh full baseline `2129 passed, 7 skipped`; amended Task 3
+  focused suites `195 passed`; adjacent Partner/privacy suites `88 passed`; Ruff,
   Black, and `git diff --check` clean. Browser gates remain mandatory where
   required by later tasks and at the final audit.
 - **STILL REQUIRED FROM THE OWNER — deployment secret check.** Not doable from
@@ -38,11 +38,11 @@ the same time.
   before `950bc8f`, the previously committed demo pair was live on the public
   deploy and must be treated as a disclosed credential and rotated wherever it
   was reused.
-- **Next owner:** **`CODEX`**, as a fresh Task 3 spec-and-quality reviewer.
+- **Next owner:** **`CODEX`**, as the Task 3 amendment coordinator/reviewer.
   Not pushed, not merged, not deployed. The password-strength feature is not
   started and the branch is not finished.
-- **Next action:** Review Task 3's implementation, safety boundary, tests, and
-  mutation evidence before Task 4 begins.
+- **Next action:** Review the Task 3 amendment diff and evidence before Task 4
+  begins.
 
 ## Priority-remediation execution checkpoint — 2026-08-09
 
@@ -205,6 +205,45 @@ test therefore supplies a context object that raises on any read, while the
 rendered panel spy proves the adapter is never called. This exercises the real
 boundary without adding a duplicate context path to the Streamlit-free turn
 module.
+
+### 2026-08-09 — Priority remediation Task 3 review amendment (Codex)
+
+**Commit:** this amendment commit, `fix(partner): keep responsive availability
+truthful`. Task 3 review findings only; Task 4 not started.
+
+Owned-unavailable shell status now renders inside the existing
+`tl_partner_launcher` keyed container. The phone breakpoint already removes
+that complete presentation, so `/Partner` shows only its dedicated-page status
+on a phone and other phone destinations receive no leaking Partner status. At
+rail widths the keyed status retains the launcher's fixed lower-right
+presentation.
+
+The `/Partner` page now reuses the exact `PartnerAvailability` returned by its
+body when it renders the desktop-route note. Ready owners keep the real
+launcher instruction; owned-unavailable accounts get only the keyed launcher
+status; ownerless preview accounts get `OWNERLESS_PREVIEW` in the desktop note
+instead of an instruction to use a launcher their state suppresses. The
+complementary CSS still provides one Partner presentation per width.
+
+**TDD evidence:** five focused behavioral, AppTest, and AST contract tests
+failed against `30c5932`: the unavailable status had no keyed scope or AppTest
+launcher block, its status call sat outside the keyed container, and the
+ownerless page still carried static launcher copy with no shared-availability
+integration. The minimal amendment made all five pass.
+
+**Mutation evidence:** moving the status back outside the keyed container made
+all three placement protections fail. Restoring the static desktop instruction
+made the ownerless AppTest fail on the missing truthful state. Both mutations
+were removed and the five protections passed again.
+
+**Verification:** amended Task 3 suites (`test_partner_turn.py`,
+`test_partner_panel.py`, `test_pages_boot.py`) → `195 passed`; adjacent
+Partner/auth/account-deletion suites → `88 passed`; Ruff clean; Black clean;
+`git diff --check` clean. The real Partner page AppTests cover owned-no-trades
+and ownerless states; responsive CSS/source contracts tie their rendered
+elements to the complementary keyed presentations. No AI service, prompt,
+routing, cost, auth, database/schema, tenant, secret, dependency, marketing,
+or coordinator-owned ledger file changed.
 
 ## Superseded state snapshots (historical; not current)
 

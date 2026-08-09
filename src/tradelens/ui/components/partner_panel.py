@@ -29,6 +29,7 @@ from src.tradelens.services.partner import PartnerError, partner_reply
 from src.tradelens.services.partner_context import build_global_partner_context
 from src.tradelens.ui.components.partner_turn import (
     CONTEXT_USED_LABEL,
+    PartnerAvailability,
     QUEUE_KEY,
     QUESTION_DISCARDED,
     claim_question,
@@ -165,7 +166,7 @@ def _render_turn(st, turn: dict) -> None:
             )
 
 
-def render_partner_body(st, *, surface: str) -> None:
+def render_partner_body(st, *, surface: str) -> PartnerAvailability:
     """The conversation itself, shared by the drawer and the phone page.
 
     `surface` keys the widgets so the drawer and the full page can both exist
@@ -216,7 +217,7 @@ def render_partner_body(st, *, surface: str) -> None:
             )
         if history:
             _clear_control(st, uid, surface)
-        return
+        return state
 
     # The notice belongs to the surface, not to its empty state: it was
     # rendered only when there was no history, so the reason a trader's
@@ -289,7 +290,7 @@ def render_partner_body(st, *, surface: str) -> None:
                 log_exception=_log_exception,
             )
         st.rerun()
-        return
+        return state
 
     if typed:
         # First pass records the intent and reruns. A Streamlit widget cannot
@@ -299,6 +300,8 @@ def render_partner_body(st, *, surface: str) -> None:
         # with this run, which is what limits it to the single rerun it needs.
         queue_question(st.session_state, surface=surface, text=typed, run_id=run_id)
         st.rerun()
+
+    return state
 
 
 def _clear_control(st, uid, surface: str) -> None:
@@ -324,13 +327,36 @@ def render_partner_launcher(st) -> None:
     _uid, state = _availability(st)
     if not state.show_launcher:
         return
-    if not state.can_send:
-        st.markdown(render_partner_status(state.reason), unsafe_allow_html=True)
-        return
     with st.container(key="tl_partner_launcher"):
+        if not state.can_send:
+            st.markdown(render_partner_status(state.reason), unsafe_allow_html=True)
+            return
         if st.button("Ask about a trade", key="partner_open_btn", type="primary"):
             st.session_state[PARTNER_OPEN_KEY] = True
             st.rerun()
+
+
+def render_partner_desktop_note(st, state: PartnerAvailability) -> None:
+    """Truthful direct-route copy for the presentation visible at rail widths.
+
+    A ready account is pointed to its real launcher. An owned but unavailable
+    account already has one status in the keyed launcher presentation, so this
+    note stays absent. Ownerless preview availability suppresses that shell
+    presentation entirely, and therefore states its reason here instead.
+    """
+    if state.can_send:
+        body = (
+            "At this width the AI Partner opens beside your work — use "
+            "<strong>Ask about a trade</strong>, bottom right."
+        )
+    elif not state.show_launcher:
+        body = escape(str(state.reason))
+    else:
+        return
+    st.markdown(
+        f'<p class="tl-partner-desktop-note" role="status">{body}</p>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_partner_drawer(st) -> None:
