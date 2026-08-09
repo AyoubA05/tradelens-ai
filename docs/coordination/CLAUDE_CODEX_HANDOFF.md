@@ -20,17 +20,19 @@ the same time.
 ## Current handoff state
 
 - **Active writer:** `NONE`
-- **Phase:** `PRIORITY REMEDIATION — TASK 7 INDEPENDENTLY APPROVED; TASK 8 NOT STARTED`
+- **Phase:** `PRIORITY REMEDIATION COMPLETE — AWAITING OWNER REVIEW`
 - **Phase 2:** APPROVED at `7ffd9a1`.
 - **Phase 3:** APPROVED at `2c29a20`.
 - **Phase 4:** APPROVED at `6b3d33c`; independently re-reviewed through
   `ad8a8ce`, with the review-contract correction committed at `6f08590`.
 - **Authentication bypass:** CLOSED at `950bc8f`.
 - **DATABASE_URL disclosure:** CLOSED at `7c046fc`.
-- Verification: fresh full baseline `2129 passed, 7 skipped`; Task 7 final
-  focused verification `198 passed`; all 13 artifacts verified and inspected;
-  Ruff, Black, `git diff --check`, and the forbidden-scope diff clean. Browser
-  gates remain mandatory where required by Task 8 and at the final audit.
+- Verification: fresh final full suite `2176 passed, 7 skipped`; Ruff, Black
+  (221 files), `git diff --check`, and the protected-boundary diff are clean.
+  The 40-row browser matrix passed at 1440, 1024, genuine coarse 768, genuine
+  coarse 375, and reduced-motion 1440: zero exceptions, overflow, undersized
+  visible targets, opaque stale-light surfaces, contrast flags, demo/date/copy/
+  label/icon defects, or hidden AI usage. All 13 artifacts were re-inspected.
 - **STILL REQUIRED FROM THE OWNER — deployment secret check.** Not doable from
   this worktree. share.streamlit.io → the TradeLens app → **Settings →
   Secrets** → confirm whether `TRADELENS_USERNAME` and `TRADELENS_PASSWORD`
@@ -38,11 +40,12 @@ the same time.
   before `950bc8f`, the previously committed demo pair was live on the public
   deploy and must be treated as a disclosed credential and rotated wherever it
   was reused.
-- **Next owner:** **`CODEX`**, as the Task 8 coordinator.
+- **Next owner:** **`OWNER`**.
   Not pushed, not merged, not deployed. The password-strength feature is not
   started and the branch is not finished.
-- **Next action:** Record Task 7 in the coordinator-owned SDD ledger, then begin
-  Task 8's audit as a separate scope.
+- **Next action:** Review
+  `docs/superpowers/audits/2026-08-09-priority-remediation-review.md` and decide
+  whether to finish, push, or deploy the branch.
 
 ## Priority-remediation execution checkpoint — 2026-08-09
 
@@ -440,6 +443,71 @@ re-read confirmed every exact format and dimension and no auth query in image
 metadata; Ruff clean; Black clean; `git diff --check` clean; forbidden-scope
 diff empty. No service, prompt, authentication, database-schema, tenant,
 security, dependency, marketing-layout, or Task 8 file changed.
+
+### 2026-08-09 — Priority remediation Task 8 final verification (Codex)
+
+**Commit:** this commit, `docs(audit): re-score the remediated workspace`.
+Priority remediation Tasks 1–8 are complete locally. The writer lock is
+released to `NONE`; the owner decides whether the branch is finished, pushed,
+or deployed.
+
+**Task commit ledger from `63421f7`:** execution checkpoint `efe73ee`; Task 1
+`a59839a`, `05dc3b0`, `3a2665d`; Task 2 `891c496`, `11c1c32`; Task 3
+`30c5932`, `5f51ea7`; Task 4 `fd9e2f6`; Task 5 `fa7cd73`; Task 6 `324b5d8`;
+Task 7 `6ac9c69`; Task 8 is this docs-only commit. The audited product/evidence
+HEAD before the Task 8 docs commit is
+`6ac9c6981eab297165fa0515cc39ebd9f36dcdeb`.
+
+**Fresh final gate:** after the capture-only Streamlit process owned by this
+worktree was stopped, the complete suite passed `2176 passed, 7 skipped in
+124.19s`; Ruff reported all checks passed; Black reported 221 files unchanged;
+`git diff --check` was empty. The exact protected diff from `63421f7` across
+AI routing, Partner safety, database, authentication, migrations, and
+Streamlit config was empty.
+
+**Browser matrix:** 40 isolated rows — seven authenticated destinations plus
+the applicable Partner drawer/page at 1440, 1024, genuine coarse 768, genuine
+coarse 375, and reduced-motion 1440. Pointer and reduced-motion state were
+read inside every page. Every row had zero rendered exceptions, horizontal
+overflow, visible hit targets below 44px, opaque stale-light surfaces,
+automated contrast flags, contradictory sample states, dates after the fixed
+anchor, obsolete ownerless Partner copy, raw underscore Journal labels, and
+structural emoji in live controls/toasts. Drawer/page presentations were
+exclusive. `ai_usage_log` stayed `0 → 0`, so the presentation and keyboard
+walks caused no hidden model call.
+
+**Keyboard:** Overview, Journal, AI Reviews, and Strategy were walked at all
+five configurations; the Partner drawer was walked at its four applicable
+configurations. The probe used real CDP Tab/Shift+Tab dispatch, never
+`element.focus()`: 24 walks, 384 transitions, 380 control states matching
+`:focus-visible`, and four document-body wrap states.
+
+**Evidence inventory:** four marketing WebPs — Overview `1600x1000`; New
+Trade, Analytics, Strategy `1400x933`. Nine audit PNGs — all seven destinations
+and Partner drawer `1440x1000`; dedicated Partner page `375x812`. All 13 were
+re-opened at original detail for this review and contain product-only,
+coherent, readable captures with no browser/Codex/platform chrome, cursor,
+tooltip, transient focus, or auth query.
+
+**Final 10K app score:** `81/100` (`65/80`): point of view 8.5, typography
+8.5, colour 9.0, hierarchy 8.5, imagery 7.5, motion 7.5, mobile 8.0, invisible
+quality 7.5. Imagery is held to 7.5 because the four marketing stills remain
+full-page product views with a repeated shell rather than four distinct
+editorial compositions. Full evidence and score rationale:
+`docs/superpowers/audits/2026-08-09-priority-remediation-review.md`.
+
+**Exact remaining limitations:** Streamlit dataframe headers still omit
+`aria-sort`; the canvas-backed ledger still limits authored tabular-numeral
+control; coarse pointer is Chrome emulation rather than a physical device;
+the contrast scan is automated computed-style evidence, not a formal
+assistive-technology audit; no screen-reader, voice-control, or forced-colours
+pass was run. The previously reported dataframe-toolbar name limitation did
+not reproduce: the four controls exposed Show/hide columns, Download as CSV,
+Search, and Fullscreen. The owner-only Streamlit Cloud secrets check remains
+required before deployment exactly as recorded at the top of this handoff.
+
+No product code changed in Task 8. Nothing was pushed, merged, deployed, or
+used to finish the branch.
 
 ## Superseded state snapshots (historical; not current)
 
