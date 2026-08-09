@@ -35,7 +35,12 @@ from src.tradelens.ui.components.corrections_sidebar import (  # noqa: E402
     render_corrections_sidebar,
 )
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
-from src.tradelens.ui.components.ledger import ledger_row_styles  # noqa: E402
+from src.tradelens.ui.components.ledger import (  # noqa: E402
+    LEDGER_MARKS,
+    demo_ledger_frame,
+    format_money,
+    ledger_row_styles,
+)
 from src.tradelens.ui.components.screenshot_analyzer import (  # noqa: E402
     render_screenshot_analyzer,
 )
@@ -88,10 +93,6 @@ _GOTO_KEY = "_journal_goto"
 
 _RESULT_VARIANT = {"win": "success", "loss": "danger", "breakeven": "neutral"}
 
-# The semantic edge. A glyph, not a fill: it survives greyscale, colour
-# blindness, and a printed page, and it does not shout on every row.
-_LEDGER_MARKS = {"Win": "▲", "Loss": "▼", "Breakeven": "■"}
-
 # Evidence chips are derived from the saved SMC flag columns (schema read-only).
 _EVIDENCE_FLAGS = [
     ("liquidity_sweep", "Liquidity Sweep"),
@@ -102,12 +103,6 @@ _EVIDENCE_FLAGS = [
 ]
 
 _FILTER_KEYS = ("jf_from", "jf_to", "jf_assets", "jf_session", "jf_result", "jf_setup")
-
-
-def _fmt_money(value) -> str:
-    if value is None:
-        return "—"
-    return f"-${abs(value):,.2f}" if value < 0 else f"${value:,.2f}"
 
 
 def _result_badge_html(result) -> str:
@@ -254,26 +249,15 @@ if any(getattr(t, "is_sample", 0) for t in trades):
 # ── Empty states ──────────────────────────────────────────────────
 if not trades:
     if not trades_all and is_demo():
-        ddf = get_demo_df()
-        st.caption("Showing demo data (no trades logged yet).")
-        # Named the way the real ledger names them. Measured in the browser:
-        # this table was the one surface still exposing raw column names —
-        # `trade_date`, `setup_type`, `killzone`, `pnl` — to sighted readers
-        # and, through the grid's ARIA table, to screen readers. The ledger
-        # below already reads Date / Asset / Setup / Session / Result / P&L,
-        # and a trader meeting the product on an empty journal should not be
-        # shown the schema.
-        _DEMO_COLUMNS = {
-            "trade_date": "Date",
-            "asset": "Asset",
-            "direction": "Direction",
-            "setup_type": "Setup",
-            "killzone": "Session",
-            "result": "Result",
-            "pnl": "P&L",
-        }
-        ddf = ddf[list(_DEMO_COLUMNS)].rename(columns=_DEMO_COLUMNS)
-        st.dataframe(ddf, hide_index=True, width="stretch")
+        demo_ledger = demo_ledger_frame(get_demo_df())
+        st.caption(
+            "Showing demo data from the same sample account used across TradeLens."
+        )
+        st.dataframe(
+            demo_ledger.style.apply(ledger_row_styles, axis=1),
+            hide_index=True,
+            width="stretch",
+        )
         st.stop()
     if trades_all:
         st.markdown(
@@ -328,8 +312,8 @@ for t in trades:
             "Setup": humanize(t.setup_type),
             # The glyph is the semantic edge — the result stays legible with
             # no colour at all.
-            "Result": f"{_LEDGER_MARKS.get(_result, '·')} {_result}",
-            "P&L": _fmt_money(t.pnl),
+            "Result": f"{LEDGER_MARKS.get(_result, '·')} {_result}",
+            "P&L": format_money(t.pnl),
             "R": f"{t.rr_realized:.2f}R" if t.rr_realized is not None else "—",
             "Grade": t.user_grade or t.ai_grade or "—",
             "Shot": "Yes" if t.screenshots else "",
@@ -473,7 +457,7 @@ if view == "Calendar":
             for _t in _day_trades:
                 st.button(
                     f"{_t.asset or '—'} · {humanize(_t.result) or '—'} · "
-                    f"{_fmt_money(_t.pnl)}",
+                    f"{format_money(_t.pnl)}",
                     key=f"journal_calopen_{_t.id}",
                     on_click=_open_trade,
                     args=(_t.id,),
@@ -604,7 +588,7 @@ def _detail_header_html(trade) -> str:
         f'<div class="tl-chip-row">{chips}</div>'
         "</div>"
         f'<div style="font-family:var(--tl-font-mono);font-size:30px;'
-        f'font-weight:600;color:{pnl_color}">{escape(_fmt_money(pnl))}</div>'
+        f'font-weight:600;color:{pnl_color}">{escape(format_money(pnl))}</div>'
         "</div>"
     )
 

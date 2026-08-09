@@ -10,7 +10,14 @@ reach it directly.
 
 from __future__ import annotations
 
+from typing import Mapping
+
+import pandas as pd
+
 from src.tradelens.ui.design_system import TL_DANGER, TL_SUCCESS
+from src.tradelens.utils.format import humanize
+
+LEDGER_MARKS: Mapping[str, str] = {"Win": "▲", "Loss": "▼", "Breakeven": "■"}
 
 # Money columns are the only ones licensed to carry colour. The sign IS the
 # meaning there; everywhere else the row stays neutral and the result is
@@ -21,6 +28,38 @@ MONEY_COLUMNS = ("P&L", "R")
 # ledger produces for zero, matched as text because that is what the frame
 # carries by the time it reaches the styler.
 _BREAKEVEN = ("—", "$0.00", "0.00R")
+
+
+def format_money(value: object) -> str:
+    """Format one optional ledger amount with an explicit currency sign."""
+    if value is None or pd.isna(value):
+        return "—"
+    amount = float(value)
+    sign = "-" if amount < 0 else ""
+    return f"{sign}${abs(amount):,.2f}"
+
+
+def demo_ledger_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Present demo rows with the same labels and formats as the real ledger."""
+    source = frame.copy()
+    session = source.get("session", source.get("killzone"))
+    result = source["result"].fillna("").map(humanize)
+    return pd.DataFrame(
+        {
+            "Date": source["trade_date"].fillna("—").astype(str),
+            "Asset": source["asset"].fillna("—").astype(str),
+            "Direction": source["direction"].fillna("—").map(humanize),
+            "Setup": source["setup_type"].fillna("—").map(humanize),
+            "Session": session.fillna("—").map(humanize),
+            "Result": result.map(
+                lambda value: f"{LEDGER_MARKS.get(value, '·')} {value or '—'}"
+            ),
+            "P&L": source["pnl"].map(format_money),
+            "R": source["rr_realized"].map(
+                lambda value: "—" if pd.isna(value) else f"{float(value):.2f}R"
+            ),
+        }
+    )
 
 
 def ledger_row_styles(row) -> list:

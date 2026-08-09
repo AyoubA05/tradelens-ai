@@ -640,17 +640,12 @@ def test_no_css_rule_named_tl_ledger_exists():
     assert "tl-ledger" not in ds.build_css()
 
 
-def test_the_demo_ledger_shows_labels_not_database_columns():
-    """Measured in the browser at 1440: this table was the one surface still
-    exposing `trade_date` / `setup_type` / `killzone` / `pnl`, both visually
-    and through the data grid's ARIA table. It is the first ledger a trader
-    with an empty journal ever sees, so it must read like the real one.
-    """
+def test_the_demo_branch_uses_the_shared_ledger_presentation():
+    """The demo table must use the same formatter and row style as Journal."""
     source = Path("src/tradelens/ui/pages/2_Trades.py").read_text()
-    assert '"killzone": "Session"' in source
-    assert '"pnl": "P&L"' in source
-    # The raw names may still appear as rename KEYS, never as a bare column list.
-    assert '"trade_date",\n' not in source
+    assert "demo_ledger_frame(get_demo_df())" in source
+    assert "demo_ledger.style.apply(ledger_row_styles, axis=1)" in source
+    assert "_DEMO_COLUMNS" not in source
 
 
 def test_the_journal_uses_no_emoji_as_an_icon():

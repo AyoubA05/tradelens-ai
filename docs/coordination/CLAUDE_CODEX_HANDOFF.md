@@ -19,18 +19,17 @@ the same time.
 
 ## Current handoff state
 
-- **Active writer:** `CODEX`
-- **Phase:** `PRIORITY REMEDIATION — TASK 1 TEST AMENDMENT IMPLEMENTED; REVIEW PENDING`
+- **Active writer:** `NONE`
+- **Phase:** `PRIORITY REMEDIATION — TASK 2 IMPLEMENTED; REVIEW PENDING`
 - **Phase 2:** APPROVED at `7ffd9a1`.
 - **Phase 3:** APPROVED at `2c29a20`.
 - **Phase 4:** APPROVED at `6b3d33c`; independently re-reviewed through
   `ad8a8ce`, with the review-contract correction committed at `6f08590`.
 - **Authentication bypass:** CLOSED at `950bc8f`.
 - **DATABASE_URL disclosure:** CLOSED at `7c046fc`.
-- Verification: fresh full baseline `2129 passed, 7 skipped`; original Task 1
-  focused tests `231 passed`; test-amendment focused suites `239 passed`; Ruff,
-  Black, and `git diff --check` clean. Browser gates remain mandatory where
-  required by later tasks and at the final audit.
+- Verification: fresh full baseline `2129 passed, 7 skipped`; Task 2 focused
+  suites `290 passed`; Ruff, Black, and `git diff --check` clean. Browser gates
+  remain mandatory where required by later tasks and at the final audit.
 - **STILL REQUIRED FROM THE OWNER — deployment secret check.** Not doable from
   this worktree. share.streamlit.io → the TradeLens app → **Settings →
   Secrets** → confirm whether `TRADELENS_USERNAME` and `TRADELENS_PASSWORD`
@@ -38,11 +37,11 @@ the same time.
   before `950bc8f`, the previously committed demo pair was live on the public
   deploy and must be treated as a disclosed credential and rotated wherever it
   was reused.
-- **Next owner:** **`CODEX`**, as a fresh Task 1 spec-and-quality reviewer.
+- **Next owner:** **`CODEX`**, as a fresh Task 2 spec-and-quality reviewer.
   Not pushed, not merged, not deployed. The password-strength feature is not
   started and the branch is not finished.
-- **Next action:** Review Task 1's implementation and test-amendment evidence
-  before Task 2 begins.
+- **Next action:** Review Task 2's implementation and evidence before Task 3
+  begins.
 
 ## Priority-remediation execution checkpoint — 2026-08-09
 
@@ -125,6 +124,40 @@ auth, schema, AI-routing/prompt, tenant, secret, dependency, capture, or
 marketing-site file. No browser run was needed because no rendered behavior
 changed. See the complete fix report at
 `.superpowers/sdd/2026-08-09-dark-workspace-priority-remediation/task-1-fix-report.md`.
+
+### 2026-08-09 — Priority remediation Task 2 implementation (Codex)
+
+**Commit:** this commit, `fix(journal): present demo trades as a real ledger`.
+Task 2 only; Task 3 not started.
+
+The pure `components/ledger.py` now owns the result-mark vocabulary and money
+formatter used by the real Journal, plus `demo_ledger_frame`, which presents
+the coherent Task 1 sample account with human labels, signed currency, R-unit
+suffixes, result glyphs, and deliberate missing-value placeholders. The empty
+demo Journal routes those transformed rows through the same neutral row styler
+as the real ledger and identifies them as the shared sample account.
+
+The real row builder changed only at its shared mark and money references.
+`ids`, `labels`, `journal_table`, single-row selection, `_open_trade`, the
+pending-view intent, and the Trade Detail transition are unchanged. The demo
+branch's local `_DEMO_COLUMNS` schema rename is removed.
+
+**TDD evidence:** the two behavioral presentation tests first failed with
+`ImportError: cannot import name 'demo_ledger_frame'`; the other 136 premium
+contracts passed in that red run. After the pure transformation and page
+wiring were added, the focused Task 2 suites passed `290/290`. The tests read
+the transformed DataFrame directly and pin raw `ny_am` → `New York AM`,
+`1234.5` → `$1,234.50`, R suffixes, result glyphs, missing values, and exact
+column order; the source check supplements that behavior by guarding only the
+demo-branch routing and removal of `_DEMO_COLUMNS`.
+
+**Verification:** `pytest tests/test_premium_page_contracts.py
+tests/test_page_polish.py tests/test_pages_boot.py -q` → `290 passed`; Ruff
+clean; Black clean; `git diff --check` clean. No browser run was required by
+the bounded Task 2 brief; the real Journal selection/detail subprocess flows
+and all page-boot states are included in the focused suites. No authentication,
+database-schema, AI service/routing/prompt, tenant, secret, dependency,
+marketing-site, or coordinator-owned SDD ledger file changed.
 
 ## Superseded state snapshots (historical; not current)
 

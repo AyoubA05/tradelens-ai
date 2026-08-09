@@ -130,14 +130,81 @@ def test_ledger_keeps_colour_on_monetary_text_only():
 def test_ledger_marks_result_without_relying_on_colour():
     """The semantic edge is a glyph, so the result survives greyscale and
     colour blindness."""
+    from src.tradelens.ui.components.ledger import LEDGER_MARKS
+
     src = _src("2_Trades.py")
-    assert "_LEDGER_MARKS" in src
+    assert set(LEDGER_MARKS) >= {"Win", "Loss", "Breakeven"}
+    assert "LEDGER_MARKS.get" in src
 
 
 def test_ledger_columns_are_the_scannable_set():
     src = _src("2_Trades.py")
     for column in ("Date", "Asset", "Session", "Setup", "Result", "P&L", "R", "Grade"):
         assert f'"{column}"' in src, column
+
+
+def test_demo_ledger_uses_human_labels_and_financial_formats():
+    from src.tradelens.services.demo import get_demo_df
+    from src.tradelens.ui.components.ledger import demo_ledger_frame
+
+    rendered = demo_ledger_frame(
+        get_demo_df(as_of=__import__("datetime").date(2026, 8, 8))
+    )
+
+    assert list(rendered.columns) == [
+        "Date",
+        "Asset",
+        "Direction",
+        "Setup",
+        "Session",
+        "Result",
+        "P&L",
+        "R",
+    ]
+    assert rendered["Session"].str.contains("_").sum() == 0
+    assert rendered["P&L"].map(lambda value: value.startswith(("$", "-$"))).all()
+    assert rendered["R"].str.endswith("R").all()
+    assert rendered["Result"].str.startswith(("▲", "▼", "■")).all()
+
+
+def test_demo_ledger_humanizes_raw_sessions_and_formats_missing_values():
+    from src.tradelens.ui.components.ledger import demo_ledger_frame
+
+    rendered = demo_ledger_frame(
+        pd.DataFrame(
+            {
+                "trade_date": ["2026-08-07", None],
+                "asset": ["NQ", None],
+                "direction": ["long", None],
+                "setup_type": ["order_block", None],
+                "session": ["ny_am", None],
+                "result": ["win", None],
+                "pnl": [1234.5, float("nan")],
+                "rr_realized": [2, float("nan")],
+            }
+        )
+    )
+
+    assert rendered.iloc[0].to_dict() == {
+        "Date": "2026-08-07",
+        "Asset": "NQ",
+        "Direction": "Long",
+        "Setup": "Order Block",
+        "Session": "New York AM",
+        "Result": "▲ Win",
+        "P&L": "$1,234.50",
+        "R": "2.00R",
+    }
+    assert rendered.iloc[1].to_dict() == {
+        "Date": "—",
+        "Asset": "—",
+        "Direction": "—",
+        "Setup": "—",
+        "Session": "—",
+        "Result": "· —",
+        "P&L": "—",
+        "R": "—",
+    }
 
 
 def test_ledger_keeps_row_selection():
@@ -252,46 +319,18 @@ def test_journal_never_shows_generation_cost():
 
 
 def _ledger_module():
-    """Load the ledger styling helpers without executing the page.
+    """Load the pure shared ledger helpers without booting the Streamlit page."""
+    from src.tradelens.ui.components.ledger import (
+        LEDGER_MARKS,
+        format_money,
+        ledger_row_styles,
+    )
 
-    The page is a Streamlit script: importing it runs auth, DB access and
-    st.set_page_config. The styling rules are pure, so they are extracted
-    and exec'd on their own.
-    """
-    import ast
-
-    from src.tradelens.ui import design_system as ds
-    from src.tradelens.ui.components.ledger import ledger_row_styles
-
-    src = _src("2_Trades.py")
-    tree = ast.parse(src)
-    # `_ledger_styles` moved to components/ledger.py in Task 9, so it is
-    # imported rather than carved out. `_LEDGER_MARKS` and `_fmt_money` still
-    # live in the page, so they still need the AST extraction.
-    wanted = {"_LEDGER_MARKS", "_fmt_money"}
-    kept = [
-        node
-        for node in tree.body
-        if (
-            isinstance(node, ast.FunctionDef)
-            and node.name in wanted
-            or isinstance(node, ast.Assign)
-            and any(getattr(t, "id", None) in wanted for t in node.targets)
-        )
-    ]
-    module = ast.Module(body=kept, type_ignores=[])
-    # The real tokens, not invented ones. The previous version injected
-    # `#167A47` / `#B53A43` — light-workspace values that were deleted in
-    # Task 1 — so these tests could not have caught the ledger pointing at a
-    # retired or wrong token; they only ever saw the fixture's own strings.
-    namespace = {
-        "TL_SUCCESS": ds.TL_SUCCESS,
-        "TL_DANGER": ds.TL_DANGER,
-        "TL_CONTENT_SECONDARY": ds.TL_CONTENT_SECONDARY,
+    return {
+        "LEDGER_MARKS": LEDGER_MARKS,
+        "format_money": format_money,
+        "_ledger_styles": ledger_row_styles,
     }
-    exec(compile(module, "<ledger>", "exec"), namespace)  # noqa: S102
-    namespace["_ledger_styles"] = ledger_row_styles
-    return namespace
 
 
 def test_ledger_styles_never_set_a_row_background():
@@ -333,7 +372,7 @@ def test_ledger_styles_leave_breakeven_neutral():
 
 def test_ledger_marks_cover_every_result():
     ns = _ledger_module()
-    marks = ns["_LEDGER_MARKS"]
+    marks = ns["LEDGER_MARKS"]
     assert set(marks) >= {"Win", "Loss", "Breakeven"}
     assert len(set(marks.values())) == len(marks), "each result needs its own glyph"
 
@@ -344,7 +383,7 @@ def test_ledger_marks_cover_every_result():
 )
 def test_money_formatting_is_unchanged(value, expected):
     ns = _ledger_module()
-    assert ns["_fmt_money"](value) == expected
+    assert ns["format_money"](value) == expected
 
 
 # ---------------------------------------------------------------------------
