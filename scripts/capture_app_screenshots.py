@@ -78,7 +78,8 @@ Usage
     trap 'exit 143' TERM
 
     # 3. start the app against THAT database, never the dev one
-    TRADELENS_SESSION_SECRET=<secret> DEMO_MODE=true \
+    TRADELENS_SESSION_SECRET=<secret> \
+        ANTHROPIC_API_KEY=capture-only-placeholder DEMO_MODE=false \
         DATABASE_URL="$DB_URL" \
         streamlit run src/tradelens/ui/app.py \
         --server.headless true --server.port 8599 &
@@ -94,11 +95,14 @@ Usage
     #    WAITS for them — a running Chrome keeps writing to its profile, so
     #    cleaning underneath it races — and removes the one run directory,
     #    database and browser profile together.
-    TRADELENS_SESSION_SECRET=<secret> python scripts/capture_app_screenshots.py
+    TRADELENS_SESSION_SECRET=<secret> \
+        python scripts/capture_app_screenshots.py --all
 
-The same starter playbook and the same sample set every run, so the shots
-are reproducible. `--clean` takes one exact path and validates ownership
-before deleting anything; there is deliberately no sweep.
+The same starter playbook and the same sample set, anchored to 2026-08-09,
+every run, so the shots are reproducible. The placeholder API key makes the
+Partner launcher available for presentation but is never used to send a turn.
+`--clean` takes one exact path and validates ownership before deleting
+anything; there is deliberately no sweep.
 
 The session secret must match the one the app is running with: the script
 mints a signed token so the capture shows the signed-in product rather than
@@ -108,13 +112,17 @@ the login screen.
 from __future__ import annotations
 
 import base64
+import datetime as dt
 import io
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -125,24 +133,120 @@ from src.tradelens.ui.components.strategy_profile import demo_strategy_profile
 APP_URL = os.environ.get("TL_CAPTURE_APP", "http://localhost:8599")
 CDP_URL = os.environ.get("TL_CAPTURE_CDP", "http://127.0.0.1:9333")
 
-# (name, app route, output path, width, height, css_scale)
-#
-# The dimensions mirror the width/height attributes in site/index.html.
-# test_marketing_screenshots_match_their_declared_dimensions keeps the two
-# in step, so changing one without the other fails the suite.
-#
-# css_scale enlarges the BROWSER viewport by that factor while keeping the
-# declared aspect ratio exactly, then the capture is downsampled back into
-# the box. It is how a tall page fits a landscape frame without cropping
-# through the middle of a chart: at 1.0 the Overview's equity curve and the
-# Analytics chart were both sliced by the bottom edge, on shots whose own
-# alt text promises them. Scaling the viewport instead of stretching the
-# image keeps every proportion true — only the apparent zoom changes.
-CAPTURES = (
-    ("overview", "/", "site/assets/shot-dashboard-wide.webp", 1600, 1000, 1.30),
-    ("new-trade", "/NewTrade", "site/assets/shot-newtrade.webp", 1400, 933, 1.00),
-    ("analytics", "/Analytics", "site/assets/shot-analytics.webp", 1400, 933, 1.32),
-    ("strategy", "/Strategy", "site/assets/shot-strategy.webp", 1400, 933, 1.34),
+
+@dataclass(frozen=True)
+class CaptureSpec:
+    name: str
+    route: str
+    output: Path
+    width: int
+    height: int
+    coarse_pointer: bool = False
+    open_partner: bool = False
+
+
+# Fixed evidence, not a moving sample. A later rerun must reproduce the same
+# dates rather than quietly presenting a different account history.
+CAPTURE_ANCHOR = dt.date(2026, 8, 9)
+AUDIT_DIR = Path("docs/superpowers/audits/assets/2026-08-09")
+
+MARKETING_CAPTURES = (
+    CaptureSpec(
+        "overview", "/", Path("site/assets/shot-dashboard-wide.webp"), 1600, 1000
+    ),
+    CaptureSpec(
+        "new-trade", "/NewTrade", Path("site/assets/shot-newtrade.webp"), 1400, 933
+    ),
+    CaptureSpec(
+        "analytics", "/Analytics", Path("site/assets/shot-analytics.webp"), 1400, 933
+    ),
+    CaptureSpec(
+        "strategy", "/Strategy", Path("site/assets/shot-strategy.webp"), 1400, 933
+    ),
+)
+
+AUDIT_CAPTURES = (
+    CaptureSpec(
+        "overview-desktop", "/", AUDIT_DIR / "overview-desktop.png", 1440, 1000
+    ),
+    CaptureSpec(
+        "new-trade-desktop",
+        "/NewTrade",
+        AUDIT_DIR / "new-trade-desktop.png",
+        1440,
+        1000,
+    ),
+    CaptureSpec(
+        "journal-desktop", "/Trades", AUDIT_DIR / "journal-desktop.png", 1440, 1000
+    ),
+    CaptureSpec(
+        "analytics-desktop",
+        "/Analytics",
+        AUDIT_DIR / "analytics-desktop.png",
+        1440,
+        1000,
+    ),
+    CaptureSpec(
+        "ai-reviews-desktop",
+        "/Insights",
+        AUDIT_DIR / "ai-reviews-desktop.png",
+        1440,
+        1000,
+    ),
+    CaptureSpec(
+        "strategy-desktop",
+        "/Strategy",
+        AUDIT_DIR / "strategy-desktop.png",
+        1440,
+        1000,
+    ),
+    CaptureSpec(
+        "settings-desktop",
+        "/Settings",
+        AUDIT_DIR / "settings-desktop.png",
+        1440,
+        1000,
+    ),
+    CaptureSpec(
+        "partner-drawer-desktop",
+        "/",
+        AUDIT_DIR / "partner-drawer-desktop.png",
+        1440,
+        1000,
+        open_partner=True,
+    ),
+    CaptureSpec(
+        "partner-page-phone",
+        "/Partner",
+        AUDIT_DIR / "partner-page-phone.png",
+        375,
+        812,
+        coarse_pointer=True,
+    ),
+)
+
+# The marketing frames intentionally show more CSS pixels than their output
+# boxes. The aspect ratio never changes and there is no crop; a dense 2x
+# screenshot is downsampled into the exact dimensions declared by site HTML.
+_MARKETING_VIEWPORT_SCALE = {
+    "overview": 1.30,
+    "new-trade": 1.00,
+    "analytics": 1.32,
+    "strategy": 1.34,
+}
+
+# Compatibility for the two long-standing marketing contracts. New capture
+# behavior consumes the typed manifests above.
+CAPTURES = tuple(
+    (
+        capture.name,
+        capture.route,
+        capture.output.as_posix(),
+        capture.width,
+        capture.height,
+        _MARKETING_VIEWPORT_SCALE[capture.name],
+    )
+    for capture in MARKETING_CAPTURES
 )
 
 # Optional per-shot preparation, run after the page settles and before the
@@ -164,6 +268,32 @@ PREPARE = {
 _READY = "!!document.querySelector('.tl-masthead-title, .tl-section-title')"
 _SETTLE_SECONDS = 3.0
 _WEBP_QUALITY = 82
+_PARTNER_LAUNCHER = ".st-key-tl_partner_launcher button"
+_PARTNER_DRAWER_HEADING = ".st-key-tl_partner_drawer .tl-partner-title"
+
+_PAGE_STATE = """
+(() => ({
+  overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  exceptionCount: document.querySelectorAll('[data-testid="stException"]').length,
+  coarse: matchMedia('(pointer: coarse)').matches,
+  reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
+  scrollTop: Math.max(
+    document.scrollingElement?.scrollTop || 0,
+    document.querySelector('[data-testid="stMain"]')?.scrollTop || 0
+  ),
+  frameworkChromeCount: [...document.querySelectorAll(
+    '[data-testid="stExpandSidebarButton"]'
+  )].filter(element => {
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden'
+      && rect.width > 0 && rect.height > 0 && rect.right > 0
+      && rect.bottom > 0 && rect.left < innerWidth && rect.top < innerHeight;
+  }).length,
+  text: document.body.innerText,
+  url: location.href,
+}))()
+"""
 
 
 CAPTURE_DIR_PREFIX = "tradelens-capture-"
@@ -174,6 +304,129 @@ CAPTURE_MARKER = ".tradelens-capture-run"
 CHROME_PROFILE_DIRNAME = "chrome-profile"
 CAPTURE_USER_ID = 1
 CAPTURE_USERNAME = "ayoub"
+
+
+def redact_url(url: str) -> str:
+    """Keep route geometry in diagnostics without exposing query values."""
+    parts = urlsplit(url)
+    query = urlencode([(key, "REDACTED") for key, _value in parse_qsl(parts.query)])
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+
+
+def capture_mode(argv: list[str]) -> str:
+    """Resolve the one intentional capture mode or refuse an ambiguous run."""
+    selected = [mode for mode in ("marketing", "audit", "all") if f"--{mode}" in argv]
+    if len(selected) != 1:
+        raise ValueError("choose exactly one of --marketing, --audit, or --all")
+    extras = [arg for arg in argv if arg not in {f"--{selected[0]}"}]
+    if extras:
+        raise ValueError(f"unrecognized capture arguments: {extras}")
+    return selected[0]
+
+
+def center_of_box(box: tuple[float, ...] | list[float]) -> tuple[float, float]:
+    """Return the center of a CDP quadrilateral."""
+    if len(box) != 8:
+        raise ValueError("CDP box must contain four x/y points")
+    return (
+        sum(float(box[index]) for index in (0, 2, 4, 6)) / 4,
+        sum(float(box[index]) for index in (1, 3, 5, 7)) / 4,
+    )
+
+
+def _dates_in_text(text: str) -> set[dt.date]:
+    dates: set[dt.date] = set()
+    month = (
+        r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|"
+        r"Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|"
+        r"Nov(?:ember)?|Dec(?:ember)?)"
+    )
+    patterns = (
+        (r"\b\d{4}-\d{2}-\d{2}\b", "%Y-%m-%d"),
+        (r"\b\d{4}/\d{2}/\d{2}\b", "%Y/%m/%d"),
+        (r"\b\d{1,2}/\d{1,2}/\d{4}\b", "%m/%d/%Y"),
+        (
+            rf"\b{month} \d{{1,2}}, \d{{4}}\b",
+            None,
+        ),
+    )
+    for pattern, date_format in patterns:
+        for value in re.findall(pattern, text):
+            formats = (date_format,) if date_format else ("%b %d, %Y", "%B %d, %Y")
+            for candidate in formats:
+                try:
+                    dates.add(dt.datetime.strptime(value, candidate).date())
+                    break
+                except ValueError:
+                    continue
+
+    # The review period selector intentionally compresses a shared month or
+    # year ("Aug 3–9, 2026" and "Aug 31–Sep 6, 2026"). Expand both visible
+    # endpoints so a future week cannot bypass the fixed evidence anchor.
+    compact_ranges = (
+        (
+            rf"\b({month}) (\d{{1,2}})[–—-](\d{{1,2}}), (\d{{4}})\b",
+            lambda match: (
+                f"{match.group(1)} {match.group(2)}, {match.group(4)}",
+                f"{match.group(1)} {match.group(3)}, {match.group(4)}",
+            ),
+        ),
+        (
+            rf"\b({month}) (\d{{1,2}})[–—-]({month}) (\d{{1,2}}), (\d{{4}})\b",
+            lambda match: (
+                f"{match.group(1)} {match.group(2)}, {match.group(5)}",
+                f"{match.group(3)} {match.group(4)}, {match.group(5)}",
+            ),
+        ),
+    )
+    for pattern, endpoints in compact_ranges:
+        for match in re.finditer(pattern, text):
+            for value in endpoints(match):
+                for candidate in ("%b %d, %Y", "%B %d, %Y"):
+                    try:
+                        dates.add(dt.datetime.strptime(value, candidate).date())
+                        break
+                    except ValueError:
+                        continue
+    return dates
+
+
+def validate_page_state(
+    capture: CaptureSpec, state: dict[str, object], *, auth_token: str
+) -> None:
+    """Refuse a contaminated viewport before a file can be written."""
+    overflow = int(state.get("overflow") or 0)
+    if overflow > 0:
+        raise RuntimeError(f"{capture.name}: horizontal overflow is {overflow}px")
+    exception_count = int(state.get("exceptionCount") or 0)
+    if exception_count:
+        raise RuntimeError(f"{capture.name}: rendered {exception_count} exception(s)")
+    if bool(state.get("coarse")) != capture.coarse_pointer:
+        raise RuntimeError(f"{capture.name}: pointer state does not match manifest")
+    if not bool(state.get("reduced")):
+        raise RuntimeError(f"{capture.name}: reduced-motion emulation is not active")
+    scroll_top = int(state.get("scrollTop") or 0)
+    if scroll_top:
+        raise RuntimeError(
+            f"{capture.name}: viewport is scrolled away from the top by {scroll_top}px"
+        )
+    framework_chrome = int(state.get("frameworkChromeCount") or 0)
+    if framework_chrome:
+        raise RuntimeError(
+            f"{capture.name}: rendered {framework_chrome} framework chrome control(s)"
+        )
+
+    text = str(state.get("text") or "")
+    if "Sign in to use the AI Partner" in text:
+        raise RuntimeError(f"{capture.name}: rendered signed-out Partner clutter")
+    if auth_token and auth_token in text:
+        raise RuntimeError(f"{capture.name}: rendered a session credential")
+    later = sorted(day for day in _dates_in_text(text) if day > CAPTURE_ANCHOR)
+    if later:
+        raise RuntimeError(
+            f"{capture.name}: body contains {later[0]} later than capture anchor "
+            f"{CAPTURE_ANCHOR}"
+        )
 
 
 def _token() -> str:
@@ -218,7 +471,7 @@ def seed_capture_db(directory: Path | None = None) -> str:
 
     init_db()
 
-    from src.tradelens.db.models import User
+    from src.tradelens.db.models import Trade, User
     from src.tradelens.db.session import SessionLocal
     from src.tradelens.services.sample_data import load_sample_trades
     from src.tradelens.services.strategy import (
@@ -233,6 +486,34 @@ def seed_capture_db(directory: Path | None = None) -> str:
 
     upsert_strategy_profile(CAPTURE_USER_ID, **demo_strategy_profile())
     trades = load_sample_trades(CAPTURE_USER_ID)
+
+    # load_sample_trades intentionally follows today for ordinary in-product
+    # demos. Evidence is different: it must be reproducible. Restamp only this
+    # isolated capture database to the fixed anchor after the public loader has
+    # built the representative rows.
+    weekdays: list[dt.date] = []
+    cursor = CAPTURE_ANCHOR
+    while len(weekdays) < trades:
+        if cursor.weekday() < 5:
+            weekdays.append(cursor)
+        cursor -= dt.timedelta(days=1)
+    weekdays.reverse()
+    session = SessionLocal()
+    try:
+        rows = (
+            session.query(Trade)
+            .filter(Trade.user_id == CAPTURE_USER_ID, Trade.is_sample == 1)
+            .order_by(Trade.id)
+            .all()
+        )
+        if len(rows) != trades:
+            raise RuntimeError("capture db sample count changed during anchoring")
+        for row, day in zip(rows, weekdays):
+            row.trade_date = day.isoformat()
+            row.day_of_week = day.strftime("%A")
+        session.commit()
+    finally:
+        session.close()
 
     # Fail here rather than 40 seconds later with four screenshots of an
     # empty product. Every marketing claim below depends on both of these.
@@ -309,7 +590,10 @@ class _Tab:
         from tornado.websocket import websocket_connect
 
         request = urllib.request.Request(f"{CDP_URL}/json/new?{url}", method="PUT")
-        self._info = json.load(urllib.request.urlopen(request, timeout=20))
+        try:
+            self._info = json.load(urllib.request.urlopen(request, timeout=20))
+        except Exception as exc:
+            raise RuntimeError(f"could not open {redact_url(url)}") from exc
         self._connect = websocket_connect(self._info["webSocketDebuggerUrl"])
         self._id = 0
         self._conn = None
@@ -337,18 +621,96 @@ class _Tab:
         )
         return result.get("result", {}).get("value")
 
+    async def box_model(self, selector: str) -> tuple[float, ...]:
+        document = await self.send("DOM.getDocument", {"depth": 0})
+        node = await self.send(
+            "DOM.querySelector",
+            {"nodeId": document["root"]["nodeId"], "selector": selector},
+        )
+        node_id = int(node.get("nodeId") or 0)
+        if not node_id:
+            raise RuntimeError(f"selector was not rendered: {selector}")
+        result = await self.send("DOM.getBoxModel", {"nodeId": node_id})
+        return tuple(result["model"]["content"])
 
-async def _capture_one(name, route, out_path, width, height, css_scale, token) -> Path:
-    tab = await _Tab(f"{APP_URL}{route}?auth={token}").open()
+    async def mouse(
+        self,
+        event_type: str,
+        *,
+        x: float,
+        y: float,
+        button: str = "none",
+        click_count: int = 0,
+    ) -> None:
+        await self.send(
+            "Input.dispatchMouseEvent",
+            {
+                "type": event_type,
+                "x": x,
+                "y": y,
+                "button": button,
+                "clickCount": click_count,
+            },
+        )
+
+
+async def click_center(tab: _Tab, selector: str) -> None:
+    """Activate a real rendered control with a trusted CDP pointer sequence."""
+    x, y = center_of_box(await tab.box_model(selector))
+    await tab.mouse("mouseMoved", x=x, y=y)
+    await tab.mouse("mousePressed", x=x, y=y, button="left", click_count=1)
+    await tab.mouse("mouseReleased", x=x, y=y, button="left", click_count=1)
+
+
+async def park_pointer(tab: _Tab) -> None:
+    """Move hover state outside the viewport before taking evidence."""
+    await tab.mouse("mouseMoved", x=-100, y=-100)
+
+
+async def _wait_until(tab: _Tab, expression: str, *, failure: str) -> None:
+    for _ in range(40):
+        time.sleep(1.2)
+        if await tab.js(expression):
+            return
+    raise RuntimeError(failure)
+
+
+async def _partner_presentations(tab: _Tab) -> int:
+    return int(
+        await tab.js(
+            """
+(() => ['.st-key-tl_partner_drawer', '.st-key-tl_partner_page']
+  .map(selector => document.querySelector(selector))
+  .filter(element => element && getComputedStyle(element).display !== 'none'
+    && element.getBoundingClientRect().width > 0
+    && element.getBoundingClientRect().height > 0).length)()
+"""
+        )
+        or 0
+    )
+
+
+async def _capture_one(capture: CaptureSpec, token: str) -> Path:
+    tab = await _Tab(f"{APP_URL}{capture.route}?auth={token}").open()
     # Same aspect ratio as the declared box, scaled up so more of a tall
     # page fits. deviceScaleFactor 2 on top of that, so the WebP is
     # downsampled from a much denser capture; text taken at 1x and shown on
     # a retina display looks soft.
-    view_w = round(width * css_scale)
-    view_h = round(height * css_scale)
+    css_scale = _MARKETING_VIEWPORT_SCALE.get(capture.name, 1.0)
+    view_w = round(capture.width * css_scale)
+    view_h = round(capture.height * css_scale)
     await tab.send(
         "Emulation.setDeviceMetricsOverride",
-        {"width": view_w, "height": view_h, "deviceScaleFactor": 2, "mobile": False},
+        {
+            "width": view_w,
+            "height": view_h,
+            "deviceScaleFactor": 2,
+            "mobile": capture.coarse_pointer,
+        },
+    )
+    await tab.send(
+        "Emulation.setTouchEmulationEnabled",
+        {"enabled": capture.coarse_pointer, "maxTouchPoints": 5},
     )
     # Marketing stills must not catch a mid-flight entrance animation.
     await tab.send(
@@ -356,22 +718,44 @@ async def _capture_one(name, route, out_path, width, height, css_scale, token) -
         {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]},
     )
 
-    for _ in range(40):
-        time.sleep(1.2)
-        if await tab.js(_READY):
-            break
-    else:
-        raise RuntimeError(f"{name}: the page never rendered a masthead")
+    await _wait_until(
+        tab,
+        _READY,
+        failure=f"{capture.name}: the page never rendered a masthead",
+    )
 
     time.sleep(_SETTLE_SECONDS)
 
-    if name in PREPARE:
-        if not await tab.js(PREPARE[name]):
-            raise RuntimeError(f"{name}: preparation step found nothing to do")
+    if capture.name in PREPARE:
+        if not await tab.js(PREPARE[capture.name]):
+            raise RuntimeError(f"{capture.name}: preparation step found nothing to do")
         time.sleep(1.5)
 
-    if await tab.js("!!document.querySelector('[data-testid=\"stException\"]')"):
-        raise RuntimeError(f"{name}: the page rendered an exception")
+    if capture.open_partner:
+        await click_center(tab, _PARTNER_LAUNCHER)
+        await _wait_until(
+            tab,
+            f"document.querySelectorAll('{_PARTNER_DRAWER_HEADING}').length === 1",
+            failure=f"{capture.name}: Partner drawer never opened",
+        )
+        time.sleep(_SETTLE_SECONDS)
+
+    if capture.open_partner or capture.route == "/Partner":
+        presentations = await _partner_presentations(tab)
+        if presentations != 1:
+            raise RuntimeError(
+                f"{capture.name}: rendered {presentations} visible Partner presentations"
+            )
+
+    # CDP's page screenshot never paints a cursor. Parking it outside also
+    # removes the Streamlit sidebar chevrons and any hover-only tooltip.
+    await park_pointer(tab)
+    time.sleep(0.5)
+
+    state = await tab.js(_PAGE_STATE)
+    if not isinstance(state, dict):
+        raise RuntimeError(f"{capture.name}: page-state assertion returned no object")
+    validate_page_state(capture, state, auth_token=token)
 
     shot = await tab.send(
         "Page.captureScreenshot", {"format": "png", "captureBeyondViewport": False}
@@ -382,32 +766,46 @@ async def _capture_one(name, route, out_path, width, height, css_scale, token) -
 
     image = Image.open(io.BytesIO(raw)).convert("RGB")
     # Downsample the 2x capture to the declared box.
-    if image.size != (width, height):
-        image = image.resize((width, height), Image.LANCZOS)
+    if image.size != (capture.width, capture.height):
+        image = image.resize((capture.width, capture.height), Image.LANCZOS)
 
-    destination = ROOT / out_path
+    destination = ROOT / capture.output
     destination.parent.mkdir(parents=True, exist_ok=True)
-    image.save(destination, "WEBP", quality=_WEBP_QUALITY, method=6)
+    if capture.output.suffix == ".webp":
+        image.save(destination, "WEBP", quality=_WEBP_QUALITY, method=6)
+    elif capture.output.suffix == ".png":
+        image.save(destination, "PNG", optimize=True)
+    else:
+        raise RuntimeError(f"{capture.name}: unsupported output format")
     return destination
 
 
-def verify() -> list[str]:
+def verify(captures: tuple[CaptureSpec, ...] | None = None) -> list[str]:
     """Re-read what was written. Returns a list of problems, empty if clean."""
     from PIL import Image
 
+    captures = captures or (*MARKETING_CAPTURES, *AUDIT_CAPTURES)
     problems: list[str] = []
-    for name, _route, out_path, width, height, _scale in CAPTURES:
-        path = ROOT / out_path
+    for capture in captures:
+        path = ROOT / capture.output
         if not path.exists():
-            problems.append(f"{name}: {out_path} was not written")
+            problems.append(f"{capture.name}: {capture.output} was not written")
             continue
         with Image.open(path) as image:
-            if image.format != "WEBP":
-                problems.append(f"{name}: {image.format}, expected WEBP")
-            if image.size != (width, height):
+            expected_format = "WEBP" if capture.output.suffix == ".webp" else "PNG"
+            if image.format != expected_format:
                 problems.append(
-                    f"{name}: {image.size} does not match the "
-                    f"declared {(width, height)}"
+                    f"{capture.name}: {image.format}, expected {expected_format}"
+                )
+            if image.size != (capture.width, capture.height):
+                problems.append(
+                    f"{capture.name}: {image.size} does not match the "
+                    f"declared {(capture.width, capture.height)}"
+                )
+            metadata = " ".join(f"{key}={value}" for key, value in image.info.items())
+            if "auth=" in metadata.lower():
+                problems.append(
+                    f"{capture.name}: artifact metadata contains an auth query"
                 )
     return problems
 
@@ -426,10 +824,11 @@ async def _assert_app_shows_the_seeded_strategy(token: str) -> None:
         "Emulation.setDeviceMetricsOverride",
         {"width": 1600, "height": 1000, "deviceScaleFactor": 1, "mobile": False},
     )
-    for _ in range(40):
-        time.sleep(1.2)
-        if await tab.js(_READY):
-            break
+    await _wait_until(
+        tab,
+        _READY,
+        failure="seed check: the Overview never rendered a masthead",
+    )
     note = await tab.js(
         "(()=>{const e=document.querySelector('.tl-side-note');"
         "return e?e.textContent.trim():'';})()"
@@ -441,15 +840,47 @@ async def _assert_app_shows_the_seeded_strategy(token: str) -> None:
         )
 
 
-async def _main() -> int:
-    token = _token()
+async def _capture_manifest(
+    captures: tuple[CaptureSpec, ...], token: str
+) -> list[Path]:
+    destinations = []
+    for capture in captures:
+        destination = await _capture_one(capture, token)
+        destinations.append(destination)
+        print(f"  {capture.name:<24} -> {destination.relative_to(ROOT)}")
+    return destinations
+
+
+async def capture_marketing(token: str | None = None) -> list[Path]:
+    """Capture the four existing marketing stills from the product viewport."""
+    token = token or _token()
     await _assert_app_shows_the_seeded_strategy(token)
-    for name, route, out_path, width, height, css_scale in CAPTURES:
-        destination = await _capture_one(
-            name, route, out_path, width, height, css_scale, token
+    return await _capture_manifest(MARKETING_CAPTURES, token)
+
+
+async def capture_audit(token: str | None = None) -> list[Path]:
+    """Capture every destination plus both responsive Partner presentations."""
+    token = token or _token()
+    await _assert_app_shows_the_seeded_strategy(token)
+    return await _capture_manifest(AUDIT_CAPTURES, token)
+
+
+async def _main(mode: str) -> int:
+    token = _token()
+    if mode in {"marketing", "all"}:
+        await capture_marketing(token)
+    if mode in {"audit", "all"}:
+        await capture_audit(token)
+    captures = (
+        MARKETING_CAPTURES
+        if mode == "marketing"
+        else (
+            AUDIT_CAPTURES
+            if mode == "audit"
+            else (*MARKETING_CAPTURES, *AUDIT_CAPTURES)
         )
-        print(f"  {name:<10} -> {destination.relative_to(ROOT)}")
-    problems = verify()
+    )
+    problems = verify(captures)
     for problem in problems:
         print(f"  FAIL {problem}", file=sys.stderr)
     return 1 if problems else 0
@@ -485,9 +916,18 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return 0
 
+    try:
+        mode = capture_mode(argv)
+    except ValueError as exc:
+        print(
+            f"usage: --marketing | --audit | --all\n       {exc}",
+            file=sys.stderr,
+        )
+        return 2
+
     from tornado.ioloop import IOLoop
 
-    return IOLoop.current().run_sync(_main)
+    return IOLoop.current().run_sync(lambda: _main(mode))
 
 
 if __name__ == "__main__":

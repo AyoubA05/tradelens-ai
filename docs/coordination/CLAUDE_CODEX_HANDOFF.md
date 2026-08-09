@@ -20,18 +20,17 @@ the same time.
 ## Current handoff state
 
 - **Active writer:** `NONE`
-- **Phase:** `PRIORITY REMEDIATION — TASK 6 IMPLEMENTED; INDEPENDENT REVIEW PENDING`
+- **Phase:** `PRIORITY REMEDIATION — TASK 7 INDEPENDENTLY APPROVED; TASK 8 NOT STARTED`
 - **Phase 2:** APPROVED at `7ffd9a1`.
 - **Phase 3:** APPROVED at `2c29a20`.
 - **Phase 4:** APPROVED at `6b3d33c`; independently re-reviewed through
   `ad8a8ce`, with the review-contract correction committed at `6f08590`.
 - **Authentication bypass:** CLOSED at `950bc8f`.
 - **DATABASE_URL disclosure:** CLOSED at `7c046fc`.
-- Verification: fresh full baseline `2129 passed, 7 skipped`; Task 6 final
-  focused verification `252 passed` and adjacent verification `145 passed`;
-  Ruff, Black,
-  `git diff --check`, and the forbidden-scope diff clean. Browser gates remain
-  mandatory where required by later tasks and at the final audit.
+- Verification: fresh full baseline `2129 passed, 7 skipped`; Task 7 final
+  focused verification `198 passed`; all 13 artifacts verified and inspected;
+  Ruff, Black, `git diff --check`, and the forbidden-scope diff clean. Browser
+  gates remain mandatory where required by Task 8 and at the final audit.
 - **STILL REQUIRED FROM THE OWNER — deployment secret check.** Not doable from
   this worktree. share.streamlit.io → the TradeLens app → **Settings →
   Secrets** → confirm whether `TRADELENS_USERNAME` and `TRADELENS_PASSWORD`
@@ -39,11 +38,11 @@ the same time.
   before `950bc8f`, the previously committed demo pair was live on the public
   deploy and must be treated as a disclosed credential and rotated wherever it
   was reused.
-- **Next owner:** **`CODEX`**, as the Task 6 coordinator/reviewer.
+- **Next owner:** **`CODEX`**, as the Task 8 coordinator.
   Not pushed, not merged, not deployed. The password-strength feature is not
   started and the branch is not finished.
-- **Next action:** Independently review the Task 6 diff and evidence before
-  Task 7 begins.
+- **Next action:** Record Task 7 in the coordinator-owned SDD ledger, then begin
+  Task 8's audit as a separate scope.
 
 ## Priority-remediation execution checkpoint — 2026-08-09
 
@@ -365,6 +364,82 @@ edge-leak, and dark-workspace suites passed `145/145`. Ruff, Black,
 required by this bounded copy/icon task. No service, AI routing/prompt, auth,
 database/schema, tenant, secret, dependency, marketing-site, or Task 7 file
 changed.
+
+### 2026-08-09 — Priority remediation Task 7 implementation (Codex)
+
+**Commit:** this commit, `docs(evidence): recapture the dark workspace`.
+Task 7 only; Task 8 not started. Independently reviewed and approved with no
+open findings.
+
+The capture harness now owns frozen typed manifests for the four existing
+marketing stills and nine audit views: every routed destination plus the
+desktop Partner drawer and dedicated coarse-pointer phone Partner page. The
+explicit `--marketing`, `--audit`, and `--all` modes use the existing owned
+scratch SQLite/Chrome-profile lifecycle, restamp only that isolated database to
+the fixed `2026-08-09` anchor, and capture the page viewport through CDP. The
+four marketing asset paths and site-declared dimensions are unchanged; no
+marketing layout changed.
+
+Every shutter now requires zero overflow, zero rendered exceptions, the
+manifest's expected pointer media, reduced motion, top scroll position, no
+visible Streamlit expander chrome, no signed-out Partner clutter, no rendered
+credential, and no date beyond the fixed anchor. Diagnostic URLs redact every
+query value. The Partner drawer is opened with a measured, trusted CDP
+move/press/release sequence; no DOM `.click()` is used. Partner evidence
+requires exactly one visible presentation, and the pointer is parked outside
+the viewport before capture.
+
+**Capture inventory:** four WebPs — Overview `1600x1000`; New Trade, Analytics,
+and Strategy `1400x933`. Nine PNGs — Overview, New Trade, Journal, Analytics,
+AI Reviews, Strategy, Settings, and Partner drawer at `1440x1000`; dedicated
+Partner page at `375x812`. All thirteen were inspected at original detail and
+contain only the TradeLens page: no browser chrome, Codex overlay/composer,
+Streamlit Manage-app surface, cursor, tooltip, transient focus, or auth token.
+Journal shows human labels, formatted currency, and R units; Strategy and the
+rail agree on `ICT/SMC Day Trading`; dates end at the anchor; both Partner
+presentations are exclusive and legible.
+
+**Browser evidence:** the final coarse 375 probe returned bottom navigation
+present with five targets, `chevron=false`, `partner_presentations=1`, and zero
+overflow, clipping, or undersized targets. At coarse 768 the bottom navigation
+was absent, the intended sidebar expander remained at `44x44`, the launcher was
+present, and overflow was zero. At desktop 1440 the rail was open, bottom
+navigation and expander were absent, the launcher was present, and overflow
+was zero. Physical AI Reviews input selected populated defaults: Weekly
+`Aug 3–9, 2026` and Daily `Aug 7, 2026`. Each probe used a fresh owned scratch
+SQLite/CDP run and cleaned its app, Chrome profile, and database afterward.
+
+**Authorized deviation:** the first 375 capture exposed a persistent Streamlit
+sidebar expander above the product bottom navigation. Pointer parking could not
+remove it. The initially authorized `stSidebarCollapsedControl` selector did
+not exist in the live Streamlit 1.50 DOM; the measured 44px control was
+`button[data-testid="stExpandSidebarButton"]`. After escalation and corrected
+authorization, one rule hides that exact selector only in the existing
+`max-width: 767px` product-bottom-nav breakpoint. The 768 and 1440 navigation
+behaviors remain intact. No JavaScript, crop, or broader product change was
+used to hide the defect.
+
+**TDD and review evidence:** the initial manifest tests failed because both
+typed manifests were absent. Tests now pin manifest uniqueness and geometry,
+artifact scope and format, explicit CLI modes, capture contaminants, fixed-date
+handling, auth/query redaction, exact phone selector placement, trusted
+pointer geometry and move/press/release ordering, and pointer parking. Mutations
+of overflow rejection, date comparison, query redaction, the phone selector,
+year-first slash dates, compact Weekly ranges, mouse release, and synthetic DOM
+click were all killed and restored.
+
+Independent review found that the first date parser missed actual
+`YYYY/MM/DD` input text and compact Weekly ranges such as `Aug 10–16, 2026`.
+Failing tests reproduced both; the parser now covers them plus mixed-month
+ranges. Re-review then requested direct protection for `click_center()`; its
+fake-CDP regression killed omitted-release and DOM-click mutations. Final
+re-review approved the implementation and all thirteen images.
+
+**Verification:** capture/cleanup/design/page suites `198 passed`; artifact
+re-read confirmed every exact format and dimension and no auth query in image
+metadata; Ruff clean; Black clean; `git diff --check` clean; forbidden-scope
+diff empty. No service, prompt, authentication, database-schema, tenant,
+security, dependency, marketing-layout, or Task 8 file changed.
 
 ## Superseded state snapshots (historical; not current)
 

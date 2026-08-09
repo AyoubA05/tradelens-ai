@@ -3372,6 +3372,12 @@ def build_css() -> str:
    two-column compact list rather than six full-width rows, tables scroll
    inside their own frame, and touch targets reach >=44px. */
 @media (max-width: 767px) {{
+  /* Product navigation is the fixed bottom bar at this width. Streamlit's
+     persistent sidebar expander is duplicate framework chrome and otherwise
+     enters product-only phone evidence even with no pointer in the viewport. */
+  [data-testid="stExpandSidebarButton"] {{
+    display: none;
+  }}
   /* No floating Partner on a phone. `display: none`, not `visibility` or an
      offscreen transform: a hidden-but-present button stays in the tab order,
      and a keyboard user would reach a control they cannot see. The phone gets
