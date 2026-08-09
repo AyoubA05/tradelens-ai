@@ -10,6 +10,7 @@ Task 5 covers Journal. Later tasks extend this file for Analytics, AI
 Reviews, Strategy Profile and Settings.
 """
 
+import ast
 import re
 from pathlib import Path
 
@@ -18,6 +19,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGES = ROOT / "src" / "tradelens" / "ui" / "pages"
+UI_ROOT = PAGES.parent
 
 
 def _src(name: str) -> str:
@@ -32,6 +34,42 @@ def _src_component(name: str) -> str:
     read the component's instead.
     """
     return (PAGES.parent / "components" / name).read_text(encoding="utf-8")
+
+
+def _live_ui_sources() -> tuple[Path, ...]:
+    """Routed pages plus the UI components they actually import.
+
+    Archived pages and unreferenced components are deliberately outside this
+    product-surface contract.
+    """
+    prefix = "src.tradelens.ui"
+    pending = [UI_ROOT / "app.py", *sorted(PAGES.glob("*.py"))]
+    seen: set[Path] = set()
+    while pending:
+        path = pending.pop()
+        if path in seen or "_archive" in path.parts:
+            continue
+        seen.add(path)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: list[str] = []
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules.append(node.module)
+                modules.extend(
+                    f"{node.module}.{alias.name}"
+                    for alias in node.names
+                    if alias.name != "*"
+                )
+            elif isinstance(node, ast.Import):
+                modules.extend(alias.name for alias in node.names)
+            for module in modules:
+                if module != prefix and not module.startswith(prefix + "."):
+                    continue
+                relative = module.removeprefix(prefix).lstrip(".").replace(".", "/")
+                imported = UI_ROOT / f"{relative}.py"
+                if imported.exists() and "_archive" not in imported.parts:
+                    pending.append(imported)
+    return tuple(sorted(seen))
 
 
 # ---------------------------------------------------------------------------
@@ -695,6 +733,29 @@ def test_no_raw_metric_card_reaches_analytics_through_a_component():
             f"components/{module}.py renders a raw metric card onto Analytics — "
             "the ruled strip is the page's one KPI system"
         )
+
+
+def test_live_ui_uses_no_structural_emoji():
+    """Structural icons use Streamlit's Material API or plain copy.
+
+    The semantic ledger/calendar shapes are intentionally not in this list:
+    they encode data rather than decorating controls or status text.
+    """
+    forbidden = ("✅", "❌", "💡", "🧠", "➕", "🔍", "📝")
+    failures = {
+        str(path.relative_to(ROOT)): [
+            glyph for glyph in forbidden if glyph in path.read_text(encoding="utf-8")
+        ]
+        for path in _live_ui_sources()
+    }
+    assert {path: glyphs for path, glyphs in failures.items() if glyphs} == {}
+
+
+def test_overview_names_the_dimension_it_ranks():
+    source = (UI_ROOT / "app.py").read_text(encoding="utf-8")
+    assert '"Session performance"' not in source
+    assert '"Killzone performance"' in source
+    assert "Tag a killzone on completed trades to compare recurring windows." in source
 
 
 def test_analytics_keeps_every_calculation():

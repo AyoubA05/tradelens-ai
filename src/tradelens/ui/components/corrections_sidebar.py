@@ -23,10 +23,10 @@ def render_corrections_sidebar() -> None:
     with st.sidebar:
         st.markdown("---")
         if count == 0:
-            st.caption("🧠 The AI hasn't learned any corrections from you yet.")
+            st.caption("The AI hasn't learned any corrections from you yet.")
             return
         plural = "s" if count != 1 else ""
-        st.caption(f"🧠 The AI has learned **{count}** correction{plural} from you.")
+        st.caption(f"The AI has learned **{count}** correction{plural} from you.")
 
         repeats = repeated_corrections(threshold=_REPEAT_THRESHOLD)
         if not repeats:
@@ -40,7 +40,7 @@ def render_corrections_sidebar() -> None:
                 st.toast(
                     f"You've corrected {r['field']} → {r['user_value']!r} "
                     f"{r['count']}× — add it to your Strategy Profile?",
-                    icon="💡",
+                    icon=":material/lightbulb:",
                 )
                 shown.add(key)
 
@@ -50,9 +50,13 @@ def render_corrections_sidebar() -> None:
                 f"{r['field']}: prefer {r['user_value']} "
                 f"(corrected {r['count']}x in review)"
             )
-            label = f"➕ Add '{r['user_value']}' to Strategy Profile"
+            label = f"Add '{r['user_value']}' to Strategy Profile"
             if st.button(
-                label, key=f"corr_apply_{i}", width="stretch", disabled=uid is None
+                label,
+                key=f"corr_apply_{i}",
+                width="stretch",
+                disabled=uid is None,
+                icon=":material/add:",
             ):
                 append_insight(uid, rule)
                 st.success("Added to your Strategy Profile (risk rules).")

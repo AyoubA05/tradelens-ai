@@ -594,14 +594,14 @@ if not df.empty:
         _session_lead = leading_category(df, "killzone")
         st.markdown(
             render_ranked_list(
-                "Session performance",
+                "Killzone performance",
                 _session_rows,
                 rankable=bool(_session_lead) and not _session_lead.is_only_category,
             )
             or render_empty_state(
                 "schedule",
-                "No session data yet",
-                "Tag a killzone when logging to compare sessions.",
+                "No killzone data yet",
+                "Tag a killzone on completed trades to compare recurring windows.",
             ),
             unsafe_allow_html=True,
         )

@@ -1,82 +1,100 @@
-"""
-Every st.toast(..., icon="...") call must use an icon Streamlit actually accepts.
+"""Toast icon contracts for every routed UI surface and imported component."""
 
-Root cause of a Streamlit Cloud crash (StreamlitAPIException on Strategy page's
-"Use ICT/SMC Starter Template" button): icon="✓" (U+2713 CHECK MARK) looks like
-an emoji but Streamlit's validate_icon_or_emoji() rejects it — only "✅" (U+2705
-WHITE HEAVY CHECK MARK) validates. Same defect for icon="✕" (U+2715) vs the
-valid "❌" (U+274C). Five call sites across two pages used the invalid glyphs;
-test_page_polish.py's own guidance text ("use st.toast(msg, icon='✓')") was
-telling contributors to reproduce the bug.
-
-This scans every active page's source (no Streamlit import — pages run
-Streamlit at import time) and validates each icon literal for real, so any
-future non-validating icon fails the suite instead of only surfacing on
-Streamlit Cloud when the button is clicked.
-"""
-
-import re
+import ast
 from pathlib import Path
+from typing import Optional
 
 import pytest
 from streamlit.errors import StreamlitAPIException
 from streamlit.string_util import validate_icon_or_emoji
 
-PAGES_DIR = Path(__file__).resolve().parents[1] / "src" / "tradelens" / "ui" / "pages"
-
-ALL_PAGES = [
-    "1_NewTrade.py",
-    "2_Trades.py",
-    "4_Analytics.py",
-    "5_Strategy.py",
-    "6_Insights.py",
-    "9_Settings.py",
-]
-
-_TOAST_ICON_RE = re.compile(r'st\.toast\([^)]*icon="([^"]+)"')
+UI_ROOT = Path(__file__).resolve().parents[1] / "src" / "tradelens" / "ui"
+ROUTED_ROOTS = (UI_ROOT / "app.py", *sorted((UI_ROOT / "pages").glob("*.py")))
 
 
-def _icons_in(page: str) -> list[str]:
-    src = (PAGES_DIR / page).read_text(encoding="utf-8")
-    return _TOAST_ICON_RE.findall(src)
+def _ui_import_path(module: str) -> Optional[Path]:
+    prefix = "src.tradelens.ui"
+    if module != prefix and not module.startswith(prefix + "."):
+        return None
+    relative = module.removeprefix(prefix).lstrip(".").replace(".", "/")
+    candidate = UI_ROOT / f"{relative}.py" if relative else UI_ROOT / "__init__.py"
+    if candidate.exists() and "_archive" not in candidate.parts:
+        return candidate
+    package = UI_ROOT / relative / "__init__.py"
+    return package if package.exists() and "_archive" not in package.parts else None
 
 
-@pytest.mark.parametrize("page", ALL_PAGES)
-def test_all_toast_icons_are_valid(page):
-    icons = _icons_in(page)
-    for icon in icons:
-        try:
-            validate_icon_or_emoji(icon)
-        except StreamlitAPIException as exc:
-            pytest.fail(f"{page}: icon={icon!r} is invalid — {exc}")
-
-
-def test_at_least_one_page_uses_toast_icons():
-    # Guards against the regex silently matching nothing if st.toast's call
-    # style changes (a passing-by-vacuous-truth false negative).
-    assert any(_icons_in(page) for page in ALL_PAGES)
-
-
-_TOAST_CALL_RE = re.compile(r"st\.toast\(([^)]*)\)")
-
-
-@pytest.mark.parametrize("page", ALL_PAGES)
-def test_every_toast_icon_is_a_literal_the_validator_can_see(page):
-    """An icon behind a constant is an icon this file cannot validate.
-
-    Found in Task 9. Routing the Journal's three toasts through a module
-    constant left `_TOAST_ICON_RE` matching nothing on that page, so all three
-    silently dropped out of `test_all_toast_icons_are_valid` while it kept
-    reporting green — the same shape of false pass the invalid `✓` icon caused
-    on Streamlit Cloud, which is why this file exists. Icons stay inline so the
-    validator above actually runs on them.
-    """
-    src = (PAGES_DIR / page).read_text(encoding="utf-8")
-    for call in _TOAST_CALL_RE.findall(src):
-        if "icon=" not in call:
+def live_ui_sources() -> tuple[Path, ...]:
+    """Follow the routed pages' real UI imports, excluding archived surfaces."""
+    pending = list(ROUTED_ROOTS)
+    seen: set[Path] = set()
+    while pending:
+        path = pending.pop()
+        if path in seen or "_archive" in path.parts:
             continue
-        argument = call.split("icon=", 1)[1].strip()
-        assert argument.startswith(('"', "'")), (
-            f"{page}: st.toast icon must be an inline literal so it is "
-            f"validated, got icon={argument!r}"
-        )
+        seen.add(path)
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            modules: list[str] = []
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules.append(node.module)
+                modules.extend(
+                    f"{node.module}.{alias.name}"
+                    for alias in node.names
+                    if alias.name != "*"
+                )
+            elif isinstance(node, ast.Import):
+                modules.extend(alias.name for alias in node.names)
+            for module in modules:
+                imported = _ui_import_path(module)
+                if imported is not None and imported not in seen:
+                    pending.append(imported)
+    return tuple(sorted(seen))
+
+
+def _toast_icons(path: Path) -> list[tuple[int, ast.AST]]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "toast"
+    ]
+    return [
+        (call.lineno, keyword.value)
+        for call in calls
+        for keyword in call.keywords
+        if keyword.arg == "icon"
+    ]
+
+
+def test_live_toast_scan_reaches_imported_components():
+    """A page-only scan misses the Journal components that own five toasts."""
+    relative = {str(path.relative_to(UI_ROOT)) for path in live_ui_sources()}
+    assert {
+        "components/ai_review.py",
+        "components/corrections_sidebar.py",
+        "components/screenshot_analyzer.py",
+    } <= relative
+
+
+def test_every_live_toast_icon_is_an_inline_material_literal():
+    found = []
+    for path in live_ui_sources():
+        for line, expression in _toast_icons(path):
+            found.append((path, line))
+            assert isinstance(expression, ast.Constant) and isinstance(
+                expression.value, str
+            ), f"{path}:{line}: toast icon must stay an inline literal"
+            icon = expression.value
+            assert icon.startswith(":material/") and icon.endswith(":"), (
+                f"{path}:{line}: toast icon must use Streamlit Material syntax, "
+                f"got {icon!r}"
+            )
+            try:
+                validate_icon_or_emoji(icon)
+            except StreamlitAPIException as exc:
+                pytest.fail(f"{path}:{line}: icon={icon!r} is invalid — {exc}")
+
+    assert found, "routed UI scan found no st.toast(..., icon=...) call sites"

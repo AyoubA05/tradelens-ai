@@ -20,15 +20,16 @@ the same time.
 ## Current handoff state
 
 - **Active writer:** `NONE`
-- **Phase:** `PRIORITY REMEDIATION — TASK 5 IMPLEMENTED; INDEPENDENT REVIEW PENDING`
+- **Phase:** `PRIORITY REMEDIATION — TASK 6 IMPLEMENTED; INDEPENDENT REVIEW PENDING`
 - **Phase 2:** APPROVED at `7ffd9a1`.
 - **Phase 3:** APPROVED at `2c29a20`.
 - **Phase 4:** APPROVED at `6b3d33c`; independently re-reviewed through
   `ad8a8ce`, with the review-contract correction committed at `6f08590`.
 - **Authentication bypass:** CLOSED at `950bc8f`.
 - **DATABASE_URL disclosure:** CLOSED at `7c046fc`.
-- Verification: fresh full baseline `2129 passed, 7 skipped`; Task 5 final
-  focused and adjacent verification `201 passed`; Ruff, Black,
+- Verification: fresh full baseline `2129 passed, 7 skipped`; Task 6 final
+  focused verification `252 passed` and adjacent verification `145 passed`;
+  Ruff, Black,
   `git diff --check`, and the forbidden-scope diff clean. Browser gates remain
   mandatory where required by later tasks and at the final audit.
 - **STILL REQUIRED FROM THE OWNER — deployment secret check.** Not doable from
@@ -38,11 +39,11 @@ the same time.
   before `950bc8f`, the previously committed demo pair was live on the public
   deploy and must be treated as a disclosed credential and rotated wherever it
   was reused.
-- **Next owner:** **`CODEX`**, as the Task 5 coordinator/reviewer.
+- **Next owner:** **`CODEX`**, as the Task 6 coordinator/reviewer.
   Not pushed, not merged, not deployed. The password-strength feature is not
   started and the branch is not finished.
-- **Next action:** Independently review the Task 5 diff and evidence before
-  Task 6 begins.
+- **Next action:** Independently review the Task 6 diff and evidence before
+  Task 7 begins.
 
 ## Priority-remediation execution checkpoint — 2026-08-09
 
@@ -327,6 +328,43 @@ marketing paths were clean. AppTest subprocesses provide the required rendered
 and runtime evidence, so no browser run was added for this bounded task. No
 service, prompt, auth, schema, tenant, secret, dependency, marketing, or Task 6
 file changed.
+
+### 2026-08-09 — Priority remediation Task 6 implementation (Codex)
+
+**Commit:** this commit, `fix(ui): finish icon and killzone vocabulary`.
+Task 6 only; Task 7 not started.
+
+Every live toast reachable from the routed application now uses Streamlit's
+supported Material shortcode syntax. Successful saves and completed analysis
+use `:material/check_circle:`, correction guidance uses
+`:material/lightbulb:`, and the repeated-correction add action passes
+`:material/add:` through the button's `icon=` parameter. Decorative brain,
+search, note, and add glyphs were removed from labels and captions as plain
+copy. Archived pages and unreferenced components remain deliberately outside
+the live-surface contract.
+
+Overview now names the ranked dimension `Killzone performance` and tells an
+empty account to tag a killzone on completed trades to compare recurring
+windows. Its `killzone` breakdown, ranking, and service calls are unchanged.
+The approved `Edge leak` label and positive rule-break P&L warning remain
+unchanged: a positive amount is still explained as luck, not repeatable, and a
+warning rather than a result.
+
+**TDD evidence:** the routed-source tests first failed on emoji toast literals
+in the imported AI Review component, structural glyphs across four live files,
+and the old `Session performance` heading. The minimal presentation change made
+all three contracts pass. Temporarily restoring one `✅` toast and the old
+heading made both icon guards and the terminology guard fail (`3 failed`);
+restoring the implementation made those three tests pass again.
+
+**Verification:** the required Task 6 suites (`test_toast_icons.py`,
+`test_premium_page_contracts.py`, `test_overview_bands.py`, and
+`test_page_polish.py`) passed `252/252`; adjacent AI Review, dashboard/positive
+edge-leak, and dark-workspace suites passed `145/145`. Ruff, Black,
+`git diff --check`, and the forbidden-scope diff were clean. No browser run was
+required by this bounded copy/icon task. No service, AI routing/prompt, auth,
+database/schema, tenant, secret, dependency, marketing-site, or Task 7 file
+changed.
 
 ## Superseded state snapshots (historical; not current)
 

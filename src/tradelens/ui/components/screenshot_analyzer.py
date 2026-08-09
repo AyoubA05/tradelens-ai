@@ -66,13 +66,13 @@ def render_screenshot_analyzer(trade, user_id, strategy_profile=None) -> None:
         "setup_type": trade.setup_type,
     }
 
-    label = "Re-analyze" if existing else "🔍 Analyze Screenshot"
+    label = "Re-analyze" if existing else "Analyze Screenshot"
     if st.button(label, key=f"analyze_{trade.id}"):
         with st.spinner("Analyzing your chart…"):
             try:
                 result, usage = analyze_source(shot_path, trade_ctx, strategy_profile)
                 create_or_update_analysis(trade.id, result, usage)
-                st.toast("Analysis complete", icon="✅")
+                st.toast("Analysis complete", icon=":material/check_circle:")
                 st.rerun()
             except ScreenshotAnalysisError as exc:
                 st.markdown(error_box(str(exc)), unsafe_allow_html=True)
@@ -146,7 +146,7 @@ def render_screenshot_analyzer(trade, user_id, strategy_profile=None) -> None:
         update_trade(
             trade.id, user_id=user_id, bias=bias.lower(), setup_type=setup or None
         )
-        st.toast("Applied to trade", icon="✅")
+        st.toast("Applied to trade", icon=":material/check_circle:")
         st.rerun()
     if a2.button("Dismiss", key=f"ai_dismiss_{trade.id}"):
         st.rerun()

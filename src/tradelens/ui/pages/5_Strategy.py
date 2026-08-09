@@ -184,7 +184,10 @@ demo_preview = bool(is_demo() and stored_profile is None)
 profile = demo_strategy_profile() if demo_preview else stored_profile
 
 if st.session_state.pop("_strategy_saved", False):
-    st.toast("Playbook saved — AI reviews will now use your rules.", icon="✅")
+    st.toast(
+        "Playbook saved — AI reviews will now use your rules.",
+        icon=":material/check_circle:",
+    )
 
 _render_profile_summary(profile or {})
 
@@ -334,7 +337,10 @@ else:
 
     if _starter_clicked:
         if _write(_STARTER_ERROR_KEY, **dict(STARTER_TEMPLATE)):
-            st.toast("Starter playbook saved as your active profile.", icon="✅")
+            st.toast(
+                "Starter playbook saved as your active profile.",
+                icon=":material/check_circle:",
+            )
             st.rerun()
 
     if st.session_state.get(_STARTER_ERROR_KEY):

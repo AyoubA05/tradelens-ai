@@ -62,7 +62,7 @@ def _render_journal(st, trade, analysis, strategy_profile, user_id) -> None:
             )
             save_journal(analysis.id, markdown)
             log_ai_usage("AI Journal", usage, user_id=user_id)
-            st.toast("Journal saved", icon="✅")
+            st.toast("Journal saved", icon=":material/check_circle:")
             st.rerun()
         except (JournalStructureError, ValueError) as exc:
             st.markdown(
@@ -116,7 +116,7 @@ def _render_grade(st, trade, analysis, strategy_profile, user_id) -> None:
             resolved = None if override == "(none)" else override
             record_correction(trade.id, analysis.id, "grade", trade.ai_grade, resolved)
             save_user_grade(trade.id, resolved)
-            st.toast("Grade override saved", icon="✅")
+            st.toast("Grade override saved", icon=":material/check_circle:")
             st.rerun()
         run = st.button("Re-grade trade", key=f"ai_grade_{trade.id}")
 
@@ -128,7 +128,7 @@ def _render_grade(st, trade, analysis, strategy_profile, user_id) -> None:
             result, usage = grade_trade(trade_dict, strategy_profile, vision_dict)
             save_grade(analysis.id, result)
             log_ai_usage("Trade Grading", usage, user_id=user_id)
-            st.toast("Grade saved", icon="✅")
+            st.toast("Grade saved", icon=":material/check_circle:")
             st.rerun()
         except (GradingError, AIParseError, ValueError) as exc:
             st.markdown(error_box(f"Grading failed: {exc}"), unsafe_allow_html=True)
@@ -144,7 +144,7 @@ def render_ai_review(trade, strategy_profile=None, user_id=None) -> None:
     import streamlit as st
 
     st.divider()
-    st.subheader("📝 AI Review")
+    st.subheader("AI Review")
     st.caption("Post-trade reflection — a written journal and a process grade.")
 
     if not ai_available():

@@ -129,7 +129,7 @@ from src.tradelens.ui.components.overview_bands import (  # noqa: E402
 
 def test_each_row_carries_its_own_sample_size():
     html = render_ranked_list(
-        "Session performance",
+        "Killzone performance",
         [RankedRow("London", "+$820.00", "n=14"), RankedRow("NY", "-$110.00", "n=6")],
         rankable=True,
     )
@@ -152,7 +152,7 @@ def test_one_category_is_never_called_strongest():
 
 def test_a_rankable_list_marks_its_leader():
     html = render_ranked_list(
-        "Session performance",
+        "Killzone performance",
         [RankedRow("London", "+$820.00", "n=14"), RankedRow("NY", "-$110.00", "n=6")],
         rankable=True,
     )
@@ -173,7 +173,7 @@ def test_ranked_rows_escape_caller_values():
 
 
 def test_an_empty_ranked_list_renders_nothing():
-    assert render_ranked_list("Session performance", [], rankable=True) == ""
+    assert render_ranked_list("Killzone performance", [], rankable=True) == ""
 
 
 # ---------------------------------------------------------------------------
