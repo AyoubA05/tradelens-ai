@@ -133,6 +133,14 @@ def _unavailable(st, state, *, surface: str) -> None:
         _route_link(st, state.route[0], state.route[1], f"partner_{surface}_route")
 
 
+def render_partner_status(reason: object) -> str:
+    """One non-action status for a launcher that cannot open a useful drawer."""
+    return (
+        '<p class="tl-partner-launcher-note" role="status">'
+        f"{escape(str(reason))}</p>"
+    )
+
+
 def _log_exception(label: str) -> None:
     import logging
 
@@ -307,30 +315,19 @@ def render_partner_launcher(st) -> None:
     A real Streamlit button in a keyed container rather than authored HTML, so
     it is keyboard-reachable and needs no script to work.
 
-    When the Partner cannot take a question the control still appears, but
-    disabled and carrying the reason: a launcher that opens a drawer which can
-    only refuse is a dead end, and one that silently vanishes leaves a trader
-    wondering where a feature went.
+    When a normal owned account cannot take a question, one status explains
+    why and no dead button is rendered. Ownerless preview accounts have no
+    desktop launcher at all; their dedicated page states the truthful reason.
     """
     if st.session_state.get(PARTNER_OPEN_KEY):
         return
     _uid, state = _availability(st)
+    if not state.show_launcher:
+        return
+    if not state.can_send:
+        st.markdown(render_partner_status(state.reason), unsafe_allow_html=True)
+        return
     with st.container(key="tl_partner_launcher"):
-        if not state.can_send:
-            st.button(
-                "Ask about a trade",
-                key="partner_open_btn",
-                disabled=True,
-                help=state.reason,
-            )
-            # A disabled button is removed from the tab order, so the reason
-            # would otherwise reach nobody using a keyboard or a screen reader.
-            st.markdown(
-                '<p class="tl-partner-launcher-note" role="status">'
-                f"{escape(str(state.reason))}</p>",
-                unsafe_allow_html=True,
-            )
-            return
         if st.button("Ask about a trade", key="partner_open_btn", type="primary"):
             st.session_state[PARTNER_OPEN_KEY] = True
             st.rerun()

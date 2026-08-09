@@ -458,16 +458,38 @@ def _avail(**over):
     return partner_availability(**kwargs)
 
 
+def test_ownerless_preview_never_reads_context_or_offers_a_launcher():
+    """The panel owns context construction; this pure boundary must decide
+    ownerlessness before it asks anything of the context it was handed."""
+    from src.tradelens.ui.components import partner_turn
+
+    class ContextMustNotBeRead:
+        def __getattribute__(self, name):
+            raise AssertionError(f"ownerless availability read context.{name}")
+
+    state = partner_turn.partner_availability(
+        user_id=None,
+        ai_ready=True,
+        context=ContextMustNotBeRead(),
+        context_failed=False,
+    )
+
+    assert state.can_send is False
+    assert state.show_launcher is False
+    assert state.reason == partner_turn.OWNERLESS_PREVIEW
+
+
 def test_an_ownerless_session_may_not_send_and_says_why():
     """A legacy login with no user id cannot be scoped to an owner, so the
     adapter would refuse it anyway. The surface must say so rather than offer
     a composer that produces an error on every submission."""
-    from src.tradelens.ui.components.partner_turn import NO_USER_ERROR
+    from src.tradelens.ui.components.partner_turn import OWNERLESS_PREVIEW
 
     for bad in (None, 0, -1, "7", True):
         state = _avail(user_id=bad, context=None)
         assert state.can_send is False
-        assert state.reason == NO_USER_ERROR
+        assert state.reason == OWNERLESS_PREVIEW
+        assert state.show_launcher is False
         assert state.route is None, "there is no route out of a legacy login"
 
 
@@ -482,6 +504,7 @@ def test_the_partner_is_unavailable_when_no_model_is_configured():
 
     state = _avail(ai_ready=False)
     assert state.can_send is False
+    assert state.show_launcher is True
     assert state.reason == AI_UNAVAILABLE
     assert "key" not in state.reason.lower(), "never name the secret"
     assert "ANTHROPIC" not in state.reason
@@ -649,12 +672,13 @@ def test_a_failed_context_outranks_every_other_reason_except_ownership():
     ownerless session never attempted one, so it keeps its own message."""
     from src.tradelens.ui.components.partner_turn import (
         CONTEXT_UNAVAILABLE,
-        NO_USER_ERROR,
+        OWNERLESS_PREVIEW,
     )
 
     assert _avail(context=None, context_failed=True).reason == CONTEXT_UNAVAILABLE
     assert (
-        _avail(user_id=None, context=None, context_failed=True).reason == NO_USER_ERROR
+        _avail(user_id=None, context=None, context_failed=True).reason
+        == OWNERLESS_PREVIEW
     )
 
 

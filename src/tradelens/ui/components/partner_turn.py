@@ -44,6 +44,11 @@ UNEXPECTED_ERROR = "AI is temporarily unavailable. Please try again."
 # retry something that cannot succeed.
 NO_USER_ERROR = "Sign in to use the AI Partner."
 
+# Ownerless legacy sessions are authenticated preview accounts, not signed-out
+# sessions. The presentation must state that truth without offering controls
+# whose direct send-path guard will refuse them.
+OWNERLESS_PREVIEW = "AI Partner is unavailable in this preview account."
+
 # A global reflective answer must have at least one completed record behind it.
 # This is enforced in the send path even when the presentation fails to hide
 # its composer, so an empty account can never spend on an invented review.
@@ -181,6 +186,7 @@ class PartnerAvailability:
 
     can_send: bool
     reason: Optional[str] = None
+    show_launcher: bool = True
     route: Optional[Tuple[str, str]] = None
     profile_missing: bool = False
     profile_route: Optional[Tuple[str, str]] = None
@@ -208,8 +214,14 @@ def partner_availability(
     """
     if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:
         # No owner means no scope. The adapter refuses this before it opens a
-        # session, and there is no route out of a legacy login from here.
-        return PartnerAvailability(can_send=False, reason=NO_USER_ERROR)
+        # session. This is an authenticated preview account, not a signed-out
+        # session, so hide the desktop entry point and state the real reason on
+        # the dedicated Partner page.
+        return PartnerAvailability(
+            can_send=False,
+            reason=OWNERLESS_PREVIEW,
+            show_launcher=False,
+        )
 
     if not ai_ready:
         return PartnerAvailability(can_send=False, reason=AI_UNAVAILABLE)

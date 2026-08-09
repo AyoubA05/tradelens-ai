@@ -513,14 +513,21 @@ class _Ctx:
         self.journal_entry_count = trades
 
 
-def test_an_ownerless_session_is_offered_no_composer(monkeypatch):
+def test_ownerless_preview_page_shows_one_truthful_status_and_no_composer(monkeypatch):
     """The adapter refuses an ownerless read, so a composer here would produce
     an error on every submission."""
-    from src.tradelens.ui.components.partner_turn import NO_USER_ERROR
+    from src.tradelens.ui.components.partner_turn import (
+        NO_USER_ERROR,
+        OWNERLESS_PREVIEW,
+    )
 
-    fake = _render_body(monkeypatch, uid=None, ai_ready=True, context=None)
+    fake = _render_body(
+        monkeypatch, uid=None, ai_ready=True, context=None, surface="page"
+    )
     assert fake.chat_inputs == []
-    assert NO_USER_ERROR in "\n".join(fake.html)
+    rendered = "\n".join(fake.html + fake.text)
+    assert rendered.count(OWNERLESS_PREVIEW) == 1
+    assert NO_USER_ERROR not in rendered
 
 
 def test_an_ownerless_session_never_reaches_the_context_adapter(monkeypatch):
@@ -539,6 +546,32 @@ def test_an_ownerless_session_never_reaches_the_context_adapter(monkeypatch):
     )
     pp.render_partner_body(_RichFakeSt(), surface="drawer")
     assert calls == [], "a context was built for a session with no owner"
+
+
+def test_ownerless_preview_renders_no_dead_desktop_launcher(monkeypatch):
+    from src.tradelens.ui.components import partner_panel as pp
+    from src.tradelens.ui.components.partner_turn import NO_USER_ERROR
+
+    calls = []
+    monkeypatch.setattr(
+        "src.tradelens.ui.components.auth.current_user_id", lambda: None
+    )
+    monkeypatch.setattr(pp, "ai_available", lambda: True)
+    monkeypatch.setattr(
+        pp,
+        "build_global_partner_context",
+        lambda *, user_id: calls.append(user_id) or _Ctx(),
+    )
+    fake = _RichFakeSt({"authenticated": True, "user_id": None})
+
+    pp.render_partner_launcher(fake)
+
+    rendered = "\n".join(fake.html + fake.text)
+    assert calls == []
+    assert fake.buttons == []
+    assert "Ask about a trade" not in rendered
+    assert NO_USER_ERROR not in rendered
+    assert fake.html == [] and fake.text == [], "the desktop launcher must vanish"
 
 
 def test_an_unconfigured_model_is_stated_without_naming_the_secret(monkeypatch):
@@ -686,7 +719,7 @@ def test_the_suggestion_chips_are_disabled_while_sending(monkeypatch):
     assert all(fake.disabled[c] for c in chips)
 
 
-def test_the_launcher_is_disabled_and_explains_itself_when_unavailable(monkeypatch):
+def test_an_unavailable_launcher_is_status_only_not_a_redundant_button(monkeypatch):
     from src.tradelens.ui.components import partner_panel as pp
     from src.tradelens.ui.components.partner_turn import AI_UNAVAILABLE
 
@@ -695,9 +728,8 @@ def test_the_launcher_is_disabled_and_explains_itself_when_unavailable(monkeypat
     monkeypatch.setattr(pp, "build_global_partner_context", lambda *, user_id: _Ctx())
     fake = _RichFakeSt()
     pp.render_partner_launcher(fake)
-    assert fake.disabled["Ask about a trade"] is True
-    # A disabled button leaves the tab order, so the reason must also be text.
-    assert AI_UNAVAILABLE in "\n".join(fake.html)
+    assert fake.buttons == []
+    assert "\n".join(fake.html).count(AI_UNAVAILABLE) == 1
 
 
 def test_the_launcher_is_actionable_when_the_partner_is_ready(monkeypatch):

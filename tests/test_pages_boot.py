@@ -483,7 +483,13 @@ def test_the_partner_page_refuses_an_ownerless_session(tmp_path):
     previously expected the empty-state scope copy, which is what a signed-in
     trader sees; an ownerless session never reaches it.
     """
-    _boot("7_Partner.py", tmp_path / "empty.db", "0", "Sign in to use the AI Partner")
+    from src.tradelens.ui.components.partner_turn import (
+        NO_USER_ERROR,
+        OWNERLESS_PREVIEW,
+    )
+
+    assert NO_USER_ERROR not in OWNERLESS_PREVIEW
+    _boot("7_Partner.py", tmp_path / "empty.db", "0", OWNERLESS_PREVIEW)
 
 
 def test_the_partner_page_states_its_scope_to_a_signed_in_trader(tmp_path):

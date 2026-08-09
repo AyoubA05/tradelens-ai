@@ -20,16 +20,17 @@ the same time.
 ## Current handoff state
 
 - **Active writer:** `NONE`
-- **Phase:** `PRIORITY REMEDIATION — TASK 2 IMPLEMENTED; REVIEW PENDING`
+- **Phase:** `PRIORITY REMEDIATION — TASK 3 IMPLEMENTED; REVIEW PENDING`
 - **Phase 2:** APPROVED at `7ffd9a1`.
 - **Phase 3:** APPROVED at `2c29a20`.
 - **Phase 4:** APPROVED at `6b3d33c`; independently re-reviewed through
   `ad8a8ce`, with the review-contract correction committed at `6f08590`.
 - **Authentication bypass:** CLOSED at `950bc8f`.
 - **DATABASE_URL disclosure:** CLOSED at `7c046fc`.
-- Verification: fresh full baseline `2129 passed, 7 skipped`; Task 2 focused
-  suites `290 passed`; Ruff, Black, and `git diff --check` clean. Browser gates
-  remain mandatory where required by later tasks and at the final audit.
+- Verification: fresh full baseline `2129 passed, 7 skipped`; Task 3 focused
+  suites `190 passed`; adjacent Partner/privacy suites `88 passed`; Ruff,
+  Black, and `git diff --check` clean. Browser gates remain mandatory where
+  required by later tasks and at the final audit.
 - **STILL REQUIRED FROM THE OWNER — deployment secret check.** Not doable from
   this worktree. share.streamlit.io → the TradeLens app → **Settings →
   Secrets** → confirm whether `TRADELENS_USERNAME` and `TRADELENS_PASSWORD`
@@ -37,11 +38,11 @@ the same time.
   before `950bc8f`, the previously committed demo pair was live on the public
   deploy and must be treated as a disclosed credential and rotated wherever it
   was reused.
-- **Next owner:** **`CODEX`**, as a fresh Task 2 spec-and-quality reviewer.
+- **Next owner:** **`CODEX`**, as a fresh Task 3 spec-and-quality reviewer.
   Not pushed, not merged, not deployed. The password-strength feature is not
   started and the branch is not finished.
-- **Next action:** Review Task 2's implementation and evidence before Task 3
-  begins.
+- **Next action:** Review Task 3's implementation, safety boundary, tests, and
+  mutation evidence before Task 4 begins.
 
 ## Priority-remediation execution checkpoint — 2026-08-09
 
@@ -158,6 +159,52 @@ the bounded Task 2 brief; the real Journal selection/detail subprocess flows
 and all page-boot states are included in the focused suites. No authentication,
 database-schema, AI service/routing/prompt, tenant, secret, dependency,
 marketing-site, or coordinator-owned SDD ledger file changed.
+
+### 2026-08-09 — Priority remediation Task 3 implementation (Codex)
+
+**Commit:** this commit, `fix(partner): make preview availability truthful`.
+Task 3 only; Task 4 not started.
+
+Ownerless authenticated preview sessions now resolve to the explicit
+`OWNERLESS_PREVIEW` presentation state before any context is read, with
+`show_launcher=False`. The desktop launcher returns before creating its keyed
+container, while the dedicated Partner page renders the truthful preview status
+once and exposes no composer. Owned accounts that are temporarily unavailable
+retain one status but no longer receive a redundant disabled button plus the
+same caption; ready accounts retain the real launcher button.
+
+The direct `send_turn` owner validation and `NO_USER_ERROR` defense are
+unchanged. The panel still refuses to build ownerless context, and the existing
+history, queue-expiry, no-trade, missing-profile, usage, owner-scoping, and
+sign-out cleanup paths remain intact.
+
+**TDD evidence:** the two required ownerless tests first failed because
+`PartnerAvailability` had no `show_launcher` and the desktop surface rendered
+`Ask about a trade`. The dedicated-page, status-only unavailable, and boot
+contracts also failed against the old copy/state. After the minimal
+presentation change, all five passed.
+
+**Mutation evidence:** temporarily restoring the former ownerless return
+(`NO_USER_ERROR` with the default visible launcher) made all three direct
+ownerless behavior tests fail: state suppression, desktop rendering, and the
+dedicated-page status. The correct implementation was restored and those three
+tests passed again.
+
+**Verification:** `pytest tests/test_partner_turn.py tests/test_partner_panel.py
+tests/test_pages_boot.py -q` → `190 passed`; adjacent `test_partner.py`,
+`test_partner_context.py`, `test_auth.py`, and `test_account_deletion.py` →
+`88 passed`; Ruff clean; Black clean; `git diff --check` clean. The bounded
+brief required direct rendering and subprocess boot evidence rather than a
+browser run. No authentication, database/schema, AI service/routing/prompt,
+tenant, secret, dependency, marketing-site, or coordinator-owned SDD ledger
+file changed.
+
+**Deviation from the illustrative test:** context construction lives in
+`partner_panel._availability`, not `partner_turn.partner_availability`. The pure
+test therefore supplies a context object that raises on any read, while the
+rendered panel spy proves the adapter is never called. This exercises the real
+boundary without adding a duplicate context path to the Streamlit-free turn
+module.
 
 ## Superseded state snapshots (historical; not current)
 
