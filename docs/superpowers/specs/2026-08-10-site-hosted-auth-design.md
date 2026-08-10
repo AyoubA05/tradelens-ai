@@ -1,8 +1,9 @@
 # Site-hosted authentication and first-run onboarding
 
 **Date:** 2026-08-10
-**Status:** Approved design, pending implementation plan
-**Supersedes:** nothing. Extends the existing Streamlit auth rather than replacing it.
+**Revision:** 2 — updated with confirmed production secret state
+**Status:** Approved design. Implementation plan at
+`docs/superpowers/plans/2026-08-10-site-hosted-auth.md`.
 
 ---
 
@@ -11,7 +12,7 @@
 Move sign-in, sign-up, and password reset out of the Streamlit app and onto the
 marketing site at `tradelensai.io`, so the login experience is fast, fully
 designed, and continuous with the rest of the product. After authenticating, the
-user is handed off to the Streamlit app already signed in.
+user is handed off to Streamlit already signed in.
 
 New users additionally complete a profile at signup, verify their email, and are
 routed through a first-run Strategy Profile step before reaching the dashboard.
@@ -21,409 +22,421 @@ routed through a first-run Strategy Profile step before reaching the dashboard.
 Moving login off Streamlit does not make the app faster. After the handoff the
 user still lands in the same Streamlit container and still waits through the same
 cold start. The login *screen* becomes fast and fully customisable; the
-application behind it is unchanged. This is worth stating plainly because
-"the Streamlit login feels slow and buggy" was the motivating complaint, and
-only part of it is addressed here.
+application behind it is unchanged. This is worth stating plainly because "the
+Streamlit login feels slow and buggy" was the motivating complaint, and only part
+of it is addressed here.
 
 ---
 
-## 2. Current state
+## 2. Confirmed production state
+
+Verified by the owner in Streamlit Cloud secrets on 2026-08-10. No secret values
+were shared, and none are recorded here.
+
+| Secret | Present | Meaning for this work |
+|---|---|---|
+| `DATABASE_URL` | **yes — Neon/Postgres** | Production is already persistent Postgres. This is **not** a SQLite→Neon migration. |
+| `TRADELENS_INVITE_CODE` | yes | Beta signup gating already configured. |
+| `TRADELENS_USERNAME` | yes | Bootstrap credential — see §3. |
+| `TRADELENS_PASSWORD` | yes | Bootstrap credential — see §3. |
+| Anthropic API key | yes | Untouched by this work. Stays server-side. |
+| `TRADELENS_SESSION_SECRET` | **no** | **Blocking.** Must be created before any handoff works. |
+| `TRADELENS_SMTP_HOST/PORT/USER/PASSWORD/FROM` | **no** | **Blocking** for verification and reset. Email has never worked in production. |
+
+Two consequences follow immediately.
+
+**Password reset has never worked in production.** `password_reset.email_configured()`
+requires `TRADELENS_SMTP_HOST` and `TRADELENS_SMTP_FROM`; neither exists. The
+"Forgot your password?" control on the current login screen cannot have delivered
+a single email. Email is a prerequisite for this project, not a nice-to-have.
+
+**Every existing session token is already invalid on restart.** With
+`TRADELENS_SESSION_SECRET` unset, `_session_secret()` generates a random
+per-process key (`auth.py:100`), so the `?auth=` reload-persistence feature stops
+working on every container restart today.
+
+---
+
+## 3. Existing code state
 
 Established by inspection on 2026-08-10.
 
 | Piece | Location | State |
 |---|---|---|
 | `User` model | `src/tradelens/db/models.py:7` | `id, username, password_hash, email (unique, nullable), created_at, is_active` |
-| Password hashing | `src/tradelens/services/users.py` | bcrypt via `bcrypt.hashpw` / `checkpw` |
-| Login orchestration | `src/tradelens/ui/components/auth.py:254` | DB users take precedence; legacy secrets pair only while `users` is empty |
-| Session persistence | `auth.py:87-167` | Self-contained HMAC-SHA256 token in `?auth=`, 24h TTL, sliding rotation |
-| Signup gate | `auth.py:244-251` | Requires `TRADELENS_INVITE_CODE`; disabled entirely when unset |
-| Password reset | `src/tradelens/services/password_reset.py` | Email + code over stdlib SMTP; token signed with a key derived from the account's current password hash, so it is single-use with no token table |
-| Strategy Profile | `src/tradelens/services/strategy.py` | `get_active_strategy(user_id)`, `upsert_strategy_profile(user_id, **fields)`, 12 fields, one active row per user |
-| Marketing site | `site/` | Vanilla `index.html` + `styles.css` + `main.js`; no `package.json` anywhere in the repo |
-| Site build | `scripts/build_site.py` | stdlib-only Python; substitutes `__SITE_ORIGIN__` / `__APP_ORIGIN__` into `dist/site` |
-| Deployment | `vercel.json` | Vercel project `tradelens-ai-site`; `SITE_ORIGIN=https://www.tradelensai.io`, `APP_ORIGIN=https://tradelenai.streamlit.app` |
+| Password hashing | `services/users.py` | bcrypt; `gensalt()` default cost verified as **12** |
+| Login orchestration | `ui/components/auth.py:254` | DB users take precedence; bootstrap pair reachable only while `users` is empty |
+| Session persistence | `auth.py:87-167` | Self-contained HMAC-SHA256 token in `?auth=`, 24h TTL |
+| Signup gate | `auth.py:244` | Requires `TRADELENS_INVITE_CODE`; disabled when unset |
+| Password reset | `services/password_reset.py` | Token signed with a key derived from the account's *current* password hash — single-use with no token table |
+| Strategy Profile | `services/strategy.py` | `get_active_strategy`, `upsert_strategy_profile`, 12 fields, one active row per user |
+| Alembic head | `r8s9t0u1v2w3_add_user_email` | down_revision `q7r8s9t0u1v2` |
+| Marketing site | `site/` | Vanilla; no `package.json` in the repo |
+| Site build | `scripts/build_site.py` | stdlib Python; substitutes `__SITE_ORIGIN__` / `__APP_ORIGIN__` |
+| Deployment | `vercel.json` | Vercel `tradelens-ai-site`; `APP_ORIGIN=https://tradelenai.streamlit.app` |
 
-### Pre-existing defects found during inspection
+### The bootstrap credentials, precisely
 
-These are not caused by this work. Two of them are load-bearing for it.
+`TRADELENS_USERNAME` / `TRADELENS_PASSWORD` are **not a user account**. Traced
+through every call site:
 
-**D1 — `sign_out()` does not invalidate the session token.**
-`auth.py:389` clears `st.session_state` and pops the URL parameter, but the HMAC
-token itself stays cryptographically valid until its 24h expiry. Anyone holding a
-copy — browser history, a shared link, a screenshot — can sign back in after the
-user has "logged out". Self-contained tokens cannot be revoked; this is inherent
-to the current design and is fixed by §6.
+- Read only by `expected_credentials()` (`auth.py:196`).
+- Checked only by `verify_credentials()`, which is called from exactly one place:
+  `authenticate_login()` at `auth.py:298`.
+- That line sits in the **`else` branch of `if has_db_users:`**. It is reached
+  only when the `users` table was queried successfully and is **empty**.
+- A successful bootstrap login returns `user_id = None` (`auth.py:299`).
+
+So this is an emergency/first-run credential for an empty database. Its sessions
+own no `Strategy` and no `Trade` rows — `strategy._require_concrete_user_id`
+raises on a null id — and `9_Settings.py:207` already tells such a user their
+password cannot be changed in-app.
+
+**Therefore: if the production `users` table has one or more rows, this path is
+already unreachable in production.** Phase 1 confirms that with a row count.
+Either way the credentials are left in place and untouched until Phase 9, and
+they are never used as the basis for public user authentication.
+
+### Pre-existing defects
+
+Not caused by this work; two are load-bearing for it.
+
+**D1 — `sign_out()` does not invalidate the session token.** `auth.py:389`
+clears `session_state` and pops the URL parameter, but the HMAC token stays
+cryptographically valid until expiry. Anyone holding a copy — browser history, a
+shared link — can sign back in after "logging out". Self-contained tokens cannot
+be revoked; fixed by §7.
 
 **D2 — `password_reset.py` cannot read secrets on Streamlit Cloud.**
 `password_reset._read_env` (line 78) uses `os.getenv` only, while
-`auth._read_secret` (line 169) falls back to `st.secrets`. Streamlit Cloud exposes
-secrets through `st.secrets`, not the process environment. So on Cloud:
-`TRADELENS_SMTP_*` appears unconfigured, and — worse —
-`password_reset._base_secret()` and `auth._session_secret()` derive **different**
-base secrets from the same nominal setting. Fixed by making `password_reset` use
-the shared `_read_secret` helper.
+`auth._read_secret` (line 169) falls back to `st.secrets`. Cloud exposes secrets
+through `st.secrets`, not the environment. So the two modules would derive
+**different** base secrets from the same nominal setting. Fixed by §12.
 
-**D3 — production data durability is unverified.**
-`settings.database_url` defaults to `sqlite:///./data/tradelens.db`
-(`config.py:41`). On Streamlit Cloud that path is inside the container's
-ephemeral filesystem. Unless a persistent `DATABASE_URL` is configured, every
-redeploy or container restart discards all users and trades. See §9; **no
-migration step in this spec may run until this is verified.**
-
-**D4 — the stored note for the app URL was wrong.**
-It recorded `tradelens-app.streamlit.app`. The live value, confirmed by both
-`vercel.json` and the browser address bar, is `tradelenai.streamlit.app`. No
+**D3 — the stored note for the app URL was stale.** It recorded
+`tradelens-app.streamlit.app`; the live value is `tradelenai.streamlit.app`. No
 hostname is hardcoded anywhere in this design; everything reads `APP_ORIGIN`.
 
 ---
 
-## 3. Deployment shape
+## 4. Deployment shape
 
-One Vercel project. A Next.js + TypeScript + Tailwind app in `web/`, with the
-project's **Root Directory set to `web/`**.
+**One** Vercel project, one domain. A Next.js + TypeScript + Tailwind app with
+shadcn structure in `web/`, project Root Directory set to `web/`.
 
 ```
 tradelensai.io
-  /                       → public/index.html      (existing site, byte-identical)
-  /login                  → 21.dev sign-in card
-  /signup                 → profile + password, with strength meter
-  /verify-email           → code entry
-  /forgot-password        → request a reset code
-  /reset-password         → code + new password, with strength meter
+  /                    → public/index.html      (existing site, byte-identical)
+  /login               → 21.dev sign-in card
+  /signup              → profile + password, strength meter
+  /verify-email        → code entry
+  /forgot-password     → request a reset code
+  /reset-password      → code + new password, strength meter
   /api/auth/{login,signup,verify,resend,forgot,reset}
-                          → Node serverless functions
         ↓ on success
   302 → {APP_ORIGIN}/?ht=<one-time handoff token>
 ```
 
-The existing marketing site is **not rewritten**. A Next `prebuild` script ports
-the substitution logic from `scripts/build_site.py` — including its
-`validate_origin` checks, which are security-relevant — and writes `site/` into
-`web/public/`. `next.config.js` rewrites `/` to `/index.html`.
+The marketing site is **preserved, not redesigned**. A Next `prebuild` script
+ports the substitution logic from `scripts/build_site.py` — including its
+`validate_origin` checks, which are security-relevant — writing `site/` into
+`web/public/`. `next.config.js` rewrites `/` to `/index.html`. A byte-comparison
+test guards against drift.
 
-Setting Root Directory to `web/` also resolves a known deployment trap: with a
-blank root, Vercel auto-detects the repo's `requirements.txt` and runs
-`uv pip install`, which fails building `psycopg2` from source. Scoped to `web/`,
-Vercel sees only `web/package.json` and never attempts a Python install.
+Root Directory `web/` also avoids a known trap: with a blank root, Vercel
+auto-detects the repo's `requirements.txt` and runs `uv pip install`, which fails
+building `psycopg2`. Scoped to `web/`, Vercel sees only `web/package.json`.
 
-`scripts/build_site.py` is deleted once the Node port is verified, so the
-substitution logic has exactly one implementation.
-
-### Rejected alternatives
-
-- **Two Vercel projects joined by cross-project rewrites.** Zero risk to the
-  existing site, but doubles the deploys, the env vars, and the places a secret
-  can drift out of sync. The shared `TRADELENS_SESSION_SECRET` makes drift a
-  silent, total auth failure.
-- **Porting the 21.dev components to vanilla HTML/CSS/JS.** Smallest footprint,
-  no toolchain, but it is a reimplementation rather than the components
-  themselves. Explicitly rejected by the owner: the real React components must be
-  used.
+A second Vercel project is **not** created unless a blocker is found.
 
 ---
 
-## 4. Visual design
+## 5. Visual design
 
-Both 21.dev components are used as real React components, not approximations.
+Both 21.dev components are used as **real React components** in `web/components/ui/`.
+Neither is recreated in vanilla HTML.
 
-**`web/components/ui/sign-in-card-2.tsx`** keeps every visual behaviour: the 3D
-mouse-tracked tilt, the four travelling border light beams with their staggered
-delays, the corner glow spots, the glass card, the animated radial background,
-the input focus transitions, the loading state, and the layout.
+**`sign-in-card-2.tsx`** keeps every visual behaviour: the 3D mouse-tracked tilt,
+the four travelling border light beams with their staggered delays, corner glow
+spots, glass card, animated radial background, input focus transitions, loading
+states, and responsive layout.
 
 Three changes only:
 
-1. **Branding.** "StyleMe" → "TradeLens AI"; the placeholder `S` glyph → the
-   existing TradeLens candle mark from `site/assets/`.
-2. **Theme.** The purple palette is retargeted to the tokens already shared by
-   the marketing site and the Streamlit app: background `#0d1117`, surface
-   `#161b22`, border `#252a32`, text `#e8eaed`, muted `#9aa4b2`, accent
-   `#00e5cc`. The gradient, radial glows, and pulse spots keep their exact
-   geometry, opacity curves, and animation timings — only the hue changes. This
-   resolves the one conflict in the brief: "keep the design" and "match TradeLens
-   colours" cannot both hold for the purple, so structure is preserved and hue is
-   swapped.
-3. **Fields.** The `Sign In` button submits to `/api/auth/login`; `next/link`
-   destinations point at the real routes.
+1. **Branding** — "StyleMe" → "TradeLens AI"; the placeholder `S` glyph → the
+   TradeLens candle mark from `site/assets/`.
+2. **Theme** — the purple palette is retargeted to the tokens already shared by
+   the marketing site and the Streamlit app: bg `#0d1117`, surface `#161b22`,
+   border `#252a32`, text `#e8eaed`, muted `#9aa4b2`, accent `#00e5cc`. Gradient
+   geometry, opacity curves, and animation timings are unchanged — only hue moves.
+   This resolves the one conflict in the brief: "keep the design" and "match
+   TradeLens colours" cannot both hold for the purple, so structure is preserved
+   and hue is swapped.
+3. **Wiring** — the field is labelled **"Email or username"**; the button posts to
+   `/api/auth/login`; `next/link` targets point at real routes.
 
-**`web/components/ui/password-strength.tsx`** is used unmodified except for its
-tone palette, whose `emerald` / `amber` / `red` are mapped onto the TradeLens
-accent and status colours. Its rules are kept as provided: 12+ characters, mixed
-case, a digit, a symbol, plus the common-password and repeated/sequential-run
-detection.
+**`password-strength.tsx`** is used unmodified except for mapping its
+`emerald`/`amber`/`red` tones onto TradeLens status colours. Rules kept as
+provided: 12+ characters, mixed case, a digit, a symbol, plus common-password and
+repeated/sequential-run detection. It appears on **`/signup`** and
+**`/reset-password`**.
 
-It appears on **`/signup`** and **`/reset-password`**. Both are Next.js pages;
-neither is rebuilt inside Streamlit.
+**The meter is UX only.** The identical policy is enforced independently
+server-side in `/api/auth/{signup,reset}`, and a test asserts a request that
+bypasses the browser is rejected.
 
-Tailwind is configured with the TradeLens tokens as theme extensions so the two
-components and any future ones read from one palette. Fonts match the site:
+Tailwind carries the TradeLens tokens as theme extensions. Fonts match the site:
 Schibsted Grotesk display, Satoshi body, JetBrains Mono labels.
 
 ---
 
-## 5. Signup access modes
+## 6. Signup access modes
 
-Signup mode is environment-controlled, so it changes without a code change or a
-redeploy of the frontend.
-
-`SIGNUP_MODE` — read server-side only, never sent to the browser:
+`SIGNUP_MODE` is read **server-side only** and never reaches the browser bundle.
 
 | Value | Behaviour |
 |---|---|
-| `invite` | Signup allowed only with a code matching `TRADELENS_INVITE_CODE`. The invite field is rendered **only in this mode**, from a server-rendered flag. |
-| `open` | Anyone may create an account. No invite field. |
-| `closed` | `/signup` returns a "signups are closed" state; `/api/auth/signup` rejects all requests. |
+| `invite` | Requires a code matching `TRADELENS_INVITE_CODE`. The invite field renders **only** in this mode. |
+| `open` | Anyone may create an account. No invite field in the DOM. |
+| `closed` | `/signup` renders a closed state; the API rejects all requests. |
 
-Default when unset: `invite`. An unrecognised value is treated as `closed` and
-logged — an unparseable access-control setting must fail shut, not open.
+Unset defaults to `invite`. **An unrecognised value is treated as `closed` and
+logged** — an unparseable access-control setting must fail shut.
 
-The invite field is absent from the DOM in `open` mode rather than hidden with
-CSS, so the polished UI is never carrying a dead control.
+The invite field is absent from the DOM in `open` mode rather than CSS-hidden, so
+the page is never carrying a dead control, and switching to public launch is one
+environment variable with no frontend change.
 
-The existing Streamlit invite-code signup is left untouched until the new system
-is verified end to end (§11).
+Invite validation is rate-limited (§11) so the code cannot be brute-forced.
 
 ---
 
-## 6. The Streamlit handoff
+## 7. The Streamlit handoff and durable session
 
-### 6.1 The problem with the current design
+### 7.1 Handoff — one-time credential
 
-Today the URL parameter *is* the session: a self-contained, 24-hour HMAC token
-carrying `{username, user_id, expiry}`. It cannot be revoked (D1), it carries
-claims in plaintext-decodable form, and it survives in browser history and
-copied links for a day.
-
-### 6.2 The requested design, and an honest accounting of it
-
-A one-time handoff token replaces the long-lived token *in the redirect*:
-
-1. On successful login or signup, the Vercel function generates 32 cryptographically
-   random bytes, base64url-encoded.
-2. It stores **only the SHA-256 hash** in `auth_handoffs`, with the user id, an
-   expiry of **120 seconds**, and a null `consumed_at`.
+1. On successful login or verified signup, the Vercel function generates 32
+   cryptographically random bytes, base64url-encoded.
+2. It stores **only the SHA-256 hash** in `auth_handoffs`, with the user id, a
+   **120-second** expiry, and a null `consumed_at`.
 3. It redirects to `{APP_ORIGIN}/?ht=<token>`.
-4. Streamlit hashes the parameter, looks it up, and redeems it with a single
-   atomic conditional update:
+4. Streamlit hashes the parameter and redeems it with a single atomic
+   compare-and-swap:
    `UPDATE auth_handoffs SET consumed_at = now() WHERE token_hash = :h AND consumed_at IS NULL AND expires_at > now()`.
-   Redemption succeeds only if that statement reports one affected row. This is a
-   compare-and-swap, not a read-then-write, because Streamlit reruns scripts
-   concurrently and two tabs can race.
-5. It establishes the session and immediately removes `ht` from the URL.
+   Redemption succeeds only if exactly one row is affected. This is not a
+   read-then-write: Streamlit reruns scripts concurrently and two tabs can race.
+5. It opens a session (§7.2) and immediately strips `ht` from the URL.
 
-**This solves the handoff, but not the thing that matters most.** Streamlit wipes
-`st.session_state` on any full page reload, which is precisely why the long-lived
-URL token was introduced. If the handoff token is one-time and nothing replaces
-it, every browser refresh logs the user out again — the exact bug
-`_try_restore` exists to prevent. So the redeemed handoff must establish
-*something* that survives a reload, and the security of the whole scheme depends
-on what that something is.
+### 7.2 Durable session — the highest-risk decision
 
-The owner asked to be told if a simpler, equally secure architecture exists.
-It does not, given the constraints — Vercel and Streamlit Cloud are separate
-origins and Streamlit has no server-side cookie-write API — but the options
-differ materially and the choice should be explicit:
+Streamlit wipes `session_state` on every full page reload. That is the entire
+reason the 24h URL token exists. A one-time handoff with nothing behind it means
+every browser refresh logs the user out — the exact bug `_try_restore` was built
+to prevent. So the redeemed handoff must establish something durable, and *that*
+choice is where the real security lives.
 
-**Option A — redeem into the existing 24h HMAC token.**
-Simplest. But Streamlit then immediately issues the same long-lived bearer token
-into the same URL, so the net security gain over today is close to zero. The
-credential in the address bar is still a 24-hour key to the account, and D1 still
-stands. **Rejected as security theatre.**
+Three options were evaluated, as requested.
 
-**Option B — redeem into an opaque server-side session (recommended).**
-Replace the self-contained token with a random opaque session id backed by an
-`auth_sessions` row. Concrete gains over today:
+**Option A — redeem into the existing 24h HMAC token. Rejected.**
+Streamlit would immediately place the same long-lived bearer back in the same
+URL. The net gain over today is approximately zero and D1 still stands. This is
+the "silent fallback to another long-lived URL bearer" that must not happen.
 
-- **Revocable.** `sign_out()` marks the row revoked, which actually fixes D1.
-  Today's logout leaves a working credential behind.
-- **No claims in the URL.** The id is meaningless without the server record.
-- **Rotatable and auditable.** `last_seen_at` supports sliding expiry and lets a
-  user see and end active sessions later.
-- **Dies with the record**, not on a fixed self-contained expiry.
+**Option B — Streamlit native OIDC. The correct end-state, deferred.**
+Verified by inspecting the installed Streamlit 1.50.0 source:
+`streamlit/web/server/oauth_authlib_routes.py:88` sets a **signed, HttpOnly**
+auth cookie. So native `st.login()` genuinely gives a proper cookie-backed
+session — no credential in the URL, survives refresh, and `st.logout()` clears
+it. No third-party component is involved.
 
-Residual risk, stated plainly: the session id is still a bearer credential
-carried in the URL, so a copied link still grants access until it expires or is
-revoked. This is better than today but is not the same as a cookie.
+What it would cost: Streamlit redirects to an **OIDC provider**, so keeping the
+21.dev page as the login UI means `tradelensai.io` must *be* that provider —
+implementing authorization-code flow with PKCE, a discovery document, and JWKS —
+or delegating to a hosted IdP (Auth0/Clerk/WorkOS) with the 21.dev component as
+its custom login page. Writing an identity provider is a category of work where
+subtle errors are catastrophic, and it is a larger change than everything else in
+this spec combined. Two caveats also apply: Streamlit deliberately omits the
+`Secure` flag (a documented Safari workaround, source comment at line 85), and
+`[auth]` support on Community Cloud needs verification.
 
-**Option C — Option B plus a real browser cookie.**
-`extra-streamlit-components`' `CookieManager` writes a cookie through a
-bidirectional component, which would remove the credential from the URL entirely.
-It cannot be `HttpOnly` (it is set from JavaScript), and it adds a third-party
-runtime dependency to the auth path. Deferred to a follow-up phase rather than
-taken on inside a migration that is already large.
+Recorded as the intended destination, scoped as its own future project.
 
-**Decision: Option B now, Option C as a separately-scoped follow-up.**
+**Option C — opaque server-side sessions. Chosen for this project.**
+Replace the self-contained token with a random opaque id backed by an
+`auth_sessions` row. Against today:
 
-### 6.3 Cross-language token compatibility
+- **Revocable** — `sign_out()` marks the row revoked, which actually fixes D1.
+- **No claims in the URL** — the id is meaningless without the server record.
+- **Rotatable and auditable** — `last_seen_at` supports sliding expiry.
+- **Short-lived** — TTL cut from 24h to **8h idle / 12h absolute**, minimising
+  exposure while staying usable for a trading session.
 
-The existing HMAC token remains supported during migration, so Node must be able
-to produce bytes Python accepts. Two details will silently break everything if
-missed:
+**Stated plainly as a temporary beta limitation:** the session id is still a
+bearer credential carried in the URL, because Streamlit Community Cloud gives us
+no server-side cookie write outside its own OIDC flow. A copied link still grants
+access until it expires or is revoked. This is meaningfully better than today —
+revocable, claimless, and a third the lifetime — but it is not a cookie, and it
+is not represented as one. It is removed by Option B.
+
+**No third-party cookie component is added.** `extra-streamlit-components` and
+similar are explicitly out of scope pending owner approval.
+
+### 7.3 Cross-language token compatibility
+
+The legacy HMAC token stays supported until Phase 9, so Node must produce bytes
+Python accepts. Two details silently break everything if missed:
 
 - Python builds the payload with `json.dumps(..., separators=(",", ":"))` and
   insertion order `u, i, e`. `JSON.stringify({u, i, e})` matches exactly.
-- Python's `base64.urlsafe_b64decode` **requires `=` padding**. Node's
-  `base64url` encoding strips it. The Node implementation must re-pad.
+- Python's `base64.urlsafe_b64decode` **requires `=` padding**; Node's
+  `base64url` strips it. The Node implementation must re-pad.
 
-A dedicated cross-language test suite covers this in both directions: tokens
-generated in Node verified by Python, and tokens generated by Python verified in
-Node, including expiry and tamper cases. These tests are kept regardless of which
-handoff design ships.
-
-**Hard prerequisite.** `TRADELENS_SESSION_SECRET` must be set to the *same* value
-in Streamlit Cloud secrets and Vercel environment variables. It is very likely
-unset today, in which case `_session_secret()` falls back to a random
-per-process key (`auth.py:100`) and every token Vercel issues is rejected.
-Nothing in this design functions until that value is set in both places.
+Dedicated bidirectional tests cover valid, expired, tampered-payload, and
+tampered-signature cases. These are kept regardless of the handoff design.
 
 ---
 
-## 7. Schema
+## 8. Schema
 
-One Alembic revision, `s9t0u1v2w3x4_add_site_auth_and_onboarding`, with a fully
-implemented `downgrade()`.
+One Alembic revision on top of `r8s9t0u1v2w3`, with a fully implemented
+`downgrade()`. Postgres is production, so real types are used. `sa.Date`,
+`sa.Boolean`, and `sa.DateTime(timezone=True)` all round-trip on SQLite for local
+tests.
 
-Postgres becomes the production database, so the new columns use real types
-rather than the string-encoded convention used by the older `created_at` columns.
-`sa.Date` and `sa.Boolean` both round-trip correctly on SQLite and Postgres under
-SQLAlchemy 2.x, so local development and tests are unaffected.
+### `users` — new columns, all added by `ALTER TABLE`
 
-### `users` — new columns
+| Column | Type | Null | Server default |
+|---|---|---|---|
+| `full_name` | `String` | yes | — |
+| `birthday` | `Date` | yes | — |
+| `referral_source` | `String` | yes | — |
+| `referral_source_other` | `String` | yes | — |
+| `onboarding_completed` | `Boolean` | no | `false` |
+| `strategy_profile_completed` | `Boolean` | no | `false` |
+| `email_verified_at` | `DateTime(timezone=True)` (TIMESTAMPTZ) | yes | — |
+| `email_verification_required` | `Boolean` | no | `true` |
 
-| Column | Type | Null | Default | Notes |
-|---|---|---|---|---|
-| `full_name` | `String` | yes | — | Required at signup for new users; nullable so existing rows stay valid |
-| `birthday` | `Date` | yes | — | Real date type |
-| `referral_source` | `String` | yes | — | One of the fixed options |
-| `referral_source_other` | `String` | yes | — | Free text, only when `referral_source = 'other'` |
-| `onboarding_completed` | `Boolean` | no | `false` | |
-| `strategy_profile_completed` | `Boolean` | no | `false` | |
-| `email_verified` | `Boolean` | no | `false` | |
+`NULL` in `email_verified_at` means not verified; a timestamp means verified.
 
 Nullability is deliberately asymmetric: the *database* permits null profile
-fields so the migration cannot break existing accounts, while the *signup
-endpoint* requires them for new accounts. Validation lives in the service layer,
-where it can distinguish a new signup from a legacy row.
+fields so the migration cannot break existing rows, while the *signup endpoint*
+requires them for new accounts. Validation lives in the service layer, which can
+distinguish a new signup from a legacy row.
 
-`is_active` remains `Integer` for now. Converting it is unrelated to this work
-and would touch code paths this change does not otherwise go near.
+`is_active` stays `Integer`. Converting it is unrelated to this work.
 
-### Backfill
+### Backfill — explicit legacy compatibility
 
-Existing accounts must not be trapped behind gates that did not exist when they
-signed up:
+Existing users must not be forced through steps that did not exist when they
+signed up, and must not be locked out.
 
-- `onboarding_completed = true` for every pre-existing row.
-- `email_verified = true` for every pre-existing row **that already has an
-  email**. Rows without one keep `false` and are handled by §8.4 — an account
-  created before verification existed must not be locked out for never having
-  passed a step that did not exist.
-- `strategy_profile_completed = true` where the user already has an active
-  `Strategy` row, `false` otherwise. Users without a profile are routed through
-  the first-run step exactly once, which is the intended behaviour.
+| Column | Backfill for pre-existing rows | Why |
+|---|---|---|
+| `onboarding_completed` | `true` | They never saw the personal-info form; do not trap them behind it. |
+| `email_verification_required` | **`false`** | The explicit legacy rule. |
+| `email_verified_at` | **left `NULL`** | Honest: their address genuinely was never verified. |
+| `strategy_profile_completed` | `true` where an active `Strategy` row exists, else `false` | Users without a profile get the first-run step exactly once. |
+| `full_name`, `birthday`, `referral_source*` | left `NULL` | Never collected. |
+
+The login gate is therefore
+`if user.email_verification_required and user.email_verified_at is None: block`.
+Legacy accounts pass because the flag is `false`, **not** because we pretended
+their email was verified. That distinction is the point: the data stays truthful,
+and if we later want to require verification of legacy accounts, flipping one
+boolean per user is the whole change. New accounts are created with
+`email_verification_required = true` (the column default) and are blocked until
+they verify.
 
 ### New tables
 
-**`auth_handoffs`** — one-time Vercel → Streamlit credentials.
-`id`, `token_hash` (unique, indexed), `user_id` (FK), `created_at`,
-`expires_at`, `consumed_at` (nullable).
+**`auth_handoffs`** — `id`, `token_hash` (unique, indexed), `user_id` FK,
+`created_at`, `expires_at`, `consumed_at` nullable.
 
-**`auth_sessions`** — opaque server-side sessions (§6.2 Option B).
-`id`, `token_hash` (unique, indexed), `user_id` (FK), `created_at`,
-`expires_at`, `last_seen_at`, `revoked_at` (nullable).
+**`auth_sessions`** — `id`, `token_hash` (unique, indexed), `user_id` FK,
+`created_at`, `expires_at`, `last_seen_at`, `revoked_at` nullable.
 
-**`auth_attempts`** — rate limiting (§10).
-`id`, `bucket` (indexed), `action`, `created_at`.
+**`auth_attempts`** — `id`, `bucket` (indexed), `action`, `succeeded`,
+`created_at`.
 
-**`email_verifications`** — no table. Verification reuses the existing
-`password_reset` pattern: the code is signed with a key derived from the
-account's current `email` and `email_verified` state, so completing verification
-invalidates every outstanding code with nothing to store or sweep. Reusing a
-proven in-repo pattern is preferred to inventing a second one.
+**No table for email verification.** It reuses the proven `password_reset`
+pattern: the code is signed with a key derived from the account's current email
+and `email_verified_at`, so completing verification invalidates every outstanding
+code with nothing to store or sweep. Codes are **purpose-bound** — the signing
+key includes a `|verify-email|` domain separator, distinct from the existing
+`|reset|`, so a code from one flow can never be replayed into the other. They
+expire (30 min), carry only an account id and expiry, and die on use.
 
-Only expired/consumed rows in `auth_handoffs`, `auth_sessions`, and
-`auth_attempts` need sweeping; a single `DELETE` of rows older than 30 days runs
-opportunistically on write, avoiding a scheduled job.
+Expired rows in the three new tables are swept by an opportunistic `DELETE` of
+rows older than 30 days on write, avoiding a scheduled job.
 
 ---
 
-## 8. Flows
+## 9. Flows
 
-### 8.1 New user
+### 9.1 New user
 
 ```
 tradelensai.io → Start your journal → /login → Sign up → /signup
-  full name, email, birthday, referral source (+ other), password
-  → POST /api/auth/signup   (validates, hashes with bcrypt cost 12, creates user,
-                             onboarding_completed = true, email_verified = false)
-  → /verify-email  → POST /api/auth/verify
-  → email_verified = true
-  → issue one-time handoff → 302 {APP_ORIGIN}/?ht=…
-  → Streamlit redeems, opens session, strips ht from URL
+  full name, email, birthday, referral source (+ other), password,
+  invite code (invite mode only)
+  → POST /api/auth/signup
+      validate server-side, bcrypt cost 12, create user
+      onboarding_completed = false, email_verified_at = NULL,
+      email_verification_required = true
+  → send verification email → /verify-email → POST /api/auth/verify
+  → email_verified_at = now(), onboarding_completed = true
+  → one-time handoff → 302 {APP_ORIGIN}/?ht=…
+  → Streamlit redeems, opens session, strips ht
   → strategy_profile_completed = false → first-run Strategy Profile
   → dashboard
 ```
 
-`onboarding_completed` is set when the signup form completes. There is no
-separate `/onboarding` route; adding one would be a page with nothing on it.
+A new user **cannot reach the application before verifying**: the handoff is only
+issued after `email_verified_at` is set. There is no separate `/onboarding`
+route — `onboarding_completed` is set on successful verification, and a page with
+nothing on it would be a step for its own sake.
 
-### 8.2 Returning user
+### 9.2 Returning user
 
 ```
-tradelensai.io → Start your journal → /login
+tradelensai.io → Start your journal → /login (email or username)
   → POST /api/auth/login → one-time handoff → 302 {APP_ORIGIN}/?ht=…
+  → strategy_profile_completed? → first-run step if false, once
   → dashboard
 ```
 
-If `strategy_profile_completed` is false — a pre-existing user with no profile —
-they pass through the first-run step once, then never again.
+### 9.3 Login identity resolution
 
-### 8.3 Login identity resolution
+Explicit precedence, no unsafe fallback:
 
-Explicit precedence, no ambiguity:
+1. Identifier contains `@` → resolve **by email only**, against
+   `normalise_email()` (lowercased, trimmed). No match fails the login. It does
+   **not** fall through to a username lookup.
+2. Otherwise → resolve **by username only**, exact match.
 
-1. If the submitted identifier contains `@`, resolve **by email only**, against
-   `normalise_email()` (lowercased, trimmed). If no account matches, the login
-   fails. It does not fall through to a username lookup.
-2. Otherwise resolve **by username only**, exact match.
-
-An account whose *username* legitimately contains `@` is unreachable by rule 1
-falling back — which is why usernames are already constrained to
-`^[a-zA-Z0-9_]{3,20}$` (`users.py:22`) and cannot contain `@`. The rule is
-therefore total and unambiguous.
+The rule is total because usernames are already constrained to
+`^[a-zA-Z0-9_]{3,20}$` (`users.py:22`) and cannot contain `@`, so no account is
+unreachable and no identifier is ambiguous.
 
 New users never choose a username. One is generated from the email local-part,
-normalised to the existing charset, truncated to 20 characters, and
-de-duplicated with a numeric suffix. This keeps `Trade.user_id` and
-`Strategy.user_id` foreign keys working exactly as they do now.
+normalised to that charset, truncated to 20 characters, and de-duplicated with a
+numeric suffix inside the same transaction as the insert, so a race cannot
+produce a duplicate. Existing users keep their usernames. `Trade.user_id` and
+`Strategy.user_id` foreign keys are unaffected.
 
-Edge cases with explicit tests: `@` in the identifier but no such email;
-uppercase and surrounding whitespace in an email; a username that is a prefix of
-another; an email local-part colliding with an existing username; a generated
-username exceeding 20 characters; two signups whose local-parts collide.
+Tested edge cases: `@` present with no matching email; uppercase and surrounding
+whitespace; a username that is a prefix of another; an email local-part colliding
+with an existing username; a local-part over 20 characters; a local-part
+normalising to fewer than 3 characters; two concurrent signups whose local-parts
+collide.
 
-### 8.4 Legacy accounts and email verification
-
-An existing account must not become unusable because a step invented today was
-never completed:
-
-- Accounts **with** an email are backfilled `email_verified = true`. They already
-  proved control of it through the existing reset flow's threat model, and
-  retroactively locking them out has no security benefit.
-- Accounts **without** an email keep `email_verified = false`. They can still
-  sign in with username + password. They are prompted — not blocked — to attach
-  and verify an address, because without one a forgotten password is
-  unrecoverable. Verification is enforced only for accounts created through the
-  new signup endpoint.
-
-### 8.5 First-run Strategy Profile
+### 9.4 First-run Strategy Profile
 
 Gate: authenticated, `user_id is not None`, `strategy_profile_completed` false.
 
-The `user_id is not None` guard matters — legacy secrets-pair sessions carry a
-null user id (`auth.py:299`) and `strategy._require_concrete_user_id` raises on
-one. Those sessions skip the gate entirely.
+The null-id guard matters — bootstrap sessions carry `user_id = None`
+(`auth.py:299`) and `strategy._require_concrete_user_id` raises on one. Those
+sessions skip the gate entirely.
 
 New `src/tradelens/ui/components/strategy_onboarding.py` renders:
 
@@ -434,156 +447,173 @@ with the existing 12 Strategy Profile fields, and two exits:
 
 - **Save profile** — writes through `strategy.upsert_strategy_profile()`, then
   sets the flag.
-- **I don't have a defined strategy yet** — sets the flag only, writes no
-  `Strategy` row.
+- **I don't have a defined strategy yet** — sets the flag only. **No `Strategy`
+  row is created**; a fake profile would poison the AI context that profile data
+  feeds.
 
-Both mark `strategy_profile_completed = true`, and the screen never appears
-again unless the flag is intentionally reset. This is exactly why the flag is a
-stored column rather than derived from `get_active_strategy() is not None`: a
-user who skips is *completed* but has *no* profile row, and a derived check
-cannot represent that.
+Both set `strategy_profile_completed = true`, and the screen never returns unless
+the flag is intentionally reset. This is exactly why the flag is stored rather
+than derived from `get_active_strategy() is not None`: a user who skips is
+*completed* but has *no* profile row, and a derived check cannot represent that.
 
 The gate hooks into `require_auth()`, which every page already calls, so no page
-can be reached around it. Business logic (`get_onboarding_state`,
+can be reached around it. Logic (`get_onboarding_state`,
 `mark_strategy_profile_completed`) lives in `services/users.py`; no Streamlit
 import enters `services/`.
 
 ---
 
-## 9. Database migration to Neon
+## 10. Database work
 
-**No migration step runs until D3 is resolved.** Nothing in this section may be
-executed, and no claim that existing users were migrated may be made, before the
-production value is verified.
+Production is **already Neon/Postgres**. This is an `ALTER TABLE` migration on a
+live database, not an import, a recreate, or a data transfer.
 
-### What to check in Streamlit Cloud
+**Rules.** The production database is never overwritten, recreated, or imported
+over. A Neon branch snapshot is taken first and verified. The migration runs on a
+development Neon branch first and is only then applied to production. Every
+`downgrade()` is executed and verified, not assumed. Row counts for `users`,
+`trades`, `strategies`, `corrections`, `weekly_reviews`, `screenshots`,
+`ai_analyses`, and `performance_metrics` are captured before and compared after,
+and must match exactly — this migration adds columns and tables and must change
+no row count anywhere.
 
-Open the app's **Settings → Secrets** and look for a `DATABASE_URL` entry. Report
-which of these it is — the value itself is a credential and should not be pasted
-anywhere it will be stored:
-
-| What you find | What it means | What we do |
-|---|---|---|
-| No `DATABASE_URL` at all | The app is on the ephemeral container SQLite. All production data is being discarded on every restart. | There is nothing to migrate. Stand up Neon clean; this change *fixes* an active data-loss bug. |
-| `postgresql://…` or `postgres://…` | A real external Postgres already holds production data. | Dump it, restore into Neon, run Alembic, verify row counts before cutover. |
-| `sqlite:///…` pointing at a mounted persistent path | Data may be surviving restarts. | Pull the file down, inspect it, migrate its contents into Neon. |
-
-Also confirm whether `TRADELENS_SESSION_SECRET`, `TRADELENS_INVITE_CODE`, and the
-`TRADELENS_SMTP_*` values are present, since D2 means the SMTP ones may never
-have been read on Cloud even if they are set.
-
-### Migration rules
-
-- Take a backup before touching anything, and verify the backup restores before
-  it is relied on.
-- The old database is **not** deleted, overwritten, or repointed during initial
-  rollout. It stays intact and reachable as the rollback target.
-- Cutover is a `DATABASE_URL` change, so rollback is the same change in reverse.
-- Row counts for `users`, `trades`, and `strategies` are compared before and
-  after and must match exactly.
-- Alembic runs against Neon; every revision's `downgrade()` is tested, not
-  assumed.
+Full pre-flight procedure, including the exact statements, is in Phase 1 of the
+implementation plan.
 
 ---
 
-## 10. Security
+## 11. Security
 
-**Rate limiting.** DB-backed, never in-memory — serverless instances share no
-state, so an in-memory counter is not a limit. Every attempt inserts an
-`auth_attempts` row keyed on a bucket; a request is rejected when the count in
-the window is exceeded.
+**Rate limiting** — DB-backed in `auth_attempts`, never in-memory: serverless
+instances share no state, so an in-memory counter is not a limit.
 
-| Action | Bucket | Limit |
+| Action | Buckets | Limit |
 |---|---|---|
-| login | IP, and identifier | 10 / 15 min per IP; 5 / 15 min per identifier |
+| login | IP + identifier | 10 / 15 min per IP; 5 / 15 min per identifier |
 | signup | IP | 5 / hour |
-| forgot-password | IP, and email | 5 / hour per IP; 3 / hour per email |
+| invite validation | IP | 10 / hour |
+| verify-email / resend | user + IP | 10 / hour |
+| forgot-password | IP + email | 5 / hour per IP; 3 / hour per email |
 | reset-password | IP | 10 / hour |
-| verify-email | user | 10 / hour |
 
-Per-identifier limits are counted on failures only, so an attacker cannot lock a
-known user out by burning their quota deliberately. Rejections return the same
-shape and timing as a failed attempt, and are tested directly rather than
-assumed.
+Per-identifier limits count **failures only**, so an attacker cannot lock a known
+user out by deliberately burning their quota. **A successful authentication
+clears that identifier's failure counter.** Rejections return the same response
+shape and comparable timing as an ordinary failure.
 
 **Other measures.**
 
-- Passwords are sent over TLS to the serverless function and never leave it.
-  No client-side hashing, no password in any URL, query string, or log.
-- bcrypt cost pinned to 12 in Node to match Python's current `gensalt()` default.
-  Cost is embedded in the hash, so existing hashes at other costs still verify.
+- Passwords travel over TLS to the serverless function and never leave it. No
+  client-side hashing; no password in any URL, query string, or log.
+- bcrypt cost pinned to 12 in Node, matching Python's verified `gensalt()`
+  default. Cost is embedded in each hash, so existing hashes still verify.
 - Same-origin `Origin`/`Referer` check on every state-changing POST.
-- The reset flow's existing non-enumeration property is preserved: the response
-  is identical whether or not the address is registered. Signup necessarily
-  reveals that an email is taken; that is accepted, and is why signup is
-  rate-limited per IP.
-- `SIGNUP_MODE`, `TRADELENS_INVITE_CODE`, `TRADELENS_SESSION_SECRET`, and
-  `DATABASE_URL` are server-side only and never reach a client bundle. A test
-  asserts no `NEXT_PUBLIC_` variable carries any of them.
-- Handoff tokens and session ids are stored hashed. A database read does not
-  yield a usable credential.
-- D2 is fixed: `password_reset.py` moves to the shared `_read_secret` helper so
-  both modules derive the same base secret on Streamlit Cloud.
-
-**Email delivery from Vercel.** Node sends through the same `TRADELENS_SMTP_*`
-settings via `nodemailer`, so there is one mail configuration for both runtimes.
-Some providers throttle or block SMTP egress from serverless platforms; if that
-happens, swapping to an HTTP email API is contained behind a single `sendMail()`
-function and changes nothing else.
+- The reset flow's non-enumeration property is preserved: identical response
+  whether or not the address is registered. Signup necessarily reveals that an
+  email is taken, which is why signup is rate-limited per IP.
+- `SIGNUP_MODE`, `TRADELENS_INVITE_CODE`, `TRADELENS_SESSION_SECRET`,
+  `DATABASE_URL`, SMTP settings, and the Anthropic key are server-side only. A
+  test asserts no `NEXT_PUBLIC_` variable carries any of them and that no secret
+  appears in the client bundle.
+- Handoff tokens and session ids are stored hashed; a database read yields no
+  usable credential.
+- No secret value is ever logged, echoed in an API response, or committed.
 
 ---
 
-## 11. Rollout and rollback
+## 12. Configuration layer
+
+D2 is fixed by giving Python **one** settings accessor. A single
+`src/tradelens/settings_source.py` resolves in a fixed order — `os.environ`, then
+`st.secrets` (guarded), then a default — and every module uses it:
+`DATABASE_URL`, `TRADELENS_SESSION_SECRET`, `TRADELENS_INVITE_CODE`,
+`SIGNUP_MODE`, the five SMTP settings, `APP_ORIGIN`, `SITE_ORIGIN`. It never
+logs a value, and a test asserts no module reads `os.getenv` directly for any of
+these names.
+
+Node reads the same variable names from Vercel's environment, so one documented
+set of names describes both runtimes.
+
+### Environment variables to add manually
+
+Values are never placed in the repository or pasted into chat.
+
+**Streamlit Cloud — Settings → Secrets**
+
+| Variable | What it is |
+|---|---|
+| `TRADELENS_SESSION_SECRET` | 32+ bytes of cryptographic randomness, base64 or hex. Signs session and verification tokens. **Must be byte-identical to Vercel's.** |
+| `TRADELENS_SMTP_HOST` | Mail server hostname, e.g. your provider's SMTP endpoint |
+| `TRADELENS_SMTP_PORT` | Usually `587` (STARTTLS) or `465` (implicit TLS) |
+| `TRADELENS_SMTP_USER` | SMTP username, often an API-key identifier |
+| `TRADELENS_SMTP_PASSWORD` | SMTP password or API key |
+| `TRADELENS_SMTP_FROM` | Envelope/display sender, e.g. `TradeLens <no-reply@tradelensai.io>`. Must be an address the provider has authorised for the domain, or mail is silently dropped. |
+
+**Vercel — Project → Settings → Environment Variables**
+
+The same six, plus `DATABASE_URL` (the same Neon connection string, pooled
+endpoint), `TRADELENS_INVITE_CODE`, `SIGNUP_MODE` (`invite` for beta),
+`APP_ORIGIN`, and `SITE_ORIGIN`.
+
+The Anthropic key is **not** added to Vercel. No AI call happens in the auth path.
+
+### Email delivery
+
+Node sends through the **same** `TRADELENS_SMTP_*` names via `nodemailer`, so one
+configuration describes both runtimes and there is no second source of truth.
+
+**Tradeoff, stated before any switch.** Some providers throttle or block SMTP
+egress from serverless platforms, and each cold start pays a TLS handshake.
+A transactional HTTP API (Resend, Postmark, SES) avoids both and gives delivery
+logs, at the cost of a second provider account and a Python-side change so both
+runtimes still agree. Recommendation: **start with SMTP**, since Python already
+implements it and it keeps one mechanism; delivery is verified in Phase 4 against
+a real inbox. If Vercel egress proves unreliable, swapping is contained behind a
+single `sendMail()` function on each side — and that swap would be proposed, with
+the provider named, before being made.
+
+**Failing safely.** If email is unconfigured or delivery raises, signup returns a
+clear "we could not send your verification email" and the account stays
+unverified. `email_verified_at` is set **only** on successful code redemption,
+never as a consequence of a send attempt, and never because a send failed.
+
+---
+
+## 13. AI integration
+
+Unchanged. The Anthropic key stays in Streamlit Cloud secrets, every AI call
+continues to route through `services/ai_client.py` on `ANTHROPIC_MODEL_ID`, and
+no key or AI call is added to the Next.js app or to any browser bundle.
+
+---
+
+## 14. Rollout
 
 The Streamlit login stays fully functional throughout. Nothing is removed until
-the new path is verified end to end in production.
-
-1. Neon stood up, Alembic applied, `DATABASE_URL` and
-   `TRADELENS_SESSION_SECRET` set identically on both hosts.
-2. Next.js app deployed; auth routes reachable but not yet linked from the site.
-3. Verified in production with a real account: signup, verification, handoff,
-   first-run Strategy Profile, dashboard, sign out, sign back in, reset password.
-4. The six `[data-app-link]` CTAs in `site/index.html` are repointed from
-   `APP_ORIGIN` to `/login`. This is the switch, and it is one commit to revert.
-5. After a soak period, the Streamlit login screen and the legacy `?auth=` token
-   path are removed in a separate change.
-
-Rollback at any point before step 5 is reverting step 4 and, if needed,
-repointing `DATABASE_URL`. The old database is untouched throughout.
+the new path is verified end to end in production. Phases are in the
+implementation plan; the cutover is repointing the six `[data-app-link]` CTAs in
+`site/index.html` from `APP_ORIGIN` to `/login` — one commit, revertible in one
+commit.
 
 ---
 
-## 12. Testing
+## 15. Testing
 
-**Python (pytest).** The 136-test baseline must not regress.
-Migration upgrade and downgrade against both SQLite and Postgres; backfill
-correctness for each of the three backfill rules; handoff redemption including
-expiry, replay, and concurrent-redemption races; opaque session create, restore,
-slide, and revoke; that `sign_out()` now genuinely invalidates (D1);
-identity-resolution edge cases from §8.3; the first-run gate including the
-null-`user_id` skip; both first-run exits; that the gate does not re-trigger;
-rate-limit enforcement and the failures-only counting rule.
+**Python (pytest).** The 136-test baseline must not regress. Migration upgrade
+and downgrade on SQLite and on a Neon branch; each backfill rule; the legacy
+compatibility rule specifically; handoff redemption including expiry, replay, and
+concurrent redemption; session create/restore/slide/revoke; that `sign_out()` now
+genuinely invalidates (D1); identity-resolution edge cases; the first-run gate
+including the null-id skip and both exits; that the gate does not re-trigger;
+rate limiting including failures-only counting and reset-on-success; that the
+settings layer resolves identically under env and `st.secrets` (D2).
 
-**Node (vitest).** Token issuance and verification; bcrypt round-trip;
-base64 padding; signup and login validation; `SIGNUP_MODE` behaviour for all
-three values plus an unrecognised one falling shut; rate-limit guards; that no
-secret reaches a client bundle.
+**Node (vitest).** Token issuance and verification; bcrypt round-trip; base64
+padding; server-side password policy; all four `SIGNUP_MODE` values including an
+unrecognised one failing shut; rate-limit guards; no secret in the client bundle.
 
-**Cross-language.** Node-generated tokens verified in Python and the reverse,
-covering valid, expired, tampered-payload, and tampered-signature cases. This is
-the highest-risk seam in the design and gets dedicated coverage independent of
-the handoff work.
+**Cross-language.** Node-generated tokens verified in Python and the reverse —
+valid, expired, tampered payload, tampered signature. The highest-risk seam,
+covered independently of the handoff work.
 
-**Manual.** Full new-user and returning-user walkthroughs against staging before
-step 4, at desktop and mobile widths, including reduced-motion.
-
----
-
-## 13. Open items
-
-1. **`DATABASE_URL` in Streamlit Cloud** — blocking §9. See the table there for
-   exactly what to look for.
-2. **`TRADELENS_SESSION_SECRET`** — must be generated and set identically on both
-   hosts before anything works.
-3. **SMTP reachability from Vercel** — verify during phase 2; the fallback is
-   contained.
+**Manual.** The Phase 8 matrix in the implementation plan.
