@@ -55,16 +55,34 @@ The primary branch is **`production`**, not `main`. All branches are cut from it
 ```
 production  (br-soft-morning-auxx44gz)   ← never modified during Phase 1A
 ├── pre-auth-migration-2026-08-10        ← snapshot / rollback target
-├── dev-auth-migration                   ← copy of production; rehearsal happens here
-└── alembic-reference                    ← EMPTY; built by migrations from scratch
+├── dev-auth-migration                   ← rehearsal; uses its copied neondb
+├── alembic-reference                    ← uses a NEW EMPTY db: alembic_reference
+└── backup-restore-check                 ← uses a NEW EMPTY db: restore_check
 ```
 
-`alembic-reference` is the addition that makes Phase 1A possible. It is an empty
+**A Neon branch is a copy of its parent, so no branch is ever "empty".** The
+emptiness has to come from a *separate database created inside* the branch. Two
+branches need that:
+
+| Branch | Copied `neondb` | Separate empty database | Purpose |
+|---|---|---|---|
+| `alembic-reference` | left untouched | `alembic_reference` | canonical schema for revision `r8s9t0u1v2w3` |
+| `backup-restore-check` | left untouched | `restore_check` | proves the `pg_dump` is restorable |
+
+`alembic-reference/alembic_reference` is what makes Phase 1A possible: an empty
 database migrated to `r8s9t0u1v2w3` from nothing, on the same PostgreSQL 17
-engine, so its schema is by construction exactly what that revision means.
-Comparing `dev-auth-migration` against it answers "is production equivalent to
-`r8s9t0u1v2w3`?" with evidence instead of assertion. It must be Postgres —
-diffing against SQLite would bury the real differences under type noise.
+engine, so its schema is by construction exactly what that revision *means*.
+Comparing `dev-auth-migration/neondb` against it answers "is production
+equivalent to `r8s9t0u1v2w3`?" with evidence instead of assertion. It must be
+Postgres — diffing against SQLite would bury real differences under type noise.
+
+**Alembic-from-zero is never run against a copied `neondb`.** Doing so would
+attempt every revision from the beginning against a database that already has
+the tables.
+
+`backup-restore-check/restore_check` restores the logical dump into an empty
+target and verifies schema and row counts. Restoring over a populated
+production clone would prove nothing and destroy the clone.
 
 1. Neon Console → project `tradelens-prod` → **Branches** → create branch `pre-auth-migration-2026-08-10` from `production` at current LSN. This is a copy-on-write snapshot; restoring is a branch promote, not a data import.
 2. Also take a logical dump as an independent artifact, in case the branch is lost:
@@ -618,49 +636,101 @@ stamped or migrated until the gap is measured and closed.
 **Runs on `dev-auth-migration` and `alembic-reference` only. Production is not
 touched at any point in this task.**
 
-- [ ] **1A.1 — Build the reference.** On the empty `alembic-reference` branch:
-      `DATABASE_URL="<alembic-reference>" .venv/bin/python -m alembic upgrade r8s9t0u1v2w3`
+**Credential hygiene, applying to every step.** Branch-specific `DATABASE_URL`
+values live in the local environment only. They are never committed, printed,
+logged, written into a `docs/audit/` file, or left in shell output that gets
+committed. Evidence files carry schema and count information only. Commands
+below are written as `DATABASE_URL="<...>"` and must be invoked with the value
+supplied from the environment, not typed inline into anything recorded.
+
+- [ ] **1A.1 — Build the canonical reference.** Against the **empty
+      `alembic_reference` database inside the `alembic-reference` branch** —
+      never the copied `neondb`:
+      `DATABASE_URL="<alembic-reference/alembic_reference>" .venv/bin/python -m alembic upgrade r8s9t0u1v2w3`
       Confirm `alembic current` reports `r8s9t0u1v2w3`.
 
-- [ ] **1A.2 — Produce the drift report.**
-      `REFERENCE_URL="<alembic-reference>" TARGET_URL="<dev-auth-migration>" .venv/bin/python -m scripts.schema_drift | tee docs/audit/schema-drift-2026-08-10.txt`
-      Output is split into **A. benign/environment** and **B. genuine drift**,
-      covering tables, columns, types, nullability, defaults, primary keys,
-      foreign keys, unique constraints, and indexes across **every** table —
-      not just `users`. Exit code 1 while any category B item remains.
+- [ ] **1A.2 — Verify the logical backup.** Restore the `pg_dump` into the empty
+      `restore_check` database inside `backup-restore-check`, then run
+      `scripts.db_inventory` against it and confirm the row counts match the
+      production census. This is the only evidence that the dump is usable.
 
-- [ ] **1A.3 — Stop and report.** Bring the full report back to the owner
-      before any reconciliation or stamp. Category B items are decided by the
-      owner, not silently repaired.
+- [ ] **1A.3 — Produce the drift report.**
+      `REFERENCE_URL="<alembic-reference/alembic_reference>" TARGET_URL="<dev-auth-migration/neondb>" .venv/bin/python -m scripts.schema_drift | tee docs/audit/schema-drift-2026-08-10.txt`
+      Covers tables, columns, types, nullability, defaults, primary keys,
+      foreign keys, unique constraints, and indexes across **every** application
+      table — not just `users`. Output is split into **A. benign/environment**
+      and **B. genuine drift**; exit code is 1 while any category B item remains.
 
-- [ ] **1A.4 — Reconcile category B on the dev branch**, once approved. For the
-      known item that is `CREATE UNIQUE INDEX ix_users_email ON users (email)`.
-      **Before creating a unique index, check for duplicate non-NULL values** —
-      it will fail on a populated table otherwise. Production has
-      `users_with_email = 0`, so this specific index is safe today, but the
-      check belongs in the procedure because it will not always be.
+- [ ] **1A.4 — Stop and report.** Bring the full report to the owner before any
+      reconciliation or stamp. Category B items are decided by the owner, not
+      silently repaired.
 
-- [ ] **1A.5 — Re-run the drift report.** It must exit 0. A clean report is the
+- [ ] **1A.5 — Reconcile category B on the dev branch**, once approved.
+
+      **Reconcile to what the reference database actually contains, not to an
+      assumption from `models.py`.** For the email uniqueness gap, the reference
+      decides every detail: whether the object is a unique index or a `UNIQUE`
+      constraint, its exact name, and any index PostgreSQL generates alongside
+      a constraint. Naming a specific `CREATE UNIQUE INDEX ix_users_email`
+      statement in advance would be guessing at the answer the comparison exists
+      to produce — and a mismatch in kind or name leaves the schema *still*
+      unequal to the revision while looking repaired.
+
+      **Before adding any uniqueness enforcement, check for duplicate non-NULL
+      values.** It fails on a populated table otherwise. Production has
+      `users_with_email = 0`, so this is safe today, but the check belongs in
+      the procedure because it will not always be.
+
+- [ ] **1A.6 — Re-run the drift report.** It must exit 0. A clean report is the
       *only* thing that makes the next step legitimate.
 
-- [ ] **1A.6 — Stamp the dev branch.**
-      `DATABASE_URL="<dev-auth-migration>" .venv/bin/python -m alembic stamp r8s9t0u1v2w3`
+- [ ] **1A.7 — Stamp the dev branch.**
+      `DATABASE_URL="<dev-auth-migration/neondb>" .venv/bin/python -m alembic stamp r8s9t0u1v2w3`
       then confirm `alembic current` reports `r8s9t0u1v2w3`.
 
       `stamp` asserts "this schema already is that revision". Running it to
       silence a missing-revision error, rather than because a diff proved the
       claim, converts a visible problem into an invisible one that surfaces
-      later somewhere unrelated. 1A.5 is what earns this command.
+      later somewhere unrelated. 1A.6 is what earns this command.
 
-- [ ] **1A.7 — Prevent the drift from recurring.** `init_db()` created this
-      situation and will do so again: it runs `create_all` + `_reconcile_columns`
-      (columns only, never indexes) and never stamps. Add a guard so it refuses
-      to run against a database that already has an `alembic_version` row,
-      directing the operator to Alembic instead. Test it both ways.
+- [ ] **1A.8 — Rehearse the migration** (this is Task 1.5, run here on the dev
+      branch): `alembic upgrade s9t0u1v2w3x4` → verify row counts unchanged →
+      verify the backfill → `downgrade -1` → verify → `upgrade head` → verify
+      again → re-run the drift report.
+
+      Expected backfill on the two production accounts: both
+      `onboarding_completed = true`, both `email_verification_required = false`,
+      both `email_verified_at` NULL, exactly one
+      `strategy_profile_completed = true`, exactly one `false`.
+
+- [ ] **1A.9 — STOP.** Report to the owner. No production reconciliation, no
+      production stamp, no `s9t0u1v2w3x4` against production without explicit
+      approval of the full drift and reconciliation report.
 
 **Exit:** the drift report exits 0 on `dev-auth-migration`, that branch is
-stamped `r8s9t0u1v2w3`, and the owner has approved the reconciliation for
-production.
+stamped and migrated and rehearsed both directions, the backup is proven
+restorable, and the owner has approved reconciliation for production.
+
+### Task 1A.10: Alembic becomes the schema authority (DONE — commit `e3fdb43`+)
+
+Not merely a guard. The division of responsibility is now enforced in code and
+tested:
+
+| Database | Who owns the schema | What `init_db` does |
+|---|---|---|
+| Deployed (tracked by Alembic) | Alembic migrations | raises `SchemaManagedByAlembicError` |
+| Remote, untracked | nobody yet — must be migrated | raises `UnmanagedRemoteSchemaError` unless `allow_unmanaged_remote=True` is passed explicitly |
+| Local SQLite | `init_db` | creates and reconciles, as before |
+
+`ui/app.py` no longer calls `init_db()`. It calls `bootstrap_if_local()`, which
+acts only on an untracked local SQLite file and is a documented no-op against
+anything else — so **application startup can no longer mutate a deployed schema
+behind Alembic's back**, which is the specific behaviour that produced this
+whole situation.
+
+Covered by `tests/test_init_db_alembic_authority.py`, including a source-level
+assertion that `app.py` never calls `init_db()` again — the risky call is one
+word away from the safe one, and nothing else in the suite would notice.
 
 ### Task 1.5: Rehearse the migration on the dev branch
 

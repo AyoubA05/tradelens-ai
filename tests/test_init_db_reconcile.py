@@ -48,6 +48,16 @@ def test_init_db_is_idempotent_on_current_schema(tmp_path):
     assert _columns(engine, "trades") == before
 
 
-def test_init_db_default_engine_still_works():
-    # Backward-compatible: app.py calls init_db() with no args at import time.
-    init_db()
+def test_startup_bootstrap_on_the_default_engine_is_safe():
+    # Superseded contract. This used to assert `init_db()` worked on the default
+    # engine because app.py called it at import time. That is exactly what ran
+    # DDL against production Neon on every boot, so app.py now calls
+    # bootstrap_if_local(), which acts only on an untracked local SQLite file.
+    #
+    # Asserting only "does not raise" is deliberate: the return value depends on
+    # whether the developer's local database has been migrated yet, and both
+    # answers are correct. The refusal paths are covered in
+    # tests/test_init_db_alembic_authority.py.
+    from src.tradelens.db.init_db import bootstrap_if_local
+
+    bootstrap_if_local()

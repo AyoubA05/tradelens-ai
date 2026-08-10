@@ -10,11 +10,18 @@ if _root not in sys.path:
 
 import streamlit as _st_boot  # noqa: E402
 
-from src.tradelens.db.init_db import init_db  # noqa: E402
+from src.tradelens.db.init_db import bootstrap_if_local  # noqa: E402
 from src.tradelens.db.session import DatabaseUnavailableError  # noqa: E402
 
-# Idempotent: creates tables on first run, no-op if already exist.
-# Required on Streamlit Cloud where SQLite starts fresh on each deploy.
+# Bootstraps a LOCAL SQLite database only; a documented no-op against anything
+# else. Deployed schemas belong to Alembic.
+#
+# This used to call init_db() unconditionally, on the assumption that Streamlit
+# Cloud started from a fresh SQLite file each deploy. Production actually runs
+# on Neon, so every restart ran create_all + _reconcile_columns against the real
+# database — which is how production acquired a full schema with no
+# alembic_version row, and how users.email arrived without its unique index
+# (_reconcile_columns adds columns and never indexes). See db/init_db.py.
 #
 # Wrapped because this is the FIRST thing that touches the database, and an
 # unhandled failure here is handled by Streamlit rather than by us — which
@@ -26,7 +33,7 @@ from src.tradelens.db.session import DatabaseUnavailableError  # noqa: E402
 # body runs, no service is called, no authentication path is entered, and
 # nothing downgrades to a local file.
 try:
-    init_db()
+    bootstrap_if_local()
 except DatabaseUnavailableError:
     _st_boot.error("TradeLens is temporarily unavailable. Please try again shortly.")
     _st_boot.stop()
