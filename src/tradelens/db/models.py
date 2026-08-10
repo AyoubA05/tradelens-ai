@@ -1,5 +1,18 @@
+from datetime import date, datetime
 from typing import Optional
-from sqlalchemy import String, Float, Integer, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    String,
+    Float,
+    Integer,
+    ForeignKey,
+    Text,
+    UniqueConstraint,
+    false as sa_false,
+    true as sa_true,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .session import Base
 
@@ -21,6 +34,39 @@ class User(Base):
     )
     created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     is_active: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    # --- Collected at signup by the site-hosted flow (2026-08) --------------
+    # Nullable because every account created before that flow existed supplied
+    # none of them. The signup endpoint requires them for new accounts, so the
+    # asymmetry is deliberate: the database stays permissive so the migration
+    # cannot break existing rows, and the service layer enforces the rule where
+    # it can tell a new signup from a legacy row.
+    full_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    birthday: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    referral_source: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    referral_source_other: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    onboarding_completed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false()
+    )
+    strategy_profile_completed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false()
+    )
+
+    # NULL means unverified; a timestamp means verified. Deliberately NOT
+    # backfilled for legacy accounts — their address genuinely was never
+    # verified, and writing a timestamp saying otherwise would put a falsehood
+    # in the data to save one boolean, and make "which addresses are actually
+    # confirmed?" permanently unanswerable.
+    email_verified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # The explicit legacy compatibility rule. False for every account that
+    # predates verification, so the login gate lets them through without us
+    # pretending they verified. New accounts default to True.
+    email_verification_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_true()
+    )
 
 
 class Strategy(Base):
@@ -269,3 +315,100 @@ class WeeklyReview(Base):
     stats_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     cost_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# Site-hosted authentication (2026-08). Credentials are stored as SHA-256
+# hashes only, so reading these tables yields nothing that can be replayed.
+# ---------------------------------------------------------------------------
+
+
+class AuthHandoff(Base):
+    """One-time credential handing a signed-in user from the site to Streamlit.
+
+    Redemption is a single conditional UPDATE, never a read-then-write:
+    Streamlit reruns scripts concurrently and two tabs can race for the same
+    row, so the "is it unconsumed?" check and the "mark it consumed" write have
+    to be one statement or both tabs can win.
+
+    Never reused as the durable session — see AuthSession.
+    """
+
+    __tablename__ = "auth_handoffs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=False, index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class AuthSession(Base):
+    """Revocable server-side session, replacing the self-contained HMAC token.
+
+    The old token could not be revoked: signing out cleared session_state and
+    popped the URL parameter, but the token itself stayed cryptographically
+    valid for up to 24 hours, so anyone with a copied link could sign back in.
+    Revocation here is a row update, which is what makes sign-out mean anything.
+
+    `expires_at` is written once at creation and updated by nothing — that is
+    what makes the 12h cap absolute. `last_seen_at` carries the sliding 8h idle
+    window, so activity extends the idle bound but never the absolute one.
+    """
+
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=False, index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class AuthAttempt(Base):
+    """One row per authentication attempt, for DB-backed rate limiting.
+
+    Serverless instances share no memory, so an in-process counter is not a
+    limit at all — it resets whenever the platform decides to cold-start.
+
+    `bucket` is an opaque key such as "ip:1.2.3.4" or "id:someone@example.com".
+    `succeeded` exists so per-identifier limits can count failures only: without
+    it, an attacker could lock a known user out simply by burning their quota.
+    """
+
+    __tablename__ = "auth_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bucket: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    succeeded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false()
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )

@@ -30,7 +30,6 @@ import base64
 import hmac
 import json
 import logging
-import os
 import secrets as _pysecrets
 import smtplib
 import time
@@ -75,7 +74,16 @@ class ResetRequest:
 
 
 def _read_env(name: str, default: str = "") -> str:
-    return os.getenv(name, default) or default
+    """Delegates to the shared settings accessor.
+
+    This used to be ``os.getenv`` only, while auth.py also consulted
+    st.secrets. On Streamlit Cloud — where secrets are not in the environment —
+    that meant the two modules derived different signing keys from the same
+    configured TRADELENS_SESSION_SECRET. See settings_source for the full note.
+    """
+    from src.tradelens.settings_source import read_setting
+
+    return read_setting(name, default)
 
 
 def _base_secret() -> bytes:

@@ -33,7 +33,6 @@ import base64
 import hmac
 import json
 import logging
-import os
 import secrets as _pysecrets
 import time
 
@@ -172,18 +171,9 @@ def _read_secret(name: str, default: str) -> str:
     Wrapped defensively — st.secrets raises if no secrets file exists, which is
     normal in tests, so any failure simply falls through to the default.
     """
-    val = os.getenv(name)
-    if val:
-        return str(val)
-    try:
-        import streamlit as st
+    from src.tradelens.settings_source import read_setting
 
-        secret = st.secrets.get(name, None)
-        if secret:
-            return str(secret)
-    except Exception:  # noqa: BLE001 — missing secrets file is expected
-        pass
-    return default
+    return read_setting(name, default)
 
 
 def expected_credentials() -> tuple[str, str]:

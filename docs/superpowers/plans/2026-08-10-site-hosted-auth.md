@@ -18,7 +18,8 @@
 - Every Alembic revision implements `downgrade()`.
 - `DEMO_MODE=true` returns cached output — zero API spend in tests.
 - Secrets come from the settings layer only. Never hardcoded, never logged, never in an API response, never in a client bundle.
-- **Baseline: 136 tests passing, 0 ruff violations.** No phase may regress either.
+- **Baseline: 2178 passed, 7 skipped, 0 ruff violations** (measured 2026-08-10). CLAUDE.md's "136 tests" is stale by an order of magnitude — it dates from Week 5 Day 0. No phase may regress the real number.
+- **Python 3.9 in `.venv`**, despite CLAUDE.md saying 3.11. New modules need `from __future__ import annotations` for `X | None` syntax. Run tools as `.venv/bin/python -m <tool>`; the console scripts are not on PATH.
 - Gates: `pytest tests/ -v --tb=short`, `ruff check src/ scripts/`, `black --check src/ scripts/`.
 - Product identity: post-trade reflection journal. No signals, predictions, or trade advice — including UI copy on the new auth pages.
 - `APP_ORIGIN` / `SITE_ORIGIN` are the only sources for those hostnames. Never hardcode `tradelenai.streamlit.app`.
