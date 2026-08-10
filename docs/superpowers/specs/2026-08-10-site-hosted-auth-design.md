@@ -294,6 +294,99 @@ Python accepts. Two details silently break everything if missed:
 Dedicated bidirectional tests cover valid, expired, tampered-payload, and
 tampered-signature cases. These are kept regardless of the handoff design.
 
+### 7.4 Session transport — how the credential reaches the browser
+
+Two credentials, never interchanged.
+
+| | Handoff | Beta session |
+|---|---|---|
+| Parameter | `?ht=` | `?s=` |
+| Lifetime | 120 seconds | 8h idle / 12h absolute |
+| Uses | exactly one | many |
+| Issued by | Vercel | Streamlit, on redemption |
+| Table | `auth_handoffs` | `auth_sessions` |
+| Stored as | SHA-256 hash | SHA-256 hash |
+| Contents | nothing — 32 random bytes | nothing — 32 random bytes |
+
+The handoff token is **never** reused as the session credential. Redemption
+generates a new, independent value from `secrets.token_urlsafe(32)` — 256 bits of
+cryptographic randomness. Neither credential encodes a username, user id, email,
+expiry, or any other claim; both are opaque lookup keys, meaningless without the
+database row.
+
+**The exact parameter is `s`.** Naming it here rather than saying "the existing
+session" is the point of this section: on Streamlit Community Cloud there is no
+server-side cookie write outside Streamlit's own OIDC flow, so for the beta the
+durable session credential **is carried in the query string**, and that is stated
+plainly rather than implied.
+
+**When it is written.** On successful `ht` redemption, `require_auth()` opens the
+session, sets `st.query_params["s"]`, and removes `ht` in the same run. On every
+subsequent run it re-asserts `s` if absent.
+
+**Streamlit navigation does not reliably preserve query parameters** across page
+switches, which is why re-assertion happens on every run rather than once. This
+is the same reason the existing `_persist_token` runs on every script execution.
+
+**Full browser refresh.** `session_state` is wiped; `s` survives in the URL;
+`restore_session()` resolves it, updates `last_seen_at`, and the user stays signed
+in. This is the whole reason a durable credential exists.
+
+**Second tab.** Both tabs carry the same `s` and resolve the same row. Whichever
+runs updates `last_seen_at`. Nothing breaks and nothing is duplicated.
+
+**Rotation: fixed for the session's lifetime. Deliberate.** Rotating would
+shorten the life of a leaked URL, but in a multi-tab Streamlit app rotation
+without a grace window silently signs out every other tab, and rotation *with* a
+grace window keeps two live credentials at once — which gives back most of the
+benefit for real complexity. The exposure is instead bounded by the 12h absolute
+cap, the 8h idle cut-off, and revocation on logout. The real fix is §7.2 Option B,
+not rotation.
+
+**Sliding expiry, and why 12h cannot be extended.** `expires_at` is written once
+at creation as `created_at + 12h` and is **never updated by any code path**.
+`last_seen_at` is updated on each run. A session restores only when all three
+hold:
+
+```
+revoked_at IS NULL
+AND now < expires_at              -- absolute cap, immutable
+AND now - last_seen_at < 8h       -- idle cut-off, slides
+```
+
+So activity slides the idle window but can never push the absolute bound; a
+continuously active session still ends at 12 hours.
+
+**Logout** revokes and clears, in that order: set `revoked_at` on the row, pop `s`
+from the URL, clear `session_state`, rerun. Revoking the row is what makes it
+real — popping the parameter alone is exactly defect D1.
+
+**Expired or revoked credential still in the URL.** `restore_session()` returns
+`None`, the stale `s` is popped so it cannot linger or be re-sent, and the user is
+routed to the login screen. It fails closed and does not raise.
+
+**Copied or shared URL — the accepted beta limitation.** Anyone holding the URL
+is signed in as that user until the session expires or is revoked. This is the
+known cost of Community Cloud having no cookie write available to us, it is not
+hidden behind softer wording, and it is covered by an explicit test that asserts
+the behaviour rather than pretending otherwise. It is removed by Option B.
+
+**Referrer leakage.** Streamlit Cloud gives us no control over response headers,
+so a `Referrer-Policy` header cannot be set. The enforceable mitigation is
+`rel="noreferrer noopener"` on **every** outbound link rendered by the app —
+including the compliance footer's link back to the marketing site, which would
+otherwise hand `SITE_ORIGIN` a URL containing a live session credential. A test
+asserts no external anchor in any rendered HTML lacks it. A
+`<meta name="referrer" content="no-referrer">` is also injected as defence in
+depth, on the understanding that support for it outside `<head>` is inconsistent.
+
+**Comparison and logging.** Lookup is an indexed equality match on the SHA-256
+hash, so no secret-dependent branch runs in Python; any in-process comparison uses
+`hmac.compare_digest`. The raw credential is never logged, never emitted to
+analytics, and never returned in a response body. A test drives a full
+authenticate–refresh–logout cycle with logging captured at DEBUG and asserts the
+raw token string appears nowhere in the output.
+
 ---
 
 ## 8. Schema

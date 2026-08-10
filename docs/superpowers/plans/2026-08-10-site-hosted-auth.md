@@ -943,13 +943,187 @@ git commit -m "test(auth): prove Node and Python agree on token bytes"
 
 **Tests:** valid redeem returns the user id; a second redeem returns `None`; expired returns `None`; unknown hash returns `None`; **two concurrent redemptions of the same token — exactly one succeeds** (threads against a real Postgres, not SQLite, since this is testing row-level atomicity).
 
-### Task 5.3 — Server-side sessions and real logout
-8h idle / 12h absolute. `sign_out()` sets `revoked_at`.
+### Task 5.3 — Server-side sessions, transport, and real logout
 
-**Tests:** restore after simulated reload; sliding `last_seen_at`; expiry at both bounds; **D1 regression — a token captured before `sign_out()` no longer authenticates after it**; a revoked session cannot be resurrected.
+Implements spec §7.4. The session credential is a **new, independent** 256-bit
+value — never the handoff token — carried in query parameter **`s`**.
 
-### Task 5.4 — Wire into `require_auth()`
-Order: existing session → `?ht=` redeem → legacy `?auth=` (kept until Phase 9) → login screen. Strip `ht` from the URL immediately on redeem.
+```python
+# src/tradelens/services/auth_sessions.py  (no Streamlit imports)
+_IDLE_S = 8 * 3600
+_ABSOLUTE_S = 12 * 3600
+
+def open_session(user_id: int) -> str:
+    """Mint a session credential. Returns the raw token; stores only its hash.
+
+    32 bytes = 256 bits. The token carries no username, id, email, or expiry —
+    it is an opaque lookup key, worthless without the row it points at.
+    """
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    # expires_at is written once here and updated by nothing, which is what
+    # makes the 12h cap absolute rather than merely nominal.
+    ...  # INSERT sha256(token), user_id, now, now + _ABSOLUTE_S, now
+    return token
+
+def restore_session(token) -> int | None:
+    """Resolve a credential to a user id, sliding the idle window.
+
+    Fails closed on all three conditions. The idle window slides; the absolute
+    bound does not, so an always-active session still dies at 12 hours.
+    """
+    ...  # SELECT ... WHERE token_hash = :h
+         #   AND revoked_at IS NULL
+         #   AND expires_at > now
+         #   AND last_seen_at > now - _IDLE_S
+         # then UPDATE last_seen_at = now   (never expires_at)
+```
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/test_auth_sessions.py
+def test_the_session_credential_is_not_the_handoff_token():
+    handoff = auth_handoff.issue_handoff(user_id=1)
+    session = auth_sessions.open_session(user_id=1)
+    assert session != handoff
+    assert auth_sessions.restore_session(handoff) is None, "a handoff must never resolve as a session"
+
+def test_only_the_hash_is_stored():
+    token = auth_sessions.open_session(user_id=1)
+    rows = db.execute(text("SELECT token_hash FROM auth_sessions")).scalars().all()
+    assert token not in rows
+    assert rows[0] == hashlib.sha256(token.encode()).hexdigest()
+    assert len(base64.urlsafe_b64decode(token + "==")) >= 32, "256 bits minimum"
+
+def test_idle_window_slides_but_the_absolute_cap_does_not(frozen):
+    token = auth_sessions.open_session(user_id=1)
+    original_expiry = _expiry_of(token)
+    for _ in range(11):                       # eleven hours of hourly activity
+        frozen.tick(hours=1)
+        assert auth_sessions.restore_session(token) == 1
+    assert _expiry_of(token) == original_expiry, "activity must not extend the 12h cap"
+    frozen.tick(hours=1)
+    assert auth_sessions.restore_session(token) is None, "12h absolute cap"
+
+def test_idle_expiry(frozen):
+    token = auth_sessions.open_session(user_id=1)
+    frozen.tick(hours=8, minutes=1)
+    assert auth_sessions.restore_session(token) is None
+
+def test_logout_revokes_the_row_not_just_the_url():
+    """Defect D1. Popping the parameter left a working credential behind."""
+    token = auth_sessions.open_session(user_id=1)
+    auth_sessions.revoke_session(token)
+    assert auth_sessions.restore_session(token) is None
+
+def test_concurrent_restores_both_succeed_without_corrupting_last_seen():
+    token = auth_sessions.open_session(user_id=1)
+    results = run_in_threads(lambda: auth_sessions.restore_session(token), n=8)
+    assert results == [1] * 8
+
+def test_the_raw_credential_never_reaches_the_logs(caplog):
+    caplog.set_level(logging.DEBUG)
+    token = auth_sessions.open_session(user_id=1)
+    auth_sessions.restore_session(token)
+    auth_sessions.revoke_session(token)
+    assert token not in caplog.text
+```
+
+- [ ] **Step 2:** Run — expect FAIL (`auth_sessions` does not exist).
+- [ ] **Step 3:** Implement `open_session`, `restore_session`, `revoke_session`.
+- [ ] **Step 4:** Run — expect PASS.
+- [ ] **Step 5:** Commit.
+
+### Task 5.4 — Wire transport into `require_auth()`
+
+Resolution order, first match wins: `?s=` session → `?ht=` redeem → legacy
+`?auth=` (kept until Phase 9) → login screen.
+
+`_persist_session(st)` re-asserts `s` on **every** run, because Streamlit
+navigation does not reliably preserve query parameters across page switches —
+the same reason the existing `_persist_token` runs every execution.
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/test_session_transport.py
+def test_redeeming_ht_writes_s_and_removes_ht(st):
+    st.query_params["ht"] = auth_handoff.issue_handoff(user_id=1)
+    auth.require_auth()
+    assert "ht" not in st.query_params, "the one-time credential must not linger"
+    assert st.query_params["s"], "the session credential must be written"
+    assert st.query_params["s"] != _the_handoff
+
+def test_full_refresh_restores_the_session(st):
+    """A refresh wipes session_state; only the URL survives."""
+    token = auth_sessions.open_session(user_id=1)
+    st.query_params["s"] = token
+    st.session_state.clear()
+    auth.require_auth()
+    assert auth.is_authenticated()
+
+def test_navigation_reasserts_s_when_streamlit_drops_it(st):
+    token = auth_sessions.open_session(user_id=1)
+    st.session_state[auth._SESSION_KEY] = token
+    del st.query_params["s"]          # what a page switch can do
+    auth.require_auth()
+    assert st.query_params["s"] == token
+
+def test_a_second_tab_shares_the_same_session(st_a, st_b):
+    token = auth_sessions.open_session(user_id=1)
+    for st in (st_a, st_b):
+        st.query_params["s"] = token
+        auth.require_auth()
+        assert auth.is_authenticated()
+
+def test_a_copied_url_authenticates_until_revoked(st_a, st_b):
+    """The accepted beta limitation, asserted rather than glossed over.
+
+    Community Cloud gives us no cookie write, so the durable credential rides
+    in the URL and anyone holding it is signed in. Documented in spec 7.4 and
+    removed by the OIDC end-state, not by this test passing.
+    """
+    token = auth_sessions.open_session(user_id=1)
+    st_b.query_params["s"] = token            # pasted into a different browser
+    auth.require_auth()
+    assert auth.is_authenticated()
+    auth_sessions.revoke_session(token)
+    st_b.session_state.clear()
+    auth.require_auth()
+    assert not auth.is_authenticated()
+
+def test_a_stale_credential_is_stripped_and_routed_to_login(st):
+    token = auth_sessions.open_session(user_id=1)
+    auth_sessions.revoke_session(token)
+    st.query_params["s"] = token
+    auth.require_auth()
+    assert not auth.is_authenticated()
+    assert "s" not in st.query_params, "a dead credential must not linger in the URL"
+    # fails closed, routed to login, does not raise
+
+def test_logout_revokes_and_clears(st):
+    token = auth_sessions.open_session(user_id=1)
+    st.query_params["s"] = token
+    auth.require_auth()
+    auth.sign_out(rerun=False)
+    assert "s" not in st.query_params
+    assert auth_sessions.restore_session(token) is None
+
+def test_every_outbound_link_blocks_referrer_leakage():
+    """An external link would send the full URL — session credential included —
+    to SITE_ORIGIN in the Referer header."""
+    html = auth_screen.compliance_html() + sidebar.render_footer_html()
+    for anchor in re.findall(r"<a\s[^>]*href=\"https?://[^\"]+\"[^>]*>", html):
+        assert "noreferrer" in anchor, f"external link leaks the session URL: {anchor}"
+```
+
+- [ ] **Step 2:** Run — expect FAIL.
+- [ ] **Step 3:** Implement the resolution order, `_persist_session`, stale-param
+      stripping, `sign_out` revocation, and `rel="noreferrer noopener"` on every
+      external anchor.
+- [ ] **Step 4:** Run — expect PASS.
+- [ ] **Step 5:** Commit.
 
 **Exit:** site login lands in Streamlit signed in; refresh keeps the session; sign-out genuinely revokes.
 
