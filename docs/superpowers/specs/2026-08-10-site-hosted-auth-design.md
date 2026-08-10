@@ -43,7 +43,58 @@ were shared, and none are recorded here.
 | `TRADELENS_SESSION_SECRET` | **no** | **Blocking.** Must be created before any handoff works. |
 | `TRADELENS_SMTP_HOST/PORT/USER/PASSWORD/FROM` | **no** | **Blocking** for verification and reset. Email has never worked in production. |
 
-Two consequences follow immediately.
+### Confirmed database state (read-only inspection, 2026-08-10)
+
+Neon project `tradelens-prod` (`round-poetry-98534743`), primary branch
+**`production`** (`br-soft-morning-auxx44gz`), database `neondb`, PostgreSQL 17.
+
+| Table | Rows |
+|---|---|
+| `users` | 2 |
+| `trades` | 21 |
+| `strategies` | 2 |
+| `weekly_reviews` | 2 |
+| `ai_usage_log` | 2 |
+| `corrections`, `screenshots`, `aianalysis`, `performance_metrics`, `user_settings` | 0 |
+
+`users_with_email = 0`; `users_with_active_strategy = 1`.
+
+**Three findings that invalidate earlier assumptions.**
+
+**F1 — there is no `alembic_version` table.** Production carries the
+application schema but Alembic has never tracked it, so the earlier expectation
+that production reports `r8s9t0u1v2w3` was simply wrong. `alembic upgrade head`
+must not be run against it in this state: with no version row, Alembic would
+attempt every revision from the beginning against a database that already has
+the tables.
+
+**F2 — `users.email` has no unique index.** Production's users indexes are
+`users_pkey`, `ix_users_id`, `ix_users_username`. Revision `r8s9t0u1v2w3`
+creates `ix_users_email` as unique. This is confirmed drift.
+
+**F3 — the AI analysis table is `aianalysis`,** not `ai_analyses`. The model
+always said so (`models.py:211`); the first inventory script guessed wrong.
+
+**Cause of F1 and F2, established from the repo rather than assumed.**
+`db/init_db.py` builds the schema with `Base.metadata.create_all()` followed by
+`_reconcile_columns()`. Neither writes an `alembic_version` row — that is F1,
+and the documented setup step in CLAUDE.md is `python -m src.tradelens.db.init_db`.
+
+`_reconcile_columns()` then explains F2 exactly. It adds model columns missing
+from existing tables via `ALTER TABLE ADD COLUMN` and **creates no indexes**.
+The `users` table was created by `create_all` before the `email` column existed
+(added to the model in `a51d4fa`, long after `877ba50` first modelled the
+table), so on a later boot `_reconcile_columns` added the column alone. The
+column is present, the unique index never was.
+
+**This makes the drift systematic, not a one-off.** Any index, unique
+constraint, or check constraint introduced after its table was first created is
+liable to be absent, and `_reconcile_columns` explicitly skips columns that are
+`NOT NULL` without a server default — so those may be missing entirely. F2 is
+one instance of a class, which is why Phase 1A compares the whole schema rather
+than just `users`.
+
+Two further consequences follow immediately.
 
 **Password reset has never worked in production.** `password_reset.email_configured()`
 requires `TRADELENS_SMTP_HOST` and `TRADELENS_SMTP_FROM`; neither exists. The
@@ -439,6 +490,38 @@ and if we later want to require verification of legacy accounts, flipping one
 boolean per user is the whole change. New accounts are created with
 `email_verification_required = true` (the column default) and are blocked until
 they verify.
+
+### 8.1 The legacy exemption must not become inherited trust
+
+Both production accounts have **no email at all**. The exemption exists so they
+keep signing in by username; it says nothing about any address they might add
+later. Without an explicit rule the two would be conflated, and the first
+address such a user typed — a typo, or an attacker's, entered from a live
+session — would be treated as confirmed and would immediately work as a
+password-reset route into the account.
+
+The rule, implemented in `users.set_email()`:
+
+- Setting or changing an address sets `email_verified_at = NULL` and
+  re-arms `email_verification_required = true`. Verification attaches to an
+  **address**, not to an account.
+- Re-saving the *same* address, after normalisation, does not revoke anything —
+  an idempotent save must not sign a user out of their own verified address.
+- Clearing an address clears its verification with it.
+
+Consequently, for the two current accounts:
+
+| Capability | Before adding an email | After adding, before verifying | After verifying |
+|---|---|---|---|
+| Username + password login | yes | yes | yes |
+| Email login | n/a | **no** | yes |
+| Password reset | n/a | **no** | yes |
+| Forced personal-info onboarding | no | no | no |
+
+Password reset to an unverified address is refused outright — delivering a reset
+code to an address nobody has proven they control is the whole attack. Email
+login is likewise refused until verified, so an unverified address cannot become
+a second door into an account.
 
 ### New tables
 

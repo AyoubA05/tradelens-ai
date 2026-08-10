@@ -50,7 +50,23 @@ No table is dropped, renamed, recreated, or imported over.
 
 ### Backup / branching strategy
 
-1. Neon Console → project → **Branches** → create branch `pre-auth-migration-2026-08-10` from `main` at current LSN. This is a copy-on-write snapshot; restoring is a branch promote, not a data import.
+The primary branch is **`production`**, not `main`. All branches are cut from it.
+
+```
+production  (br-soft-morning-auxx44gz)   ← never modified during Phase 1A
+├── pre-auth-migration-2026-08-10        ← snapshot / rollback target
+├── dev-auth-migration                   ← copy of production; rehearsal happens here
+└── alembic-reference                    ← EMPTY; built by migrations from scratch
+```
+
+`alembic-reference` is the addition that makes Phase 1A possible. It is an empty
+database migrated to `r8s9t0u1v2w3` from nothing, on the same PostgreSQL 17
+engine, so its schema is by construction exactly what that revision means.
+Comparing `dev-auth-migration` against it answers "is production equivalent to
+`r8s9t0u1v2w3`?" with evidence instead of assertion. It must be Postgres —
+diffing against SQLite would bury the real differences under type noise.
+
+1. Neon Console → project `tradelens-prod` → **Branches** → create branch `pre-auth-migration-2026-08-10` from `production` at current LSN. This is a copy-on-write snapshot; restoring is a branch promote, not a data import.
 2. Also take a logical dump as an independent artifact, in case the branch is lost:
    `pg_dump "$DATABASE_URL" --format=custom --no-owner --file=backup-2026-08-10.dump`
 3. **Verify the backup restores** into a scratch branch before relying on it. An unverified backup is not a backup.
@@ -60,7 +76,7 @@ No table is dropped, renamed, recreated, or imported over.
 
 | Stage | Rollback |
 |---|---|
-| Migration on `dev-auth-migration` fails | Delete the branch. Production untouched. |
+| Reconciliation or migration on `dev-auth-migration` fails | Delete the branch and re-cut it from `production`. Production untouched. |
 | Migration on production fails mid-run | Alembic runs each revision in a transaction; a failure rolls back automatically. Verify with `alembic current`. |
 | Migration succeeded but is wrong | `alembic downgrade -1` — tested on the dev branch first, in Task 1.5. |
 | Catastrophic | Promote `pre-auth-migration-2026-08-10` back to primary. |
@@ -593,7 +609,60 @@ git add tests/test_migration_site_auth.py
 git commit -m "test(db): lock the legacy backfill rules"
 ```
 
-### Task 1.5: Rehearse on a Neon dev branch
+### Task 1A: Schema reconciliation — BLOCKS the migration
+
+Production has the application schema but no Alembic tracking (F1) and is
+missing at least one index the target revision creates (F2). Nothing may be
+stamped or migrated until the gap is measured and closed.
+
+**Runs on `dev-auth-migration` and `alembic-reference` only. Production is not
+touched at any point in this task.**
+
+- [ ] **1A.1 — Build the reference.** On the empty `alembic-reference` branch:
+      `DATABASE_URL="<alembic-reference>" .venv/bin/python -m alembic upgrade r8s9t0u1v2w3`
+      Confirm `alembic current` reports `r8s9t0u1v2w3`.
+
+- [ ] **1A.2 — Produce the drift report.**
+      `REFERENCE_URL="<alembic-reference>" TARGET_URL="<dev-auth-migration>" .venv/bin/python -m scripts.schema_drift | tee docs/audit/schema-drift-2026-08-10.txt`
+      Output is split into **A. benign/environment** and **B. genuine drift**,
+      covering tables, columns, types, nullability, defaults, primary keys,
+      foreign keys, unique constraints, and indexes across **every** table —
+      not just `users`. Exit code 1 while any category B item remains.
+
+- [ ] **1A.3 — Stop and report.** Bring the full report back to the owner
+      before any reconciliation or stamp. Category B items are decided by the
+      owner, not silently repaired.
+
+- [ ] **1A.4 — Reconcile category B on the dev branch**, once approved. For the
+      known item that is `CREATE UNIQUE INDEX ix_users_email ON users (email)`.
+      **Before creating a unique index, check for duplicate non-NULL values** —
+      it will fail on a populated table otherwise. Production has
+      `users_with_email = 0`, so this specific index is safe today, but the
+      check belongs in the procedure because it will not always be.
+
+- [ ] **1A.5 — Re-run the drift report.** It must exit 0. A clean report is the
+      *only* thing that makes the next step legitimate.
+
+- [ ] **1A.6 — Stamp the dev branch.**
+      `DATABASE_URL="<dev-auth-migration>" .venv/bin/python -m alembic stamp r8s9t0u1v2w3`
+      then confirm `alembic current` reports `r8s9t0u1v2w3`.
+
+      `stamp` asserts "this schema already is that revision". Running it to
+      silence a missing-revision error, rather than because a diff proved the
+      claim, converts a visible problem into an invisible one that surfaces
+      later somewhere unrelated. 1A.5 is what earns this command.
+
+- [ ] **1A.7 — Prevent the drift from recurring.** `init_db()` created this
+      situation and will do so again: it runs `create_all` + `_reconcile_columns`
+      (columns only, never indexes) and never stamps. Add a guard so it refuses
+      to run against a database that already has an `alembic_version` row,
+      directing the operator to Alembic instead. Test it both ways.
+
+**Exit:** the drift report exits 0 on `dev-auth-migration`, that branch is
+stamped `r8s9t0u1v2w3`, and the owner has approved the reconciliation for
+production.
+
+### Task 1.5: Rehearse the migration on the dev branch
 
 - [ ] **Step 1: Confirm the owner has created the branches** from the Phase 1 Gate. Do not create or delete Neon branches unattended.
 

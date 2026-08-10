@@ -86,6 +86,20 @@ def set_email(user_id: int, email) -> Optional[str]:
             if clash is not None:
                 raise ValueError("That email is already used by another account.")
 
+        # Changing the address invalidates any verification of the old one, and
+        # a newly typed address has never been verified at all.
+        #
+        # This closes a hole opened by the legacy backfill. Accounts predating
+        # verification carry email_verification_required = False so they keep
+        # signing in by username. Without the two lines below, the first email
+        # such a user ever typed would inherit that exemption and be treated as
+        # trusted — so an address nobody controls could receive a password
+        # reset. Requirement is re-armed here on any change, which is exactly
+        # the moment the exemption stops being about legacy access.
+        if user.email != normalised:
+            user.email_verified_at = None
+            user.email_verification_required = True
+
         user.email = normalised
         db.commit()
         return normalised
