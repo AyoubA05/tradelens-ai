@@ -96,7 +96,7 @@ Run this after any hotfix or schema-change PR is merged to `main`:
 1. **Confirm merge** — check GitHub `main` branch shows your fix commit as HEAD
 2. **Reboot app** — Streamlit Cloud dashboard → three-dot menu → Reboot (or wait for auto-redeploy)
 3. **Watch boot logs** — Manage app → Logs; confirm `init_db()` runs without errors
-4. **Load dashboard** — open https://tradelens-app.streamlit.app and confirm no `OperationalError`
+4. **Load dashboard** — open https://tradelenai.streamlit.app and confirm no `OperationalError`
 5. **Spot-check data** — verify existing trades still display correctly (no data loss from ALTER)
 6. **Log trade** — submit one test trade through New Trade wizard; confirm it saves and appears in Journal
 7. **Check AI features** — run one AI recap/grading call; confirm no 500 errors

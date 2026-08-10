@@ -18,7 +18,7 @@ PRIVACY = ROOT / "site" / "privacy" / "index.html"
 TERMS = ROOT / "site" / "terms" / "index.html"
 
 REAL = "https://www.tradelensai.io"
-APP = "https://tradelens-app.streamlit.app"
+APP = "https://tradelenai.streamlit.app"
 SUPPORT = "support@example.com"
 
 

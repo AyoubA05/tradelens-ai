@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "site"
 
 REAL = "https://www.tradelensai.io"
-APP = "https://tradelens-app.streamlit.app"
+APP = "https://tradelenai.streamlit.app"
 SUPPORT = "support@example.com"
 
 # Every page a visitor can land on must offer the same routes out.

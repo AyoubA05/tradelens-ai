@@ -9,6 +9,7 @@ is perfectly well-formed.
 These tests replace "remember to swap the domain" with a failing build.
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INDEX = ROOT / "site" / "index.html"
 
 REAL = "https://www.tradelensai.io"
-APP = "https://tradelens-app.streamlit.app"
+APP = "https://tradelenai.streamlit.app"
 SUPPORT = "support@example.com"
 
 # The <head> fields that must carry an absolute production URL.
@@ -157,6 +158,11 @@ def test_source_uses_app_origin_token():
     text = _index_text()
     assert "__APP_ORIGIN__" in text
     assert APP not in text
+
+
+def test_vercel_build_targets_the_public_tradelens_app():
+    config = json.loads((ROOT / "vercel.json").read_text(encoding="utf-8"))
+    assert config["build"]["env"]["APP_ORIGIN"] == APP
 
 
 def test_main_js_uses_app_origin_token():

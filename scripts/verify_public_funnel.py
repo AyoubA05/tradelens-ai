@@ -19,7 +19,7 @@ Standard library only, read-only, no dependencies.
 
     python scripts/verify_public_funnel.py \
         --site https://tradelens-ai-site-git-main-ayouba05s-projects.vercel.app \
-        --app https://tradelens-app.streamlit.app
+        --app https://tradelenai.streamlit.app
 
 Exit code 0 only when both checks pass.
 """
@@ -82,6 +82,9 @@ def _returns_to(auth_url: str, app_origin: str) -> bool:
     app_host = (urllib.parse.urlparse(app_origin).hostname or "").lower()
     if not app_host:
         return False
+    auth_host = (urllib.parse.urlparse(auth_url).hostname or "").lower()
+    if auth_host == app_host:
+        return True
     query = urllib.parse.urlparse(auth_url).query
     for _key, value in urllib.parse.parse_qsl(query):
         if app_host in urllib.parse.unquote(value).lower():

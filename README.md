@@ -11,7 +11,7 @@
 
 **A post-trade reflection journal and analytics dashboard for SMC/ICT day traders — it reviews every chart, grades your process against your own rules, and learns your corrections.** Not a signal app, not a bot, not financial advice.
 
-**Live demo:** [https://tradelens-app.streamlit.app/](https://tradelens-app.streamlit.app/) · runs in `DEMO_MODE` (cached AI, zero API spend).
+**Live demo:** [https://tradelenai.streamlit.app/](https://tradelenai.streamlit.app/) · runs in `DEMO_MODE` (cached AI, zero API spend).
 
 <!-- screenshot: dashboard — full home dashboard with KPI glass cards, equity curve, and Trade of the Week. Replace after Streamlit Cloud deploy. -->
 

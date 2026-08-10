@@ -5,7 +5,7 @@
   "build": {
     "env": {
       "SITE_ORIGIN": "https://www.tradelensai.io",
-      "APP_ORIGIN": "https://tradelens-app.streamlit.app"
+      "APP_ORIGIN": "https://tradelenai.streamlit.app"
     }
   }
 }

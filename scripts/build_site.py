@@ -1,7 +1,7 @@
 """Resolve the marketing site's deploy-time placeholders into a publishable copy.
 
     SITE_ORIGIN=https://www.tradelensai.io \
-        APP_ORIGIN=https://tradelens-app.streamlit.app \
+        APP_ORIGIN=https://tradelenai.streamlit.app \
         python -m scripts.build_site
 
 Copies site/ to dist/site/ with __SITE_ORIGIN__ replaced by SITE_ORIGIN. The

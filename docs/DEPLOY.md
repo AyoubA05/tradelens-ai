@@ -165,7 +165,7 @@ Fixing one does not fix the other.
    ```bash
    .venv/bin/python scripts/verify_public_funnel.py \
      --site https://www.tradelensai.io \
-     --app https://tradelens-app.streamlit.app
+     --app https://tradelenai.streamlit.app
    ```
 
 4. Expected: two PASS lines and exit code 0.

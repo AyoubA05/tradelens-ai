@@ -34,10 +34,10 @@ _skip_local_server = pytest.mark.skipif(
     reason="macOS restricts local socket binding outside CI; logic covered by unit tests above",
 )
 
-APP = "https://tradelens-app.streamlit.app"
+APP = "https://tradelenai.streamlit.app"
 STREAMLIT_AUTH = (
     "https://share.streamlit.io/-/auth/app"
-    "?redirect_uri=https%3A%2F%2Ftradelens-app.streamlit.app%2F"
+    "?redirect_uri=https%3A%2F%2Ftradelenai.streamlit.app%2F"
 )
 
 
@@ -86,6 +86,12 @@ def test_marketing_behind_a_login_wall_fails():
 def test_app_sign_in_redirect_is_expected_behaviour():
     """The app is gated on purpose; this is a pass, not a failure."""
     result = classify_app(303, STREAMLIT_AUTH, app_origin=APP)
+    assert result.ok
+    assert "sign-in" in result.detail
+
+
+def test_same_app_streamlit_login_redirect_returns_to_the_app():
+    result = classify_app(303, APP + "/-/login?payload=opaque", app_origin=APP)
     assert result.ok
     assert "sign-in" in result.detail
 
