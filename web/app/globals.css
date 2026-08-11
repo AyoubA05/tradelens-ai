@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+
+body {
+  background: theme('colors.bg');
+  color: theme('colors.text');
+  font-family: theme('fontFamily.body');
+  -webkit-font-smoothing: antialiased;
+  /* clip, not hidden: hidden makes body the scroll container and kills window
+     scroll events, which the marketing site's parallax handlers depend on. */
+  overflow-x: clip;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
