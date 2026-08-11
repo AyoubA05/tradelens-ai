@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Text,
     UniqueConstraint,
+    text,
     false as sa_false,
     true as sa_true,
 )
@@ -20,7 +21,7 @@ from .session import Base
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(
         String, unique=True, nullable=False, index=True
     )
@@ -33,7 +34,14 @@ class User(Base):
         String, unique=True, nullable=True, index=True
     )
     created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    is_active: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Integer, not Boolean: 1 is active. The database-side default matters
+    # independently of the ORM one — the column is NOT NULL, so a raw INSERT
+    # that omits it fails without a server_default. Both are declared and they
+    # agree; the Python default keeps ORM-constructed objects meaningful before
+    # a flush, the server default makes non-ORM writes land on the same value.
+    is_active: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
 
     # --- Collected at signup by the site-hosted flow (2026-08) --------------
     # Nullable because every account created before that flow existed supplied
@@ -166,7 +174,12 @@ class Trade(Base):
     followed_rules: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # Marks demo/sample rows so they can be cleared without touching real trades.
-    is_sample: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
+    # Integer, not Boolean: 0 means a real trade, 1 means seeded sample data.
+    # The server default keeps the real/sample partition well-defined for writes
+    # that do not go through the ORM; the Python default agrees with it.
+    is_sample: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=0, server_default=text("0")
+    )
 
     # Owning user (multi-user, Session B). NULL = legacy single-user trades.
     user_id: Mapped[Optional[int]] = mapped_column(
@@ -239,7 +252,7 @@ class AIAnalysis(Base):
 class Correction(Base):
     __tablename__ = "corrections"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     trade_id: Mapped[int] = mapped_column(
         ForeignKey("trades.id", ondelete="CASCADE"), nullable=False
     )
@@ -263,7 +276,7 @@ class AIUsageLog(Base):
 
     __tablename__ = "ai_usage_log"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     feature: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     tokens_input: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -279,7 +292,7 @@ class AIUsageLog(Base):
 class PerformanceMetrics(Base):
     __tablename__ = "performance_metrics"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     period_start: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     period_end: Mapped[Optional[str]] = mapped_column(String, nullable=True)

@@ -19,7 +19,7 @@ them by flag keeps the record honest, and leaves "require verification of old
 accounts too" as a single boolean flip per user.
 
 Revision ID: s9t0u1v2w3x4
-Revises: r8s9t0u1v2w3
+Revises: t0u1v2w3x4y5
 Create Date: 2026-08-10
 """
 
@@ -29,7 +29,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "s9t0u1v2w3x4"
-down_revision: Union[str, Sequence[str], None] = "r8s9t0u1v2w3"
+down_revision: Union[str, Sequence[str], None] = "t0u1v2w3x4y5"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -143,9 +143,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("bucket", sa.String(200), nullable=False),
         sa.Column("action", sa.String(40), nullable=False),
-        sa.Column(
-            "succeeded", sa.Boolean(), nullable=False, server_default=sa.false()
-        ),
+        sa.Column("succeeded", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
     op.create_index("ix_auth_attempts_bucket", "auth_attempts", ["bucket"])
