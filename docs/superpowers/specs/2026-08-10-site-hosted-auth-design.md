@@ -594,11 +594,24 @@ The rule is total because usernames are already constrained to
 `^[a-zA-Z0-9_]{3,20}$` (`users.py:22`) and cannot contain `@`, so no account is
 unreachable and no identifier is ambiguous.
 
-New users never choose a username. One is generated from the email local-part,
-normalised to that charset, truncated to 20 characters, and de-duplicated with a
-numeric suffix inside the same transaction as the insert, so a race cannot
-produce a duplicate. Existing users keep their usernames. `Trade.user_id` and
-`Strategy.user_id` foreign keys are unaffected.
+New users never choose a username. **Amended 2026-08-11: the internal username
+is opaque, not derived from the email local-part.**
+
+The earlier design derived it from the address. That is rejected because the
+username is not private — it is the legacy login identifier and appears in
+support and admin contexts — so deriving it from the email leaks the local part
+of a user's address to anywhere the username surfaces, and makes two people with
+the same local part at different domains collide for no reason.
+
+Generated instead as `u_` plus 16 hex characters (72 bits) — 18 characters, well
+inside the existing `^[a-zA-Z0-9_]{3,20}$` constraint that legacy usernames
+already satisfy. Generation retries on the unique index rather than pre-checking,
+so a race cannot produce a duplicate. Existing users keep their usernames.
+`Trade.user_id` and `Strategy.user_id` foreign keys are unaffected.
+
+Legacy accounts remain exactly as they are: `ayoub` and `Ayoub` stay distinct,
+username matching stays exact and case-sensitive, and no `lower(username)`
+uniqueness is introduced.
 
 Tested edge cases: `@` present with no matching email; uppercase and surrounding
 whitespace; a username that is a prefix of another; an email local-part colliding
