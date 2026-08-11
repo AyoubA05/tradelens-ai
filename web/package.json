@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "clsx": "2.1.1",
     "framer-motion": "^13.1.0",
     "lucide-react": "0.474.0",
@@ -20,12 +21,14 @@
     "pg": "8.13.1",
     "react": "19.0.0",
     "react-dom": "19.0.0",
+    "server-only": "^0.0.1",
     "sharp": "^0.35.3",
     "tailwind-merge": "2.6.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "6.6.3",
     "@testing-library/react": "16.2.0",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "22.10.7",
     "@types/pg": "8.11.10",
     "@types/react": "19.0.7",

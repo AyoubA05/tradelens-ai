@@ -40,26 +40,84 @@ export function SignupForm({ inviteRequired }: { inviteRequired: boolean }) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [invite, setInvite] = useState("");
-  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<
+    "idle" | "validating" | "submitting" | "success"
+  >("idle");
 
   const mismatch = confirm.length > 0 && confirm !== password;
+  const busy = state === "submitting" || state === "validating";
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    // Scaffold: no endpoint yet. Say so rather than simulate an account.
-    setNotice(
-      "Account creation is not connected yet — the signup endpoint ships in the next increment.",
+    // Double-submit guard. The button is disabled while busy, but a keyboard
+    // Enter or a double click can still fire before React re-renders, and a
+    // duplicated signup POST is not something to leave to the DOM.
+    if (busy || state === "success") return;
+
+    setError(null);
+    setState("validating");
+    if (password !== confirm) {
+      setError("Those passwords do not match.");
+      setState("idle");
+      return;
+    }
+
+    setState("submitting");
+    try {
+      const response = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          password,
+          fullName,
+          birthday,
+          referralSource: referral,
+          referralOther: referral === "Other" ? referralOther : null,
+          ...(inviteRequired ? { invite } : {}),
+        }),
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!response.ok || !payload.ok) {
+        setError(payload.error ?? "Something went wrong. Please try again.");
+        setState("idle");
+        return;
+      }
+      setState("success");
+    } catch {
+      setError("We could not reach the server. Check your connection and try again.");
+      setState("idle");
+    }
+  }
+
+  if (state === "success") {
+    return (
+      <div className="space-y-3">
+        <p className="rounded-lg border border-accent/30 bg-accent-dim px-3 py-2 text-sm text-accent">
+          Account created. Verify your email address to open your journal.
+        </p>
+        {/* SMTP is unconfigured, so no message was sent and none is claimed. */}
+        <p className="text-[11.5px] leading-relaxed text-muted">
+          Email delivery is not configured in this environment yet, so no
+          verification message has been sent. Verification is wired up in the
+          next increment.
+        </p>
+      </div>
     );
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-      {notice && (
+      {error && (
         <p
-          role="status"
-          className="rounded-lg border border-accent/30 bg-accent-dim px-3 py-2 text-xs text-accent"
+          role="alert"
+          className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300"
         >
-          {notice}
+          {error}
         </p>
       )}
 
@@ -168,13 +226,16 @@ export function SignupForm({ inviteRequired }: { inviteRequired: boolean }) {
 
       <button
         type="submit"
+        disabled={busy}
+        aria-busy={busy}
         className={cn(
           "mt-2 h-10 w-full rounded-lg bg-accent text-sm font-medium text-bg",
           "transition-transform duration-200 hover:scale-[1.01] active:scale-[0.99]",
           "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-accent/40",
+          "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100",
         )}
       >
-        Create account
+        {busy ? "Creating account…" : "Create account"}
       </button>
     </form>
   );
