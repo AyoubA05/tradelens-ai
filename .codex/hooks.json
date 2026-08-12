@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "grep -rn 'sk-\\|pplx-\\|API_KEY.*=.*[a-zA-Z0-9]' src/ scripts/ 2>/dev/null && echo 'WARNING: Possible hardcoded secret detected' || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ruff check src/ scripts/ --fix && pytest tests/ -q --tb=short 2>&1 | tail -20"
+          }
+        ]
+      }
+    ]
+  }
+}

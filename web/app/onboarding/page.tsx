@@ -1,38 +1,34 @@
+import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+
 import { AuthShell } from "@/components/auth-shell";
+import { authenticateSessionToken, emailGatePassed, nextDestinationFor } from "@/lib/auth/session";
+import { SESSION_COOKIE } from "@/lib/auth/login";
+import { OnboardingForm } from "./onboarding-form";
+
+export const dynamic = "force-dynamic";
 
 /**
- * Personal onboarding closes out on the website; the Strategy Profile does NOT
- * live here. That step stays in Streamlit, gated on strategy_profile_completed,
- * because it reuses the existing Strategy Profile service and its twelve fields.
- *
- * In the approved flow the personal details are collected during signup, so
- * this route exists as the confirmation and handoff point rather than a second
- * form. The handoff itself is a later increment.
+ * Server component. Authorization happens here, before anything renders — a
+ * client-side redirect would leave the page reachable by anyone who ignores it.
  */
-export default function OnboardingPage() {
+export default async function OnboardingPage() {
+  const cookieHeader = (await headers()).get("cookie") ?? "";
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
+  const user = await authenticateSessionToken(match ? decodeURIComponent(match[1]!) : null);
+
+  // Logged out, expired, revoked, or inactive all land here.
+  if (!user) redirect("/login");
+  if (!emailGatePassed(user)) redirect("/verify-email");
+  // Already done: sent onward rather than shown a form that would refuse to save.
+  if (user.onboardingCompleted) redirect(nextDestinationFor(user));
+
   return (
     <AuthShell
-      title="You're all set"
-      intro="Your account is ready. Next you'll tell the AI how you trade — that happens inside your journal."
+      title="Tell us about you"
+      intro="A few details to finish setting up your account. You can start journalling straight after."
     >
-      <div className="space-y-4">
-        <ol className="space-y-2.5 text-sm text-muted">
-          <li className="flex gap-2.5"><span className="text-accent">1.</span> Account created</li>
-          <li className="flex gap-2.5"><span className="text-accent">2.</span> Email verified</li>
-          <li className="flex gap-2.5"><span className="text-text">3.</span> Set up your Strategy Profile in the journal</li>
-        </ol>
-        <button
-          type="button"
-          disabled
-          className="h-10 w-full rounded-lg bg-accent/40 text-sm font-medium text-bg/70 cursor-not-allowed"
-        >
-          Open my journal
-        </button>
-        <p className="text-center text-[11.5px] text-muted">
-          The secure handoff into the journal is not connected yet — it ships in a
-          later increment.
-        </p>
-      </div>
+      <OnboardingForm />
     </AuthShell>
   );
 }

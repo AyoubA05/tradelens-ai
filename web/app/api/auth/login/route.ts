@@ -81,10 +81,15 @@ export async function POST(request: Request) {
   await clearFailures(idBucket, "login");
   logAuthEvent("login", "success");
 
+  // State-based, not hardcoded. An account that has already completed personal
+  // onboarding must not be sent back through it. /continue is an explicit
+  // placeholder — the Streamlit handoff is step 9 and is not faked here.
+  const next = result.onboardingCompleted ? "/continue" : "/onboarding";
+
   const response = NextResponse.json(
     // No user id, username, or email. The handoff to Streamlit is a later step;
     // this establishes the website session and nothing more.
-    { ok: true, next: "/onboarding" },
+    { ok: true, next },
     { status: 200, headers: NO_STORE },
   );
   response.cookies.set(

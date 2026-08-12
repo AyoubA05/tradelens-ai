@@ -1,0 +1,15 @@
+[mcp_servers.filesystem]
+command = "npx"
+args = [
+    "-y",
+    "@modelcontextprotocol/server-filesystem",
+    "/Users/ayoub/tradelens-ai",
+]
+
+[mcp_servers.tradelens-db]
+command = "uvx"
+args = [
+    "mcp-server-sqlite",
+    "--db-path",
+    "/Users/ayoub/tradelens-ai/data/tradelens.db",
+]
