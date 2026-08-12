@@ -332,6 +332,29 @@ is not represented as one. It is removed by Option B.
 **No third-party cookie component is added.** `extra-streamlit-components` and
 similar are explicitly out of scope pending owner approval.
 
+### 7.2b Website session vs handoff — a hard invariant
+
+Recorded 2026-08-12, before the handoff is built, so it constrains the
+implementation rather than being checked afterwards.
+
+The website session established at login is a real `HttpOnly`, `Secure`,
+`SameSite=Lax` cookie — Next.js has no cookie-write limitation, so unlike the
+Streamlit side that credential never touches a URL.
+
+**That cookie credential must never be exposed to, reused as, or transmitted to
+Streamlit.** Specifically it must not appear in any redirect URL, query
+parameter, request body, or response body bound for `APP_ORIGIN`.
+
+The handoff remains a separate credential: independent random value, 120-second
+TTL, SHA-256 at rest, single atomic consume. After redeeming it, Streamlit
+creates its **own** independent opaque session credential.
+
+The reason for writing this down in advance: the shortcut is tempting and
+almost invisible in review. Both are rows in `auth_sessions`, so passing the
+cookie value through as the handoff would appear to work perfectly — while
+placing a long-lived `HttpOnly` credential into a URL, which is exactly the
+protection the cookie exists to provide.
+
 ### 7.3 Cross-language token compatibility
 
 The legacy HMAC token stays supported until Phase 9, so Node must produce bytes
