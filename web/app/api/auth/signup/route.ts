@@ -11,6 +11,8 @@ import {
   normalizeEmail,
 } from "@/lib/auth/contract";
 import { createAccount } from "@/lib/auth/signup";
+import { issueVerification, verificationUrl } from "@/lib/auth/verification";
+import { mailTransport, verificationMessage } from "@/lib/mail/transport";
 import {
   bucketFor,
   clientIp,
@@ -205,15 +207,45 @@ export async function POST(request: Request) {
   // No user id, username, or email in the log line.
   logAuthEvent("signup", "success");
 
-  // DEFERRED TO STEP 5: no verification email is sent, and none is claimed.
-  // SMTP is unconfigured, so saying "check your inbox" would be false.
+  // --- verification -------------------------------------------------------
+  //
+  // Failure model, chosen deliberately: the account is NOT rolled back if the
+  // token cannot be issued or the mail cannot be delivered.
+  //
+  // Rolling back would destroy a valid account — correct email, correct
+  // password, correct profile — because of an outage in a system that has
+  // nothing to do with whether the account is valid. The user would see
+  // "something went wrong", retry, and hit "an account already exists" if the
+  // rollback itself half-failed. Leaving the account in its unverified state is
+  // both recoverable and exactly the state it is supposed to be in: it cannot
+  // sign in, and /resend-verification will mint a fresh token whenever mail
+  // works again.
+  let delivery: "sent" | "unavailable" | "failed" | "token_failed" = "failed";
+  try {
+    const issued = await issueVerification(outcome.userId, email);
+    const origin = siteOrigin || optionalEnv("SITE_ORIGIN");
+    const result = await mailTransport().send(
+      verificationMessage(email, verificationUrl(origin, issued.token)),
+    );
+    delivery = result.status === "unavailable" ? "unavailable" : result.status;
+  } catch {
+    // Token issuance itself failed. The account still exists and is still
+    // recoverable through resend; nothing is left half-written, because
+    // issueVerification is transactional.
+    delivery = "token_failed";
+    logAuthEvent("signup", "email_send_failed", { stage: "issue_token" });
+  }
+
   return NextResponse.json(
     {
       ok: true,
       verificationRequired: true,
-      emailDelivery: "pending_configuration",
+      // Reported honestly. "sent" only when a transport actually accepted it.
+      emailDelivery: delivery === "sent" ? "sent" : "pending_configuration",
       message:
-        "Account created. Email verification is required before you can sign in.",
+        delivery === "sent"
+          ? "Account created. Check your email for the verification link."
+          : "Account created. Email verification is required before you can sign in, and email delivery is not configured in this environment yet.",
     },
     { status: 201 },
   );

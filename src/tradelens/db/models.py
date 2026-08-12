@@ -2,6 +2,7 @@ from datetime import date, datetime
 from typing import Optional
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     String,
@@ -424,4 +425,56 @@ class AuthAttempt(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
+    )
+
+
+class EmailVerification(Base):
+    """Durable, opaque, single-use email-verification token.
+
+    The design this replaces signed a claim containing the user id and expiry,
+    reusing the password-reset pattern. That is a signed claim rather than an
+    opaque handle, and — more importantly — it has no record that a token was
+    used, so a replay attempt is indistinguishable from a forgery.
+
+    `email` is the field that does the real work. Without it, a user could sign
+    up as one address, change to another, then click the original link and have
+    an address nobody proved control of marked verified. Consume compares this
+    against the account's current address and refuses on mismatch.
+
+    `consumed_at` and `superseded_at` are separate on purpose. "The user clicked
+    this link" and "the user asked for a new one" are different events, and
+    merging them would make a genuine replay look exactly like a click on a
+    superseded link — the difference between an attack signal and a support case.
+    """
+
+    __tablename__ = "email_verifications"
+    __table_args__ = (
+        # Guards a clock or arithmetic bug at the database rather than in review.
+        CheckConstraint(
+            "expires_at > created_at",
+            name="ck_email_verifications_expiry_after_creation",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=False, index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # The NORMALISED address being verified, under the same contract as
+    # users.email — trimmed and lowercased.
+    email: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    superseded_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )

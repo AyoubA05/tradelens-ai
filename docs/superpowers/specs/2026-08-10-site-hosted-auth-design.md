@@ -534,13 +534,36 @@ a second door into an account.
 **`auth_attempts`** — `id`, `bucket` (indexed), `action`, `succeeded`,
 `created_at`.
 
-**No table for email verification.** It reuses the proven `password_reset`
-pattern: the code is signed with a key derived from the account's current email
-and `email_verified_at`, so completing verification invalidates every outstanding
-code with nothing to store or sweep. Codes are **purpose-bound** — the signing
-key includes a `|verify-email|` domain separator, distinct from the existing
-`|reset|`, so a code from one flow can never be replayed into the other. They
-expire (30 min), carry only an account id and expiry, and die on use.
+**`email_verifications`** — added by Alembic revision `u1v2w3x4y5z6`
+(2026-08-11), superseding the tokenless design this section originally
+described.
+
+`id`, `token_hash` (SHA-256, unique), `user_id` FK `ON DELETE CASCADE`,
+`email`, `created_at`, `expires_at`, `consumed_at` nullable, `superseded_at`
+nullable, plus `CHECK (expires_at > created_at)`.
+
+The original design signed the code with a key derived from account state, so
+completing verification invalidated outstanding codes for free with nothing to
+store. It was rejected once the token requirements were written down: that
+pattern puts the user id and expiry **inside** the token payload, making it a
+signed claim rather than an opaque handle, and it records nothing when a token
+is used — so a replay attempt is indistinguishable from a forgery.
+
+Tokens are opaque 256-bit handles, TTL **24 hours** (deliberately not the
+handoff's 120s or the reset code's 30 minutes: a verification link is routinely
+opened hours later on another device). Issuance supersedes any outstanding token
+in the same transaction, so racing resends still leave exactly one live token.
+
+`email` is what stops a token outliving an address change: consume requires
+`v.email = u.email`, so a token issued for a previous address finds no matching
+row even if supersession missed it. `consumed_at` and `superseded_at` stay
+separate — "clicked the link" and "asked for a new one" are different events,
+and merging them would make a genuine replay look like a click on a superseded
+link.
+
+**Scanner-safe:** GET only inspects and mutates nothing; POST performs the
+atomic consume. Corporate mail scanners fetch every link before the recipient
+sees it, and a consuming GET would burn the token before the user ever clicked.
 
 Expired rows in the three new tables are swept by an opportunistic `DELETE` of
 rows older than 30 days on write, avoiding a scheduled job.
