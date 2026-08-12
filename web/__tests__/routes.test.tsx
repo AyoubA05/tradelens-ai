@@ -65,7 +65,15 @@ describe("controls that do not work are not shown", () => {
   });
 
   it("does not fake a successful sign-in", () => {
+    // Superseded contract. While login was a scaffold this asserted the form
+    // said "not connected yet", so a demo could not be mistaken for working
+    // authentication. Login is now wired, so the same property is asserted
+    // differently: the form must reach the real endpoint and must not decide
+    // success on its own.
     const form = readFileSync(path.join(WEB, "app", "login", "login-form.tsx"), "utf8");
-    expect(form).toContain("not connected yet");
+    expect(form).toContain('fetch("/api/auth/login"');
+    // Success comes from the server's payload, never from a local guess.
+    expect(form).toContain("payload.ok");
+    expect(form).not.toMatch(/setTimeout\s*\(/);
   });
 });
