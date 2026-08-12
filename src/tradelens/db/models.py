@@ -478,3 +478,58 @@ class EmailVerification(Base):
     superseded_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class PasswordReset(Base):
+    """Durable, opaque, single-use password-reset token.
+
+    Replaces the signed claim-bearing codes in services/password_reset.py, which
+    carried the user id and expiry inside the token and stored nothing — so a
+    replay could not be told apart from a forgery, and outstanding tokens could
+    not be explicitly invalidated.
+
+    Deliberately the same shape as EmailVerification, plus one column.
+
+    `password_hash_fingerprint` recovers a property the old design got for free.
+    Because its signing key derived from the current password hash, *any*
+    password change invalidated every outstanding code. A token table loses that
+    unless something replaces it — so the fingerprint is compared at consume, and
+    a hash that has changed by any route makes the token stale. It is a condition
+    nobody can forget, rather than a supersede-write every future password-change
+    path must remember to perform.
+
+    It stores SHA-256 of the hash, never the hash itself and never the password.
+    """
+
+    __tablename__ = "password_resets"
+    __table_args__ = (
+        CheckConstraint(
+            "expires_at > created_at",
+            name="ck_password_resets_expiry_after_creation",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(
+        String(64), unique=True, nullable=False, index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Normalised address the reset was issued for, under the same contract as
+    # users.email.
+    email: Mapped[str] = mapped_column(String, nullable=False)
+    # SHA-256 hex of the exact users.password_hash string, UTF-8 encoded.
+    password_hash_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    consumed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    superseded_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

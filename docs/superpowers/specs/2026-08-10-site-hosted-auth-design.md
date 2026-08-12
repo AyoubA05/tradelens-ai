@@ -119,7 +119,7 @@ Established by inspection on 2026-08-10.
 | Login orchestration | `ui/components/auth.py:254` | DB users take precedence; bootstrap pair reachable only while `users` is empty |
 | Session persistence | `auth.py:87-167` | Self-contained HMAC-SHA256 token in `?auth=`, 24h TTL |
 | Signup gate | `auth.py:244` | Requires `TRADELENS_INVITE_CODE`; disabled when unset |
-| Password reset | `services/password_reset.py` | Token signed with a key derived from the account's *current* password hash — single-use with no token table |
+| Password reset | `services/password_reset.py` → **superseded** | Was a signed claim carrying the user id and expiry, with no token table. Replaced 2026-08-12 by durable opaque tokens in `password_resets` (Alembic `v2w3x4y5z6a7`), 30-minute TTL, SHA-256 at rest, `consumed_at`/`superseded_at`, plus `email` and `password_hash_fingerprint` binding |
 | Strategy Profile | `services/strategy.py` | `get_active_strategy`, `upsert_strategy_profile`, 12 fields, one active row per user |
 | Alembic head | `r8s9t0u1v2w3_add_user_email` | down_revision `q7r8s9t0u1v2` |
 | Marketing site | `site/` | Vanilla; no `package.json` in the repo |
