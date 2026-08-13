@@ -1,4 +1,8 @@
-"""Contract for the site -> Streamlit handoff and the durable session.
+"""Contract for the site -> Streamlit handoff and the durable Streamlit session.
+
+Since 2026-08-13 these are explicitly the *Streamlit* surface: tokens are hashed
+with the tl.streamlit.v1| domain and rows carry surface = 'streamlit'. A website
+token cannot validate here, and vice versa — see tests/test_credential_domains.py.
 
 Two credentials, never interchanged. The handoff crosses the origin boundary
 once and dies; the session is what the user actually holds afterwards.
@@ -131,39 +135,58 @@ def test_handoff_for_the_second_legacy_user_is_distinct(db):
 
 def test_session_is_not_the_handoff(db):
     handoff = auth_handoff.issue_handoff(1)
-    session = auth_sessions.open_session(1)
+    session = auth_sessions.open_streamlit_session(1)
     assert session != handoff
     assert (
-        auth_sessions.restore_session(handoff) is None
+        auth_sessions.restore_streamlit_session(handoff) is None
     ), "a handoff credential must never resolve as a session"
     assert auth_handoff.redeem_handoff(session) is None
 
 
-def test_session_stores_only_the_hash(db):
-    token = auth_sessions.open_session(1)
+def test_session_stores_only_the_domain_separated_hash(db):
+    """The stored hash is domain-scoped, not a plain sha256 of the token.
+
+    Storing the undomained hash is what let a Streamlit token validate as a
+    website cookie: both surfaces computed the same value from the same input.
+    The prefix is the control that cannot be forgotten, because it is part of
+    the hash rather than a WHERE clause someone might omit.
+    """
+    token = auth_sessions.open_streamlit_session(1)
     s = db()
     try:
-        stored = s.execute(text("SELECT token_hash FROM auth_sessions")).scalars().all()
+        rows = s.execute(text("SELECT token_hash, surface FROM auth_sessions")).all()
     finally:
         s.close()
-    assert token not in stored
-    assert stored == [hashlib.sha256(token.encode()).hexdigest()]
+
+    stored_hash, surface = rows[0]
+    assert token not in stored_hash
+    assert surface == "streamlit"
+    assert (
+        stored_hash
+        == hashlib.sha256(
+            (auth_sessions.STREAMLIT_DOMAIN + token).encode("utf-8")
+        ).hexdigest()
+    )
+    # The old undomained form must not appear anywhere.
+    assert stored_hash != hashlib.sha256(token.encode()).hexdigest()
 
 
 def test_session_credential_is_256_bits(db):
     import base64
 
-    token = auth_sessions.open_session(1)
+    token = auth_sessions.open_streamlit_session(1)
     raw = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4))
     assert len(raw) >= 32, "at least 256 bits of entropy"
 
 
 def test_session_restores_and_slides_the_idle_window(db):
     started = _now()
-    token = auth_sessions.open_session(1, now=started)
+    token = auth_sessions.open_streamlit_session(1, now=started)
     for hours in (1, 5, 9, 11):  # active every few hours, never idle 8h
         assert (
-            auth_sessions.restore_session(token, now=started + timedelta(hours=hours))
+            auth_sessions.restore_streamlit_session(
+                token, now=started + timedelta(hours=hours)
+            )
             == 1
         )
 
@@ -171,14 +194,16 @@ def test_session_restores_and_slides_the_idle_window(db):
 def test_absolute_expiry_cannot_be_extended_by_activity(db):
     """The 12-hour cap is absolute: expires_at is written once and never updated."""
     started = _now()
-    token = auth_sessions.open_session(1, now=started)
+    token = auth_sessions.open_streamlit_session(1, now=started)
     for hours in range(1, 12):
         assert (
-            auth_sessions.restore_session(token, now=started + timedelta(hours=hours))
+            auth_sessions.restore_streamlit_session(
+                token, now=started + timedelta(hours=hours)
+            )
             == 1
         )
     assert (
-        auth_sessions.restore_session(
+        auth_sessions.restore_streamlit_session(
             token, now=started + timedelta(hours=12, minutes=1)
         )
         is None
@@ -187,9 +212,9 @@ def test_absolute_expiry_cannot_be_extended_by_activity(db):
 
 def test_idle_expiry(db):
     started = _now()
-    token = auth_sessions.open_session(1, now=started)
+    token = auth_sessions.open_streamlit_session(1, now=started)
     assert (
-        auth_sessions.restore_session(
+        auth_sessions.restore_streamlit_session(
             token, now=started + timedelta(seconds=auth_sessions.IDLE_TIMEOUT_S + 60)
         )
         is None
@@ -203,49 +228,51 @@ def test_the_two_clocks_are_the_configured_values(db):
 
 def test_revocation_ends_a_session_immediately(db):
     """Defect D1: sign-out used to leave a working credential behind."""
-    token = auth_sessions.open_session(1)
-    assert auth_sessions.restore_session(token) == 1
-    assert auth_sessions.revoke_session(token) is True
-    assert auth_sessions.restore_session(token) is None
+    token = auth_sessions.open_streamlit_session(1)
+    assert auth_sessions.restore_streamlit_session(token) == 1
+    assert auth_sessions.revoke_streamlit_session(token) is True
+    assert auth_sessions.restore_streamlit_session(token) is None
 
 
 def test_revoking_twice_reports_no_second_ending(db):
-    token = auth_sessions.open_session(1)
-    assert auth_sessions.revoke_session(token) is True
-    assert auth_sessions.revoke_session(token) is False
+    token = auth_sessions.open_streamlit_session(1)
+    assert auth_sessions.revoke_streamlit_session(token) is True
+    assert auth_sessions.revoke_streamlit_session(token) is False
 
 
 def test_revoke_all_for_user_ends_every_live_session(db):
     """Password reset must not leave sessions opened with the old password."""
-    tokens = [auth_sessions.open_session(1) for _ in range(3)]
-    other = auth_sessions.open_session(2)
+    tokens = [auth_sessions.open_streamlit_session(1) for _ in range(3)]
+    other = auth_sessions.open_streamlit_session(2)
 
     assert auth_sessions.revoke_all_for_user(1) == 3
     for t in tokens:
-        assert auth_sessions.restore_session(t) is None
-    assert auth_sessions.restore_session(other) == 2, "other users are unaffected"
+        assert auth_sessions.restore_streamlit_session(t) is None
+    assert (
+        auth_sessions.restore_streamlit_session(other) == 2
+    ), "other users are unaffected"
 
 
 def test_unknown_session_is_refused(db):
-    assert auth_sessions.restore_session("nope") is None
-    assert auth_sessions.restore_session("") is None
-    assert auth_sessions.restore_session(None) is None
+    assert auth_sessions.restore_streamlit_session("nope") is None
+    assert auth_sessions.restore_streamlit_session("") is None
+    assert auth_sessions.restore_streamlit_session(None) is None
 
 
 def test_sessions_do_not_leak_across_users(db):
-    a = auth_sessions.open_session(1)
-    b = auth_sessions.open_session(2)
-    assert auth_sessions.restore_session(a) == 1
-    assert auth_sessions.restore_session(b) == 2
-    auth_sessions.revoke_session(a)
-    assert auth_sessions.restore_session(b) == 2
+    a = auth_sessions.open_streamlit_session(1)
+    b = auth_sessions.open_streamlit_session(2)
+    assert auth_sessions.restore_streamlit_session(a) == 1
+    assert auth_sessions.restore_streamlit_session(b) == 2
+    auth_sessions.revoke_streamlit_session(a)
+    assert auth_sessions.restore_streamlit_session(b) == 2
 
 
 def test_concurrent_restores_all_succeed(db):
     """Unlike the handoff, a session is meant to be usable from several tabs."""
-    token = auth_sessions.open_session(1)
+    token = auth_sessions.open_streamlit_session(1)
     with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(
-            pool.map(lambda _: auth_sessions.restore_session(token), range(8))
+            pool.map(lambda _: auth_sessions.restore_streamlit_session(token), range(8))
         )
     assert results == [1] * 8

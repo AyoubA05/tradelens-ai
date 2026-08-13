@@ -382,8 +382,19 @@ class AuthSession(Base):
     """
 
     __tablename__ = "auth_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "surface IN ('website', 'streamlit')",
+            name="ck_auth_sessions_surface",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Which surface issued this session. NO DEFAULT, deliberately: a default of
+    # 'website' would let a future Streamlit creation path that forgets the
+    # field silently mint a website-domain row, which is the exact confusion
+    # this column exists to prevent. Every call site must choose.
+    surface: Mapped[str] = mapped_column(String(16), nullable=False)
     token_hash: Mapped[str] = mapped_column(
         String(64), unique=True, nullable=False, index=True
     )

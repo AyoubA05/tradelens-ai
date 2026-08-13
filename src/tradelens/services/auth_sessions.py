@@ -57,8 +57,31 @@ ABSOLUTE_TIMEOUT_S = 12 * 3600
 _SWEEP_AFTER_DAYS = 30
 
 
-def _hash(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+# Credential domains. A session token is hashed with its surface's prefix
+# before storage or lookup, so a token minted for one surface simply does not
+# hash to anything the other surface can find.
+#
+# This is the control that cannot be forgotten: there is no WHERE clause to
+# omit, because the hash function each surface uses IS the domain. The
+# `surface` column is the second, auditable control alongside it.
+#
+# Versioned so a future rotation stays unambiguous. UTF-8 throughout.
+WEBSITE_DOMAIN = "tl.website.v1|"
+STREAMLIT_DOMAIN = "tl.streamlit.v1|"
+
+SURFACE_WEBSITE = "website"
+SURFACE_STREAMLIT = "streamlit"
+
+
+def _hash(token: str, domain: str) -> str:
+    """SHA-256 hex of ``domain + token``, UTF-8 encoded.
+
+    The domain is mandatory. An undomained ``sha256(token)`` is no longer a
+    valid session hash anywhere, and no fallback to it exists — a lookup that
+    tried both would reintroduce exactly the cross-surface ambiguity this
+    replaces.
+    """
+    return hashlib.sha256((domain + token).encode("utf-8")).hexdigest()
 
 
 def _now() -> datetime:
@@ -79,7 +102,7 @@ def _as_aware(value):
     return value
 
 
-def open_session(user_id: int, now: Optional[datetime] = None) -> str:
+def open_streamlit_session(user_id: int, now: Optional[datetime] = None) -> str:
     """Mint a session credential. Returns the raw token; stores only its hash.
 
     ``expires_at`` is written here and by nothing else. That single fact is what
@@ -95,11 +118,12 @@ def open_session(user_id: int, now: Optional[datetime] = None) -> str:
         db.execute(
             text(
                 "INSERT INTO auth_sessions "
-                "(token_hash, user_id, created_at, expires_at, last_seen_at) "
-                "VALUES (:h, :u, :c, :e, :l)"
+                "(token_hash, user_id, created_at, expires_at, last_seen_at, surface) "
+                "VALUES (:h, :u, :c, :e, :l, :s)"
             ),
             {
-                "h": _hash(token),
+                "h": _hash(token, STREAMLIT_DOMAIN),
+                "s": SURFACE_STREAMLIT,
                 "u": user_id,
                 "c": started,
                 "e": started + timedelta(seconds=ABSOLUTE_TIMEOUT_S),
@@ -122,7 +146,7 @@ def open_session(user_id: int, now: Optional[datetime] = None) -> str:
         db.close()
 
 
-def restore_session(token, now: Optional[datetime] = None) -> Optional[int]:
+def restore_streamlit_session(token, now: Optional[datetime] = None) -> Optional[int]:
     """Resolve a credential to a user id, sliding the idle window.
 
     Returns None — failing closed — when the session is unknown, revoked, past
@@ -138,9 +162,9 @@ def restore_session(token, now: Optional[datetime] = None) -> Optional[int]:
         row = db.execute(
             text(
                 "SELECT user_id, expires_at, last_seen_at, revoked_at "
-                "FROM auth_sessions WHERE token_hash = :h"
+                "FROM auth_sessions WHERE token_hash = :h AND surface = :s"
             ).columns(**_SESSION_ROW_TYPES),
-            {"h": _hash(token)},
+            {"h": _hash(token, STREAMLIT_DOMAIN), "s": SURFACE_STREAMLIT},
         ).first()
         if row is None:
             return None
@@ -155,8 +179,11 @@ def restore_session(token, now: Optional[datetime] = None) -> Optional[int]:
 
         # Slide the idle window only. expires_at is never touched here.
         db.execute(
-            text("UPDATE auth_sessions SET last_seen_at = :now WHERE token_hash = :h"),
-            {"now": at, "h": _hash(token)},
+            text(
+                "UPDATE auth_sessions SET last_seen_at = :now "
+                "WHERE token_hash = :h AND surface = :s"
+            ),
+            {"now": at, "h": _hash(token, STREAMLIT_DOMAIN), "s": SURFACE_STREAMLIT},
         )
         db.commit()
         return int(user_id)
@@ -167,7 +194,7 @@ def restore_session(token, now: Optional[datetime] = None) -> Optional[int]:
         db.close()
 
 
-def revoke_session(token, now: Optional[datetime] = None) -> bool:
+def revoke_streamlit_session(token, now: Optional[datetime] = None) -> bool:
     """Revoke a session. Returns whether a live session was actually ended.
 
     This is what sign-out calls. Popping the URL parameter without this is the
@@ -182,9 +209,9 @@ def revoke_session(token, now: Optional[datetime] = None) -> bool:
         result = db.execute(
             text(
                 "UPDATE auth_sessions SET revoked_at = :now "
-                "WHERE token_hash = :h AND revoked_at IS NULL"
+                "WHERE token_hash = :h AND surface = :s AND revoked_at IS NULL"
             ),
-            {"now": at, "h": _hash(token)},
+            {"now": at, "h": _hash(token, STREAMLIT_DOMAIN), "s": SURFACE_STREAMLIT},
         )
         db.commit()
         return result.rowcount == 1
