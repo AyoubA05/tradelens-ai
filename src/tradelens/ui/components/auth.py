@@ -338,6 +338,33 @@ def require_auth() -> None:
     """
     import streamlit as st
 
+    from src.tradelens.ui.components import site_auth
+
+    # --- precedence -------------------------------------------------------
+    #
+    #   1. a valid `s` Streamlit session      site-hosted auth
+    #   2. otherwise a `ht` handoff           one-time atomic exchange
+    #   3. otherwise                          legacy username/password, below
+    #
+    # Site auth is consulted first and validates against the database on every
+    # run. That matters more than it looks: st.session_state persists across
+    # reruns, so a revoked credential would otherwise keep rendering as
+    # authenticated from a flag an earlier run left behind. site_auth clears
+    # those flags itself when validation fails, so an invalid `s` falls through
+    # to the legacy screen rather than inheriting stale authenticated state.
+    site_user_id = site_auth.authenticate(st)
+    if site_user_id is not None:
+        from src.tradelens.services.corrections import set_corrections_user
+
+        set_corrections_user(site_user_id)
+        st.session_state[_AUTH_KEY] = True
+        st.session_state[_UID_KEY] = site_user_id
+        # The legacy `?auth=` token is deliberately NOT issued here. Site auth
+        # carries its own credential; minting a second one would put two
+        # independent session credentials in the same URL.
+        return
+
+    # --- legacy path, unchanged -------------------------------------------
     if not is_authenticated():
         # A full reload wipes st.session_state — the signed URL token survives.
         _try_restore(st)
@@ -352,6 +379,14 @@ def require_auth() -> None:
     # Lazy import: auth_screen imports logic from this module, so a top-level
     # import here would be circular (same pattern sidebar.py uses).
     from src.tradelens.ui.components.auth_screen import render_auth_screen
+
+    # A spent or invalid sign-in link lands here. One generic message for every
+    # cause — malformed, unknown, expired, consumed, ineligible — so the page
+    # cannot be used to probe which handoffs once existed.
+    error = site_auth.site_error(st)
+    if error:
+        st.error(error)
+        st.link_button("Return to TradeLens AI", site_auth.return_to_site_url())
 
     render_auth_screen()
     st.stop()
@@ -384,6 +419,14 @@ def sign_out(rerun: bool = True) -> None:
     put the app in a state nothing else expects.
     """
     import streamlit as st
+
+    from src.tradelens.ui.components import site_auth
+
+    # Revokes only THIS Streamlit session. The user's website cookie session and
+    # any other Streamlit session stay live — "sign out everywhere" is a
+    # separate, explicit action and must not be what ordinary sign-out does.
+    if site_auth.is_site_authenticated(st):
+        site_auth.sign_out_streamlit_session(st)
 
     _clear_session_state_for_sign_out(st.session_state)
     st.session_state[_AUTH_KEY] = False
