@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import pathMod from "node:path";
 
 /**
  * Verification token service and the two routes.
@@ -273,5 +275,74 @@ describe("mail transport", () => {
     const message = verificationMessage("a@b.co", url);
     expect(message.text.split(url).length - 1).toBe(1);
     expect(message.text).toContain("24 hours");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The full account state transition
+// ---------------------------------------------------------------------------
+
+describe("account state transition", () => {
+  const VECTORS = JSON.parse(
+    readFileSync(
+      pathMod.resolve(__dirname, "..", "..", "docs", "contracts", "auth-contract-vectors.json"),
+      "utf8",
+    ),
+  ) as {
+    account_state_transition: Record<string, Record<string, unknown>>;
+    new_account_defaults: Record<string, unknown>;
+  };
+
+  const T = VECTORS.account_state_transition;
+
+  it("matches the new-account defaults at the signup boundary", () => {
+    for (const field of [
+      "email_verified_at",
+      "email_verification_required",
+      "onboarding_completed",
+      "strategy_profile_completed",
+    ]) {
+      expect(T.after_signup![field]).toEqual(VECTORS.new_account_defaults[field]);
+    }
+  });
+
+  it("clears email_verification_required at verification, not just sets the timestamp", () => {
+    // The distinction this pins: setting the timestamp alone would leave the
+    // account permanently flagged as needing verification it had already done.
+    expect(T.after_signup!.email_verification_required).toBe(true);
+    expect(T.after_verification!.email_verification_required).toBe(false);
+    expect(T.after_verification!.email_verified_at).not.toBeNull();
+  });
+
+  it("leaves onboarding untouched by verification", () => {
+    expect(T.after_verification!.onboarding_completed).toBe(false);
+  });
+
+  it("sets only onboarding_completed at the onboarding boundary", () => {
+    expect(T.after_personal_onboarding!.onboarding_completed).toBe(true);
+    // The verification fields carry through unchanged.
+    expect(T.after_personal_onboarding!.email_verification_required).toBe(
+      T.after_verification!.email_verification_required,
+    );
+    expect(T.after_personal_onboarding!.email_verified_at).toBe(
+      T.after_verification!.email_verified_at,
+    );
+  });
+
+  it("never lets the website set strategy_profile_completed", () => {
+    for (const stage of ["after_signup", "after_verification", "after_personal_onboarding"]) {
+      expect(T[stage]!.strategy_profile_completed).toBe(false);
+    }
+  });
+
+  it("is what consumeVerification actually writes", async () => {
+    const sqls = stubConsume([{ user_id: 9 }]);
+    await consumeVerification("tok");
+    const userUpdate = sqls.find((s) => s.includes("UPDATE users"))!;
+    expect(userUpdate).toContain("email_verified_at");
+    expect(userUpdate).toContain("email_verification_required = false");
+    // And nothing else about the account is touched.
+    expect(userUpdate).not.toContain("onboarding_completed");
+    expect(userUpdate).not.toContain("strategy_profile_completed");
   });
 });

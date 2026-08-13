@@ -7,7 +7,7 @@
     "possible without standing up an HTTP service purely to avoid duplication,",
     "which would add a failure mode to every signup to save a small amount of code.",
     "",
-    "So the two implementations are independent by design — and this file is what",
+    "So the two implementations are independent by design \u2014 and this file is what",
     "stops them being two unrelated definitions. Both test suites read these exact",
     "vectors, so a rule that changes on one side without the other fails on both.",
     "",
@@ -15,21 +15,40 @@
   ],
   "version": 1,
   "updated": "2026-08-11",
-
   "email_normalization": {
     "$comment": "Trim, then lowercase. Storage and lookup must agree, or the same address registers twice.",
     "vectors": [
-      { "input": "Ayoub@Example.COM", "expected": "ayoub@example.com" },
-      { "input": "  spaced@example.com  ", "expected": "spaced@example.com" },
-      { "input": "\tTABBED@Example.com\n", "expected": "tabbed@example.com" },
-      { "input": "MiXeD.Case+tag@Example.Co.Uk", "expected": "mixed.case+tag@example.co.uk" },
-      { "input": "already@lower.com", "expected": "already@lower.com" },
-      { "input": "", "expected": null },
-      { "input": "   ", "expected": null }
+      {
+        "input": "Ayoub@Example.COM",
+        "expected": "ayoub@example.com"
+      },
+      {
+        "input": "  spaced@example.com  ",
+        "expected": "spaced@example.com"
+      },
+      {
+        "input": "\tTABBED@Example.com\n",
+        "expected": "tabbed@example.com"
+      },
+      {
+        "input": "MiXeD.Case+tag@Example.Co.Uk",
+        "expected": "mixed.case+tag@example.co.uk"
+      },
+      {
+        "input": "already@lower.com",
+        "expected": "already@lower.com"
+      },
+      {
+        "input": "",
+        "expected": null
+      },
+      {
+        "input": "   ",
+        "expected": null
+      }
     ],
     "$comment_plus": "The +tag is deliberately PRESERVED. Stripping it would silently merge addresses their owner treats as distinct, and is not something a mail provider guarantees."
   },
-
   "email_validity": {
     "$comment": "Deliberately permissive: the only authority on whether an address works is whether mail arrives. This rejects the obviously-not-an-address cases and nothing more.",
     "valid": [
@@ -47,21 +66,28 @@
       "two@@example.com"
     ]
   },
-
   "opaque_username": {
     "$comment": "Internal identifier for accounts whose owner never chose one. Must satisfy the pre-existing username constraint that every legacy username already satisfies.",
     "pattern": "^u_[0-9a-f]{16}$",
     "legacy_username_constraint": "^[a-zA-Z0-9_]{3,20}$",
     "length": 18,
-    "must_not_be_derived_from": ["email local-part", "full name", "referral source"],
+    "must_not_be_derived_from": [
+      "email local-part",
+      "full name",
+      "referral source"
+    ],
     "derivation_probe": {
       "$comment": "Generating from this account must not produce a username containing any of these fragments.",
       "email": "distinctivelocal@example.com",
       "full_name": "Distinctive Person",
-      "forbidden_fragments": ["distinctivelocal", "distinctive", "person", "example"]
+      "forbidden_fragments": [
+        "distinctivelocal",
+        "distinctive",
+        "person",
+        "example"
+      ]
     }
   },
-
   "password_policy": {
     "$comment": "Identical to what the 21.dev strength meter shows. The meter is UX; this is enforced server-side, and the two must not diverge or the form lies about what will be accepted.",
     "min_length": 12,
@@ -75,15 +101,32 @@
       "Tr4d3Lens#Journal"
     ],
     "rejected": [
-      { "value": "short1!A", "reason": "under 12 characters" },
-      { "value": "alllowercase1!", "reason": "no upper case" },
-      { "value": "ALLUPPERCASE1!", "reason": "no lower case" },
-      { "value": "NoDigitsHere!!", "reason": "no digit" },
-      { "value": "NoSymbolsHere1", "reason": "no symbol" },
-      { "value": "", "reason": "empty" }
+      {
+        "value": "short1!A",
+        "reason": "under 12 characters"
+      },
+      {
+        "value": "alllowercase1!",
+        "reason": "no upper case"
+      },
+      {
+        "value": "ALLUPPERCASE1!",
+        "reason": "no lower case"
+      },
+      {
+        "value": "NoDigitsHere!!",
+        "reason": "no digit"
+      },
+      {
+        "value": "NoSymbolsHere1",
+        "reason": "no symbol"
+      },
+      {
+        "value": "",
+        "reason": "empty"
+      }
     ]
   },
-
   "new_account_defaults": {
     "$comment": "State a site-created account must start in. Getting email_verification_required wrong here would silently grant new accounts the legacy exemption.",
     "onboarding_completed": false,
@@ -92,7 +135,6 @@
     "email_verification_required": true,
     "is_active": 1
   },
-
   "legacy_account_behaviour": {
     "$comment": "Accounts predating the site flow. Backfilled by Alembic revision s9t0u1v2w3x4.",
     "onboarding_completed": true,
@@ -100,24 +142,72 @@
     "email_verified_at": null,
     "$comment_exemption": "Exempt, NOT falsely marked verified. email_verified_at stays null because nobody ever confirmed those addresses.",
     "username_matching": "exact, case-sensitive",
-    "distinct_usernames_in_production": ["ayoub", "Ayoub"],
+    "distinct_usernames_in_production": [
+      "ayoub",
+      "Ayoub"
+    ],
     "email_login_allowed_before_verification": false,
     "password_reset_allowed_before_verification": false
   },
-
   "login_identifier_resolution": {
     "$comment": "An identifier containing @ resolves by email ONLY, with no fallthrough to username. The rule is total because usernames cannot contain @.",
     "vectors": [
-      { "input": "ayoub@example.com", "resolves_by": "email" },
-      { "input": "ayoub", "resolves_by": "username" },
-      { "input": "Ayoub", "resolves_by": "username" },
-      { "input": "u_0123456789abcdef", "resolves_by": "username" }
+      {
+        "input": "ayoub@example.com",
+        "resolves_by": "email"
+      },
+      {
+        "input": "ayoub",
+        "resolves_by": "username"
+      },
+      {
+        "input": "Ayoub",
+        "resolves_by": "username"
+      },
+      {
+        "input": "u_0123456789abcdef",
+        "resolves_by": "username"
+      }
     ]
   },
-
   "bcrypt": {
     "$comment": "Verified interoperable in both directions on 2026-08-11: a Node-generated hash validates in Python and vice versa.",
     "cost": 12,
     "prefix": "$2b$"
+  },
+  "account_state_transition": {
+    "$comment": [
+      "The canonical four-field lifecycle for a site-created account.",
+      "",
+      "Added 2026-08-12 after a report claimed email_verification_required stayed",
+      "true after verification. The implementation was correct and the report was",
+      "wrong, but nothing pinned the whole transition in one place, so the claim",
+      "could not be checked against a single source. Now it can.",
+      "",
+      "The two flags mean different things and must not be conflated:",
+      "  email_verification_required  does this account need verification at all",
+      "  email_verified_at            has that verification actually happened",
+      "An account is blocked only when required AND not yet done."
+    ],
+    "after_signup": {
+      "email_verified_at": null,
+      "email_verification_required": true,
+      "onboarding_completed": false,
+      "strategy_profile_completed": false
+    },
+    "after_verification": {
+      "email_verified_at": "non-null timestamp",
+      "email_verification_required": false,
+      "onboarding_completed": false,
+      "strategy_profile_completed": false
+    },
+    "after_personal_onboarding": {
+      "email_verified_at": "non-null timestamp",
+      "email_verification_required": false,
+      "onboarding_completed": true,
+      "strategy_profile_completed": false
+    },
+    "$comment_strategy": "strategy_profile_completed stays false through every website step. The website never writes it; Streamlit's first-run Strategy Profile gate is what that false value drives.",
+    "$comment_gate": "verified_at non-null with required=true reads as VERIFIED, not blocked: the timestamp means the work was done. Unreachable through the real flow, since consuming a verification sets required=false."
   }
 }
