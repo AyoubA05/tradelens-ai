@@ -1,34 +1,54 @@
-import Link from "next/link";
+import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+
 import { AuthShell } from "@/components/auth-shell";
+import { SESSION_COOKIE } from "@/lib/auth/login";
+import { authenticateSessionToken, nextDestinationFor } from "@/lib/auth/session";
+import { handoffEligibility } from "@/lib/auth/handoff";
+
+export const dynamic = "force-dynamic";
 
 /**
- * Temporary authenticated continuation state.
+ * The continuation boundary.
  *
- * Step 9 replaces this with the real website to Streamlit handoff. Until then
- * it says plainly that the journal is not connected, because a page implying
- * the user had entered the app would be a lie the rest of the flow then has to
- * work around.
+ * **Rendering this page issues nothing.** The handoff is minted only by the
+ * POST behind the button below. A GET-triggered issuer would mint credentials
+ * on browser prefetch, on crawler visits, and on every accidental refresh —
+ * and because only one handoff per user stays redeemable, a prefetch would
+ * silently invalidate the token the user is about to use.
  *
- * No session semantics are invented here: the website cookie session already
- * established at login is the only session, and this page neither reads nor
- * issues any other credential.
+ * Authorization happens here, server-side, before anything renders.
  */
-export default function ContinuePage() {
+export default async function ContinuePage() {
+  const cookieHeader = (await headers()).get("cookie") ?? "";
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
+  const user = await authenticateSessionToken(match ? decodeURIComponent(match[1]!) : null);
+
+  if (!user) redirect("/login");
+
+  const eligibility = handoffEligibility(user);
+  if (!eligibility.eligible) redirect(nextDestinationFor(user));
+
   return (
     <AuthShell
-      title="You're signed in"
-      intro="Your TradeLens account is ready."
-      footer={<Link href="/login" className="hover:text-text">Back to sign in</Link>}
+      title="You're all set"
+      intro="Your account is ready. Open your journal to start reviewing trades."
     >
-      <div className="space-y-3">
-        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
-          The journal handoff is not connected yet. Signing in works, but this
-          build cannot open the TradeLens app for you.
-        </p>
-        <p className="text-[12.5px] leading-relaxed text-muted">
-          Until it is wired up, use the existing sign-in on the app itself.
-        </p>
-      </div>
+      {/* A plain form POST: no client-side fetch, so it works without
+          JavaScript, and the browser follows the 303 to the app itself. */}
+      <form method="POST" action="/api/auth/handoff" className="space-y-4">
+        <button
+          type="submit"
+          className="h-10 w-full rounded-lg bg-accent text-sm font-medium text-bg transition-transform duration-200 hover:scale-[1.01] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-accent/40"
+        >
+          Continue to your journal
+        </button>
+      </form>
+
+      <p className="mt-4 text-[11.5px] leading-relaxed text-muted">
+        This opens the TradeLens app in a new step. The link is single-use and
+        valid for two minutes.
+      </p>
     </AuthShell>
   );
 }

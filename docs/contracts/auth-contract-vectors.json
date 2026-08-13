@@ -209,5 +209,41 @@
     },
     "$comment_strategy": "strategy_profile_completed stays false through every website step. The website never writes it; Streamlit's first-run Strategy Profile gate is what that false value drives.",
     "$comment_gate": "verified_at non-null with required=true reads as VERIFIED, not blocked: the timestamp means the work was done. Unreachable through the real flow, since consuming a verification sets required=false."
+  },
+  "handoff": {
+    "$comment": [
+      "Website -> Streamlit handoff. Issued in TypeScript (web/lib/auth/handoff.ts),",
+      "redeemed in Python (services/auth_handoff.py). The two are independent",
+      "implementations of one credential, so these invariants are what keeps them",
+      "compatible.",
+      "",
+      "Token VALUES are random and must never match across languages. What is",
+      "pinned here is the shape: TTL, hash representation, entropy, and the fact",
+      "that the credential carries nothing."
+    ],
+    "ttl_seconds": 120,
+    "token_entropy_bytes": 32,
+    "token_encoding": "base64url, no padding",
+    "hash_algorithm": "sha256",
+    "hash_encoding": "lowercase hex, 64 characters",
+    "query_parameter": "ht",
+    "claims_in_token": [],
+    "$comment_claims": "Empty, and deliberately so: no user id, username, email, expiry, session id, or account flag. The token is a lookup key, worthless without its row.",
+    "one_outstanding_per_user": true,
+    "issuance_invalidates_prior": true,
+    "credential_separation": {
+      "website_session": "HttpOnly cookie, 8h idle / 12h absolute, revocable",
+      "handoff": "URL parameter ht, 120s, one-time",
+      "streamlit_session": "created by Streamlit after redemption (step 10)",
+      "$comment": "All three must remain distinct. The website cookie value must never appear in a URL, a JSON body, or any request bound for APP_ORIGIN, and must never be reused as the handoff or the Streamlit session."
+    },
+    "eligibility": {
+      "requires_active_website_session": true,
+      "requires_active_user": true,
+      "requires_email_gate_passed": true,
+      "requires_onboarding_completed": true,
+      "requires_strategy_profile_completed": false,
+      "$comment": "strategy_profile_completed must NOT be required. A new user is expected to arrive with it false; that false is what routes them to the first-run Strategy Profile. Requiring it would make the screen that sets it unreachable."
+    }
   }
 }
