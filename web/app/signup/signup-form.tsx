@@ -41,6 +41,9 @@ export function SignupForm({ inviteRequired }: { inviteRequired: boolean }) {
   const [confirm, setConfirm] = useState("");
   const [invite, setInvite] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [delivery, setDelivery] = useState<
+    "sent" | "unavailable" | "failed"
+  >("failed");
   const [state, setState] = useState<
     "idle" | "validating" | "submitting" | "success"
   >("idle");
@@ -81,12 +84,17 @@ export function SignupForm({ inviteRequired }: { inviteRequired: boolean }) {
       const payload = (await response.json()) as {
         ok?: boolean;
         error?: string;
+        emailDelivery?: "sent" | "unavailable" | "failed";
       };
       if (!response.ok || !payload.ok) {
         setError(payload.error ?? "Something went wrong. Please try again.");
         setState("idle");
         return;
       }
+      // Anything unrecognised is treated as "not delivered". The failure that
+      // matters is telling someone to check an inbox that has nothing in it.
+      setDelivery(payload.emailDelivery === "sent" ? "sent"
+        : payload.emailDelivery === "unavailable" ? "unavailable" : "failed");
       setState("success");
     } catch {
       setError("We could not reach the server. Check your connection and try again.");
@@ -100,11 +108,18 @@ export function SignupForm({ inviteRequired }: { inviteRequired: boolean }) {
         <p className="rounded-lg border border-accent/30 bg-accent-dim px-3 py-2 text-sm text-accent">
           Account created. Verify your email address to open your journal.
         </p>
-        {/* SMTP is unconfigured, so no message was sent and none is claimed. */}
+        {/*
+          Reads the delivery state the server reported rather than asserting
+          one. Hardcoded copy here said no message had been sent long after
+          SMTP started working — the account was fine and the verification mail
+          was in the user's inbox, and the page told them to expect neither.
+        */}
         <p className="text-[11.5px] leading-relaxed text-muted">
-          Email delivery is not configured in this environment yet, so no
-          verification message has been sent. Verification is wired up in the
-          next increment.
+          {delivery === "sent"
+            ? "Check your email for the verification link. It expires in 24 hours."
+            : delivery === "unavailable"
+              ? "Email delivery is not configured in this environment, so no verification message has been sent."
+              : "We could not send the verification email just now. You can ask for a new one from the sign-in page."}
         </p>
       </div>
     );

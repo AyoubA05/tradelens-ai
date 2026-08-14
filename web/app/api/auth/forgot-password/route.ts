@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { optionalEnv, requireEnv } from "@/lib/env";
+import { emailConfigured, optionalEnv, requireEnv } from "@/lib/env";
 import { normalizeEmail } from "@/lib/auth/contract";
 import { issueReset, resetEligibility, resetUrl } from "@/lib/auth/password-reset";
+import { passwordResetMessage } from "@/lib/mail/messages";
 import { mailTransport } from "@/lib/mail/transport";
 import { bucketFor, clientIp, isRateLimited, recordAttempt } from "@/lib/auth/rate-limit";
 import { isSameOriginRequest } from "@/lib/security/redirect";
@@ -24,8 +25,17 @@ const NO_STORE = { "Cache-Control": "no-store, private", "Referrer-Policy": "no-
 const NEUTRAL =
   "If an eligible account exists, password reset instructions will be sent. The link expires in 30 minutes.";
 
+/**
+ * `mailConfigured` is a property of the deployment, not of the address that was
+ * submitted — it is identical for every input, so it discloses nothing about
+ * whether an account exists. It is here so the page can stop asserting that
+ * nothing was sent in an environment where mail works perfectly well.
+ */
 function neutral() {
-  return NextResponse.json({ ok: true, message: NEUTRAL }, { status: 200, headers: NO_STORE });
+  return NextResponse.json(
+    { ok: true, message: NEUTRAL, mailConfigured: emailConfigured() },
+    { status: 200, headers: NO_STORE },
+  );
 }
 
 export async function POST(request: Request) {
@@ -78,18 +88,9 @@ export async function POST(request: Request) {
 
   const issued = await issueReset(eligibility.userId, eligibility.email, eligibility.passwordHash);
   const origin = siteOrigin || requireEnv("SITE_ORIGIN");
-  const outcome = await mailTransport().send({
-    to: eligibility.email,
-    subject: "Reset your TradeLens password",
-    text: [
-      "Someone asked to reset the password on your TradeLens account.",
-      "",
-      resetUrl(origin, issued.token),
-      "",
-      "This link expires in 30 minutes and can be used once. If it was not",
-      "you, ignore this message — your password has not changed.",
-    ].join("\n"),
-  });
+  const outcome = await mailTransport().send(
+    passwordResetMessage(eligibility.email, resetUrl(origin, issued.token)),
+  );
 
   // Delivery state is recorded internally and never disclosed; the response is
   // identical whether mail was sent, unavailable, or failed.

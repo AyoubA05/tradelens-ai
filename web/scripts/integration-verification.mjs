@@ -19,7 +19,8 @@ import {
   issueVerification,
   verificationUrl,
 } from "../lib/auth/verification.ts";
-import { CaptureTransport, verificationMessage } from "../lib/mail/transport.ts";
+import { verificationMessage } from "../lib/mail/messages.ts";
+import { CaptureTransport } from "../lib/mail/transport.ts";
 
 const TAG = `iv${Date.now()}`;
 const address = (n) => `verify+${TAG}${n}@example.invalid`;

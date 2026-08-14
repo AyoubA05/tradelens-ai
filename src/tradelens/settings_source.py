@@ -17,6 +17,20 @@ Reset tokens simply stopped verifying after a restart.
 Resolution order is fixed and identical for every caller:
 environment, then ``st.secrets``, then the supplied default.
 
+**A caveat on "environment first", measured rather than assumed.** Streamlit
+copies every top-level key of ``.streamlit/secrets.toml`` into ``os.environ``
+when the secrets file is first read — *overwriting* variables that were already
+set. Any process that imports Streamlit anywhere in its graph has therefore
+already had its environment rewritten before this function looks at it, so the
+precedence below is real only for names the secrets file does not mention.
+
+On Streamlit Cloud that is exactly the intended delivery mechanism and changes
+nothing. Locally it means a stale ``secrets.toml`` silently wins over a variable
+you exported on purpose — which is how a Step 11 integration run ended up
+sending a different invite code than the one the website was configured with.
+If a local process must not be overridden, do not import Streamlit into it, or
+move the key out of the secrets file.
+
 Values are returned to callers and never logged.
 """
 

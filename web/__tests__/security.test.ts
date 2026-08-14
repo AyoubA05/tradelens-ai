@@ -74,6 +74,61 @@ describe("same-origin check", () => {
     // Treating absence as acceptable is what makes this check decorative.
     expect(isSameOriginRequest(headers({}), "https://a.io")).toBe(false);
   });
+
+  /**
+   * The regression this suite exists for. Under `Referrer-Policy: no-referrer`
+   * a browser serialises the Origin of a form-navigation POST as the literal
+   * string "null" and sends no Referer, so the handoff button — the one plain
+   * HTML form in the app — failed CSRF for every legitimate user while every
+   * fetch-based endpoint kept working.
+   */
+  it("accepts a same-origin form POST stripped of Origin by no-referrer", () => {
+    expect(
+      isSameOriginRequest(
+        headers({ "sec-fetch-site": "same-origin", origin: "null" }),
+        "https://a.io",
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts a same-origin POST with no Origin at all", () => {
+    expect(
+      isSameOriginRequest(headers({ "sec-fetch-site": "same-origin" }), "https://a.io"),
+    ).toBe(true);
+  });
+
+  it("rejects a cross-site POST even when it forges a matching Origin", () => {
+    // Sec-Fetch-Site is a forbidden header: script cannot set it, so a present
+    // value that disagrees with a supplied Origin means the Origin is the lie.
+    expect(
+      isSameOriginRequest(
+        headers({ "sec-fetch-site": "cross-site", origin: "https://a.io" }),
+        "https://a.io",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects same-site, which is not same-origin", () => {
+    expect(
+      isSameOriginRequest(headers({ "sec-fetch-site": "same-site" }), "https://a.io"),
+    ).toBe(false);
+  });
+
+  it("rejects a user-initiated navigation POST", () => {
+    // "none" means a typed URL or bookmark. Nothing legitimate POSTs that way.
+    expect(
+      isSameOriginRequest(headers({ "sec-fetch-site": "none" }), "https://a.io"),
+    ).toBe(false);
+  });
+
+  it("still rejects a mismatched Origin when both headers are present", () => {
+    expect(
+      isSameOriginRequest(
+        headers({ "sec-fetch-site": "same-origin", origin: "https://evil.com" }),
+        "https://a.io",
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("generic auth responses", () => {

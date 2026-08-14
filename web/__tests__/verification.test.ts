@@ -27,8 +27,8 @@ import {
   CaptureTransport,
   FailingTransport,
   SmtpTransport,
-  verificationMessage,
 } from "@/lib/mail/transport";
+import { verificationMessage } from "@/lib/mail/messages";
 import {
   VERIFICATION_TTL_SECONDS,
   consumeVerification,

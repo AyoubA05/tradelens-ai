@@ -10,7 +10,7 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from src.tradelens.db.models import Strategy
+from src.tradelens.db.models import Strategy, User
 from src.tradelens.db.session import SessionLocal
 
 # Split on commas / semicolons / newlines / standalone "and" — NOT on "+", "&",
@@ -142,6 +142,34 @@ def get_active_strategy(user_id: int) -> Optional[dict]:
         db.close()
 
 
+def _upsert_in_session(db, user_id: int, fields: dict) -> Strategy:
+    """The profile write itself, without a transaction of its own.
+
+    Split out so the first-run path can commit the profile and the account's
+    completion flag together. Callers own the commit.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Enforce one active profile for this user only.
+    db.query(Strategy).filter(Strategy.user_id == user_id).update({"is_active": 0})
+
+    row = db.query(Strategy).filter(Strategy.user_id == user_id).first()
+    if row is None:
+        row = Strategy(user_id=user_id, is_active=1, created_at=now, updated_at=now)
+        db.add(row)
+    else:
+        row.is_active = 1
+        row.updated_at = now
+        if row.created_at is None:
+            row.created_at = now
+
+    for key, val in fields.items():
+        if key in _PROFILE_FIELDS:
+            setattr(row, key, val)
+
+    return row
+
+
 def upsert_strategy_profile(user_id: int, **fields) -> dict:
     """
     Create or update a user's single active strategy profile.
@@ -154,25 +182,45 @@ def upsert_strategy_profile(user_id: int, **fields) -> dict:
     - Returns the saved profile as a dict.
     """
     user_id = _require_concrete_user_id(user_id)
-    now = datetime.now(timezone.utc).isoformat()
     db = SessionLocal()
     try:
-        # Enforce one active profile for this user only.
-        db.query(Strategy).filter(Strategy.user_id == user_id).update({"is_active": 0})
+        row = _upsert_in_session(db, user_id, fields)
+        db.commit()
+        db.refresh(row)
+        return _to_dict(row)
+    finally:
+        db.close()
 
-        row = db.query(Strategy).filter(Strategy.user_id == user_id).first()
-        if row is None:
-            row = Strategy(user_id=user_id, is_active=1, created_at=now, updated_at=now)
-            db.add(row)
-        else:
-            row.is_active = 1
-            row.updated_at = now
-            if row.created_at is None:
-                row.created_at = now
 
-        for key, val in fields.items():
-            if key in _PROFILE_FIELDS:
-                setattr(row, key, val)
+def save_profile_and_mark_completed(user_id: int, **fields) -> dict:
+    """Save the profile and record first-run completion in one transaction.
+
+    The two writes are a single decision — an account is "done with the
+    first-run Strategy Profile" *because* a profile was stored — so they commit
+    together or not at all.
+
+    The ordering that matters is the one this makes impossible: an account
+    flagged complete with no profile behind it. That user would be routed
+    straight past the first-run screen to a dashboard whose AI reviews have no
+    rules to read, and nothing in the app would ever offer the screen again.
+    The opposite failure is harmless by comparison — a saved profile with the
+    flag still false just shows the screen once more.
+
+    ``users.strategy_profile_completed`` is updated here rather than through
+    ``users.mark_strategy_profile_completed`` precisely because that function
+    opens its own session, which is the two-transaction shape this exists to
+    avoid. The other exit from the first-run screen — "I don't have a defined
+    strategy yet" — writes no profile at all and still uses that function.
+    """
+    user_id = _require_concrete_user_id(user_id)
+    db = SessionLocal()
+    try:
+        row = _upsert_in_session(db, user_id, fields)
+
+        user = db.query(User).filter(User.id == user_id).first()
+        if user is None:
+            raise ValueError("No such account.")
+        user.strategy_profile_completed = True
 
         db.commit()
         db.refresh(row)

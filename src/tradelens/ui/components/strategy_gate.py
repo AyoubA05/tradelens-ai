@@ -40,3 +40,47 @@ def needs_strategy_profile(user_id) -> bool:
 def route_after_authentication(user_id) -> str:
     """``"strategy_profile"`` or ``"dashboard"``. One place, so callers agree."""
     return "strategy_profile" if needs_strategy_profile(user_id) else "dashboard"
+
+
+# The existing Strategy Profile page. There is one Strategy Profile in this app
+# and this is it — the first-run step reuses the real page rather than a second
+# implementation that could drift from it.
+STRATEGY_PAGE = "pages/5_Strategy.py"
+
+FIRST_RUN_KEY = "_strategy_first_run"
+
+
+def enforce_first_run(st, user_id) -> bool:
+    """Send a site-authenticated first-timer to the Strategy Profile page.
+
+    Returns True when it redirected.
+
+    **Deliberately scoped to the site path.** A legacy username/password session
+    is left exactly as it was: those accounts were backfilled from whether a
+    Strategy row already existed, so an old account that never wrote one would
+    otherwise start being bounced off its own dashboard by a rollout it did not
+    opt into. Legacy behaviour must not change while both paths are live.
+
+    ``st.switch_page`` needs the page registry, which a registry-less boot
+    (AppTest) does not have. A failure there must not take down the dashboard,
+    so it degrades to rendering normally — the flag is still false and the next
+    real navigation routes correctly.
+    """
+    from src.tradelens.ui.components import site_auth
+
+    if not site_auth.is_site_authenticated(st):
+        return False
+    if not needs_strategy_profile(user_id):
+        return False
+
+    st.session_state[FIRST_RUN_KEY] = True
+    try:
+        st.switch_page(STRATEGY_PAGE)
+    except Exception:  # noqa: BLE001 — never break the dashboard over routing
+        return False
+    return True
+
+
+def is_first_run(st) -> bool:
+    """Whether the Strategy Profile page is being shown as the first-run step."""
+    return bool(st.session_state.get(FIRST_RUN_KEY))

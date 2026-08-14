@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   }
 
   const ipBucket = `ip:${clientIp(request.headers)}`;
-  if (await isRateLimited(ipBucket, "verify", "verify:id")) {
+  if (await isRateLimited(ipBucket, "verify", "verify:ip")) {
     logAuthEvent("verify", "rate_limited");
     return NextResponse.json(
       { ok: false, error: "Too many attempts. Wait a few minutes and try again." },

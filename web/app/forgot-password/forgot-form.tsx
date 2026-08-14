@@ -13,6 +13,7 @@ export function ForgotForm() {
   const [email, setEmail] = useState("");
   const [state, setState] = useState<"idle" | "submitting" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [mailConfigured, setMailConfigured] = useState<boolean | null>(null);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -24,8 +25,13 @@ export function ForgotForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      const payload = (await response.json()) as { ok?: boolean; message?: string };
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+        mailConfigured?: boolean;
+      };
       setMessage(payload.message ?? "");
+      setMailConfigured(payload.mailConfigured ?? null);
       setState(payload.ok ? "done" : "error");
     } catch {
       setMessage("We could not reach the server. Check your connection and try again.");
@@ -37,10 +43,18 @@ export function ForgotForm() {
     return (
       <div className="space-y-3">
         <p className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-text">{message}</p>
-        <p className="text-[11.5px] leading-relaxed text-muted">
-          Email delivery is not configured in this environment, so no message has
-          actually been sent yet.
-        </p>
+        {/*
+          Only shown when the deployment genuinely has no mail transport. The
+          old copy asserted this unconditionally and kept saying it after SMTP
+          started working. The flag is environment-wide, so showing it discloses
+          nothing about whether the submitted address has an account.
+        */}
+        {mailConfigured === false && (
+          <p className="text-[11.5px] leading-relaxed text-muted">
+            Email delivery is not configured in this environment, so no message
+            has actually been sent.
+          </p>
+        )}
       </div>
     );
   }

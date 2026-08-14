@@ -4,7 +4,8 @@ import { optionalEnv, requireEnv } from "@/lib/env";
 import { normalizeEmail } from "@/lib/auth/contract";
 import { issueVerification, verificationUrl } from "@/lib/auth/verification";
 import { query } from "@/lib/db/client";
-import { mailTransport, verificationMessage } from "@/lib/mail/transport";
+import { verificationMessage } from "@/lib/mail/messages";
+import { mailTransport } from "@/lib/mail/transport";
 import {
   bucketFor,
   clientIp,

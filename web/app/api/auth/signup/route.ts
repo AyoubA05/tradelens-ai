@@ -12,7 +12,8 @@ import {
 } from "@/lib/auth/contract";
 import { createAccount } from "@/lib/auth/signup";
 import { issueVerification, verificationUrl } from "@/lib/auth/verification";
-import { mailTransport, verificationMessage } from "@/lib/mail/transport";
+import { verificationMessage } from "@/lib/mail/messages";
+import { mailTransport } from "@/lib/mail/transport";
 import {
   bucketFor,
   clientIp,
@@ -240,12 +241,24 @@ export async function POST(request: Request) {
     {
       ok: true,
       verificationRequired: true,
-      // Reported honestly. "sent" only when a transport actually accepted it.
-      emailDelivery: delivery === "sent" ? "sent" : "pending_configuration",
+      // Reported honestly, and with the three states kept apart. "sent" only
+      // when a transport actually accepted the message; "unavailable" when no
+      // transport is configured and nothing was attempted; "failed" when one
+      // was configured and did not deliver. Collapsing the last two would tell
+      // a user that a transient outage is a missing configuration — and would
+      // let a broken SMTP server look like a deliberate beta limitation.
+      emailDelivery:
+        delivery === "sent"
+          ? "sent"
+          : delivery === "unavailable"
+            ? "unavailable"
+            : "failed",
       message:
         delivery === "sent"
           ? "Account created. Check your email for the verification link."
-          : "Account created. Email verification is required before you can sign in, and email delivery is not configured in this environment yet.",
+          : delivery === "unavailable"
+            ? "Account created. Email verification is required before you can sign in, and email delivery is not configured in this environment."
+            : "Account created, but we could not send the verification email. Try resending it in a moment.",
     },
     { status: 201 },
   );

@@ -95,6 +95,7 @@ from src.tradelens.ui.components.sidebar import (  # noqa: E402
     route_href,
 )
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
+from src.tradelens.ui.components.strategy_gate import enforce_first_run  # noqa: E402
 from src.tradelens.ui.components.trade_calendar import (  # noqa: E402
     render_trade_calendar,
 )
@@ -141,6 +142,11 @@ inject_css()
 inject_design_system()  # design_system.py wins ties (injected after theme)
 require_auth()  # gate: shows the login page and halts here until signed in
 uid = current_user_id()
+# First run for a site-authenticated arrival goes to the Strategy Profile before
+# the dashboard: every AI review on this page reads those rules, so a dashboard
+# rendered before they exist is the weakest version of the product. Site path
+# only — legacy sessions are untouched (see strategy_gate.enforce_first_run).
+enforce_first_run(st, uid)
 render_demo_banner()
 
 _DF_COLS = [

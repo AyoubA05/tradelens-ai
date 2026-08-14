@@ -3,6 +3,22 @@ import { signupMode } from "@/lib/env";
 import { AuthShell } from "@/components/auth-shell";
 import { SignupForm } from "./signup-form";
 
+/**
+ * Rendered per request, not at build time.
+ *
+ * This page's entire shape is a function of `SIGNUP_MODE`, and by default Next
+ * prerenders it: the production build baked the invite field in and served it
+ * from the CDN with a one-year `s-maxage`. Flipping the mode in the hosting
+ * dashboard changed nothing a visitor could see until the next deploy —
+ * "signups are closed" would still render a working signup form, and the only
+ * thing stopping those accounts from being created was the endpoint refusing
+ * them one by one.
+ *
+ * Caught by reading the headers of a real production build; a dev server
+ * renders everything dynamically and never shows this.
+ */
+export const dynamic = "force-dynamic";
+
 export default function SignupPage() {
   const mode = signupMode();
 

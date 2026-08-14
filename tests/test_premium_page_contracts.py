@@ -1464,7 +1464,7 @@ def test_every_stored_field_survives_the_regrouping():
 def test_starter_template_and_service_calls_are_preserved():
     src = _strategy_src()
     assert "STARTER_TEMPLATE" in src
-    assert "upsert_strategy_profile(" in src
+    assert "save_profile_and_mark_completed(" in src
     assert "get_active_strategy(" in src
 
 
@@ -1584,7 +1584,7 @@ def test_both_writes_go_through_the_one_protected_path():
     calls = [
         line
         for line in body.splitlines()
-        if "upsert_strategy_profile(" in line and "def " not in line
+        if "save_profile_and_mark_completed(" in line and "def " not in line
     ]
     assert len(calls) == 1, f"writes outside _write(): {calls}"
     assert "_write(_STARTER_ERROR_KEY, **dict(STARTER_TEMPLATE))" in src

@@ -17,7 +17,6 @@ function sources(dir: string, acc: string[] = []): string[] {
 /** Anything in here would be inlined into the browser bundle if NEXT_PUBLIC_. */
 const MUST_STAY_SERVER_SIDE = [
   "DATABASE_URL",
-  "TRADELENS_SESSION_SECRET",
   "TRADELENS_INVITE_CODE",
   "TRADELENS_SMTP_HOST",
   "TRADELENS_SMTP_PORT",
@@ -88,5 +87,42 @@ describe("the web app never mutates schema", () => {
       })
       .map((f) => path.relative(WEB, f));
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("no dead session secret", () => {
+  /**
+   * The original design shared one HMAC key between the site and Streamlit.
+   * What shipped uses opaque random credentials with their hashes in Postgres,
+   * so the key protects nothing here. A configuration variable that looks
+   * required but is read by nothing is worse than absent: whoever provisions
+   * production would generate one, believe it matters, and never learn that
+   * rotating it does nothing.
+   *
+   * It survives in the logging denylist on purpose — that list is about names
+   * that must never be printed, whether or not this app reads them.
+   */
+  const CODE = sources(WEB).filter(
+    (f) => !f.endsWith(path.join("lib", "security", "responses.ts")),
+  );
+
+  it("reads TRADELENS_SESSION_SECRET nowhere", () => {
+    const offenders = CODE.filter((f) =>
+      readFileSync(f, "utf8").includes("TRADELENS_SESSION_SECRET"),
+    ).map((f) => path.relative(WEB, f));
+    expect(offenders).toEqual([]);
+  });
+
+  it("does not ask for it in .env.example", () => {
+    const example = readFileSync(path.join(WEB, ".env.example"), "utf8");
+    const assignments = example
+      .split("\n")
+      .filter((line) => /^\s*TRADELENS_SESSION_SECRET\s*=/.test(line));
+    expect(assignments).toEqual([]);
+  });
+
+  it("still refuses to log the name", () => {
+    const text = readFileSync(path.join(WEB, "lib/security/responses.ts"), "utf8");
+    expect(text).toContain("TRADELENS_SESSION_SECRET");
   });
 });

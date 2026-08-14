@@ -107,12 +107,12 @@ def scenario_ownerless_demo_is_one_read_only_profile(root: str) -> int:
     def _write_without_owner(*_args, **_kwargs):
         raise AssertionError("ownerless demo attempted strategy persistence")
 
-    real_upsert = strategy_service.upsert_strategy_profile
-    strategy_service.upsert_strategy_profile = _write_without_owner
+    real_write = strategy_service.save_profile_and_mark_completed
+    strategy_service.save_profile_and_mark_completed = _write_without_owner
     try:
         at = _app(root, current_user_id=None)
     finally:
-        strategy_service.upsert_strategy_profile = real_upsert
+        strategy_service.save_profile_and_mark_completed = real_write
 
     if at.exception:
         return _fail(f"ownerless demo raised: {at.exception}")
@@ -399,12 +399,13 @@ def scenario_starter_write_failure_is_contained(root: str) -> int:
         raise RuntimeError(_LEAKY)
 
     # Patch the service BEFORE AppTest imports the page: the page does
-    # `from ...strategy import upsert_strategy_profile`, so it binds
+    # `from ...strategy import save_profile_and_mark_completed`, so it binds
     # whatever the module holds at import time, on every run.
     from src.tradelens.services import strategy as strategy_service
 
     real_upsert = strategy_service.upsert_strategy_profile
-    strategy_service.upsert_strategy_profile = _explode
+    real_write = strategy_service.save_profile_and_mark_completed
+    strategy_service.save_profile_and_mark_completed = _explode
 
     def _click_starter():
         at = _app(root)
@@ -443,8 +444,9 @@ def scenario_starter_write_failure_is_contained(root: str) -> int:
         if _stored() is not None:
             return _fail("a failed starter write created a profile row")
 
-        # --- with a playbook already saved: it must be untouched
-        strategy_service.upsert_strategy_profile = real_upsert
+        # --- with a playbook already saved: it must be untouched.
+        # Seeded through the plain upsert, which was never patched, so the
+        # page's write stays exploded for the click that follows.
         existing = dict(
             name="Asia Range",
             trading_style="ICT / SMC",
@@ -454,7 +456,7 @@ def scenario_starter_write_failure_is_contained(root: str) -> int:
         )
         real_upsert(UID, **existing)
         before = _stored()
-        strategy_service.upsert_strategy_profile = _explode
+        strategy_service.save_profile_and_mark_completed = _explode
 
         at, failure = _click_starter()
         if failure:
@@ -474,7 +476,7 @@ def scenario_starter_write_failure_is_contained(root: str) -> int:
         if after.get("updated_at") != before.get("updated_at"):
             return _fail("a failed starter write still touched the row")
     finally:
-        strategy_service.upsert_strategy_profile = real_upsert
+        strategy_service.save_profile_and_mark_completed = real_write
 
     print("OK")
     return 0

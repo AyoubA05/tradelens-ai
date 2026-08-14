@@ -26,11 +26,18 @@ from src.tradelens.services.strategy import (  # noqa: E402
     parse_markets,
     parse_setups,
     parse_timeframes,
-    upsert_strategy_profile,
+    save_profile_and_mark_completed,
+)
+from src.tradelens.services.users import (  # noqa: E402
+    mark_strategy_profile_completed,
 )
 from src.tradelens.ui.components.auth import current_user_id, require_auth  # noqa: E402
 from src.tradelens.ui.components.demo_banner import render_demo_banner  # noqa: E402
 from src.tradelens.ui.components.sidebar import render_sidebar  # noqa: E402
+from src.tradelens.ui.components.strategy_gate import (  # noqa: E402
+    FIRST_RUN_KEY,
+    is_first_run,
+)
 from src.tradelens.ui.components.strategy_profile import (  # noqa: E402
     STARTER_TEMPLATE,
     demo_strategy_profile,  # noqa: F401 — shared public fixture
@@ -89,6 +96,19 @@ _WRITE_FAILED = "Could not save the playbook. Try again."
 _log = logging.getLogger(__name__)
 
 
+def _to_dashboard() -> None:
+    """Leave the first-run step for the dashboard.
+
+    Wrapped because ``switch_page`` needs the page registry, which a
+    registry-less boot (AppTest) does not have. The flag is already stored by
+    then, so a failure here costs a rerun, not the completion.
+    """
+    try:
+        st.switch_page("app.py")
+    except Exception:  # noqa: BLE001 — routing must not lose a saved playbook
+        st.rerun()
+
+
 def _write(error_key: str, **fields) -> bool:
     """Persist the profile. Returns True on success.
 
@@ -98,7 +118,12 @@ def _write(error_key: str, **fields) -> bool:
     it; a page that lets it propagate loses the form.
     """
     try:
-        upsert_strategy_profile(uid, **fields)
+        # Saving the playbook is also what completes the first-run step, and the
+        # service commits both in one transaction — so a failed write can never
+        # leave the account flagged complete with no playbook behind it. For a
+        # trader who already finished it, the flag is simply set to the value it
+        # already had.
+        save_profile_and_mark_completed(uid, **fields)
     except Exception:  # noqa: BLE001 — never crash the page
         _log.exception("strategy profile write failed for user %s", uid)
         st.session_state[error_key] = _WRITE_FAILED
@@ -190,6 +215,27 @@ if st.session_state.pop("_strategy_saved", False):
     )
 
 _render_profile_summary(profile or {})
+
+
+# ── First run ─────────────────────────────────────────────────────
+# A trader arriving from the website lands here before the dashboard. This is
+# the same page, not a parallel first-run screen, so whatever they write now is
+# the playbook they will edit later.
+#
+# The second exit is not a courtesy. Plenty of people start journaling *because*
+# they have no written rules yet, and a first step they cannot honestly complete
+# is a wall in front of the product. It records the step as done without
+# inventing a playbook — which is exactly why completion is a stored flag rather
+# than "does a Strategy row exist".
+if is_first_run(st) and uid is not None:
+    st.info(
+        "Write down how you trade before your first review. Every AI review "
+        "reads these rules — you can change them whenever they change."
+    )
+    if st.button("I don't have a defined strategy yet", key="strategy_skip_first_run"):
+        mark_strategy_profile_completed(uid)
+        st.session_state.pop(FIRST_RUN_KEY, None)
+        _to_dashboard()
 
 
 # ── The playbook form ─────────────────────────────────────────────
@@ -341,6 +387,10 @@ else:
                 "Starter playbook saved as your active profile.",
                 icon=":material/check_circle:",
             )
+            # Adopting the starter playbook is a real playbook, so it completes
+            # the first-run step the same way the manual form does.
+            if st.session_state.pop(FIRST_RUN_KEY, False):
+                _to_dashboard()
             st.rerun()
 
     if st.session_state.get(_STARTER_ERROR_KEY):
@@ -402,6 +452,8 @@ else:
                 common_mistakes=common_mistakes.strip() or None,
             ):
                 st.session_state["_strategy_saved"] = True
+                if st.session_state.pop(FIRST_RUN_KEY, False):
+                    _to_dashboard()
                 st.rerun()
 
     # Both messages are state, so they survive the rerun a toast would not.
