@@ -315,10 +315,12 @@ describe("account state transition", () => {
   });
 
   it("leaves onboarding untouched by verification", () => {
-    expect(T.after_verification!.onboarding_completed).toBe(false);
+    expect(T.after_verification!.onboarding_completed).toBe(
+      T.after_signup!.onboarding_completed,
+    );
   });
 
-  it("sets only onboarding_completed at the onboarding boundary", () => {
+  it("keeps the fallback personal-onboarding boundary separate from strategy", () => {
     expect(T.after_personal_onboarding!.onboarding_completed).toBe(true);
     // The verification fields carry through unchanged.
     expect(T.after_personal_onboarding!.email_verification_required).toBe(

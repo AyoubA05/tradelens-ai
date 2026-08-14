@@ -100,7 +100,10 @@ export function isAcceptablePassword(value: unknown): boolean {
 
 /** State a site-created account must start in. */
 export const NEW_ACCOUNT_DEFAULTS = {
-  onboarding_completed: false,
+  // The site already collects and validates the complete personal profile at
+  // signup. Marking it incomplete would route the same person through the same
+  // fields again after verification.
+  onboarding_completed: true,
   strategy_profile_completed: false,
   email_verified_at: null,
   // True, deliberately. The s9 backfill set this false for accounts that
@@ -110,17 +113,58 @@ export const NEW_ACCOUNT_DEFAULTS = {
   is_active: 1,
 } as const;
 
-/** An ISO date that is a real calendar date and a plausible birthday. */
-export function isValidBirthday(value: unknown, today = new Date()): boolean {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+/** The oldest plausible age, in years. */
+export const BIRTHDAY_MAX_AGE_YEARS = 130;
+
+/**
+ * Why a birthday is unacceptable, or `null` when it is fine.
+ *
+ * Exists because "invalid" is not a useful thing to tell someone. A date input
+ * left on its placeholder year yields values like `0005-02-18` — a typo, or a
+ * keyboard-entered year the picker happily accepted — and the form's only
+ * check was that the field was non-empty, so the server rejected it and the
+ * page said "We could not save that. Check the details and try again." The
+ * details were checked; the message simply did not say which one was wrong.
+ *
+ * Returning a reason rather than a boolean lets both forms name the actual
+ * problem before a request is made, while `isValidBirthday` below stays the
+ * single server-side authority by being defined in terms of this function.
+ * One implementation, two presentations — they cannot drift.
+ */
+export function describeBirthdayProblem(
+  value: unknown,
+  today = new Date(),
+): string | null {
+  if (typeof value !== "string" || value.length === 0) {
+    return "Enter your date of birth.";
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return "Enter your date of birth as a complete date.";
+  }
   const parsed = new Date(`${value}T00:00:00Z`);
-  if (Number.isNaN(parsed.getTime())) return false;
+  if (Number.isNaN(parsed.getTime())) {
+    return "That is not a real calendar date.";
+  }
   // Round-trip catches dates the Date constructor silently rolls over, such as
   // 2026-02-31 becoming 2026-03-03.
-  if (parsed.toISOString().slice(0, 10) !== value) return false;
-  if (parsed.getTime() > today.getTime()) return false;
-  const earliest = new Date(today.getTime() - 130 * 365.25 * 24 * 3600 * 1000);
-  return parsed.getTime() >= earliest.getTime();
+  if (parsed.toISOString().slice(0, 10) !== value) {
+    return "That is not a real calendar date.";
+  }
+  if (parsed.getTime() > today.getTime()) {
+    return "Your date of birth cannot be in the future.";
+  }
+  const earliest = new Date(
+    today.getTime() - BIRTHDAY_MAX_AGE_YEARS * 365.25 * 24 * 3600 * 1000,
+  );
+  if (parsed.getTime() < earliest.getTime()) {
+    return `Check the year — that is more than ${BIRTHDAY_MAX_AGE_YEARS} years ago.`;
+  }
+  return null;
+}
+
+/** An ISO date that is a real calendar date and a plausible birthday. */
+export function isValidBirthday(value: unknown, today = new Date()): boolean {
+  return describeBirthdayProblem(value, today) === null;
 }
 
 export const REFERRAL_SOURCES = [

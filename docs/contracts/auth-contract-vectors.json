@@ -128,8 +128,8 @@
     ]
   },
   "new_account_defaults": {
-    "$comment": "State a site-created account must start in. Getting email_verification_required wrong here would silently grant new accounts the legacy exemption.",
-    "onboarding_completed": false,
+    "$comment": "State a site-created account must start in. Personal details are already required and persisted by signup, so personal onboarding is complete there; Strategy Profile remains a separate Streamlit gate. Getting email_verification_required wrong would silently grant new accounts the legacy exemption.",
+    "onboarding_completed": true,
     "strategy_profile_completed": false,
     "email_verified_at": null,
     "email_verification_required": true,
@@ -177,7 +177,7 @@
   },
   "account_state_transition": {
     "$comment": [
-      "The canonical four-field lifecycle for a site-created account.",
+      "The canonical four-field lifecycle for a site-created account. Signup itself completes personal onboarding because that is where all personal fields are collected.",
       "",
       "Added 2026-08-12 after a report claimed email_verification_required stayed",
       "true after verification. The implementation was correct and the report was",
@@ -192,13 +192,13 @@
     "after_signup": {
       "email_verified_at": null,
       "email_verification_required": true,
-      "onboarding_completed": false,
+      "onboarding_completed": true,
       "strategy_profile_completed": false
     },
     "after_verification": {
       "email_verified_at": "non-null timestamp",
       "email_verification_required": false,
-      "onboarding_completed": false,
+      "onboarding_completed": true,
       "strategy_profile_completed": false
     },
     "after_personal_onboarding": {
@@ -207,7 +207,7 @@
       "onboarding_completed": true,
       "strategy_profile_completed": false
     },
-    "$comment_strategy": "strategy_profile_completed stays false through every website step. The website never writes it; Streamlit's first-run Strategy Profile gate is what that false value drives.",
+    "$comment_strategy": "strategy_profile_completed stays false through every website step. The website never writes it; Streamlit's first-run Strategy Profile gate is what that false value drives. after_personal_onboarding describes the protected fallback for an older or otherwise incomplete account, not the normal site-signup path.",
     "$comment_gate": "verified_at non-null with required=true reads as VERIFIED, not blocked: the timestamp means the work was done. Unreachable through the real flow, since consuming a verification sets required=false."
   },
   "handoff": {

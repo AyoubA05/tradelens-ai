@@ -106,7 +106,7 @@ def test_the_model_can_express_the_contract_defaults():
         email_verification_required=defaults["email_verification_required"],
         is_active=defaults["is_active"],
     )
-    assert user.onboarding_completed is False
+    assert user.onboarding_completed is True
     assert user.strategy_profile_completed is False
     assert user.email_verified_at is None
     assert user.email_verification_required is True

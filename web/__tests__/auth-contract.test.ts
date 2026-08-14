@@ -170,6 +170,7 @@ describe("birthday validation", () => {
     "2026-02-31", // rolls over to March; the round-trip check catches it
     "2027-01-01", // future
     "1800-01-01", // implausible
+    "0005-02-18", // screenshot value; far outside the 130-year window
     "11/08/1994", // wrong format
     "",
   ])("rejects %j", (v) => {

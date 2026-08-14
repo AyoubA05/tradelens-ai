@@ -54,7 +54,12 @@ const GOOD = { identifier: "ayoub", password: "Correct-Horse-Battery-9!" };
 
 beforeEach(() => {
   vi.resetModules();
-  attemptLogin.mockReset().mockResolvedValue({ ok: true, userId: 1, strategyProfileCompleted: true });
+  attemptLogin.mockReset().mockResolvedValue({
+    ok: true,
+    userId: 3,
+    onboardingCompleted: true,
+    strategyProfileCompleted: false,
+  });
   openWebsiteSession.mockReset().mockResolvedValue({
     token: "session-token-value",
     expiresAt: new Date(Date.now() + 12 * 3600_000),
@@ -72,7 +77,18 @@ describe("successful login", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.ok).toBe(true);
-    expect(body.next).toBe("/onboarding");
+    expect(body.next).toBe("/continue");
+  });
+
+  it("retains personal onboarding as a fallback for an actually incomplete account", async () => {
+    attemptLogin.mockResolvedValue({
+      ok: true,
+      userId: 9,
+      onboardingCompleted: false,
+      strategyProfileCompleted: false,
+    });
+    const response = await call(post(GOOD));
+    expect((await response.json()).next).toBe("/onboarding");
   });
 
   it("sets an HttpOnly, Secure, SameSite=Lax cookie", async () => {
