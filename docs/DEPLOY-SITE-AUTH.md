@@ -45,12 +45,43 @@ with it**. They must be added as project environment variables before the
 switch, or `prebuild` fails validation and the deploy stops. (It failing is
 correct; it failing unexpectedly during a cutover is not.)
 
+### BLOCKER: Framework Preset must be Next.js, not "Other"
+
+Root Directory alone is not enough, and the failure mode is quiet enough to be
+mistaken for success.
+
+With the preset left at "Other" (the project's `framework` reads `null`), Vercel
+runs the build command and then publishes a **static output directory**,
+defaulting to `public/`. The Next.js build runs, reports success, prints its
+whole route table — and its output is discarded. What ships is the contents of
+`public/`, which is precisely the marketing site.
+
+Observed on the first correct build (`d3322e0`), where every log line was right:
+
+| Path | Result |
+|---|---|
+| `/`, `/privacy/`, `/terms/` | 200 — static marketing, tokens substituted |
+| `/login`, `/signup` | **404** |
+| `/api/auth/*` | **404** |
+| any response | **none of the `next.config.mjs` security headers** |
+
+That last row is the tell. `next.config.mjs` sets `X-Frame-Options`,
+`Referrer-Policy`, `X-Content-Type-Options` and HSTS on `/:path*`; if a Next
+runtime were serving, every response would carry them. Their absence, with the
+marketing site working perfectly, means the Next application was never deployed.
+
+Set **Settings → Build & Deployment → Framework Preset → Next.js**, then trigger
+a **new Git deployment**. Do not use "Redeploy": that replays the original
+deployment's resolved settings rather than reading current project
+configuration, which is what produced the earlier
+`python3: can't open file '/vercel/path0/web/scripts/build_site.py'`.
+
 Build settings after the switch:
 
 | Setting | Value |
 |---|---|
 | Root Directory | `web` |
-| Framework preset | Next.js |
+| Framework preset | Next.js — **explicitly**, see above |
 | Build command | default (`next build`, which runs `prebuild` first) |
 | Install command | default |
 | Node version | 20 or later |
