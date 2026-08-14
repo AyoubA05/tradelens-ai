@@ -112,5 +112,23 @@ def main() -> int:
     return 0
 
 
+def safe_main() -> int:
+    """Run the inspection, and never let a driver message reach the terminal.
+
+    Not defensive padding. Pointing this at production once produced a
+    psycopg2 traceback that printed the database host into a transcript —
+    SQLAlchemy inlines the URL in its own message and psycopg2 names the server
+    in a connection error, so *any* uncaught failure here is a disclosure. The
+    exception class name is the most that may be said, which is also enough to
+    act on: OperationalError is a network problem, ProgrammingError is a bad
+    query, and neither needs the host to be diagnosed.
+    """
+    try:
+        return main()
+    except BaseException as exc:  # noqa: BLE001 — see above; nothing re-raised
+        print(f"inspect_account failed: {type(exc).__name__}")
+        return 1
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(safe_main())
