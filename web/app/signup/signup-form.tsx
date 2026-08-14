@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { PasswordStrength } from "@/components/ui/password-strength";
+import { describeBirthdayProblem } from "@/lib/auth/contract";
 import { cn } from "@/lib/utils";
 
 /**
@@ -60,6 +61,19 @@ export function SignupForm({ inviteRequired }: { inviteRequired: boolean }) {
 
     setError(null);
     setState("validating");
+
+    // Signup previously relied on the input's `required` attribute alone, so
+    // any date the picker would emit was submitted and the server's answer was
+    // a generic failure. The endpoint's rules are unchanged and still
+    // authoritative; this only means the person is told which field is wrong
+    // and why, before a request is made.
+    const birthdayProblem = describeBirthdayProblem(birthday);
+    if (birthdayProblem) {
+      setError(birthdayProblem);
+      setState("idle");
+      return;
+    }
+
     if (password !== confirm) {
       setError("Those passwords do not match.");
       setState("idle");

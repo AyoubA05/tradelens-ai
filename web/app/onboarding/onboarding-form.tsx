@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
+import { describeBirthdayProblem } from "@/lib/auth/contract";
 import { cn } from "@/lib/utils";
 
 /**
@@ -45,8 +46,22 @@ export function OnboardingForm() {
     setError(null);
     setState("validating");
 
-    if (fullName.trim().length === 0 || !birthday || !referral) {
+    if (fullName.trim().length === 0 || !referral) {
       setError("Fill in your name, birthday, and how you found TradeLens.");
+      setState("idle");
+      return;
+    }
+
+    // Named separately from the "fill everything in" check, because a date the
+    // server will reject is a different problem from a missing one and the
+    // generic message could not tell the two apart. `0005-02-18` used to reach
+    // the endpoint and come back as "We could not save that. Check the details
+    // and try again." — which is precisely what the person had just done.
+    // Shares its rules with the server validator, so this cannot drift into
+    // rejecting something the endpoint would accept, or vice versa.
+    const birthdayProblem = describeBirthdayProblem(birthday);
+    if (birthdayProblem) {
+      setError(birthdayProblem);
       setState("idle");
       return;
     }
