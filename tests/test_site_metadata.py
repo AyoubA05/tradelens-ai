@@ -9,7 +9,6 @@ is perfectly well-formed.
 These tests replace "remember to swap the domain" with a failing build.
 """
 
-import json
 from pathlib import Path
 
 import pytest
@@ -160,9 +159,38 @@ def test_source_uses_app_origin_token():
     assert APP not in text
 
 
-def test_vercel_build_targets_the_public_tradelens_app():
-    config = json.loads((ROOT / "vercel.json").read_text(encoding="utf-8"))
-    assert config["build"]["env"]["APP_ORIGIN"] == APP
+def test_no_repository_vercel_json_can_override_the_deployment():
+    """The deployment configuration lives in one place, and it is not here.
+
+    A root ``vercel.json`` used to describe the marketing-only build: a no-op
+    install command, ``python3 scripts/build_site.py``, and ``dist/site`` as the
+    output. Once Vercel's Root Directory moved to ``web/``, that file described
+    a deployment that no longer exists, and it stayed in the repository as a
+    loaded gun — anything that read it would run a Python static build against
+    a Next.js application and fail.
+
+    It did fire, though for a related reason: a *redeploy* replays the original
+    deployment's resolved settings, so re-running the last marketing build under
+    the new Root Directory produced
+    ``python3: can't open file '/vercel/path0/web/scripts/build_site.py'``.
+
+    Deleting the file is correct whichever way Vercel resolves configuration.
+    If it reads ``vercel.json`` from the Root Directory, the root file was
+    already ignored and nothing changes. If it reads from the repository root,
+    the stale override is gone. There is deliberately no ``web/vercel.json``
+    either: Next.js is auto-detected from ``web/package.json``, the build is
+    ``npm run build`` — which is what runs ``prebuild`` and therefore the
+    marketing step — and the response headers live in ``next.config.mjs``.
+    Adding a config file to restate defaults would only create a second place
+    for them to drift.
+    """
+    assert not (ROOT / "vercel.json").exists(), (
+        "a root vercel.json is back; it describes a deployment that no longer "
+        "exists and can override the web/ build"
+    )
+    assert not (
+        ROOT / "web" / "vercel.json"
+    ).exists(), "web/vercel.json is not needed — see this test's docstring"
 
 
 def test_main_js_uses_app_origin_token():
