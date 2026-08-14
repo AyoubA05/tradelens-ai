@@ -153,6 +153,7 @@ _UNSCOPED = object()
 
 
 def get_trades(
+    *,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     asset: Optional[str] = None,
@@ -169,6 +170,15 @@ def get_trades(
     user_id scoping: when provided, returns only trades owned by that exact user.
     Passing None scopes to NULL-owner trades only (the secrets-fallback legacy
     user). Omitting the argument applies no user filter (all trades).
+
+    **Keyword-only, deliberately.** ``start_date`` sits first, so a positional
+    ``get_trades(uid)`` silently asked for "trades on or after <a user id>"
+    rather than "this user's trades". That is not hypothetical: it happened
+    while writing the Step 11 isolation harness, and on PostgreSQL it surfaced
+    as a type error only because ``trade_date`` is a string column. On a
+    schema where the comparison happened to typecheck, the call would have
+    returned another user's rows and the test asserting isolation would have
+    passed while proving nothing. Every argument must now be named.
     """
     db: Session = SessionLocal()
     try:
