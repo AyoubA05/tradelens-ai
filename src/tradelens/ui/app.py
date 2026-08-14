@@ -8,9 +8,48 @@ _root = str(Path(__file__).resolve().parents[3])
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
+import logging  # noqa: E402
+
 import streamlit as _st_boot  # noqa: E402
 
-from src.tradelens.db.init_db import bootstrap_if_local  # noqa: E402
+_boot_log = logging.getLogger(__name__)
+
+# ── The bootstrap import is OPTIONAL, and must never be able to end the app ──
+#
+# `bootstrap_if_local()` creates a local SQLite file for development. Against
+# any deployed database it is a documented no-op: it inspects the engine, sees
+# the target is not a local SQLite file, and returns False without touching it.
+#
+# Until now this was a bare import, so anything that went wrong anywhere in its
+# module chain took down the entire production application — in order to reach
+# a function that, in production, does nothing. That is exactly what happened:
+# Streamlit Cloud served a redacted `ImportError` page for every request, on
+# every page, while the app itself was fine. The blast radius of an optional
+# convenience should be the convenience, not the product.
+#
+# The reason is logged rather than shown. Streamlit redacts errors in the
+# browser precisely so a traceback cannot leak, and that is the right default;
+# the log is where a maintainer can see it. Only the message of an *import*
+# failure is recorded, because those read "cannot import name X from Y" — module
+# and attribute names, nothing replayable. Any other exception contributes its
+# class name alone, since a driver error's message can carry the DSN.
+_BOOTSTRAP_IMPORT_ERROR: str | None = None
+try:
+    from src.tradelens.db.init_db import bootstrap_if_local  # noqa: E402
+except ImportError as exc:
+    bootstrap_if_local = None
+    _BOOTSTRAP_IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
+except Exception as exc:  # noqa: BLE001 — name only; see above
+    bootstrap_if_local = None
+    _BOOTSTRAP_IMPORT_ERROR = type(exc).__name__
+
+if _BOOTSTRAP_IMPORT_ERROR is not None:
+    _boot_log.warning(
+        "Local-SQLite bootstrap unavailable; continuing without it. "
+        "This is a no-op on any deployed database. Reason: %s",
+        _BOOTSTRAP_IMPORT_ERROR,
+    )
+
 from src.tradelens.db.session import DatabaseUnavailableError  # noqa: E402
 
 # Bootstraps a LOCAL SQLite database only; a documented no-op against anything
@@ -33,7 +72,8 @@ from src.tradelens.db.session import DatabaseUnavailableError  # noqa: E402
 # body runs, no service is called, no authentication path is entered, and
 # nothing downgrades to a local file.
 try:
-    bootstrap_if_local()
+    if bootstrap_if_local is not None:
+        bootstrap_if_local()
 except DatabaseUnavailableError:
     _st_boot.error("TradeLens is temporarily unavailable. Please try again shortly.")
     _st_boot.stop()
