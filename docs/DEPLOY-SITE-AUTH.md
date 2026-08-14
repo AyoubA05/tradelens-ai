@@ -31,6 +31,20 @@ copies `../site` into `public/` during `prebuild`, so the existing vanilla
 marketing site is still served at `/` afterwards — it is not rewritten, and it
 does not move.
 
+### The root `vercel.json` stops being read
+
+Today the repository root carries a `vercel.json` that drives the *current*
+marketing deployment: it sets `buildCommand` to `python3 scripts/build_site.py`,
+`outputDirectory` to `dist/site`, and — importantly — supplies `SITE_ORIGIN`
+and `APP_ORIGIN` through `build.env`.
+
+With Root Directory set to `web/`, Vercel reads `web/vercel.json`, which does
+not exist. The Next.js defaults then apply, which is what we want for the build
+commands — but **the two origins currently provided by `build.env` disappear
+with it**. They must be added as project environment variables before the
+switch, or `prebuild` fails validation and the deploy stops. (It failing is
+correct; it failing unexpectedly during a cutover is not.)
+
 Build settings after the switch:
 
 | Setting | Value |
@@ -86,6 +100,31 @@ Two properties depend on `SITE_ORIGIN` being correct and HTTPS:
 
 No code change is required to deploy the app; it already consults site auth
 first and falls back to legacy login.
+
+### BLOCKER: the app is currently private
+
+As of this writing, every anonymous request to the production app is answered
+with a 303 to `share.streamlit.io/-/auth/app` — Streamlit Community Cloud's own
+viewer sign-in. Site-hosted auth cannot work through that gate, for three
+separate reasons:
+
+1. **The user never reaches the app.** They are sent to Streamlit's login and
+   must hold a Streamlit account on the viewer list. Our handoff is never seen.
+2. **The one-time credential is forwarded to a third party.** The redirect
+   preserves the query string, so `?ht=<token>` is handed to
+   `share.streamlit.io` as part of `redirect_uri` and lands in logs on an
+   origin outside our control.
+3. **The 120-second TTL cannot survive it.** Completing a Streamlit OAuth
+   sign-in inside two minutes is not a reasonable expectation, so handoffs
+   would routinely expire and present the generic "link is no longer valid".
+
+**Required before cutover:** set the app's sharing to public ("anyone with the
+link can view") in Manage app → Settings → Sharing. TradeLens's own
+authentication — the handoff plus the legacy login — is then the only gate,
+which is what the design assumes.
+
+Verify afterwards that an anonymous request returns 200 rather than a 303 to
+`share.streamlit.io`.
 
 Streamlit-only secrets (in the Cloud secrets UI, TOML):
 
@@ -148,6 +187,8 @@ site on the other hostname will have their state-changing POSTs refused.
 2. **Streamlit** — add `SITE_ORIGIN`; confirm `DATABASE_URL` is production.
    Deploy. The app is unchanged from a user's point of view: legacy login still
    works, and no handoff exists yet to consume.
+2b. **Streamlit sharing** — set the app public, then confirm an anonymous
+   request returns 200 rather than a redirect to `share.streamlit.io`.
 3. **Vercel** — add every variable above, then switch Root Directory to `web/`
    and deploy. The marketing site continues to serve at `/`; the auth routes
    appear alongside it.
