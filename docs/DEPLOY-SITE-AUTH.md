@@ -63,6 +63,12 @@ Public origins — safe to render, still set server-side and passed down as prop
 | `APP_ORIGIN` | the Streamlit app origin, e.g. `https://<app>.streamlit.app` |
 | `SIGNUP_MODE` | `invite`, `open`, or `closed`. Unset defaults to `invite`; anything unrecognised fails **closed**. |
 
+Build-time only — read by `prebuild`, not at runtime:
+
+| Variable | Notes |
+|---|---|
+| `SUPPORT_EMAIL` | The contact address on `/privacy`, `/terms` and the footer. **The build fails without it**, deliberately: the current marketing deploy substitutes it via `scripts/build_site.py`, and the Next `prebuild` must too or the switch to `web/` would publish a literal `mailto:__SUPPORT_EMAIL__`. |
+
 **`TRADELENS_SESSION_SECRET` must NOT be set here.** Nothing in `web/` reads it.
 The design that needed a shared HMAC key was replaced by opaque random
 credentials whose hashes live in Postgres. Setting it would create a variable
