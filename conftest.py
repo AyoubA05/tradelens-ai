@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 @pytest.fixture(autouse=True)
-def _isolate_streamlit_secrets():
+def _isolate_streamlit_secrets(monkeypatch):
     """Keep a developer's real ``.streamlit/secrets.toml`` out of the test run.
 
     ``st.secrets`` lazily loads from ``./.streamlit/secrets.toml`` relative to the
@@ -18,6 +18,13 @@ def _isolate_streamlit_secrets():
     on every machine without touching the real file. Tests that need specific
     secrets set ``st.secrets`` themselves (e.g. AppTest.secrets).
     """
+    # Most UI tests predate site-hosted auth and intentionally enter pages by
+    # setting the legacy ``authenticated`` session-state marker. Keep that
+    # test harness explicit now that production defaults to website login.
+    # The auth-fallback tests remove this variable themselves so they still
+    # exercise the real default-off behavior.
+    monkeypatch.setenv("ENABLE_LEGACY_STREAMLIT_AUTH", "true")
+
     try:
         import streamlit as st
 

@@ -55,6 +55,7 @@ def test_login_form_renders_rejection_instead_of_crashing(monkeypatch):
 
     monkeypatch.setattr(auth, "authenticate_login", _boom)
     monkeypatch.setattr(auth, "signup_enabled", lambda: False)
+    monkeypatch.setenv("ENABLE_LEGACY_STREAMLIT_AUTH", "true")
 
     script = """
 import sys

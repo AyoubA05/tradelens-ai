@@ -30,6 +30,7 @@ st.markdown("SECRET_DASHBOARD_BODY")
 def _clean_env(monkeypatch):
     monkeypatch.delenv("TRADELENS_USERNAME", raising=False)
     monkeypatch.delenv("TRADELENS_PASSWORD", raising=False)
+    monkeypatch.delenv("ENABLE_LEGACY_STREAMLIT_AUTH", raising=False)
     yield
 
 
@@ -75,19 +76,33 @@ def _markdowns(at):
     return " ".join(str(getattr(m, "value", "")) for m in at.markdown)
 
 
-def test_require_auth_blocks_when_unauthenticated():
+def test_bare_visit_hides_legacy_login_by_default():
     from streamlit.testing.v1 import AppTest
 
     at = AppTest.from_string(_GATE_SCRIPT).run()
     assert not at.exception
-    # Login form is shown; the gated body must NOT render.
+    assert "SECRET_DASHBOARD_BODY" not in _markdowns(at)
+    assert not at.text_input
+    links = at.get("link_button")
+    assert [(link.label, link.url) for link in links] == [
+        ("Sign in on TradeLens AI", "https://www.tradelensai.io/login")
+    ]
+
+
+def test_opt_in_flag_restores_legacy_login(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv("ENABLE_LEGACY_STREAMLIT_AUTH", "true")
+    at = AppTest.from_string(_GATE_SCRIPT).run()
+    assert not at.exception
     assert "SECRET_DASHBOARD_BODY" not in _markdowns(at)
     assert len(at.text_input) >= 2  # username + password fields
 
 
-def test_require_auth_passes_when_authenticated():
+def test_require_auth_passes_when_legacy_authenticated(monkeypatch):
     from streamlit.testing.v1 import AppTest
 
+    monkeypatch.setenv("ENABLE_LEGACY_STREAMLIT_AUTH", "true")
     at = AppTest.from_string(_GATE_SCRIPT)
     at.session_state["authenticated"] = True
     at.run()
@@ -160,7 +175,7 @@ def test_restore_ignores_forged_token():
     assert "authenticated" not in fake_st.session_state
 
 
-def test_full_reload_survives_auth_gate_apptest(tmp_path):
+def test_full_reload_survives_auth_gate_apptest(tmp_path, monkeypatch):
     """End-to-end: a fresh Streamlit session (reload) with a valid URL token
     passes require_auth and reaches page content — no login page, no st.stop."""
     from pathlib import Path
@@ -168,6 +183,8 @@ def test_full_reload_survives_auth_gate_apptest(tmp_path):
     from streamlit.testing.v1 import AppTest
 
     from src.tradelens.ui.components import auth
+
+    monkeypatch.setenv("ENABLE_LEGACY_STREAMLIT_AUTH", "true")
 
     root = Path(__file__).resolve().parents[1]
     script = (

@@ -9,6 +9,9 @@ TradeLens reads configuration from `.streamlit/secrets.toml` locally and from th
 TRADELENS_USERNAME = "demo"
 TRADELENS_PASSWORD = "tradelens2025"
 
+# Emergency compatibility only. Omit or keep false in normal production.
+ENABLE_LEGACY_STREAMLIT_AUTH = "false"
+
 # Invite code that gates account signup. Omit this key to HIDE the signup form.
 TRADELENS_INVITE_CODE = "your-invite-code-here"
 
@@ -21,6 +24,9 @@ DEMO_MODE = "false"
 
 ## Login & signup
 
+- **Streamlit login** normally sends unauthenticated visitors to the website
+  login. Set `ENABLE_LEGACY_STREAMLIT_AUTH = "true"` only when emergency
+  regression access to the old username/password form is required.
 - **Sign in** uses the secrets `TRADELENS_USERNAME` / `TRADELENS_PASSWORD` **only
   while the `users` table is empty**. Once anyone signs up, login authenticates
   against bcrypt-hashed DB users and the secrets fallback is ignored.

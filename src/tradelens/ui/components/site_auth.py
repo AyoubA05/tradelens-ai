@@ -10,7 +10,8 @@ Entry precedence:
 
     1. a valid ``s`` credential   -> durable Streamlit session
     2. otherwise a ``ht``         -> one-time atomic exchange, then ``s``
-    3. otherwise                  -> legacy login (auth.py, unchanged)
+    3. otherwise                  -> website-login fallback by default
+                                    (legacy login only when explicitly enabled)
 
 **An invalid ``s`` must not inherit stale authenticated state.** Streamlit
 reruns constantly and ``st.session_state`` survives between runs, so a session

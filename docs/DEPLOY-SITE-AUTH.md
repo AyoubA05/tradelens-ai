@@ -129,8 +129,9 @@ Two properties depend on `SITE_ORIGIN` being correct and HTTPS:
 
 ## B. Streamlit Community Cloud — the app
 
-No code change is required to deploy the app; it already consults site auth
-first and falls back to legacy login.
+The app consults site auth first and sends unauthenticated visitors back to the
+website login. The legacy Streamlit login remains available only through the
+explicit emergency flag documented below.
 
 ### BLOCKER: the app is currently private
 
@@ -162,7 +163,8 @@ Streamlit-only secrets (in the Cloud secrets UI, TOML):
 | Variable | Notes |
 |---|---|
 | `TRADELENS_SESSION_SECRET` | **Legacy login only.** Signs the old `?auth=` session token. Retires with that login and belongs nowhere else. |
-| `TRADELENS_USERNAME`, `TRADELENS_PASSWORD` | Legacy fallback credentials, if still in use. |
+| `TRADELENS_USERNAME`, `TRADELENS_PASSWORD` | Legacy fallback credentials, retained for emergency regression access. |
+| `ENABLE_LEGACY_STREAMLIT_AUTH` | Optional emergency opt-in. Omit or set `false` in normal production; set `true` only to restore the old Streamlit login form. |
 | `ANTHROPIC_API_KEY` | Unrelated to auth; already present. |
 
 Shared with the website:

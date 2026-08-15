@@ -241,6 +241,18 @@ def signup_enabled() -> bool:
     return bool(invite_code())
 
 
+def legacy_streamlit_auth_enabled() -> bool:
+    """Whether the old Streamlit username/password path is explicitly enabled.
+
+    Site-hosted authentication is the production default. The compatibility
+    path remains available for emergency regression access, but only through a
+    deliberate opt-in setting; missing, blank, or unrecognised values fail
+    closed.
+    """
+    value = _read_secret("ENABLE_LEGACY_STREAMLIT_AUTH", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def authenticate_login(username, password):
     """Resolve a login attempt to ``(ok, username, user_id)``.
 
@@ -344,14 +356,15 @@ def require_auth() -> None:
     #
     #   1. a valid `s` Streamlit session      site-hosted auth
     #   2. otherwise a `ht` handoff           one-time atomic exchange
-    #   3. otherwise                          legacy username/password, below
+    #   3. otherwise                          website-login fallback by default
+    #      explicit compatibility opt-in      legacy username/password, below
     #
     # Site auth is consulted first and validates against the database on every
     # run. That matters more than it looks: st.session_state persists across
     # reruns, so a revoked credential would otherwise keep rendering as
     # authenticated from a flag an earlier run left behind. site_auth clears
-    # those flags itself when validation fails, so an invalid `s` falls through
-    # to the legacy screen rather than inheriting stale authenticated state.
+    # those flags itself when validation fails, so an invalid `s` reaches the
+    # unauthenticated fallback rather than inheriting stale authenticated state.
     site_user_id = site_auth.authenticate(st)
     if site_user_id is not None:
         from src.tradelens.services.corrections import set_corrections_user
@@ -364,7 +377,18 @@ def require_auth() -> None:
         # independent session credentials in the same URL.
         return
 
-    # --- legacy path, unchanged -------------------------------------------
+    if not legacy_streamlit_auth_enabled():
+        # Invalid or revoked site credentials have already been removed by
+        # site_auth.authenticate(). Never include their values in this view.
+        error = site_auth.site_error(st)
+        if error:
+            st.error(error)
+        st.title("Sign in to TradeLens AI")
+        st.write("Use the secure website sign-in to open your journal.")
+        st.link_button("Sign in on TradeLens AI", site_auth.return_to_site_url())
+        st.stop()
+
+    # --- explicitly enabled legacy path, otherwise unchanged --------------
     if not is_authenticated():
         # A full reload wipes st.session_state — the signed URL token survives.
         _try_restore(st)

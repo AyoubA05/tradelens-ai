@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -23,6 +24,9 @@ from src.tradelens.ui.components import site_auth, strategy_gate
 
 @pytest.fixture()
 def db(tmp_path, monkeypatch):
+    # These entry-path tests exercise the production default, unlike the
+    # legacy session-state shortcut used by the wider UI test harness.
+    monkeypatch.delenv("ENABLE_LEGACY_STREAMLIT_AUTH", raising=False)
     engine = create_engine(f"sqlite:///{tmp_path / 'step10.db'}")
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
@@ -70,6 +74,26 @@ class FakeStreamlit:
     def __init__(self, **params):
         self.query_params = FakeQueryParams(params)
         self.session_state = {}
+
+
+_ROOT = Path(__file__).resolve().parents[1]
+_GATE_SCRIPT = f"""
+import sys
+sys.path.insert(0, r"{_ROOT}")
+import streamlit as st
+from src.tradelens.ui.components.auth import require_auth
+require_auth()
+st.markdown("SITE_AUTH_DASHBOARD")
+"""
+
+
+def _assert_website_login_fallback(at):
+    assert not at.exception
+    assert not at.text_input, "the legacy username/password form leaked"
+    links = at.get("link_button")
+    assert [(link.label, link.url) for link in links] == [
+        ("Sign in on TradeLens AI", "https://www.tradelensai.io/login")
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -329,6 +353,19 @@ def test_a_revoked_session_param_is_refused_and_stripped(db):
     assert "s" not in st.query_params
 
 
+def test_a_revoked_session_reaches_website_login_without_dead_param(db):
+    from streamlit.testing.v1 import AppTest
+
+    token = auth_sessions.open_streamlit_session(1)
+    auth_sessions.revoke_streamlit_session(token)
+    at = AppTest.from_string(_GATE_SCRIPT)
+    at.query_params["s"] = token
+    at.run()
+
+    _assert_website_login_fallback(at)
+    assert "s" not in at.query_params
+
+
 def test_an_invalid_session_cannot_inherit_stale_authenticated_state(db):
     """st.session_state survives reruns; a revoked credential must not.
 
@@ -364,6 +401,47 @@ def test_a_failed_handoff_gives_one_generic_message_and_is_stripped(db):
     assert site_auth.site_error(st) == site_auth.INVALID_LINK_MESSAGE
     assert "ht" not in st.query_params
     assert "s" not in st.query_params
+
+
+def test_an_invalid_handoff_reaches_website_login_without_dead_param(db):
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_string(_GATE_SCRIPT)
+    at.query_params["ht"] = "not-a-real-handoff"
+    at.run()
+
+    _assert_website_login_fallback(at)
+    assert "ht" not in at.query_params
+
+
+def test_valid_session_still_wins_before_the_default_fallback(db):
+    from streamlit.testing.v1 import AppTest
+
+    token = auth_sessions.open_streamlit_session(1)
+    at = AppTest.from_string(_GATE_SCRIPT)
+    at.query_params["s"] = token
+    at.run()
+
+    assert not at.exception
+    assert any("SITE_AUTH_DASHBOARD" in str(item.value) for item in at.markdown)
+    assert at.query_params["s"] == [token]
+    assert not at.get("link_button")
+
+
+def test_valid_handoff_still_exchanges_before_the_default_fallback(db):
+    from streamlit.testing.v1 import AppTest
+
+    handoff = auth_handoff.issue_handoff(1)
+    at = AppTest.from_string(_GATE_SCRIPT)
+    at.query_params["ht"] = handoff
+    at.run()
+
+    assert not at.exception
+    assert any("SITE_AUTH_DASHBOARD" in str(item.value) for item in at.markdown)
+    assert "ht" not in at.query_params
+    assert at.query_params.get("s")
+    assert at.query_params["s"] != handoff
+    assert not at.get("link_button")
 
 
 def test_a_failed_handoff_is_not_retried_on_every_rerun(db, monkeypatch):
