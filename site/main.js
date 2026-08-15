@@ -1,14 +1,26 @@
 /* TradeLens AI — marketing site behavior (vanilla, no dependencies) */
 
-const APP_URL = "__APP_ORIGIN__";
+/* The journal CTAs point at /login, in the markup, and nothing rewrites them.
+ *
+ * They used to carry `data-app-link` and this file replaced every such href
+ * with APP_ORIGIN at runtime, sending visitors straight to the Streamlit host.
+ * That was correct while Streamlit owned sign-in. It is wrong now: arriving
+ * there without a handoff credential drops the visitor on the legacy login
+ * screen, bypassing the website auth flow entirely.
+ *
+ * `/login` is relative because the marketing site and the auth routes are the
+ * same origin — Vercel's Root Directory is web/, which serves this site from
+ * public/ alongside the Next routes. A relative link therefore needs no build
+ * token, cannot drift from SITE_ORIGIN, and works identically on a preview
+ * deployment.
+ *
+ * APP_ORIGIN is unchanged and still required: /continue reads it server-side
+ * as the handoff destination. The marketing site simply no longer links to it.
+ */
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const smallScreen = window.matchMedia("(max-width: 768px)").matches;
 const saveData = navigator.connection && navigator.connection.saveData;
-
-document.querySelectorAll("[data-app-link]").forEach((a) => {
-  a.href = APP_URL;
-});
 
 /* ---- nav: mobile menu + scrolled state ---- */
 

@@ -68,8 +68,26 @@ def test_built_links_resolve_to_a_real_support_address(tmp_path):
         assert "__SUPPORT_EMAIL__" not in html
 
 
+def _next_route_exists(route: str) -> bool:
+    """Whether the Next application serves this path.
+
+    Since Vercel's Root Directory became ``web/``, the marketing site and the
+    auth routes are the same origin: this static output is served from
+    ``web/public`` alongside Next's own pages. An internal link can therefore
+    legitimately resolve to a Next route that this build never produces.
+    """
+    segment = route.strip("/")
+    return (ROOT / "web" / "app" / segment / "page.tsx").exists()
+
+
 def test_no_page_links_to_a_trust_destination_that_does_not_exist(tmp_path):
-    """Guards the specific failure of shipping a footer link to a 404."""
+    """Guards the specific failure of shipping a footer link to a 404.
+
+    The rule is unchanged — every internal link must reach something real —
+    but "real" now has two forms. A link resolves either to a file this build
+    wrote, or to a page the Next application serves from the same origin. A
+    link matching neither is still a shipped 404, which is what this catches.
+    """
     out = build(REAL, APP, SUPPORT, out=tmp_path / "site")
     for page in _PAGES:
         html = (out / page).read_text(encoding="utf-8")
@@ -78,4 +96,31 @@ def test_no_page_links_to_a_trust_destination_that_does_not_exist(tmp_path):
             resolved = target if target.suffix else target / "index.html"
             if href == "/":
                 resolved = out / "index.html"
-            assert resolved.exists(), f"{page} links to {href}, which is not built"
+            if resolved.exists():
+                continue
+            assert _next_route_exists(href), (
+                f"{page} links to {href}, which is neither built by the "
+                f"marketing step nor served by a Next route"
+            )
+
+
+def test_the_journal_cta_resolves_to_a_real_next_route(tmp_path):
+    """The CTA cutover depends on /login existing in the Next app.
+
+    Asserted explicitly rather than left to the loop above, because this is
+    the link the entire funnel now runs through: if web/app/login/page.tsx
+    ever moves, every "Start your journal" button on the marketing site
+    becomes a 404 and the product has no entry point.
+    """
+    out = build(REAL, APP, SUPPORT, out=tmp_path / "site")
+    html = (out / "index.html").read_text(encoding="utf-8")
+    assert 'href="/login"' in html
+    assert _next_route_exists("/login")
+    # And the route it leads to offers signup, so a new visitor is not stuck
+    # on a page asking for credentials they do not have yet. The link lives in
+    # the sign-in card component, which is what /login actually renders.
+    card = (ROOT / "web" / "components" / "ui" / "sign-in-card-2.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert 'href="/signup"' in card
+    assert (ROOT / "web" / "app" / "signup" / "page.tsx").exists()
