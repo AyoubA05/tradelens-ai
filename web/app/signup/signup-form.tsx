@@ -152,10 +152,13 @@ export function SignupForm({ inviteRequired }: { inviteRequired: boolean }) {
 
       <div>
         <label htmlFor="fullName" className={LABEL}>Full name</label>
+        {/* No placeholder. It held a real person's name, which reads as
+            someone else's data sitting in your form, and the label already
+            says what the field is. */}
         <Input
           id="fullName" name="fullName" autoComplete="name" required
           value={fullName} onChange={(e) => setFullName(e.target.value)}
-          className={FIELD} placeholder="Ayoub Abouelfaid"
+          className={FIELD}
         />
       </div>
 
@@ -245,10 +248,14 @@ export function SignupForm({ inviteRequired }: { inviteRequired: boolean }) {
       {inviteRequired && (
         <div>
           <label htmlFor="invite" className={LABEL}>Invite code</label>
+          {/* The old placeholder ("TradeLens is in private beta") explained the
+              field instead of showing what goes in it, so an empty box looked
+              like a filled one. The field only renders in invite mode, where
+              anyone seeing it already has a code. */}
           <Input
             id="invite" name="invite" required
             value={invite} onChange={(e) => setInvite(e.target.value)}
-            className={FIELD} placeholder="TradeLens is in private beta"
+            className={FIELD}
           />
         </div>
       )}
