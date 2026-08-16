@@ -348,3 +348,57 @@ describe("account state transition", () => {
     expect(userUpdate).not.toContain("strategy_profile_completed");
   });
 });
+
+/**
+ * The verification screen must never state a required action it cannot perform.
+ *
+ * The regression these guard: signing in before confirming your address
+ * redirected here without a token, and the page rendered a lone red box —
+ * "This page needs the link from your verification email" — with no field, no
+ * button and no way back to a working link. The rejected state was the same
+ * trap wearing different words, telling people to "request a new one" from a
+ * page that had no means to request anything, while /api/auth/resend-verification
+ * sat there unreachable from any UI.
+ */
+describe("verify-email screen offers a way out", () => {
+  const dir = pathMod.resolve(__dirname, "..", "app", "verify-email");
+  const states = readFileSync(pathMod.join(dir, "verify-states.tsx"), "utf8");
+  const resend = readFileSync(pathMod.join(dir, "resend-form.tsx"), "utf8");
+
+  it("reaches the resend endpoint rather than only naming it", () => {
+    expect(resend).toContain('fetch("/api/auth/resend-verification"');
+    expect(resend).toContain('method: "POST"');
+  });
+
+  it("renders the resend form in both dead-end states", () => {
+    const missing = states.slice(states.indexOf('phase === "missing"'));
+    const rejected = states.slice(states.indexOf('phase === "rejected"'));
+    expect(missing).toContain("<ResendForm");
+    expect(rejected).toContain("<ResendForm");
+  });
+
+  it("does not dress a missing token as an error", () => {
+    // Arriving here from a refused sign-in is an expected waypoint. Red is for
+    // genuine failure — the rejected state — not for "you have not finished
+    // signing up yet".
+    const missing = states.slice(
+      states.indexOf('phase === "missing"'),
+      states.indexOf('phase === "rejected"'),
+    );
+    expect(missing).not.toContain("red-500");
+    expect(missing).not.toContain('role="alert"');
+  });
+
+  it("never puts the submitted address in a URL", () => {
+    // The address travels in a POST body. In a query string it would land in
+    // browser history and any log on the path.
+    expect(resend).not.toMatch(/resend-verification\?/);
+    expect(resend).toContain("JSON.stringify({ email })");
+  });
+
+  it("keeps one neutral answer for every outcome", () => {
+    // Branching the UI on the result would rebuild the enumeration oracle the
+    // endpoint avoids: the success state is shown for every submission.
+    expect(resend).not.toMatch(/payload\.(exists|found|verified|unknown)/);
+  });
+});

@@ -28,7 +28,14 @@ export default async function VerifyEmailPage({
   return (
     <AuthShell
       title="Verify your email"
-      intro="One click confirms this address and opens your journal."
+      // Without a token there is no "this address" to confirm and nothing to
+      // click, so the promise of one click belongs only on the page that
+      // actually has a link to act on.
+      intro={
+        token
+          ? "One click confirms this address and opens your journal."
+          : "Confirming your address is the last step before your journal opens."
+      }
       footer={<Link href="/login" className="hover:text-text">Back to sign in</Link>}
     >
       <VerifyStates token={token} />

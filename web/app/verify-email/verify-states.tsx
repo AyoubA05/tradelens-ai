@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
+import { ResendForm } from "./resend-form";
+
 /**
  * The verification screen for the link that actually gets emailed.
  *
@@ -90,26 +92,42 @@ export function VerifyStates({ token }: { token: string | null }) {
     );
   }
 
+  /**
+   * No token in the URL. Overwhelmingly this is someone who just tried to sign
+   * in before confirming their address and was redirected here — an expected
+   * waypoint, not a failure, so it is not styled as an error. It used to render
+   * a bare red box reading "This page needs the link from your verification
+   * email", which stated the problem, offered nothing, and left the only way
+   * forward — a new email — sitting behind an endpoint the page never called.
+   */
   if (phase === "missing") {
     return (
-      <p role="alert" className={`${NOTE} border-red-500/30 bg-red-500/10 text-red-300`}>
-        This page needs the link from your verification email.
-      </p>
+      <div className="space-y-4">
+        <p className={`${NOTE} border-border bg-surface-2 text-text`}>
+          Your email address has not been confirmed yet, so your journal is not
+          open. Open the link in the verification email — or send yourself a new
+          one below.
+        </p>
+        <ResendForm label="Email address" />
+      </div>
     );
   }
 
+  /**
+   * A real failure: the link was used, expired, or superseded. The message has
+   * always said "request a new one" — now the page it says that on can actually
+   * do it, instead of handing someone an instruction and no means.
+   */
   if (phase === "rejected") {
     return (
-      <div className="space-y-3">
+      <div className="space-y-4">
         <p role="alert" className={`${NOTE} border-red-500/30 bg-red-500/10 text-red-300`}>
           {error ?? REJECTED_MESSAGE}
         </p>
-        <Link
-          href="/login"
-          className="flex h-10 w-full items-center justify-center rounded-lg border border-border text-sm font-medium text-text"
-        >
-          Back to sign in
-        </Link>
+        {/* No "Back to sign in" button here: the shell already renders that
+            link directly below the card, and two identical exits stacked a few
+            pixels apart read as two different destinations. */}
+        <ResendForm label="Send a new link to" />
       </div>
     );
   }

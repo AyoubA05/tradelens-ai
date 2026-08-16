@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { optionalEnv, requireEnv } from "@/lib/env";
+import { emailConfigured, optionalEnv, requireEnv } from "@/lib/env";
 import { normalizeEmail } from "@/lib/auth/contract";
 import { issueVerification, verificationUrl } from "@/lib/auth/verification";
 import { query } from "@/lib/db/client";
@@ -32,6 +32,20 @@ const NO_STORE = { "Cache-Control": "no-store, private", "Referrer-Policy": "no-
 const NEUTRAL =
   "If that address needs verifying, a new link is on its way. It expires in 24 hours.";
 
+/**
+ * `mailConfigured` is a property of the deployment, not of the address that was
+ * submitted — identical for every input, so it discloses nothing about whether
+ * an account exists. It is here for the same reason it is on forgot-password:
+ * without it the page promises a link that an environment with no SMTP will
+ * never send, and the person waits for mail that was never attempted.
+ */
+function neutral() {
+  return NextResponse.json(
+    { ok: true, message: NEUTRAL, mailConfigured: emailConfigured() },
+    { status: 200, headers: NO_STORE },
+  );
+}
+
 export async function POST(request: Request) {
   const siteOrigin = optionalEnv("SITE_ORIGIN");
   if (siteOrigin && !isSameOriginRequest(request.headers, siteOrigin)) {
@@ -44,7 +58,7 @@ export async function POST(request: Request) {
     logAuthEvent("resend", "rate_limited");
     // Still neutral: a distinct "rate limited" reply for a known address and a
     // generic one for an unknown address would leak the distinction anyway.
-    return NextResponse.json({ ok: true, message: NEUTRAL }, { status: 200, headers: NO_STORE });
+    return neutral();
   }
 
   let email: string | null = null;
@@ -60,13 +74,13 @@ export async function POST(request: Request) {
   // Malformed input gets the same answer as everything else.
   if (email === null) {
     await recordAttempt(ipBucket, "verify", false);
-    return NextResponse.json({ ok: true, message: NEUTRAL }, { status: 200, headers: NO_STORE });
+    return neutral();
   }
 
   const emailBucket = await bucketFor("id", email);
   if (await isRateLimited(emailBucket, "verify", "forgot:id")) {
     logAuthEvent("resend", "rate_limited");
-    return NextResponse.json({ ok: true, message: NEUTRAL }, { status: 200, headers: NO_STORE });
+    return neutral();
   }
   await recordAttempt(emailBucket, "verify", false);
   await recordAttempt(ipBucket, "verify", false);
@@ -82,7 +96,7 @@ export async function POST(request: Request) {
   // Nothing to do — unknown address, or already verified. Same response.
   if (rows.length !== 1) {
     logAuthEvent("resend", "unknown_identifier");
-    return NextResponse.json({ ok: true, message: NEUTRAL }, { status: 200, headers: NO_STORE });
+    return neutral();
   }
 
   const userId = rows[0]!.id;
@@ -102,5 +116,5 @@ export async function POST(request: Request) {
     outcome.status === "sent" ? "success" : outcome.status === "failed" ? "email_send_failed" : "email_unconfigured",
   );
 
-  return NextResponse.json({ ok: true, message: NEUTRAL }, { status: 200, headers: NO_STORE });
+  return neutral();
 }
