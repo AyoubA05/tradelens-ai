@@ -72,7 +72,7 @@
              poster="assets/poster-hero.webp" aria-hidden="true"></video>
       <div class="hero-scrim" aria-hidden="true"></div>
       <div class="container hero-content">
-        <p class="kicker">
+        <p class="kicker kicker-chip">
           <svg class="candles" width="20" height="16" viewBox="0 0 20 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">
             <line x1="3.5" y1="6" x2="3.5" y2="15.5"></line><rect x="1.5" y="8" width="4" height="5"></rect>
             <line x1="10" y1="3" x2="10" y2="13.5"></line><rect x="8" y="5" width="4" height="5.5"></rect>
@@ -80,7 +80,14 @@
           </svg>
           Post-Trade Journal. AI-Powered Growth.
         </p>
-        <h1 class="hero-title">Your Trades Have Patterns. <span class="hero-find">Find Them.</span></h1>
+        <!-- The rotating word is decoration over one fixed meaning, so the
+             readout is hidden from assistive tech and the sentence is exposed
+             once, whole, in its canonical form. A screen reader gets a
+             headline, not a carousel. -->
+        <h1 class="hero-title">Your Trades Have
+          <span class="sr-only">Patterns.</span>
+          <span class="rot-group" aria-hidden="true"><span class="w rotator"><span class="rot-sizer">Patterns</span><span class="rot-word is-current">Patterns</span><span class="rot-word">Mistakes</span><span class="rot-word">Habits</span><span class="rot-word">Setups</span><span class="rot-word">Edges</span></span><span class="rot-stop">.</span></span>
+          <span class="hero-find">Find Them.</span></h1>
         <p class="hero-sub">TradeLens AI is a post-trade journal that turns completed trades into evidence-backed reviews of your process, psychology, and performance. It reviews what already happened and never tells you what to trade.</p>
         <div class="hero-ctas">
           <a class="btn btn-primary" data-cta-location="hero" href="/login">Start your journal</a>
@@ -352,26 +359,47 @@
   </main>
 
   <footer class="footer">
-    <div class="container footer-inner">
-      <div class="footer-brand">
-        <a class="brand" href="#top">
-          <img src="assets/logo.png" alt="TradeLens AI logo" width="26" height="26">
-          <span class="brand-name">TradeLens&nbsp;<em>AI</em></span>
-        </a>
-        <p class="footer-tag">Post-Trade Journal. AI-Powered Growth.</p>
+    <div class="container">
+      <div class="footer-panel">
+        <div class="footer-top">
+          <a class="brand" href="#top">
+            <img src="assets/logo.png" alt="TradeLens AI logo" width="30" height="30">
+            <span class="brand-name">TradeLens&nbsp;<em>AI</em></span>
+          </a>
+          <p class="footer-tag">Post-Trade Journal. AI-Powered Growth.</p>
+        </div>
+
+        <!-- Three columns, not four: the reference's fourth is social accounts,
+             and inventing links to profiles that do not exist would be the one
+             thing on this page a visitor could catch as false. The columns
+             name what is actually here. -->
+        <nav class="footer-cols" aria-label="Footer">
+          <div class="footer-col">
+            <p class="footer-col-head">Product</p>
+            <a href="#features">Features</a>
+            <a href="#how">How it works</a>
+            <a href="#ai">The AI layer</a>
+            <a href="#pricing">Pricing</a>
+          </div>
+          <div class="footer-col">
+            <p class="footer-col-head">Start</p>
+            <a data-cta-location="footer" href="/login">Start your journal</a>
+            <a href="/login">Sign in</a>
+            <a href="#faq">FAQ</a>
+          </div>
+          <div class="footer-col">
+            <p class="footer-col-head">Company</p>
+            <a href="/privacy">Privacy</a>
+            <a href="/terms">Terms</a>
+            <a href="mailto:__SUPPORT_EMAIL__">Support</a>
+          </div>
+        </nav>
+
+        <div class="footer-legal">
+          <p>TradeLens AI is a post-trade reflection journal. It does not provide trade signals, predictions, or financial advice. Trading involves risk; past performance in your journal does not guarantee future results.</p>
+          <p class="footer-copy">© 2026 TradeLens AI</p>
+        </div>
       </div>
-      <nav class="footer-nav" aria-label="Footer">
-        <a href="#features">Features</a>
-        <a href="#how">How it works</a>
-        <a href="#pricing">Pricing</a>
-        <a href="/privacy">Privacy</a>
-        <a href="/terms">Terms</a>
-        <a href="mailto:__SUPPORT_EMAIL__">Support</a>
-      </nav>
-    </div>
-    <div class="container footer-legal">
-      <p>TradeLens AI is a post-trade reflection journal. It does not provide trade signals, predictions, or financial advice. Trading involves risk; past performance in your journal does not guarantee future results.</p>
-      <p>© 2026 TradeLens AI</p>
     </div>
   </footer>
 </body>

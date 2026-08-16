@@ -19,7 +19,6 @@
  */
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-const smallScreen = window.matchMedia("(max-width: 768px)").matches;
 const saveData = navigator.connection && navigator.connection.saveData;
 
 /* ---- nav: mobile menu + scrolled state ---- */
@@ -61,22 +60,60 @@ window.addEventListener(
 /* ---- videos: attached only when the visitor's device and preferences allow
 
    Removing <source> after parse was too late — the browser had already
-   started fetching the MP4. The markup now ships without a source, so an
-   ineligible visitor never requests the file at all and keeps the poster. */
+   started fetching the MP4. The markup ships without a source, so an
+   ineligible visitor never requests the file at all and keeps the poster.
 
-function hydrateEligibleVideos() {
-  if (smallScreen || reducedMotion || saveData) return;
-  document.querySelectorAll("video[data-video-src]").forEach((video) => {
-    const source = document.createElement("source");
-    source.src = video.dataset.videoSrc;
-    source.type = "video/mp4";
-    video.appendChild(source);
-    video.load();
-    video.play().catch(() => {});
-  });
+   A blanket `max-width: 768px` gate used to sit here, which meant every
+   phone got a still poster where the design calls for motion — the videos
+   were "broken" on mobile by construction. Viewport width is the wrong
+   proxy anyway: it says nothing about the connection paying for the file.
+   Proximity does. Each video now hydrates when it is about to be seen and
+   pauses when it leaves, so a phone downloads the hero and nothing else
+   until the visitor scrolls to it.
+
+   The two preferences that are real statements of intent are still
+   honoured absolutely: reduced motion and Save-Data keep the poster. */
+
+function hydrateVideo(video) {
+  if (video.dataset.hydrated) return;
+  video.dataset.hydrated = "true";
+  const source = document.createElement("source");
+  source.src = video.dataset.videoSrc;
+  source.type = "video/mp4";
+  video.appendChild(source);
+  video.load();
+  video.play().catch(() => {});
 }
 
-hydrateEligibleVideos();
+function watchEligibleVideos() {
+  if (reducedMotion || saveData) return;
+  const videos = document.querySelectorAll("video[data-video-src]");
+
+  if (!("IntersectionObserver" in window)) {
+    videos.forEach(hydrateVideo);
+    return;
+  }
+
+  const nearby = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          hydrateVideo(entry.target);
+          entry.target.play().catch(() => {});
+        } else if (entry.target.dataset.hydrated) {
+          // Decoding a video nobody is looking at costs battery on the
+          // devices this change was made for.
+          entry.target.pause();
+        }
+      });
+    },
+    { rootMargin: "200px 0px" }
+  );
+
+  videos.forEach((video) => nearby.observe(video));
+}
+
+watchEligibleVideos();
 
 /* ---- tilt showcase: card straightens as it scrolls into view ---- */
 
@@ -184,6 +221,10 @@ if (hero && heroTitle && !reducedMotion) {
         });
         child.replaceWith(frag);
       } else if (child.nodeType === Node.ELEMENT_NODE) {
+        // The rotator is already marked as one animation unit, and the
+        // screen-reader copy of the sentence must not be split into spans.
+        // Recursing into either would wrap their inner text and break them.
+        if (child.classList.contains("w") || child.classList.contains("sr-only")) return;
         wrapWords(child);
       }
     });
@@ -196,6 +237,57 @@ if (hero && heroTitle && !reducedMotion) {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => hero.classList.add("loaded"));
   });
+}
+
+/* ---- hero rotating word ----
+
+   The headline names the thing a journal actually surfaces, and there is
+   more than one of them. Cycling the noun says that faster than a list
+   would, and every word has to stay true to what the product does: these
+   are all things a completed trade already contains, never anything the
+   product predicts.
+
+   Width is animated, which means it has to be an explicit pixel value —
+   `auto` does not transition. It is measured from the words themselves
+   after webfonts land, because measuring against the fallback face bakes
+   in the wrong number and the rule underneath ends up short. */
+
+const rotator = document.querySelector(".rotator");
+
+if (rotator) {
+  const words = [...rotator.querySelectorAll(".rot-word")];
+  let index = 0;
+
+  const fitToCurrentWord = () => {
+    rotator.style.width = `${words[index].getBoundingClientRect().width}px`;
+  };
+
+  const advance = () => {
+    // A word rotating in a tab nobody is looking at is pure battery cost.
+    if (document.hidden) return;
+    const outgoing = words[index];
+    index = (index + 1) % words.length;
+    outgoing.classList.remove("is-current");
+    outgoing.classList.add("is-leaving");
+    words[index].classList.add("is-current");
+    fitToCurrentWord();
+    // Longer than the 560ms transition, so the reset never lands mid-move.
+    setTimeout(() => outgoing.classList.remove("is-leaving"), 620);
+  };
+
+  const start = () => {
+    fitToCurrentWord();
+    if (reducedMotion || words.length < 2) return;
+    setInterval(advance, 2400);
+  };
+
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(start);
+  } else {
+    start();
+  }
+
+  window.addEventListener("resize", fitToCurrentWord, { passive: true });
 }
 
 /* ---- conversion measurement: aggregate only, never personal ----

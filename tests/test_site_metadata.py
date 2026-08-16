@@ -169,7 +169,7 @@ def test_journal_ctas_route_through_the_website_login():
     """
     text = _index_text()
     ctas = re.findall(r"<a[^>]*data-cta-location=\"([a-z]+)\"[^>]*>", text)
-    assert sorted(ctas) == ["final", "hero", "mobile", "nav", "pricing"]
+    assert sorted(ctas) == ["final", "footer", "hero", "mobile", "nav", "pricing"]
 
     for match in re.finditer(r"<a([^>]*data-cta-location=[^>]*)>", text):
         tag = match.group(1)
@@ -303,10 +303,15 @@ def test_stories_have_captions_that_say_what_the_trader_learns():
 
 
 def test_every_primary_cta_is_labelled_with_its_location():
-    """Five entry points; without labels the funnel can't be diagnosed."""
+    """Six entry points; without labels the funnel can't be diagnosed.
+
+    The footer link joined the inventory when the footer became a three
+    column panel with a "Start" column. The count is asserted, not just the
+    membership, so an unlabelled CTA added later still fails this.
+    """
     html = _index_text()
-    assert html.count("data-cta-location=") == 5
-    for location in ("nav", "hero", "pricing", "final", "mobile"):
+    assert html.count("data-cta-location=") == 6
+    for location in ("nav", "hero", "pricing", "final", "mobile", "footer"):
         assert f'data-cta-location="{location}"' in html
 
 

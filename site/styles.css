@@ -13,6 +13,24 @@
   --accent: #00e5cc;
   --accent-dim: rgba(0, 229, 204, 0.12);
 
+  /* Glass layer.
+     The premium surfaces on this page are lit from above, the way a screen
+     in a dark room is: a hairline ring catches the light, the fill is a
+     barely-there wash rather than a lighter grey box, and a 1px inner
+     highlight sits on the top edge only. Ring and fill are white at low
+     alpha, never a solid colour — they have to read correctly over the
+     video, over #0d1117, and over a screenshot alike. */
+  --ring: rgba(255, 255, 255, 0.09);
+  --ring-strong: rgba(255, 255, 255, 0.14);
+  --glass: rgba(255, 255, 255, 0.045);
+  --glass-strong: rgba(255, 255, 255, 0.07);
+  --edge-light: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --lift: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 34px rgba(0, 0, 0, 0.42);
+  --lift-lg: 0 2px 6px rgba(0, 0, 0, 0.35), 0 30px 70px rgba(0, 0, 0, 0.5);
+  /* Teal never fills a large area — it glows off the edges of small ones. */
+  --glow-accent: 0 6px 24px rgba(0, 229, 204, 0.28);
+  --pill: 999px;
+
   --font-display: 'Schibsted Grotesk', 'Satoshi', system-ui, sans-serif;
   --font-body: 'Satoshi', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
@@ -107,6 +125,18 @@ p { text-wrap: pretty; }
   max-width: 56ch;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ---- ambience ---- */
 
 .grain {
@@ -128,8 +158,10 @@ main { position: relative; z-index: 1; }
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 13px 26px;
-  border-radius: 10px;
+  padding: 14px 28px;
+  /* Fully round, matching the nav pill and the hero badge: one radius
+     language for everything a visitor can press. */
+  border-radius: var(--pill);
   border: 1px solid transparent;
   font-family: var(--font-body);
   font-size: 0.9375rem;
@@ -138,8 +170,10 @@ main { position: relative; z-index: 1; }
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
+  white-space: nowrap;
   transition: background-color 200ms var(--ease), border-color 200ms var(--ease),
-              color 200ms var(--ease), transform 200ms var(--ease);
+              color 200ms var(--ease), transform 200ms var(--ease),
+              box-shadow 200ms var(--ease);
 }
 
 .btn:active { transform: scale(0.97); }
@@ -147,38 +181,50 @@ main { position: relative; z-index: 1; }
 .btn-primary {
   background: var(--accent);
   color: #04201c;
+  box-shadow: var(--glow-accent);
 }
 
-.btn-primary:hover { background: #33ecd8; }
+@media (hover: hover) {
+  .btn-primary:hover {
+    background: #33ecd8;
+    box-shadow: 0 8px 30px rgba(0, 229, 204, 0.42);
+    transform: translateY(-1px);
+  }
+}
 
 .btn-ghost {
-  border-color: var(--border);
+  border-color: var(--ring);
   color: var(--text);
-  background: rgba(22, 27, 34, 0.4);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--edge-light);
 }
 
-.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+@media (hover: hover) {
+  .btn-ghost:hover {
+    border-color: var(--ring-strong);
+    background: var(--glass-strong);
+    transform: translateY(-1px);
+  }
+}
 
-.btn-sm { padding: 9px 18px; font-size: 0.875rem; }
+.btn-sm { padding: 10px 20px; font-size: 0.875rem; }
 
 /* ---- nav ---- */
 
+/* The bar no longer spans the window edge-to-edge. It floats: a single
+   rounded pill inside the container, so the video runs behind and past it
+   and the page reads as one continuous image rather than a header stuck on
+   top of a hero. The bar element itself is now only a positioning frame —
+   all the glass lives on .nav-inner. */
 .nav {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   z-index: 10;
-  background: rgba(13, 17, 23, 0.72);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  border-bottom: 1px solid transparent;
-  transition: border-color 300ms var(--ease), background-color 300ms var(--ease);
-}
-
-.nav.scrolled {
-  background: rgba(13, 17, 23, 0.88);
-  border-bottom-color: var(--border);
+  padding-block: 14px;
 }
 
 .nav-inner {
@@ -186,7 +232,30 @@ main { position: relative; z-index: 1; }
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  height: 68px;
+  height: 60px;
+  /* Overrides .container's 24px inset: the pill's own edge is the margin now.
+     Asymmetric because the right side ends in a button, which carries its
+     own visual padding, and the left ends in a logo, which does not. */
+  padding-inline: 22px 10px;
+  border-radius: var(--pill);
+  background: var(--glass);
+  border: 1px solid var(--ring);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+  box-shadow: var(--edge-light), var(--lift);
+  transition: background-color 300ms var(--ease), border-color 300ms var(--ease),
+              transform 300ms var(--ease);
+}
+
+/* Past the fold the pill stops being a floating object over artwork and
+   becomes chrome over content, so it gains opacity and tightens toward the
+   top edge. The tightening is a transform, not the padding it reads as:
+   this runs on every scroll past 40px, and padding would relayout the bar
+   each time. */
+.nav.scrolled .nav-inner {
+  transform: translateY(-6px);
+  background: rgba(22, 27, 34, 0.86);
+  border-color: var(--ring-strong);
 }
 
 .brand {
@@ -223,11 +292,11 @@ main { position: relative; z-index: 1; }
 
 .nav-toggle {
   display: none;
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--glass);
+  border: 1px solid var(--ring);
+  border-radius: var(--pill);
   color: var(--text);
-  padding: 8px;
+  padding: 10px;
   cursor: pointer;
 }
 
@@ -310,7 +379,111 @@ main { position: relative; z-index: 1; }
   max-width: 19ch;
 }
 
-.hero-find { color: var(--accent); white-space: nowrap; }
+/* The accent moved to the rotating word, which is now the one thing in the
+   headline that changes and therefore the one thing worth colouring. Two
+   teal phrases on one line made the line read as a single teal block and
+   the rotation stopped registering as the event it is. */
+.hero-find { color: var(--text); white-space: nowrap; }
+
+/* Badge chip — hero only.
+   Section eyebrows stay bare mono type; making every kicker a chip would
+   spend the treatment five times and it would stop meaning anything. */
+.kicker-chip {
+  padding: 7px 18px 7px 13px;
+  border-radius: var(--pill);
+  background: var(--glass);
+  border: 1px solid var(--ring);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--edge-light);
+  color: var(--text);
+  font-size: 0.6875rem;
+  letter-spacing: 0.13em;
+  /* Two even lines on a phone. Left greedy, it fills the first line and
+     breaks inside "AI-POWERED" at the hyphen, which reads as a typo. */
+  text-wrap: balance;
+}
+
+.kicker-chip .candles { color: var(--accent); }
+
+/* ---- rotating word (the signature) ----
+
+   A readout, not a carousel: the word sits on a teal rule that re-measures
+   itself to each word the way a chart axis snaps to a new range. The rule
+   is the memorable part, so the words themselves move quietly.
+
+   Layout: .rot-sizer is the only in-flow child, which is what gives the
+   inline-block its height and — critically — its baseline, so the word
+   lines up with the ". Find Them." beside it without magic numbers. The
+   words are absolutely positioned over that box. Width is set by main.js
+   so it can transition; auto width cannot. */
+.rotator {
+  position: relative;
+  display: inline-block;
+  white-space: nowrap;
+  color: var(--accent);
+  /* Deliberately quicker than the word fade below. The box has to reach its
+     new size before the incoming word becomes visible, or a word wider than
+     the box it is in overflows and the full stop lands on top of its last
+     letter for half a second. */
+  transition: width 340ms var(--ease);
+}
+
+.rot-sizer { visibility: hidden; }
+
+.rot-word {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  transform: translateY(0.34em);
+  transition: opacity 420ms var(--ease), transform 560ms var(--ease),
+              filter 420ms var(--ease);
+  filter: blur(6px);
+}
+
+.rot-word.is-current {
+  opacity: 1;
+  transform: none;
+  filter: none;
+  transition-delay: 130ms;
+}
+
+/* Outgoing word leaves upward, so the column always reads as moving in one
+   direction — a tape advancing, not a list bouncing. */
+.rot-word.is-leaving {
+  opacity: 0;
+  transform: translateY(-0.34em);
+  filter: blur(6px);
+}
+
+.rotator::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.04em;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 62%, rgba(0, 229, 204, 0.15) 100%);
+  box-shadow: 0 0 14px rgba(0, 229, 204, 0.5);
+}
+
+/* An inline-block is an atomic inline, so the line breaker is allowed to
+   break between the word and the full stop even though there is no space
+   between them in the markup. On a phone that stranded the "." at the start
+   of the next line. This keeps the two together. */
+.rot-group { white-space: nowrap; }
+
+.rot-stop { color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) {
+  /* No rotation at all: moving text under a reduce-motion request is the
+     one thing this effect must not do. main.js never starts the timer, and
+     the first word stays. */
+  .rotator { transition: none; }
+  .rot-word { transition: none; }
+}
 
 .hero-sub {
   margin-top: 24px;
@@ -387,9 +560,10 @@ main { position: relative; z-index: 1; }
 
 .tilt-card {
   margin: 0;
-  border-radius: 16px;
-  border: 1px solid var(--border);
+  border-radius: 18px;
+  border: 1px solid var(--ring);
   box-shadow:
+    var(--edge-light),
     0 0 0 1px rgba(0, 229, 204, 0.06),
     0 24px 60px rgba(0, 0, 0, 0.55),
     0 80px 140px rgba(0, 0, 0, 0.35);
@@ -417,20 +591,23 @@ main { position: relative; z-index: 1; }
 
 .card {
   background: linear-gradient(180deg, var(--surface) 0%, rgba(22, 27, 34, 0.6) 100%);
-  border: 1px solid var(--border);
-  border-radius: 16px;
+  border: 1px solid var(--ring);
+  border-radius: 18px;
   padding: 26px 26px 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
   overflow: hidden;
-  transition: border-color 250ms var(--ease), transform 250ms var(--ease);
+  box-shadow: var(--edge-light), var(--lift);
+  transition: border-color 250ms var(--ease), transform 250ms var(--ease),
+              box-shadow 250ms var(--ease);
 }
 
 @media (hover: hover) {
   .card:hover {
     border-color: rgba(0, 229, 204, 0.35);
     transform: translateY(-3px);
+    box-shadow: var(--edge-light), var(--lift-lg);
   }
 }
 
@@ -441,7 +618,7 @@ main { position: relative; z-index: 1; }
 
 .shot-frame {
   margin: 8px -1px -1px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--ring);
   border-bottom: none;
   border-radius: 12px 12px 0 0;
   background: var(--surface-2);
@@ -531,10 +708,11 @@ main { position: relative; z-index: 1; }
 
 .story-proof {
   margin: 0;
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid var(--ring);
+  border-radius: 14px;
   background: var(--surface-2);
   overflow: hidden;
+  box-shadow: var(--edge-light), var(--lift);
 }
 
 .story-proof img {
@@ -698,7 +876,7 @@ main { position: relative; z-index: 1; }
   display: flex;
   flex-direction: column;
   gap: 0;
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--ring);
 }
 
 .wizard-chip {
@@ -715,6 +893,21 @@ main { position: relative; z-index: 1; }
 /* Teal marks only the step the screenshot beside it is showing. */
 .wizard-chip:first-child { color: var(--text); }
 
+/* A lit node on the rail itself, sitting on the hairline rather than beside
+   it, so the rail reads as a circuit with one live point. */
+.wizard-chip:first-child::before {
+  content: "";
+  position: absolute;
+  left: -30px;
+  top: 50%;
+  translate: 0 -50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(0, 229, 204, 0.85);
+}
+
 .chip-num {
   font-family: var(--font-mono);
   font-size: 0.75rem;
@@ -725,15 +918,22 @@ main { position: relative; z-index: 1; }
   align-items: center;
 }
 
-.ai-shot { margin: 0; border-radius: 12px; border-bottom: 1px solid var(--border); flex: none; display: block; }
+.ai-shot {
+  margin: 0;
+  border-radius: 14px;
+  border: 1px solid var(--ring);
+  flex: none;
+  display: block;
+  box-shadow: var(--edge-light), var(--lift-lg);
+}
 
 .ai-shot img { aspect-ratio: 3 / 2; width: 100%; height: auto; object-fit: cover; object-position: top center; }
 
 .compliance-note {
   position: relative;
   margin-top: clamp(36px, 5vw, 56px);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid var(--ring);
+  border-radius: 14px;
   background: rgba(22, 27, 34, 0.72);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
@@ -790,7 +990,29 @@ main { position: relative; z-index: 1; }
   justify-content: center;
 }
 
-.tier-card { padding: 32px; gap: 0; }
+/* The only offer on the page, so it gets the one teal-edged surface —
+   nothing else on the site carries an accent ring, which is what makes this
+   one read as the thing to press. */
+.tier-card {
+  padding: 34px;
+  gap: 0;
+  position: relative;
+  border-color: rgba(0, 229, 204, 0.28);
+  box-shadow: var(--edge-light), var(--lift-lg), 0 0 60px rgba(0, 229, 204, 0.07);
+}
+
+/* A hairline of accent along the top edge, brightest at the centre: the
+   card looks lit from the offer rather than outlined by it. */
+.tier-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 12%;
+  right: 12%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.75;
+}
 
 .tier-name {
   font-family: var(--font-mono);
@@ -881,13 +1103,23 @@ main { position: relative; z-index: 1; }
 }
 
 .faq-item {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  transition: border-color 250ms var(--ease);
+  background: var(--glass);
+  border: 1px solid var(--ring);
+  border-radius: 14px;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--edge-light);
+  transition: border-color 250ms var(--ease), background-color 250ms var(--ease);
 }
 
-.faq-item[open] { border-color: rgba(0, 229, 204, 0.35); }
+@media (hover: hover) {
+  .faq-item:hover { border-color: var(--ring-strong); }
+}
+
+.faq-item[open] {
+  border-color: rgba(0, 229, 204, 0.35);
+  background: var(--glass-strong);
+}
 
 .faq-item summary {
   list-style: none;
@@ -941,6 +1173,9 @@ main { position: relative; z-index: 1; }
   background: linear-gradient(180deg, var(--bg) 0%, rgba(13, 17, 23, 0.55) 40%, rgba(13, 17, 23, 0.55) 60%, var(--bg) 100%);
 }
 
+/* The closing ask is a panel, not a centred text block on artwork. Giving
+   it an edge stops the page ending in a fade and makes the last thing a
+   visitor sees an object they can act on. */
 .cta-content {
   position: relative;
   z-index: 2;
@@ -949,55 +1184,81 @@ main { position: relative; z-index: 1; }
   flex-direction: column;
   align-items: center;
   gap: 22px;
-  padding-block: clamp(24px, 5vw, 60px);
+  max-width: 760px;
+  padding: clamp(40px, 6vw, 68px) clamp(24px, 5vw, 56px);
+  border-radius: 24px;
+  border: 1px solid var(--ring);
+  background: rgba(13, 17, 23, 0.55);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: var(--edge-light), var(--lift-lg);
 }
 
 .cta-content .lead { max-width: 44ch; }
 
 /* ---- footer ---- */
 
+/* ---- footer ----
+   A raised panel rather than a hairline-ruled strip. The page's last edge is
+   the panel's, which closes the document instead of letting it trail off,
+   and it repeats the radius language of the nav pill at the other end of
+   the scroll. */
+
 .footer {
-  border-top: 1px solid var(--border);
-  padding-block: 48px 36px;
+  padding-block: 0 clamp(16px, 3vw, 28px);
   position: relative;
   z-index: 1;
   background: var(--bg);
 }
 
-.footer-inner {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 28px;
+.footer-panel {
+  border: 1px solid var(--ring);
+  border-radius: 28px;
+  background: linear-gradient(180deg, var(--surface) 0%, rgba(22, 27, 34, 0.45) 100%);
+  box-shadow: var(--edge-light), var(--lift);
+  padding: clamp(32px, 5vw, 56px) clamp(24px, 4vw, 48px);
 }
 
 .footer-tag {
-  margin-top: 10px;
+  margin-top: 12px;
   font-family: var(--font-mono);
   font-size: 0.75rem;
   color: var(--muted);
 }
 
-.footer-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 22px;
+.footer-cols {
+  margin-top: clamp(40px, 6vw, 64px);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 32px;
 }
 
-.footer-nav a {
+.footer-col-head {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.footer-col a {
+  display: block;
+  padding-block: 7px;
   color: var(--muted);
   text-decoration: none;
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   transition: color 200ms var(--ease);
+  width: fit-content;
 }
 
-.footer-nav a:hover { color: var(--text); }
+.footer-col a:hover { color: var(--text); }
 
 .footer-legal {
-  margin-top: 36px;
-  padding-top: 24px;
-  border-top: 1px solid var(--border);
+  margin-top: clamp(36px, 5vw, 56px);
+  padding-top: 26px;
+  border-top: 1px solid var(--ring);
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
@@ -1008,6 +1269,12 @@ main { position: relative; z-index: 1; }
   color: var(--muted);
   font-size: 0.8125rem;
   max-width: 72ch;
+}
+
+.footer-copy { white-space: nowrap; }
+
+@media (max-width: 640px) {
+  .footer-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 24px; }
 }
 
 @media (max-width: 900px) {
