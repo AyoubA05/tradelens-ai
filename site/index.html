@@ -208,8 +208,21 @@
     </section>
 
     <section class="section section-band" id="ai">
+      <!-- Boomerang: the file already contains the clip forward and then back
+           again, so plain `loop` turns at the ends instead of cutting from the
+           last frame to the first the way ai-loop.mp4 did.
+
+           Baked into the asset rather than driven from main.js on purpose.
+           Rewinding at runtime means walking currentTime backwards, and H.264
+           only decodes forward — measured on this clip it froze for whole
+           seconds at a time between keyframes, which is worse than the cut it
+           was meant to remove. See scripts/bake_boomerang.sh to regenerate.
+
+           Twice the frames and still smaller than the file it replaced: the
+           audio track is gone (this plays muted) and the bitrate no longer
+           assumes anyone is looking at it without a scrim over the top. -->
       <video class="band-video" muted loop playsinline preload="none"
-             data-video-src="assets/ai-loop.mp4"
+             data-video-src="assets/ai-loop-boomerang.mp4"
              poster="assets/poster-ai.webp" aria-hidden="true"></video>
       <div class="band-scrim" aria-hidden="true"></div>
       <div class="container band-content">
