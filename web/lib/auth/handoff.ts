@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 
-import { transaction } from "@/lib/db/client";
+import { query, transaction } from "@/lib/db/client";
 import type { WebsiteUser } from "@/lib/auth/session";
 import { emailGatePassed } from "@/lib/auth/session";
 
@@ -68,6 +68,38 @@ export function handoffEligibility(user: WebsiteUser | null): HandoffEligibility
     return { eligible: false, reason: "onboarding_incomplete" };
   }
   return { eligible: true };
+}
+
+/**
+ * Has this account ever been sent into the app before?
+ *
+ * Drives one thing only — whether the continuation step is a screen someone
+ * reads or a step they pass straight through. A first-time arrival gets the
+ * "You're all set" card; everyone else is on their way to a journal they have
+ * opened before and does not need to be congratulated for it again.
+ *
+ * Two signals, because neither alone is durable:
+ *
+ *   strategy_profile_completed   set inside the app on first run, and never
+ *                                unset — proof of a previous crossing that no
+ *                                cleanup touches.
+ *   any auth_handoffs row        precise, but `issueHandoff` sweeps rows older
+ *                                than 30 days, so on its own an account away
+ *                                for a month would read as brand new.
+ *
+ * Cheap: the column is already on the session's user, so the query runs only
+ * for accounts that have not finished their strategy profile.
+ *
+ * This is presentation state, deliberately kept out of `handoffEligibility` —
+ * nothing here grants or withholds access, and it must never start doing so.
+ */
+export async function hasEnteredAppBefore(user: WebsiteUser): Promise<boolean> {
+  if (user.strategyProfileCompleted) return true;
+  const rows = await query<{ one: number }>(
+    `SELECT 1 AS one FROM auth_handoffs WHERE user_id = $1 LIMIT 1`,
+    [user.userId],
+  );
+  return rows.length > 0;
 }
 
 /**

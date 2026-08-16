@@ -39,7 +39,7 @@ vi.mock("@/lib/auth/session", async (importOriginal) => {
 });
 
 import type { WebsiteUser } from "@/lib/auth/session";
-import { HANDOFF_TTL_SECONDS, handoffEligibility, issueHandoff } from "@/lib/auth/handoff";
+import { HANDOFF_TTL_SECONDS, handoffEligibility, hasEnteredAppBefore, issueHandoff } from "@/lib/auth/handoff";
 import { InvalidAppOriginError, handoffRedirectUrl, validatedAppOrigin } from "@/lib/security/app-origin";
 
 const CONTRACT = JSON.parse(
@@ -395,12 +395,68 @@ describe("route", () => {
 });
 
 describe("continue page", () => {
+  const source = readFileSync(
+    pathMod.resolve(__dirname, "..", "app", "continue", "page.tsx"), "utf8");
+
   it("does not issue on render", () => {
-    const source = readFileSync(
-      pathMod.resolve(__dirname, "..", "app", "continue", "page.tsx"), "utf8");
     expect(source).not.toContain("issueHandoff");
     // The button is a form POST, not a link or an effect.
     expect(source).toContain('method="POST"');
     expect(source).toContain('action="/api/auth/handoff"');
+  });
+
+  it("does not redirect a returning user server-side", () => {
+    // Skipping the welcome screen must never become a render-time issue. A
+    // server redirect to the handoff, or a GET link to it, would mint on
+    // prefetch — the whole reason the endpoint is POST-only.
+    expect(source).not.toMatch(/redirect\(\s*["'`][^"'`]*\/api\/auth\/handoff/);
+    expect(source).not.toMatch(/href=\{?["'`]\/api\/auth\/handoff/);
+  });
+
+  it("shows the welcome card only to an account that has never crossed", () => {
+    expect(source).toContain("hasEnteredAppBefore");
+    expect(source).toContain("You're all set");
+    // The returning path submits the same form rather than a different one.
+    expect(source).toContain("AutoSubmit");
+    expect(source).toContain('formId="handoff-form"');
+  });
+});
+
+describe("hasEnteredAppBefore", () => {
+  /**
+   * Presentation state, not an access decision — but it reads the database on
+   * behalf of a session, so it gets the same scrutiny as anything that does:
+   * the user id comes from the resolved session and is always bound, never
+   * interpolated.
+   */
+  const NEW_USER: WebsiteUser = { ...ELIGIBLE, strategyProfileCompleted: false };
+
+  beforeEach(() => {
+    runQuery.mockReset();
+    runQuery.mockResolvedValue([]);
+  });
+
+  it("answers yes from the user row without querying, once the app has been used", async () => {
+    const seasoned = { ...ELIGIBLE, strategyProfileCompleted: true };
+    await expect(hasEnteredAppBefore(seasoned)).resolves.toBe(true);
+    expect(runQuery).not.toHaveBeenCalled();
+  });
+
+  it("treats an account with no handoff history as first-run", async () => {
+    runQuery.mockResolvedValue([]);
+    await expect(hasEnteredAppBefore(NEW_USER)).resolves.toBe(false);
+  });
+
+  it("treats a prior handoff as proof of a previous crossing", async () => {
+    runQuery.mockResolvedValue([{ one: 1 }]);
+    await expect(hasEnteredAppBefore(NEW_USER)).resolves.toBe(true);
+  });
+
+  it("binds the user id rather than interpolating it", async () => {
+    await hasEnteredAppBefore(NEW_USER);
+    const [sql, params] = runQuery.mock.calls[0]!;
+    expect(sql).toContain("$1");
+    expect(sql).not.toContain(String(NEW_USER.userId));
+    expect(params).toEqual([NEW_USER.userId]);
   });
 });
