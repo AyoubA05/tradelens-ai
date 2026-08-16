@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { optionalEnv } from "@/lib/env";
 import { consumeVerification, inspectVerification } from "@/lib/auth/verification";
-import { bucketFor, clientIp, isRateLimited, recordAttempt } from "@/lib/auth/rate-limit";
+import { clientIp, clearFailures, isRateLimited } from "@/lib/auth/rate-limit";
 import { isSameOriginRequest } from "@/lib/security/redirect";
 import { logAuthEvent } from "@/lib/security/responses";
 
@@ -66,13 +66,12 @@ export async function POST(request: Request) {
 
   const result = await consumeVerification(token);
   if (result.status !== "verified") {
-    await recordAttempt(ipBucket, "verify", false);
     // No user id, no email, no token — the log says a verify failed, nothing more.
     logAuthEvent("verify", "invalid_token");
     return NextResponse.json({ ok: false, error: REJECTED }, { status: 400, headers: NO_STORE });
   }
 
-  await recordAttempt(ipBucket, "verify", true);
+  await clearFailures(ipBucket, "verify");
   logAuthEvent("verify", "success");
   // Not signed in here. Verification proves an address; it is not authentication,
   // and inventing a session at this point would be inventing semantics the

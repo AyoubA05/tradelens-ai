@@ -118,9 +118,10 @@ describe("token", () => {
 
     await issueVerification(7, "p@example.com");
 
-    expect(sqls[0]).toMatch(/UPDATE email_verifications SET superseded_at/);
-    expect(sqls[0]).toMatch(/consumed_at IS NULL AND superseded_at IS NULL/);
-    expect(sqls[1]).toMatch(/INSERT INTO email_verifications/);
+    expect(sqls[0]).toMatch(/SELECT id FROM users WHERE id = \$1 FOR UPDATE/);
+    expect(sqls[1]).toMatch(/UPDATE email_verifications SET superseded_at/);
+    expect(sqls[1]).toMatch(/consumed_at IS NULL AND superseded_at IS NULL/);
+    expect(sqls[2]).toMatch(/INSERT INTO email_verifications/);
     // Both inside one transaction call — a racing resend cannot leave two live.
     expect(runTransaction).toHaveBeenCalledTimes(1);
   });

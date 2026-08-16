@@ -67,7 +67,8 @@ function stubTransaction(results: unknown[][] = []) {
   const sqls: string[] = [];
   let i = 0;
   runTransaction.mockImplementation(async (fn: never) => {
-    const run = async (sql: string, _p?: unknown[]) => {
+    const run = async (sql: string, params?: unknown[]) => {
+      void params;
       sqls.push(sql.replace(/\s+/g, " ").trim());
       return results[i++] ?? [];
     };
@@ -110,8 +111,9 @@ describe("reset token", () => {
   it("supersedes prior tokens in the same transaction as the insert", async () => {
     const sqls = stubTransaction();
     await issueReset(1, "a@b.co", HASH);
-    expect(sqls[0]).toMatch(/UPDATE password_resets SET superseded_at/);
-    expect(sqls[1]).toMatch(/INSERT INTO password_resets/);
+    expect(sqls[0]).toMatch(/SELECT id FROM users WHERE id = \$1 FOR UPDATE/);
+    expect(sqls[1]).toMatch(/UPDATE password_resets SET superseded_at/);
+    expect(sqls[2]).toMatch(/INSERT INTO password_resets/);
     expect(runTransaction).toHaveBeenCalledTimes(1);
   });
 });

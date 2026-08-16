@@ -17,8 +17,8 @@ import { mailTransport } from "@/lib/mail/transport";
 import {
   bucketFor,
   clientIp,
+  clearFailures,
   isRateLimited,
-  recordAttempt,
 } from "@/lib/auth/rate-limit";
 import { isSameOriginRequest } from "@/lib/security/redirect";
 import { logAuthEvent, publicMessageFor } from "@/lib/security/responses";
@@ -30,7 +30,7 @@ const MAX_BODY_BYTES = 8 * 1024;
 
 const MAX_LENGTHS = {
   email: 254, // RFC maximum
-  password: 200, // bcrypt truncates at 72 bytes; this is only a sanity bound
+  password: 200, // JSON sanity bound; the contract separately enforces bcrypt's 72-byte cap
   fullName: 120,
   referralOther: 120,
   invite: 200,
@@ -106,12 +106,10 @@ export async function POST(request: Request) {
   // --- field validation ---------------------------------------------------
   const emailRaw = body.email;
   if (typeof emailRaw !== "string" || emailRaw.length > MAX_LENGTHS.email) {
-    await recordAttempt(ipBucket, "signup", false);
     return fail("csrf_failed", 400);
   }
   const email = normalizeEmail(emailRaw);
   if (email === null || !isValidEmail(email)) {
-    await recordAttempt(ipBucket, "signup", false);
     return fail("csrf_failed", 400);
   }
 
@@ -123,52 +121,49 @@ export async function POST(request: Request) {
 
   const password = body.password;
   if (typeof password !== "string" || password.length > MAX_LENGTHS.password) {
-    await recordAttempt(ipBucket, "signup", false);
     return fail("csrf_failed", 400);
   }
   // Same policy the strength meter shows. The meter is UX; this is the control.
   if (!isAcceptablePassword(password)) {
-    await recordAttempt(ipBucket, "signup", false);
-    await recordAttempt(emailBucket, "signup", false);
     return fail("weak_password", 400);
   }
 
   const fullName = typeof body.fullName === "string" ? body.fullName.trim() : "";
   if (fullName.length < 1 || fullName.length > MAX_LENGTHS.fullName) {
-    await recordAttempt(ipBucket, "signup", false);
     return fail("csrf_failed", 400);
   }
 
   const birthday = body.birthday;
   if (!isValidBirthday(birthday)) {
-    await recordAttempt(ipBucket, "signup", false);
     return fail("csrf_failed", 400);
   }
 
   const referralSource = body.referralSource;
   if (!isValidReferral(referralSource)) {
-    await recordAttempt(ipBucket, "signup", false);
     return fail("csrf_failed", 400);
   }
 
   const referralOther = body.referralOther ?? null;
   if (!isValidReferralOther(referralSource, referralOther)) {
-    await recordAttempt(ipBucket, "signup", false);
     return fail("csrf_failed", 400);
   }
 
   // --- invite gating ------------------------------------------------------
   if (mode === "invite") {
+    if (await isRateLimited(ipBucket, "invite", "invite:ip")) {
+      logAuthEvent("signup", "rate_limited");
+      return fail("rate_limited", 429);
+    }
     const configured = requireEnv("TRADELENS_INVITE_CODE");
     const supplied = typeof body.invite === "string" ? body.invite : "";
     if (
       supplied.length > MAX_LENGTHS.invite ||
       !inviteMatches(supplied, configured)
     ) {
-      await recordAttempt(ipBucket, "invite", false);
       logAuthEvent("signup", "invalid_invite", { ip_bucket: ipBucket });
       return fail("invalid_invite", 403);
     }
+    await clearFailures(ipBucket, "invite");
   }
 
   // --- create -------------------------------------------------------------
@@ -196,15 +191,13 @@ export async function POST(request: Request) {
   }
 
   if (outcome.status === "duplicate_email") {
-    await recordAttempt(ipBucket, "signup", false);
-    await recordAttempt(emailBucket, "signup", false);
     // Says an account exists, but nothing about whether it is legacy, verified,
     // or unverified — those distinctions are what an attacker would want.
     logAuthEvent("signup", "duplicate_email");
     return fail("duplicate_email", 409);
   }
 
-  await recordAttempt(ipBucket, "signup", true);
+  await clearFailures(emailBucket, "signup");
   // No user id, username, or email in the log line.
   logAuthEvent("signup", "success");
 

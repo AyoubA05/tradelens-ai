@@ -38,16 +38,16 @@
       <div class="container prose">
         <h1>Privacy</h1>
         <p class="lead">What TradeLens AI stores, what leaves the app, and what you can do about it. This describes the product as it actually works today, including the parts that are not finished.</p>
-        <p class="prose-meta">Last updated 25 July 2026.</p>
+        <p class="prose-meta">Last updated 16 August 2026.</p>
 
         <h2>What TradeLens is</h2>
         <p>TradeLens AI is a post-trade journal. You record trades you have already taken, and the app helps you review them. It has no connection to any broker or exchange: it cannot see your accounts, cannot place orders, and has no access to your money.</p>
 
         <h2>What we collect</h2>
         <h3>Your account</h3>
-        <p>A username, a bcrypt hash of your password, and an optional email address. We never store your password itself.</p>
-        <p>We do not collect your real name, phone number, postal address, date of birth, payment details, or any broker credential. There is no field for them.</p>
-        <p>The email address is optional and used for one thing: resetting your password. It is not shared, sold, or used for marketing. <strong>If you do not add one, a forgotten password cannot be recovered and the account is lost.</strong></p>
+        <p>Your email address, full name, date of birth, how you heard about TradeLens, an internal username, and a bcrypt hash of your password. We never store your password itself.</p>
+        <p>We do not collect your phone number, postal address, payment details, or any broker credential. New accounts require a verified email address; older beta accounts may not have one.</p>
+        <p>Your email address is used to verify the account, let you sign in, and for resetting your password. It is not sold or used for marketing. <strong>An older account without a verified address cannot use email password recovery.</strong></p>
 
         <h3>What you write in the journal</h3>
         <p>Everything you enter about a trade: date, session, instrument, direction, timeframe, entry, stop, take-profit and exit prices, position size, risk, profit and loss, setup and strategy labels, and the SMC/ICT annotations.</p>
@@ -72,7 +72,8 @@
         <p>Generated reviews and analyses are stored against your account so they can be shown again without paying to regenerate them.</p>
 
         <h2>This website</h2>
-        <p>This marketing site sets no cookies of its own. It uses Vercel Web Analytics, which records aggregate page views plus two events: which call-to-action was clicked, and which FAQ question was opened. Neither carries anything identifying.</p>
+        <p>The public marketing pages use Vercel Web Analytics, which records aggregate page views plus two events: which call-to-action was clicked, and which FAQ question was opened. Neither event carries account details.</p>
+        <p>After you sign in, the website sets a secure, HttpOnly session cookie so authenticated pages can recognise you. The cookie contains a random credential, not your name, email address, or journal data.</p>
         <p>Fonts are loaded from Google Fonts and Fontshare, so those services receive your IP address as a consequence of your browser requesting the files.</p>
 
         <h2>What you can do</h2>
@@ -97,7 +98,9 @@
         <p>Export regularly. This is the honest advice, not a disclaimer.</p>
 
         <h2>Security</h2>
-        <p>Passwords are hashed with bcrypt and never stored or logged in readable form. Sessions use signed, expiring tokens. Every record is scoped to the account that owns it.</p>
+        <p>Passwords are hashed with bcrypt and never stored or logged in readable form. Website sessions use random, expiring, revocable credentials stored in secure HttpOnly cookies; only credential hashes are stored in the database.</p>
+        <p>Opening the journal uses a separate, single-use link that expires after two minutes. During the current beta, the journal's own random session credential is carried in its URL, can last up to 12 hours, and should not be copied or shared. It is stored only as a hash and is revoked when you sign out of that journal session.</p>
+        <p>Every journal record is scoped to the account that owns it.</p>
         <p>We are a small beta product. We have not undergone an external security audit, and we do not claim to have.</p>
 
         <h2>Contact</h2>

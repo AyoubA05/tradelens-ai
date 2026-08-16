@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { optionalEnv } from "@/lib/env";
 import { SESSION_COOKIE, revokeWebsiteSession } from "@/lib/auth/login";
+import { sessionTokenFromCookieHeader } from "@/lib/auth/session";
 import { isSameOriginRequest } from "@/lib/security/redirect";
 import { logAuthEvent } from "@/lib/security/responses";
 
@@ -20,8 +21,8 @@ export async function POST(request: Request) {
   if (siteOrigin && !isSameOriginRequest(request.headers, siteOrigin)) {
     return NextResponse.json({ ok: false }, { status: 403 });
   }
-  const token = request.headers.get("cookie")?.match(new RegExp(`${SESSION_COOKIE}=([^;]+)`))?.[1];
-  const revoked = await revokeWebsiteSession(token ? decodeURIComponent(token) : null);
+  const token = sessionTokenFromCookieHeader(request.headers.get("cookie"));
+  const revoked = await revokeWebsiteSession(token);
   logAuthEvent("logout", revoked ? "success" : "invalid_token");
 
   const response = NextResponse.json({ ok: true }, { status: 200, headers: { "Cache-Control": "no-store, private" } });

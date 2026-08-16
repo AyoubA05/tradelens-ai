@@ -7,7 +7,7 @@ import {
   openWebsiteSession,
   sessionCookieOptions,
 } from "@/lib/auth/login";
-import { bucketFor, clientIp, isRateLimited, recordAttempt, clearFailures } from "@/lib/auth/rate-limit";
+import { bucketFor, clientIp, isRateLimited, clearFailures } from "@/lib/auth/rate-limit";
 import { isSameOriginRequest } from "@/lib/security/redirect";
 import { GENERIC_CREDENTIALS_MESSAGE, logAuthEvent, publicMessageFor } from "@/lib/security/responses";
 
@@ -61,8 +61,6 @@ export async function POST(request: Request) {
   const result = await attemptLogin(identifier, password);
 
   if (!result.ok) {
-    await recordAttempt(ipBucket, "login", false);
-    await recordAttempt(idBucket, "login", false);
     logAuthEvent("login", result.reason === "email_unverified" ? "email_unverified" : "wrong_password");
 
     // bad_credentials and inactive collapse to one message: whether an account
@@ -77,7 +75,6 @@ export async function POST(request: Request) {
   }
 
   const { token, expiresAt } = await openWebsiteSession(result.userId);
-  await recordAttempt(ipBucket, "login", true);
   await clearFailures(idBucket, "login");
   logAuthEvent("login", "success");
 

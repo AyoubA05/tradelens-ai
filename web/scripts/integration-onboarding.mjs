@@ -85,9 +85,9 @@ async function cleanup(before) {
     JSON.stringify(rows.map((r) => ({ n: r.full_name, o: r.onboarding_completed }))));
 }
 
-async function run(before) {
+async function run() {
   // 1-4. verified new account, session, initial state
-  const { userId, email } = await makeVerifiedUser(1);
+  const { userId } = await makeVerifiedUser(1);
   const { token } = await openWebsiteSession(userId);
   const [initial] = await query(
     "SELECT onboarding_completed, strategy_profile_completed FROM users WHERE id = $1", [userId]);

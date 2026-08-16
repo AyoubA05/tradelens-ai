@@ -39,12 +39,21 @@ export type WebsiteUser = {
   strategyProfileCompleted: boolean;
 };
 
-/** Read the session cookie off a request. The only place it is parsed. */
-export function sessionTokenFrom(request: Request): string | null {
-  const raw = request.headers.get("cookie");
+/** Parse the session credential without letting malformed percent escapes throw. */
+export function sessionTokenFromCookieHeader(raw: string | null): string | null {
   if (!raw) return null;
   const match = raw.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
-  return match ? decodeURIComponent(match[1]!) : null;
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]!);
+  } catch {
+    return null;
+  }
+}
+
+/** Read the session cookie off a request. */
+export function sessionTokenFrom(request: Request): string | null {
+  return sessionTokenFromCookieHeader(request.headers.get("cookie"));
 }
 
 /**

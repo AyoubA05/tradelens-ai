@@ -151,11 +151,12 @@ describe("failed login", () => {
     expect(openWebsiteSession).not.toHaveBeenCalled();
   });
 
-  it("records the failure against both buckets", async () => {
+  it("reserves both rate-limit buckets before checking credentials", async () => {
     attemptLogin.mockResolvedValue({ ok: false, reason: "bad_credentials" });
     await call(post(GOOD));
-    expect(recordAttempt).toHaveBeenCalledTimes(2);
-    expect(recordAttempt).toHaveBeenCalledWith(expect.any(String), "login", false);
+    expect(isRateLimited).toHaveBeenCalledTimes(2);
+    expect(isRateLimited).toHaveBeenCalledWith(expect.any(String), "login", "login:ip");
+    expect(isRateLimited).toHaveBeenCalledWith(expect.any(String), "login", "login:id");
   });
 });
 

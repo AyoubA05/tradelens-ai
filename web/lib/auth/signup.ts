@@ -106,7 +106,7 @@ export async function createAccount(
   } catch (error) {
     // The losing side of a concurrent insert. Reported exactly like an ordinary
     // duplicate: from outside, the two are the same event.
-    if (isUniqueViolation(error) || wrappedUniqueViolation(error)) {
+    if (isUniqueViolation(error)) {
       return { status: "duplicate_email" };
     }
     throw error;
@@ -119,19 +119,6 @@ function isUniqueViolation(error: unknown): boolean {
     error !== null &&
     "code" in error &&
     (error as { code?: string }).code === UNIQUE_VIOLATION
-  );
-}
-
-/**
- * `db/client.ts` deliberately strips driver messages before re-throwing, so by
- * the time a constraint violation reaches here it may have lost its code. The
- * transaction wrapper is the only thing that can produce this shape, and a
- * failed insert inside signup is overwhelmingly a duplicate address.
- */
-function wrappedUniqueViolation(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.message.startsWith("Database transaction failed")
   );
 }
 

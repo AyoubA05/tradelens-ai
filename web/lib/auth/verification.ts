@@ -54,6 +54,10 @@ export async function issueVerification(
   const expiresAt = new Date(now.getTime() + VERIFICATION_TTL_SECONDS * 1000);
 
   await transaction(async (run) => {
+    // Serialise concurrent resends for this account. A transaction alone does
+    // not make update-then-insert atomic when both transactions initially see
+    // no live row.
+    await run("SELECT id FROM users WHERE id = $1 FOR UPDATE", [userId]);
     await run(
       `UPDATE email_verifications SET superseded_at = $2
         WHERE user_id = $1 AND consumed_at IS NULL AND superseded_at IS NULL`,

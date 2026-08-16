@@ -36,13 +36,6 @@ export interface MailTransport {
   send(message: MailMessage): Promise<DeliveryOutcome>;
 }
 
-/** Configured from the same TRADELENS_SMTP_* names the Python side reads. */
-function smtpConfigured(): boolean {
-  return Boolean(
-    process.env.TRADELENS_SMTP_HOST && process.env.TRADELENS_SMTP_FROM,
-  );
-}
-
 /**
  * Hosts allowed to receive mail over an unencrypted connection.
  *
@@ -199,7 +192,8 @@ export class CaptureTransport implements MailTransport {
 
 /** A transport that always fails, for exercising the failure path. */
 export class FailingTransport implements MailTransport {
-  async send(_message: MailMessage): Promise<DeliveryOutcome> {
+  async send(message: MailMessage): Promise<DeliveryOutcome> {
+    void message;
     return { status: "failed" };
   }
 }

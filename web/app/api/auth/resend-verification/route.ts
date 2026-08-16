@@ -10,7 +10,6 @@ import {
   bucketFor,
   clientIp,
   isRateLimited,
-  recordAttempt,
 } from "@/lib/auth/rate-limit";
 import { isSameOriginRequest } from "@/lib/security/redirect";
 import { logAuthEvent } from "@/lib/security/responses";
@@ -73,7 +72,6 @@ export async function POST(request: Request) {
 
   // Malformed input gets the same answer as everything else.
   if (email === null) {
-    await recordAttempt(ipBucket, "verify", false);
     return neutral();
   }
 
@@ -82,9 +80,6 @@ export async function POST(request: Request) {
     logAuthEvent("resend", "rate_limited");
     return neutral();
   }
-  await recordAttempt(emailBucket, "verify", false);
-  await recordAttempt(ipBucket, "verify", false);
-
   const rows = await query<{ id: number }>(
     `SELECT id FROM users
       WHERE email = $1

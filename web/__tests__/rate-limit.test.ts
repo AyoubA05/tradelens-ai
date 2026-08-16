@@ -8,11 +8,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * survived under a comment claiming no scheduled job was needed.
  */
 
-const { runQuery } = vi.hoisted(() => ({ runQuery: vi.fn() }));
+const { runQuery, runTransaction } = vi.hoisted(() => ({
+  runQuery: vi.fn(),
+  runTransaction: vi.fn(),
+}));
 
 vi.mock("@/lib/db/client", () => ({
   query: runQuery,
-  transaction: vi.fn(),
+  transaction: runTransaction,
 }));
 
 import {
@@ -20,7 +23,6 @@ import {
   bucketFor,
   clientIp,
   isRateLimited,
-  recordAttempt,
   sweepOldAttempts,
 } from "@/lib/auth/rate-limit";
 
@@ -30,6 +32,12 @@ function headers(map: Record<string, string>) {
 
 beforeEach(() => {
   runQuery.mockReset().mockResolvedValue([{ n: "0" }]);
+  runTransaction.mockReset();
+  runTransaction.mockImplementation(async (fn: never) => {
+    const run = async (sql: string, params: unknown[] = []) =>
+      /count\(\*\)/i.test(sql) ? runQuery(sql, params) : [];
+    return (fn as unknown as (r: typeof run) => Promise<unknown>)(run);
+  });
 });
 
 afterEach(() => {
@@ -67,6 +75,26 @@ describe("client IP", () => {
 });
 
 describe("limits", () => {
+  it("serializes the count and reservation so a parallel burst cannot overrun the limit", async () => {
+    const statements: string[] = [];
+    runTransaction.mockImplementation(async (fn: never) => {
+      const run = async (sql: string) => {
+        statements.push(sql.replace(/\s+/g, " ").trim());
+        if (/count\(\*\)/i.test(sql)) {
+          return [{ n: String(RULES["login:ip"].limit - 1) }];
+        }
+        return [];
+      };
+      return (fn as unknown as (r: typeof run) => Promise<unknown>)(run);
+    });
+
+    expect(await isRateLimited("ip:1.2.3.4", "login", "login:ip")).toBe(false);
+    expect(statements[0]).toMatch(/pg_advisory_xact_lock/i);
+    expect(statements[1]).toMatch(/SELECT count\(\*\)/i);
+    expect(statements[2]).toMatch(/INSERT INTO auth_attempts/i);
+    expect(runTransaction).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses once the count reaches the limit", async () => {
     runQuery.mockResolvedValueOnce([{ n: String(RULES["login:ip"].limit) }]);
     expect(await isRateLimited("ip:1.2.3.4", "login", "login:ip")).toBe(true);
@@ -105,28 +133,30 @@ describe("retention", () => {
     expect(sql).toMatch(/30 days/);
   });
 
-  it("is actually reached from recordAttempt", async () => {
+  it("is actually reached from an attempt reservation", async () => {
     // The defect this pins: the sweep existed and nothing called it, so the
     // table had no retention at all.
     vi.spyOn(Math, "random").mockReturnValue(0);
-    await recordAttempt("ip:1.2.3.4", "login", false);
+    await isRateLimited("ip:1.2.3.4", "login", "login:ip");
 
     const statements = runQuery.mock.calls.map((call) => String(call[0]));
-    expect(statements.some((sql) => /INSERT INTO auth_attempts/i.test(sql))).toBe(true);
     expect(statements.some((sql) => /DELETE FROM auth_attempts/i.test(sql))).toBe(true);
   });
 
-  it("does not sweep on a typical write", async () => {
+  it("does not sweep on a typical reservation", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0.9);
-    await recordAttempt("ip:1.2.3.4", "login", false);
+    await isRateLimited("ip:1.2.3.4", "login", "login:ip");
     expect(runQuery).toHaveBeenCalledTimes(1);
   });
 
   it("never lets a failed sweep break the request it rode in on", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
-    runQuery
-      .mockResolvedValueOnce([])
-      .mockRejectedValueOnce(new Error("delete blew up"));
-    await expect(recordAttempt("ip:1.2.3.4", "login", true)).resolves.toBeUndefined();
+    runQuery.mockImplementation(async (sql: string) => {
+      if (/DELETE FROM auth_attempts/i.test(sql)) throw new Error("delete blew up");
+      return [{ n: "0" }];
+    });
+    await expect(
+      isRateLimited("ip:1.2.3.4", "login", "login:ip"),
+    ).resolves.toBe(false);
   });
 });

@@ -3,8 +3,11 @@ import { headers } from "next/headers";
 
 import { AuthShell } from "@/components/auth-shell";
 import { AutoSubmit } from "@/components/auto-submit";
-import { SESSION_COOKIE } from "@/lib/auth/login";
-import { authenticateSessionToken, nextDestinationFor } from "@/lib/auth/session";
+import {
+  authenticateSessionToken,
+  nextDestinationFor,
+  sessionTokenFromCookieHeader,
+} from "@/lib/auth/session";
 import { handoffEligibility, hasEnteredAppBefore } from "@/lib/auth/handoff";
 
 export const dynamic = "force-dynamic";
@@ -33,8 +36,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function ContinuePage() {
   const cookieHeader = (await headers()).get("cookie") ?? "";
-  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
-  const user = await authenticateSessionToken(match ? decodeURIComponent(match[1]!) : null);
+  const user = await authenticateSessionToken(sessionTokenFromCookieHeader(cookieHeader));
 
   if (!user) redirect("/login");
 

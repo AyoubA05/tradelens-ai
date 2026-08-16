@@ -7,7 +7,7 @@ import {
   nextDestinationFor,
 } from "@/lib/auth/session";
 import { completeOnboarding, validateOnboarding } from "@/lib/auth/onboarding";
-import { clientIp, isRateLimited, recordAttempt } from "@/lib/auth/rate-limit";
+import { clientIp, isRateLimited } from "@/lib/auth/rate-limit";
 import { isSameOriginRequest } from "@/lib/security/redirect";
 import { logAuthEvent } from "@/lib/security/responses";
 
@@ -79,7 +79,6 @@ export async function POST(request: Request) {
 
   const validated = validateOnboarding(body);
   if (!validated.ok) {
-    await recordAttempt(ipBucket, "signup", false);
     return fail(400);
   }
 

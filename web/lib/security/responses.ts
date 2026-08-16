@@ -74,7 +74,7 @@ export function publicMessageFor(reason: AuthFailureReason): string {
     case "duplicate_email":
       return "An account already exists for that email address.";
     case "weak_password":
-      return "Choose a stronger password: at least 12 characters, with upper and lower case, a number, and a symbol.";
+      return "Choose a stronger password: at least 12 characters and no more than 72 UTF-8 bytes, with upper and lower case, a number, and a symbol.";
     case "csrf_failed":
       return "That request could not be verified. Reload the page and try again.";
     case "email_unconfigured":

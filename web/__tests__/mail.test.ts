@@ -15,9 +15,10 @@ const sendMail = vi.fn();
 // Typed parameter, not an inferred zero-arg mock: without it the call-args
 // tuple types as `[]` and every assertion about what was passed to nodemailer
 // fails typecheck while the suite still goes green.
-const createTransport = vi.fn((_options: Record<string, unknown>) => ({
-  sendMail,
-}));
+const createTransport = vi.fn((options: Record<string, unknown>) => {
+  void options;
+  return { sendMail };
+});
 
 vi.mock("nodemailer", () => ({
   default: { createTransport },

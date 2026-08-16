@@ -102,6 +102,10 @@ export async function issueReset(
   const expiresAt = new Date(now.getTime() + RESET_TTL_SECONDS * 1000);
 
   await transaction(async (run) => {
+    // Serialise concurrent reset requests for this account. Without the row
+    // lock, two transactions can both update an empty set and both insert a
+    // live token.
+    await run("SELECT id FROM users WHERE id = $1 FOR UPDATE", [userId]);
     await run(
       `UPDATE password_resets SET superseded_at = $2
         WHERE user_id = $1 AND consumed_at IS NULL AND superseded_at IS NULL`,

@@ -35,6 +35,11 @@ describe("auth route structure", () => {
     expect(config).toContain("no-referrer");
     expect(config).toContain("nosniff");
   });
+
+  it("renders login per request so signup-mode changes are not frozen at build time", () => {
+    const login = readFileSync(path.join(WEB, "app", "login", "page.tsx"), "utf8");
+    expect(login).toContain('export const dynamic = "force-dynamic"');
+  });
 });
 
 describe("controls that do not work are not shown", () => {

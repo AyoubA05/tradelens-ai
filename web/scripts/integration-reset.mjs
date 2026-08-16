@@ -22,7 +22,6 @@ import {
   hashNewPassword,
   inspectReset,
   issueReset,
-  passwordHashFingerprint,
   resetEligibility,
   resetUrl,
 } from "../lib/auth/password-reset.ts";

@@ -63,8 +63,8 @@ describe("origin separation", () => {
     const mail = code(readFileSync(path.join(WEB, "lib/mail/messages.ts"), "utf8"));
     expect(mail).not.toContain("APP_ORIGIN");
 
-    for (const module of ["lib/auth/verification.ts", "lib/auth/password-reset.ts"]) {
-      expect(code(readFileSync(path.join(WEB, module), "utf8"))).not.toContain("APP_ORIGIN");
+    for (const modulePath of ["lib/auth/verification.ts", "lib/auth/password-reset.ts"]) {
+      expect(code(readFileSync(path.join(WEB, modulePath), "utf8"))).not.toContain("APP_ORIGIN");
     }
   });
 

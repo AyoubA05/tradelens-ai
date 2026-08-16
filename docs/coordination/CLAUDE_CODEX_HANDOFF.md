@@ -8,6 +8,132 @@ It is a coordination contract, not automatic inter-process communication and
 not a substitute for Git. Claude Code and Codex must not edit this worktree at
 the same time.
 
+## Current website security review — 2026-08-16 (Codex)
+
+**Workspace:** `/Users/ayoub/tradelens-ai`, branch `main`, starting HEAD
+`bf7fb33`. These changes are uncommitted. The pre-existing modification to
+`.claude/settings.json` is unrelated and was not touched by this review.
+
+**Scope:** independent second-lens review of the completed Next.js marketing,
+authentication, protected transition, Vercel, and Neon auth integration only.
+The Streamlit journal and the in-progress Streamlit → Next.js/FastAPI migration
+were deliberately not reviewed or modified.
+
+### Confirmed findings and fixes
+
+- **High — rate-limit enforcement could be bypassed.**
+  `web/lib/auth/rate-limit.ts` performed a separate count and later insert, so
+  concurrent requests could all pass below the threshold. Signup recorded bad
+  invite attempts under `invite` but never checked the `invite:ip` rule, making
+  invite guessing effectively unlimited. Attempt admission is now one
+  transaction protected by a per-bucket/action Postgres advisory lock, with the
+  attempt reserved before work proceeds. Signup checks the invite-specific
+  bucket. All auth routes were changed to avoid double-recording and to clear
+  failures-only reservations only after success. Targeted tests first failed
+  against the old implementation and now pin lock → count → insert order and
+  invite rejection at 429.
+- **Medium — bcrypt password aliases above 72 UTF-8 bytes.**
+  Signup/reset accepted passwords longer than bcrypt's effective input, so two
+  different strings sharing the first 72 bytes authenticated as the same
+  password. `web/lib/auth/contract.ts` now rejects values above 72 UTF-8 bytes
+  while retaining the 12-character strength rules, and both signup and reset
+  share that contract. Existing long legacy passwords remain usable at login.
+- **Medium — concurrent verification/reset issuance could leave two live
+  tokens.** A transaction did not serialize two update-then-insert issuers that
+  both initially saw no live token. `web/lib/auth/verification.ts` and
+  `web/lib/auth/password-reset.ts` now lock the owning `users` row before
+  superseding and inserting. Regression tests require the row lock.
+- **Low — database connection failures escaped the sanitizer.**
+  `pool().connect()` occurred before `transaction()`'s catch boundary; raw
+  driver errors can include hosts, statements, or credentials. Connection,
+  statement, commit, and rollback failures now leave `web/lib/db/client.ts` as
+  sanitized `DatabaseOperationError`s. Only the non-secret Postgres error code
+  is retained, which also fixes `web/lib/auth/signup.ts` incorrectly mapping
+  every transaction failure to `duplicate_email`.
+- **Low — `/login` froze runtime signup configuration.** The page read
+  `SIGNUP_MODE` while being statically prerendered. The live deployment returned
+  `x-nextjs-prerender: 1` / `x-vercel-cache: PRERENDER`; changing the environment
+  could therefore leave the wrong signup link until a redeploy. The page is now
+  `force-dynamic`; the verified production build classifies it dynamic and a
+  local production response returns `Cache-Control: private, no-cache,
+  no-store`.
+- **Low — malformed cookie encoding produced a 500.** Protected pages and
+  logout called `decodeURIComponent` directly on attacker-controlled cookie
+  text. All website-session parsing now uses one fail-closed helper and returns
+  logged-out state for malformed encodings.
+- **Low — the web quality gate was nonfunctional.** Next.js 16 removed
+  `next lint`, but `web/package.json` still invoked it; the repository CI ran
+  only Python checks. ESLint 9 flat configuration and the Next core-web-vitals /
+  TypeScript rules are installed, and `.github/workflows/ci.yml` now tests,
+  lints, typechecks, builds, and audits the deployed web application on Node 22.
+- **Low — published privacy/account statements contradicted the shipped
+  product.** The policy said email was optional, claimed no name or DOB was
+  collected, said the site used no cookies, and described signed sessions. The
+  copy now accurately describes required verified email, collected signup
+  fields, opaque hashed sessions, the HttpOnly website cookie, and the beta
+  journal URL credential. Visual structure and styling were not changed.
+- **Hardening — Vercel/Neon pool lifecycle.** `web/lib/db/client.ts` now calls
+  Vercel's `attachDatabasePool` so Fluid Compute drains idle `pg` connections
+  before suspension. Production and full dependency audits report zero known
+  vulnerabilities.
+
+No authentication/session bypass, cross-user ownership path, open redirect,
+SQL interpolation, client-exposed secret/unsafe `NEXT_PUBLIC_*`, token replay
+gap, or private-response caching issue was confirmed in the reviewed website
+code. Website tokens are 256-bit random opaque credentials, stored only as
+domain-separated hashes, and protected by HttpOnly/Secure/SameSite=Lax cookies;
+the central lookup rechecks surface, revocation, absolute expiry, idle expiry,
+and active-user state. Reset consumes atomically and revokes all sessions and
+handoffs. Handoffs are server-destination-only, 120-second, one-time tokens.
+
+### Verification
+
+- Web: `388 passed` across 19 Vitest files; ESLint clean; `tsc --noEmit` clean.
+- Production build: Next.js 16.3.0 compiled and typechecked successfully; all
+  auth APIs plus `/login`, `/signup`, `/verify-email`, `/reset-password`,
+  `/onboarding`, and `/continue` are dynamic. Only the public forgot-password
+  shell and 404 are static.
+- Cross-runtime/site checks: `167 passed, 4 skipped` across policy, funnel,
+  auth-contract, handoff, and session suites.
+- `npm audit` and `npm audit --omit=dev`: zero vulnerabilities.
+- Client chunk scan: no database/invite/SMTP secret names or private test
+  credential fixtures. Tracked-history secret-shape scan found placeholders and
+  test fixtures only; no committed live secret was identified.
+- Live read-only checks before the fix: homepage and login responded 200 with
+  HSTS, frame denial, no-sniff, no-referrer, and Permissions-Policy; auth GET
+  endpoints refused unsupported methods. The live `/login` cache defect remains
+  until these changes are deployed.
+- `git diff --check` clean. No deploy, database write, migration, commit, push,
+  or modification to Streamlit migration-owned files was performed.
+
+### Remaining risks and instructions for the SaaS migration
+
+- Vercel project/dashboard state is not fully represented in Git. Before any
+  deploy, manually confirm Framework=Next.js, Root Directory=`web`, Production
+  `SITE_ORIGIN`/`APP_ORIGIN`/SMTP/invite settings, and that Preview uses an
+  isolated Neon branch rather than production credentials. Environment changes
+  cannot be inferred from source review alone.
+- Add a nonce/hash-based Content-Security-Policy after inventorying Next inline
+  scripts and the externally hosted fonts. Existing clickjacking, MIME, HSTS,
+  referrer, and permission headers are present; CSP remains the main browser
+  hardening gap.
+- Normal sign-out revokes only the credential for the current surface. Password
+  reset and the explicit all-session operation revoke website and Streamlit
+  sessions together. Preserve that distinction in UI copy and migration APIs,
+  or deliberately change it with tests.
+- Do not carry the beta Streamlit URL-session pattern into the Next.js/FastAPI
+  SaaS architecture. Keep browser sessions in Secure HttpOnly cookies and make
+  any cross-service exchange single-use, audience-bound, short-lived, and
+  server-redeemed. Avoid tokens in URLs, logs, analytics, or client-visible
+  error objects.
+- Preserve the central authorization invariant: identity comes only from the
+  validated session; every user-owned query must derive `user_id` from that
+  server context. Do not accept browser-supplied user IDs as ownership proof.
+- Reuse the shared password contract, atomic attempt reservation, user-row
+  serialization for one-live-token issuance, domain-separated credential
+  hashes, and reset-time global revocation. Do not reimplement weaker FastAPI
+  variants beside them.
+
 ## Canonical workspace
 
 - Worktree: `/Users/ayoub/tradelens-ai/.claude/worktrees/codex+full-dark-streamlit-redesign`

@@ -51,4 +51,40 @@ describe("site signup persistence", () => {
       false,
     ]);
   });
+
+  it("does not disguise an unrelated database outage as a duplicate email", async () => {
+    runTransaction.mockRejectedValueOnce(
+      new Error("Database transaction failed (Error)."),
+    );
+
+    await expect(
+      createAccount({
+        email: "smoke@example.com",
+        password: "Correct-Horse-Battery-9!",
+        fullName: "Smoke Tester",
+        birthday: "1994-02-17",
+        referralSource: "Reddit",
+        referralOther: null,
+      }),
+    ).rejects.toThrow("Database transaction failed");
+  });
+
+  it("still maps a sanitized Postgres uniqueness violation to duplicate email", async () => {
+    runTransaction.mockRejectedValueOnce(
+      Object.assign(new Error("Database transaction failed (Error)."), {
+        code: "23505",
+      }),
+    );
+
+    await expect(
+      createAccount({
+        email: "smoke@example.com",
+        password: "Correct-Horse-Battery-9!",
+        fullName: "Smoke Tester",
+        birthday: "1994-02-17",
+        referralSource: "Reddit",
+        referralOther: null,
+      }),
+    ).resolves.toEqual({ status: "duplicate_email" });
+  });
 });

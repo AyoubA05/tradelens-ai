@@ -68,12 +68,15 @@ export function generateInternalUsername(): string {
 
 export type PasswordFailure =
   | "too_short"
+  | "too_long"
   | "no_lower"
   | "no_upper"
   | "no_digit"
   | "no_symbol";
 
 export const PASSWORD_MIN_LENGTH = 12;
+/** bcrypt ignores bytes after this boundary. Reject rather than hash aliases. */
+export const PASSWORD_MAX_BYTES = 72;
 const SYMBOL_RE = /[!-/:-@[-`{-~]/;
 
 /**
@@ -87,6 +90,9 @@ export function validatePassword(value: unknown): PasswordFailure[] {
   const password = typeof value === "string" ? value : "";
   const failures: PasswordFailure[] = [];
   if (password.length < PASSWORD_MIN_LENGTH) failures.push("too_short");
+  if (new TextEncoder().encode(password).length > PASSWORD_MAX_BYTES) {
+    failures.push("too_long");
+  }
   if (!/[a-z]/.test(password)) failures.push("no_lower");
   if (!/[A-Z]/.test(password)) failures.push("no_upper");
   if (!/\d/.test(password)) failures.push("no_digit");

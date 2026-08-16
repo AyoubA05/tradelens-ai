@@ -93,7 +93,7 @@ async function cleanup(before) {
   );
 }
 
-async function run(before) {
+async function run() {
   // --- case-sensitive username login, on accounts we own ------------------
   // Two usernames differing only in case, mirroring ayoub/Ayoub without
   // touching them.

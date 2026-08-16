@@ -4,7 +4,7 @@ import { optionalEnv } from "@/lib/env";
 import { authenticateWebsiteRequest } from "@/lib/auth/session";
 import { handoffEligibility, issueHandoff } from "@/lib/auth/handoff";
 import { handoffRedirectUrl } from "@/lib/security/app-origin";
-import { clientIp, isRateLimited, recordAttempt } from "@/lib/auth/rate-limit";
+import { clientIp, isRateLimited } from "@/lib/auth/rate-limit";
 import { isSameOriginRequest } from "@/lib/security/redirect";
 import { logAuthEvent } from "@/lib/security/responses";
 
@@ -64,7 +64,6 @@ export async function POST(request: Request) {
     const { token, invalidated } = await issueHandoff(user!.userId);
     // The raw token exists only across these two lines.
     destination = handoffRedirectUrl(token);
-    await recordAttempt(ipBucket, "login", true);
     // Counts only. No token, no user id, no destination with the token in it.
     logAuthEvent("handoff", "success", { invalidated_prior: invalidated });
   } catch {

@@ -5,7 +5,7 @@ import { normalizeEmail } from "@/lib/auth/contract";
 import { issueReset, resetEligibility, resetUrl } from "@/lib/auth/password-reset";
 import { passwordResetMessage } from "@/lib/mail/messages";
 import { mailTransport } from "@/lib/mail/transport";
-import { bucketFor, clientIp, isRateLimited, recordAttempt } from "@/lib/auth/rate-limit";
+import { bucketFor, clientIp, isRateLimited } from "@/lib/auth/rate-limit";
 import { isSameOriginRequest } from "@/lib/security/redirect";
 import { logAuthEvent } from "@/lib/security/responses";
 
@@ -67,7 +67,6 @@ export async function POST(request: Request) {
     return neutral();
   }
   if (email === null) {
-    await recordAttempt(ipBucket, "forgot", false);
     return neutral();
   }
 
@@ -76,9 +75,6 @@ export async function POST(request: Request) {
     logAuthEvent("forgot", "rate_limited");
     return neutral();
   }
-  await recordAttempt(ipBucket, "forgot", false);
-  await recordAttempt(emailBucket, "forgot", false);
-
   const eligibility = await resetEligibility(email);
   if (!eligibility.eligible) {
     // Unknown, unverified, inactive, or legacy-without-email. Same answer.

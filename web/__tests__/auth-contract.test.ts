@@ -127,6 +127,11 @@ describe("password policy matches what the meter shows", () => {
     expect(p.min_length).toBe(12);
     expect(p.require_lower && p.require_upper && p.require_digit && p.require_symbol).toBe(true);
   });
+
+  it("rejects passwords bcrypt would silently truncate after 72 UTF-8 bytes", () => {
+    expect(validatePassword(`${"Aa1!".repeat(18)}x`)).toContain("too_long");
+    expect(validatePassword(`${"Aa1!".repeat(17)}ééé`)).toContain("too_long");
+  });
 });
 
 /** Drop the `$comment` annotations so only the rules themselves are compared. */

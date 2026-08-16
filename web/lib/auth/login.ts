@@ -26,11 +26,11 @@ import { SURFACE_WEBSITE, WEBSITE_DOMAIN } from "@/lib/auth/domains";
  * revocability, same 8h idle / 12h absolute bounds — rather than introducing a
  * second session store that would need its own expiry and revocation logic.
  *
- * Consequence, stated deliberately: one login is one session row. Signing out
- * on the website ends the Streamlit session too. That is the behaviour a user
- * expects from "sign out", and the alternative — two independently revocable
- * sessions from one authentication — is a way to leave a live credential behind
- * after someone believes they have logged out.
+ * Consequence, stated deliberately: each browser surface has its own session
+ * row. A normal sign-out revokes the credential used on that surface; password
+ * reset and the explicit all-sessions operation revoke every surface. Do not
+ * describe website sign-out as ending a separate Streamlit session unless the
+ * implementation is changed to revoke all rows for the user.
  */
 
 const IDLE_TIMEOUT_S = 8 * 3600;

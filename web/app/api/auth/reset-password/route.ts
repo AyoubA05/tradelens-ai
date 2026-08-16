@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { optionalEnv } from "@/lib/env";
 import { isAcceptablePassword } from "@/lib/auth/contract";
 import { completeReset, hashNewPassword, inspectReset } from "@/lib/auth/password-reset";
-import { clientIp, isRateLimited, recordAttempt } from "@/lib/auth/rate-limit";
+import { clientIp, clearFailures, isRateLimited } from "@/lib/auth/rate-limit";
 import { isSameOriginRequest } from "@/lib/security/redirect";
 import { logAuthEvent, publicMessageFor } from "@/lib/security/responses";
 
@@ -66,7 +66,6 @@ export async function POST(request: Request) {
   // Exactly the policy signup enforces — reset must never accept a password
   // signup would reject, or the two paths disagree about what is acceptable.
   if (!isAcceptablePassword(password)) {
-    await recordAttempt(ipBucket, "reset", false);
     return NextResponse.json(
       { ok: false, error: publicMessageFor("weak_password") }, { status: 400, headers: NO_STORE });
   }
@@ -77,12 +76,11 @@ export async function POST(request: Request) {
 
   const outcome = await completeReset(token, newHash);
   if (outcome.status !== "reset") {
-    await recordAttempt(ipBucket, "reset", false);
     logAuthEvent("reset", "invalid_token");
     return NextResponse.json({ ok: false, error: REJECTED }, { status: 400, headers: NO_STORE });
   }
 
-  await recordAttempt(ipBucket, "reset", true);
+  await clearFailures(ipBucket, "reset");
   // Counts only — no user id, no token, no hash.
   logAuthEvent("reset", "success", {
     sessions_revoked: outcome.sessionsRevoked,

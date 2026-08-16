@@ -1,5 +1,5 @@
 import "server-only";
-import { query } from "@/lib/db/client";
+import { query, transaction } from "@/lib/db/client";
 
 /**
  * Rate limiting backed by the `auth_attempts` table.
@@ -88,36 +88,18 @@ export async function bucketFor(
  */
 const SWEEP_PROBABILITY = 1 / 200;
 
-/** Record an attempt. Called for both outcomes so success can clear failures. */
-export async function recordAttempt(
-  bucket: string,
-  action: AuthAction,
-  succeeded: boolean,
-): Promise<void> {
-  await query(
-    "INSERT INTO auth_attempts (bucket, action, succeeded, created_at) VALUES ($1, $2, $3, now())",
-    [bucket, action, succeeded],
-  );
-
-  // Awaited, not fire-and-forget: a serverless function can be frozen the
-  // moment its response is sent, so a detached promise is not guaranteed to
-  // run at all. The delete is a single indexed range scan.
-  if (Math.random() < SWEEP_PROBABILITY) {
-    try {
-      await sweepOldAttempts();
-    } catch {
-      // Retention is housekeeping. It must never turn a successful sign-in
-      // into an error the user sees.
-    }
-  }
-}
-
 /**
- * Whether this bucket is over its limit.
+ * Atomically reserve one attempt unless this bucket is already at its limit.
  *
- * Returns true when the caller should be refused. Errs toward refusing nothing
- * if the rule is unknown — an unrecognised key is a programming mistake, and
- * silently applying some default limit would hide it.
+ * The advisory transaction lock closes the count-then-insert race. Without it,
+ * a burst of parallel requests can all observe the same below-limit count and
+ * all proceed before any of them records an attempt. The reservation is stored
+ * as a failure until a successful failures-only flow clears the bucket; if a
+ * function dies mid-request, the conservative outcome is one consumed slot.
+ *
+ * Returns true when the caller should be refused. An unknown rule still allows
+ * the request so a programming mistake is visible rather than silently mapped
+ * to an arbitrary policy.
  */
 export async function isRateLimited(
   bucket: string,
@@ -127,15 +109,38 @@ export async function isRateLimited(
   const rule = RULES[ruleKey];
   if (!rule) return false;
 
-  const rows = await query<{ n: string }>(
-    `SELECT count(*) AS n FROM auth_attempts
-      WHERE bucket = $1
-        AND action = $2
-        AND created_at > now() - make_interval(secs => $3)
-        AND ($4 = false OR succeeded = false)`,
-    [bucket, action, rule.windowSeconds, rule.failuresOnly],
-  );
-  return Number(rows[0]?.n ?? 0) >= rule.limit;
+  const limited = await transaction(async (run) => {
+    // Stable, database-wide lock for this exact bucket/action pair. Transaction
+    // scope guarantees release on both commit and rollback.
+    await run(
+      "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+      [`${bucket}\u0000${action}`],
+    );
+    const rows = await run<{ n: string }>(
+      `SELECT count(*) AS n FROM auth_attempts
+        WHERE bucket = $1
+          AND action = $2
+          AND created_at > now() - make_interval(secs => $3)
+          AND ($4 = false OR succeeded = false)`,
+      [bucket, action, rule.windowSeconds, rule.failuresOnly],
+    );
+    if (Number(rows[0]?.n ?? 0) >= rule.limit) return true;
+
+    await run(
+      "INSERT INTO auth_attempts (bucket, action, succeeded, created_at) VALUES ($1, $2, false, now())",
+      [bucket, action],
+    );
+    return false;
+  });
+
+  if (Math.random() < SWEEP_PROBABILITY) {
+    try {
+      await sweepOldAttempts();
+    } catch {
+      // Retention cannot change the auth result.
+    }
+  }
+  return limited;
 }
 
 /**
@@ -154,7 +159,7 @@ export async function clearFailures(
   );
 }
 
-/** 30-day retention. Driven from `recordAttempt`, so no scheduled job is needed. */
+/** 30-day retention. Driven from attempt reservations, so no scheduled job is needed. */
 export async function sweepOldAttempts(): Promise<void> {
   await query("DELETE FROM auth_attempts WHERE created_at < now() - interval '30 days'");
 }

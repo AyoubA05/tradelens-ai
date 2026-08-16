@@ -12,11 +12,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // vi.hoisted so the mock factories can reference these directly, rather than
 // wrapping them in spread forwarders that TypeScript cannot type.
-const { createAccount, recordAttempt, isRateLimited, logAuthEvent } = vi.hoisted(
+const { createAccount, isRateLimited, clearFailures, logAuthEvent } = vi.hoisted(
   () => ({
     createAccount: vi.fn(),
-    recordAttempt: vi.fn(),
     isRateLimited: vi.fn(),
+    clearFailures: vi.fn(),
     logAuthEvent: vi.fn(),
   }),
 );
@@ -24,8 +24,8 @@ const { createAccount, recordAttempt, isRateLimited, logAuthEvent } = vi.hoisted
 vi.mock("@/lib/auth/signup", () => ({ createAccount, BCRYPT_COST: 12 }));
 
 vi.mock("@/lib/auth/rate-limit", () => ({
-  recordAttempt,
   isRateLimited,
+  clearFailures,
   bucketFor: async (kind: string, value: string) => `${kind}:hashed(${value.length})`,
   clientIp: () => "203.0.113.7",
 }));
@@ -64,8 +64,8 @@ async function callRoute(request: Request) {
 beforeEach(() => {
   vi.resetModules();
   createAccount.mockReset().mockResolvedValue({ status: "created", userId: 42 });
-  recordAttempt.mockReset();
   isRateLimited.mockReset().mockResolvedValue(false);
+  clearFailures.mockReset();
   logAuthEvent.mockReset();
   process.env.SITE_ORIGIN = "https://site.test";
   process.env.SIGNUP_MODE = "open";
@@ -239,13 +239,30 @@ describe("rate limiting", () => {
     expect(createAccount).not.toHaveBeenCalled();
   });
 
-  it("records the attempt outcome", async () => {
+  it("clears the email failure reservation after a successful signup", async () => {
     await callRoute(post(VALID));
-    expect(recordAttempt).toHaveBeenCalledWith(
+    expect(clearFailures).toHaveBeenCalledWith(
       expect.any(String),
       "signup",
-      true,
     );
+  });
+
+  it("applies the invite-specific limit before comparing an invite code", async () => {
+    process.env.SIGNUP_MODE = "invite";
+    process.env.TRADELENS_INVITE_CODE = "let-me-in-2026";
+    isRateLimited.mockImplementation(
+      async (_bucket: string, _action: string, rule: string) => rule === "invite:ip",
+    );
+
+    const response = await callRoute(post({ ...VALID, invite: "guess" }));
+
+    expect(response.status).toBe(429);
+    expect(isRateLimited).toHaveBeenCalledWith(
+      expect.any(String),
+      "invite",
+      "invite:ip",
+    );
+    expect(createAccount).not.toHaveBeenCalled();
   });
 });
 

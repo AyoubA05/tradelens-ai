@@ -2,8 +2,12 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 
 import { AuthShell } from "@/components/auth-shell";
-import { authenticateSessionToken, emailGatePassed, nextDestinationFor } from "@/lib/auth/session";
-import { SESSION_COOKIE } from "@/lib/auth/login";
+import {
+  authenticateSessionToken,
+  emailGatePassed,
+  nextDestinationFor,
+  sessionTokenFromCookieHeader,
+} from "@/lib/auth/session";
 import { OnboardingForm } from "./onboarding-form";
 
 export const dynamic = "force-dynamic";
@@ -14,8 +18,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function OnboardingPage() {
   const cookieHeader = (await headers()).get("cookie") ?? "";
-  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
-  const user = await authenticateSessionToken(match ? decodeURIComponent(match[1]!) : null);
+  const user = await authenticateSessionToken(sessionTokenFromCookieHeader(cookieHeader));
 
   // Logged out, expired, revoked, or inactive all land here.
   if (!user) redirect("/login");
