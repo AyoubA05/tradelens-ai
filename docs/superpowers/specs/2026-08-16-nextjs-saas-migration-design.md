@@ -140,7 +140,7 @@ supports it. It is defense in depth, never the primary control.
 | `src/tradelens/db/` (models, session, Alembic) | **Kept unchanged.** One database serves both surfaces |
 | `prompts/` | **Kept unchanged** — locked by project rule |
 | 779 service/DB test functions (70 files) | **Kept unchanged.** Must stay green throughout |
-| `src/tradelens/ui/pages/_archive/` (5 dead pages) | **Deleted at Phase 0** — unreachable, and its unscoped `get_trades()` calls block §4 |
+| `src/tradelens/ui/pages/_archive/` (5 dead pages) | **Kept until Phase 10** — see the execution correction below |
 | `src/tradelens/ui/` — `app.py`, 7 live pages, 25 components, `design_system.py` | **Deleted at Phase 10** |
 | 1,280 Streamlit-coupled test functions (54 files) | **Retired at Phase 10** |
 | Streamlit, Plotly, PyArrow | **Removed from `requirements.txt` at Phase 10** |
@@ -176,7 +176,7 @@ below is the accurate one.
 | `trade_service.get_trades(user_id=_UNSCOPED)` | Default returns **every user's trades** | `user_id: int` required, keyword-only, validated positive |
 | `trade_service.trade_hash_exists(trade_hash, user_id=None)` | `None` checks the hash across **all users** | `user_id: int` required |
 | `trade_service.find_recent_duplicate(trade_data, user_id=None)` | `None` can return **another user's trade** | `user_id: int` required |
-| `weekly.list_weekly_reviews()` | No user parameter; returns **all users' reviews** | Delete. No live caller; `get_weekly_reviews(user_id)` covers the need |
+| `weekly.list_weekly_reviews()` | No user parameter; returns **all users' reviews** | Delete, **together with the two tests that exercise it** — see the execution correction below |
 
 `find_recent_duplicate` is the sharpest of these: it returns a `Trade` object
 belonging to whichever user happened to log an identical setup, and the New
@@ -214,16 +214,16 @@ This centralises it.
 
 ### Admin/global access
 
-Created only where a real caller needs it, named so the intent is unmissable,
-and never reachable from a user-facing route:
+**None is created.** The one candidate did not survive contact with the code:
+`scripts/recompute_metrics.py` declares `recompute(user_id: int)` and then calls
+`get_trades()` unscoped, so it recomputes one user's stored metrics from every
+user's trades. That is a defect, not a legitimate need for global access — the
+fix is `get_trades(user_id=user_id)`. With it scoped, nothing anywhere wants an
+`iter_all_trades_for_maintenance`, and YAGNI says do not build one.
 
-- `scripts/recompute_metrics.py` currently calls `get_trades()` unscoped. It
-  becomes a loop over users, or calls a new
-  `trade_service.iter_all_trades_for_maintenance()` that is not importable from
-  `src/tradelens/api/`.
-
-An import-boundary test asserts no module under `src/tradelens/api/` imports any
-`*_for_maintenance` / `*_all_users` symbol.
+An import-boundary test still asserts no module under `src/tradelens/api/`
+imports any `*_for_maintenance` / `*_all_users` symbol, so one cannot appear
+later without review.
 
 ### Sequencing constraint
 
@@ -520,6 +520,32 @@ Applied during implementation via these skills, in this order of authority:
 | Impeccable | `impeccable` | Final premium SaaS/fintech polish, consistency, originality |
 
 ---
+
+## 12b. Execution corrections (2026-08-16)
+
+Verified against the code while executing Phase 0. Where §3–§11 above disagree with this
+section, **this section wins.**
+
+- **The archived pages stay until Phase 10.** §3 originally deleted
+  `ui/pages/_archive/` in Phase 0 because its unscoped `get_trades()` calls were said to
+  block §4. They do not: those calls sit in three files no test executes, and Streamlit
+  cannot route into subdirectories of `pages/`. Nine passing tests read the archived
+  files' source, so deleting them costs real coverage and buys nothing. They go when
+  `src/tradelens/ui/` goes.
+- **No admin/global helper exists** — see §4's rewritten *Admin/global access*.
+- **`weekly.list_weekly_reviews` deletion takes two tests with it.** The claim that it had
+  no live caller was wrong: `tests/test_weekly.py:269-280` exercises it and asserts it
+  returns every user's reviews. Those are tests of the cross-tenant behaviour being
+  removed, so they are deleted with the function rather than preserved.
+- **Golden-dataset encodings were wrong** (§10.2's harness): `"Break-even"` is rejected by
+  `trade_validation.VALID_OUTCOMES` (only `win`/`loss`/`breakeven`), and
+  `Trade.followed_rules` is an `Integer` storing `1`/`0`/`None`, not `"Yes"`/`"No"`/
+  `"Partial"`. The harness frame must also carry `killzone`.
+- **Phase 0 is based on the Codex website/auth security remediation** (`c69d84b`), which
+  landed as its own commit before this work. Its change to `web/lib/auth/session.ts` is
+  cookie-parsing robustness only; the five session conditions §2.1's Lock 2 mirrors are
+  unchanged.
+- **Local development runs Python 3.9.6**; CI and `Dockerfile.api` remain the 3.11 gates.
 
 ## 13. Coordination
 

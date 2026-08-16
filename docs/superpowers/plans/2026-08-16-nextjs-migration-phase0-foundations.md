@@ -10,6 +10,52 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-16-nextjs-saas-migration-design.md`
 
+## Corrections from execution (2026-08-16)
+
+Recorded as they were discovered while running this plan. Where a task's text below
+disagrees with this section, **this section wins** — it is what was actually verified
+against the code.
+
+1. **Task 1 does NOT delete `src/tradelens/ui/pages/_archive/`.** The stated
+   justification — that its unscoped `get_trades()` calls block the isolation work — is
+   wrong. Those calls live in `3_TradeDetail.py:59`, `6_Calendar.py:43` and
+   `8_AI_Partner.py:48`; **no test executes any of them**, and Streamlit cannot route into
+   subdirectories of `pages/`. Nine passing tests read those files' source
+   (`test_landing.py` ×7, `test_charts.py` ×1, `test_cold_start.py` ×1). The archive stays
+   until Phase 10 removes `src/tradelens/ui/` wholesale. Task 1 is the guard only.
+
+2. **`scripts/recompute_metrics.py` is scoped, not given an escape hatch.** It declares
+   `recompute(user_id: int)` and then calls `get_trades()` unscoped — a real defect, since
+   it recomputes one user's stored metrics from every user's trades. The fix is
+   `get_trades(user_id=user_id)`. Consequently **no `*_for_maintenance` or `*_all_users`
+   helper is created anywhere in Phase 0** — nothing legitimate wants one. The
+   import-boundary test in Task 9 still guards against one appearing later.
+
+3. **Task 2's "no live caller" claim for `weekly.list_weekly_reviews` is wrong.** Two tests
+   exercise it — `tests/test_weekly.py:269-280`, including
+   `test_list_weekly_reviews_orders_recent_first`. They assert it returns *every user's*
+   reviews, so they are tests of the cross-tenant behaviour being removed: **delete those
+   two tests along with the function.** `get_weekly_reviews(user_id, limit)` covers the
+   need. The import left dangling in the archived `7_Weekly_Review.py:16` is inert
+   (nothing imports that file) and goes at Phase 10.
+   Also: three tests call `find_recent_duplicate` without an owner
+   (`tests/test_duplicate_prevention.py:53,61,73`) and must pass an explicit one.
+
+4. **Task 15's golden dataset had two encoding defects.** `"result": "Break-even"` is
+   rejected — `trade_validation.VALID_OUTCOMES` accepts only `win`/`loss`/`breakeven`, and
+   every write routes through `canonical_outcome`; use `"Breakeven"`. And
+   `"followed_rules": "Yes"/"No"/"Partial"` is the *display* form: `Trade.followed_rules`
+   is an `Integer` column and the live page writes `{"Yes": 1, "No": 0, "Partial": None}`
+   (`1_NewTrade.py:784`); use `1`, `0`, `None`. A snapshot built from the original values
+   would pin numbers no real row could produce. The harness frame must also carry the
+   `killzone` column, which `killzone_performance` reads.
+
+5. **Local runtime is Python 3.9.6**, not 3.11. Every new module must carry
+   `from __future__ import annotations` and avoid 3.10+ syntax. CI and
+   `Dockerfile.api` (`python:3.11-slim`) remain the 3.11 gates.
+
+6. **Phase 0 is based on the Codex security baseline** (`c69d84b`), not on `bf7fb33`.
+
 ## Global Constraints
 
 - Python 3.11. Runtime deps are CI-verified on 3.11 (`runtime.txt`).
