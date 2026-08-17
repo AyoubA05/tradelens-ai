@@ -49,11 +49,27 @@ def two_users(tmp_path, monkeypatch):
     import importlib
 
     db_path = tmp_path / "isolation.db"
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+    db_url = f"sqlite:///{db_path}"
+    monkeypatch.setenv("DATABASE_URL", db_url)
 
     from src.tradelens import config as tl_config
 
-    importlib.reload(tl_config)
+    # Patch the FIELD on the existing `settings` singleton rather than
+    # reloading the config module. `importlib.reload(tl_config)` would build
+    # a brand new `Settings()` instance in tl_config's namespace, but every
+    # service that captured `settings` by reference at its own import time
+    # (e.g. ai_client.py: `from src.tradelens.config import settings`) would
+    # keep pointing at the OLD object — permanently diverged from
+    # `tl_config.settings` for the rest of the process, well past this
+    # fixture's teardown. That divergence is silent until something reads a
+    # field through the stale reference (e.g. a test's
+    # `monkeypatch.setattr(ai_client.settings, "anthropic_api_key", ...)`
+    # landing on an object `resolve_anthropic_key()` no longer looks at) and
+    # then every AI call in every later test sees "API key not configured".
+    # Mutating the one object everyone already holds a reference to avoids
+    # creating a second one.
+    monkeypatch.setattr(tl_config.settings, "database_url", db_url)
+
     from src.tradelens.db import session as db_session
 
     importlib.reload(db_session)
@@ -67,4 +83,16 @@ def two_users(tmp_path, monkeypatch):
     importlib.reload(users)
     a = users.create_user("trader_a", "correct-horse-battery-1")
     b = users.create_user("trader_b", "correct-horse-battery-2")
-    yield a.id, b.id
+    try:
+        yield a.id, b.id
+    finally:
+        # Undo the env/attribute patches FIRST. pytest tears fixtures down in
+        # reverse setup order, and `monkeypatch` was set up before this
+        # fixture body ran, so its own finalizer would otherwise fire AFTER
+        # this code — meaning `tl_config.settings.database_url` would still
+        # read the tmp path here and the reload below would just rebuild the
+        # same throwaway engine again.
+        monkeypatch.undo()
+        importlib.reload(db_session)
+        importlib.reload(db_models)
+        importlib.reload(users)
