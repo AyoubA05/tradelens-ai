@@ -119,7 +119,7 @@ def test_weekly_call_injects_corrections(captured_client, monkeypatch):
 
     monkeypatch.setattr(weekly, "get_trades", lambda **k: _fake_trades())
     try:
-        weekly.generate_weekly_review("2026-06-17")
+        weekly.generate_weekly_review("2026-06-17", user_id=1)
     except Exception:
         pass
     assert "<past_corrections>" in _system_blob(captured_client)

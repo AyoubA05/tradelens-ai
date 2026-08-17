@@ -170,26 +170,28 @@ def _validate_sections(markdown: str) -> None:
 
 def generate_weekly_review(
     week_start: Union[str, dt.date, dt.datetime],
-    user_id: Optional[int] = None,
+    user_id: int,
     strategy_profile: Optional[dict] = None,
 ) -> tuple[dict, Usage]:
     """
     Generate (but do not persist) the weekly review for the week containing
     `week_start`. A zero-trade week returns an empty result WITHOUT any API call.
 
-    Only `user_id`'s trades feed the review (None = legacy NULL-owner trades).
-    When a Strategy Profile is provided, discipline is judged against those
-    rules; otherwise the generic process framework applies.
+    The owner is required. Only `user_id`'s trades feed the review. When a
+    Strategy Profile is provided, discipline is judged against those rules;
+    otherwise the generic process framework applies.
 
     Returns (review_dict, usage). review_dict keys: week_start (ISO Monday),
     empty, content_md, thinking_summary, stats, cost_usd.
 
     Raises:
+        ValueError: user_id is not a valid owner.
         FileNotFoundError: prompts/weekly_v2.txt missing.
         WeeklyReviewError: AI unavailable or response missing required sections.
     """
+    owner = require_user_id(user_id)
     monday, sunday = week_bounds(week_start)
-    trades = get_trades(start_date=monday, end_date=sunday, user_id=user_id)
+    trades = get_trades(start_date=monday, end_date=sunday, user_id=owner)
     df = _trades_to_df(trades)
     stats = _week_stats(df)
 
@@ -259,15 +261,21 @@ def _row_to_dict(row: WeeklyReview) -> dict:
     }
 
 
-def save_weekly_review(
-    review: dict, overwrite: bool = False, user_id: Optional[int] = None
-) -> dict:
+def save_weekly_review(review: dict, user_id: int, overwrite: bool = False) -> dict:
     """
-    Persist a generated review, scoped to `user_id` (NULL = legacy single user).
+    Persist a generated review, scoped to `user_id`. The owner is required —
+    it used to default to None, which filtered and stamped rows with
+    `user_id IS NULL`: a write-side hole into the legacy shared tenant that
+    the rest of the isolation work exists to close.
+
     If a review already exists for the same (user, week_start) and overwrite is
     False, raises WeeklyReviewExistsError (the page asks the user to confirm before
     retrying with overwrite=True). Returns the saved row as a dict.
+
+    Raises:
+        ValueError: user_id is not a valid owner.
     """
+    owner = require_user_id(user_id)
     week_start = review["week_start"]
     now = dt.datetime.now(dt.timezone.utc).isoformat()
     db = SessionLocal()
@@ -276,7 +284,7 @@ def save_weekly_review(
             db.query(WeeklyReview)
             .filter(
                 WeeklyReview.week_start == week_start,
-                WeeklyReview.user_id == user_id,
+                WeeklyReview.user_id == owner,
             )
             .first()
         )
@@ -286,7 +294,7 @@ def save_weekly_review(
             )
 
         if existing is None:
-            row = WeeklyReview(week_start=week_start, created_at=now, user_id=user_id)
+            row = WeeklyReview(week_start=week_start, created_at=now, user_id=owner)
             db.add(row)
         else:
             row = existing

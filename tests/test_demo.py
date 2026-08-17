@@ -276,7 +276,7 @@ def _invoke_weekly(tmp_path):
         followed_rules=1,
     )
     with patch.object(weekly, "get_trades", return_value=[fake]):
-        weekly.generate_weekly_review("2026-06-15")
+        weekly.generate_weekly_review("2026-06-15", user_id=1)
 
 
 def _invoke_patterns(tmp_path):

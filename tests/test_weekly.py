@@ -124,7 +124,7 @@ def test_zero_trade_week_makes_no_api_call():
     with patch("src.tradelens.services.weekly.get_trades", return_value=[]), patch(
         "src.tradelens.services.weekly.chat"
     ) as mock_chat:
-        review, usage = generate_weekly_review("2026-06-17")
+        review, usage = generate_weekly_review("2026-06-17", user_id=1)
 
     mock_chat.assert_not_called()
     assert review["empty"] is True
@@ -148,7 +148,7 @@ def test_generate_uses_high_effort_and_returns_sections():
     ), patch("src.tradelens.services.weekly.chat", side_effect=fake_chat), patch(
         "src.tradelens.services.weekly.load_prompt", return_value="mock"
     ):
-        review, usage = generate_weekly_review("2026-06-17")
+        review, usage = generate_weekly_review("2026-06-17", user_id=1)
 
     assert captured["effort"] == "high"
     assert review["empty"] is False
@@ -170,7 +170,7 @@ def test_generate_missing_section_raises():
         "src.tradelens.services.weekly.load_prompt", return_value="mock"
     ):
         with pytest.raises(WeeklyReviewError, match="missing required section"):
-            generate_weekly_review("2026-06-17")
+            generate_weekly_review("2026-06-17", user_id=1)
 
 
 def test_generate_ai_unavailable_raises():
@@ -185,7 +185,7 @@ def test_generate_ai_unavailable_raises():
         "src.tradelens.services.weekly.load_prompt", return_value="mock"
     ):
         with pytest.raises(WeeklyReviewError, match="AI declined"):
-            generate_weekly_review("2026-06-17")
+            generate_weekly_review("2026-06-17", user_id=1)
 
 
 def test_generate_demo_mode_returns_mock_review(monkeypatch):
@@ -200,7 +200,7 @@ def test_generate_demo_mode_returns_mock_review(monkeypatch):
     )
 
     with patch("src.tradelens.services.weekly.get_trades", return_value=_fake_trades()):
-        review, usage = generate_weekly_review("2026-06-17")
+        review, usage = generate_weekly_review("2026-06-17", user_id=1)
 
     assert review["empty"] is False
     for section in _REQUIRED_SECTIONS:
@@ -314,7 +314,7 @@ def test_generate_without_profile_uses_general_framework_note():
     ), patch("src.tradelens.services.weekly.chat", side_effect=fake_chat), patch(
         "src.tradelens.services.weekly.load_prompt", return_value="mock"
     ):
-        generate_weekly_review("2026-06-17")
+        generate_weekly_review("2026-06-17", user_id=1)
 
     assert "No strategy profile provided" in captured["user"]
 

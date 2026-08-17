@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from src.tradelens.services import trade_service
+from src.tradelens.services import trade_service, weekly
 
 ROOT = Path(__file__).resolve().parents[1]
 LIVE_DIRS = [ROOT / "src" / "tradelens" / "ui", ROOT / "src" / "tradelens" / "services"]
@@ -82,3 +82,33 @@ def test_user_id_has_no_default():
     """No unscoped escape hatch remains — every caller must name a real owner."""
     signature = inspect.signature(trade_service.get_trades)
     assert signature.parameters["user_id"].default is inspect.Parameter.empty
+
+
+# ---------------------------------------------------------------------------
+# Weekly review write/generate path (Tasks 2+3 review, closed alongside
+# Task 4). ``save_weekly_review`` used to default ``user_id`` to None, which
+# filtered and stamped rows with ``user_id IS NULL`` — a write-side hole into
+# the legacy shared tenant. ``generate_weekly_review`` was only transitively
+# scoped, via ``get_trades``. Both now require a real owner; these guard
+# tests fail loudly if a future edit reintroduces a default.
+# ---------------------------------------------------------------------------
+
+
+def test_save_weekly_review_user_id_has_no_default():
+    signature = inspect.signature(weekly.save_weekly_review)
+    assert signature.parameters["user_id"].default is inspect.Parameter.empty
+
+
+def test_generate_weekly_review_user_id_has_no_default():
+    signature = inspect.signature(weekly.generate_weekly_review)
+    assert signature.parameters["user_id"].default is inspect.Parameter.empty
+
+
+def test_save_weekly_review_refuses_none_owner():
+    with pytest.raises(ValueError):
+        weekly.save_weekly_review({"week_start": "2026-06-15"}, user_id=None)  # type: ignore[arg-type]
+
+
+def test_generate_weekly_review_refuses_none_owner():
+    with pytest.raises(ValueError):
+        weekly.generate_weekly_review("2026-06-17", user_id=None)  # type: ignore[arg-type]
