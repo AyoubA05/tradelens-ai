@@ -6,31 +6,63 @@ No Streamlit imports here.
 """
 
 import json
+from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Optional
 
 from src.tradelens.db.models import Correction
 from src.tradelens.db.session import SessionLocal
+from src.tradelens.services.ownership import require_user_id
 
-# Active user for this script run (multi-user scoping). The UI auth layer sets
-# it once per page run; every correction read/write then defaults to it, so the
-# central few-shot injection in ai_client (which has no user context) can never
-# leak one trader's corrections into another trader's prompts. None = the
-# legacy single user (NULL-owned rows) — the fail-safe default.
-_ACTIVE_USER: ContextVar[Optional[int]] = ContextVar(
-    "tradelens_corrections_user", default=None
+# The owner of the current request. `ai_client`'s few-shot injection has no user
+# argument, so this is how it learns whose corrections it may read.
+#
+# The default is a sentinel that RESOLVES TO A REFUSAL, not to the legacy NULL
+# tenant. Under Streamlit an unset value meant "the single legacy user" and was
+# harmless; under a server it would mean "whatever the last request left here",
+# and a wrong answer is worse than an error.
+_UNSCOPED = object()
+_ACTIVE_USER: ContextVar[object] = ContextVar(
+    "tradelens_corrections_user", default=_UNSCOPED
 )
-_UNSET = object()  # distinguishes "not passed" from an explicit None (legacy)
+_UNSET = object()  # "argument not passed", distinct from an explicit value
 
 
-def set_corrections_user(user_id: Optional[int]) -> None:
-    """Scope subsequent correction reads/writes to `user_id` (None = legacy)."""
-    _ACTIVE_USER.set(user_id)
+def _resolve_user(user_id) -> int:
+    if user_id is not _UNSET:
+        return require_user_id(user_id)
+    active = _ACTIVE_USER.get()
+    if active is _UNSCOPED:
+        raise LookupError(
+            "no correction scope is active; call corrections_scope(user_id) "
+            "or pass user_id explicitly"
+        )
+    return require_user_id(active)
 
 
-def _resolve_user(user_id) -> Optional[int]:
-    return _ACTIVE_USER.get() if user_id is _UNSET else user_id
+@contextmanager
+def corrections_scope(user_id: int):
+    """Scope correction reads and writes to one user for the duration of a block.
+
+    Reset happens through the token in a `finally`, never a bare `.set()`.
+    FastAPI runs sync handlers in a threadpool where a worker thread is reused,
+    so a value left behind is a value the next request can observe.
+    """
+    token = _ACTIVE_USER.set(require_user_id(user_id))
+    try:
+        yield
+    finally:
+        _ACTIVE_USER.reset(token)
+
+
+def set_corrections_user(user_id: int) -> None:
+    """Scope subsequent correction reads/writes. Prefer `corrections_scope`.
+
+    Retained for the Streamlit page path, which has no block to wrap: a
+    Streamlit script run is the scope. Deleted with `ui/` at Phase 10.
+    """
+    _ACTIVE_USER.set(require_user_id(user_id))
 
 
 def _serialize(value) -> Optional[str]:

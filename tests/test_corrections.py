@@ -91,7 +91,9 @@ def test_record_writes_when_values_differ(in_memory_db, sample_ids):
 
     trade_id, analysis_id = sample_ids
 
-    result = record_correction(trade_id, analysis_id, "bias", "bullish", "bearish")
+    result = record_correction(
+        trade_id, analysis_id, "bias", "bullish", "bearish", user_id=1
+    )
 
     assert result is not None
     assert result.field == "bias"
@@ -126,7 +128,7 @@ def test_record_none_vs_value_writes_row(in_memory_db, sample_ids):
     trade_id, analysis_id = sample_ids
 
     result = record_correction(
-        trade_id, analysis_id, "detected_setup", None, "Order Block"
+        trade_id, analysis_id, "detected_setup", None, "Order Block", user_id=1
     )
 
     assert result is not None
@@ -139,7 +141,9 @@ def test_record_value_vs_none_writes_row(in_memory_db, sample_ids):
 
     trade_id, analysis_id = sample_ids
 
-    result = record_correction(trade_id, analysis_id, "detected_setup", "FVG", None)
+    result = record_correction(
+        trade_id, analysis_id, "detected_setup", "FVG", None, user_id=1
+    )
 
     assert result is not None
     assert result.ai_value == "FVG"
@@ -174,7 +178,9 @@ def test_record_dict_serialized_as_stable_json(in_memory_db, sample_ids):
 
     ai_val = {"score": 7, "grade": "B"}
     user_val = {"score": 8, "grade": "A"}
-    result = record_correction(trade_id, analysis_id, "grading", ai_val, user_val)
+    result = record_correction(
+        trade_id, analysis_id, "grading", ai_val, user_val, user_id=1
+    )
 
     assert result is not None
     stored_ai = json.loads(result.ai_value)
@@ -203,7 +209,7 @@ def test_record_grade_field(in_memory_db, sample_ids):
 
     trade_id, analysis_id = sample_ids
 
-    result = record_correction(trade_id, analysis_id, "grade", "B", "A")
+    result = record_correction(trade_id, analysis_id, "grade", "B", "A", user_id=1)
 
     assert result is not None
     assert result.field == "grade"
@@ -224,10 +230,10 @@ def test_get_recent_corrections_returns_dicts(in_memory_db, sample_ids):
 
     trade_id, analysis_id = sample_ids
 
-    record_correction(trade_id, analysis_id, "bias", "bullish", "bearish")
-    record_correction(trade_id, analysis_id, "trade_quality", 5, 8)
+    record_correction(trade_id, analysis_id, "bias", "bullish", "bearish", user_id=1)
+    record_correction(trade_id, analysis_id, "trade_quality", 5, 8, user_id=1)
 
-    results = get_recent_corrections(limit=10)
+    results = get_recent_corrections(limit=10, user_id=1)
 
     assert len(results) == 2
     assert isinstance(results[0], dict)
@@ -244,9 +250,11 @@ def test_get_recent_corrections_respects_limit(in_memory_db, sample_ids):
     trade_id, analysis_id = sample_ids
 
     for i in range(5):
-        record_correction(trade_id, analysis_id, "bias", "bullish", f"value_{i}")
+        record_correction(
+            trade_id, analysis_id, "bias", "bullish", f"value_{i}", user_id=1
+        )
 
-    results = get_recent_corrections(limit=3)
+    results = get_recent_corrections(limit=3, user_id=1)
     assert len(results) == 3
 
 
@@ -376,10 +384,10 @@ def test_count_corrections(in_memory_db, sample_ids):
     from src.tradelens.services.corrections import count_corrections, record_correction
 
     trade_id, analysis_id = sample_ids
-    assert count_corrections() == 0
-    record_correction(trade_id, analysis_id, "bias", "bullish", "bearish")
-    record_correction(trade_id, analysis_id, "setup_type", "OB", "FVG")
-    assert count_corrections() == 2
+    assert count_corrections(user_id=1) == 0
+    record_correction(trade_id, analysis_id, "bias", "bullish", "bearish", user_id=1)
+    record_correction(trade_id, analysis_id, "setup_type", "OB", "FVG", user_id=1)
+    assert count_corrections(user_id=1) == 2
 
 
 def test_repeated_corrections_fires_at_threshold(in_memory_db, sample_ids):
@@ -390,9 +398,11 @@ def test_repeated_corrections_fires_at_threshold(in_memory_db, sample_ids):
 
     trade_id, analysis_id = sample_ids
     for _ in range(5):
-        record_correction(trade_id, analysis_id, "bias", "bullish", "bearish")
+        record_correction(
+            trade_id, analysis_id, "bias", "bullish", "bearish", user_id=1
+        )
 
-    res = repeated_corrections(threshold=5)
+    res = repeated_corrections(threshold=5, user_id=1)
     assert len(res) == 1
     assert res[0]["field"] == "bias"
     assert res[0]["user_value"] == "bearish"
@@ -407,9 +417,11 @@ def test_repeated_corrections_below_threshold_excluded(in_memory_db, sample_ids)
 
     trade_id, analysis_id = sample_ids
     for _ in range(4):
-        record_correction(trade_id, analysis_id, "bias", "bullish", "bearish")
+        record_correction(
+            trade_id, analysis_id, "bias", "bullish", "bearish", user_id=1
+        )
 
-    assert repeated_corrections(threshold=5) == []
+    assert repeated_corrections(threshold=5, user_id=1) == []
 
 
 # ---------------------------------------------------------------------------
@@ -420,14 +432,19 @@ def test_repeated_corrections_below_threshold_excluded(in_memory_db, sample_ids)
 
 @pytest.fixture()
 def two_user_corrections(sample_ids):
-    """Corrections for user 1, user 2, and the legacy (NULL) user."""
+    """Corrections for user 1, user 2, and user 3 — three distinct owners.
+
+    A third real owner (rather than a legacy NULL row) proves isolation without
+    relying on the retired NULL-tenant fallback: `require_user_id` rejects None
+    outright now, so every owner in this fixture is a concrete positive id.
+    """
     from src.tradelens.services.corrections import record_correction
 
     trade_id, analysis_id = sample_ids
     record_correction(trade_id, analysis_id, "bias", "bullish", "bearish", user_id=1)
     record_correction(trade_id, analysis_id, "bias", "neutral", "bearish", user_id=1)
     record_correction(trade_id, analysis_id, "setup", "FVG", "OB", user_id=2)
-    record_correction(trade_id, analysis_id, "timeframe", "5m", "15m", user_id=None)
+    record_correction(trade_id, analysis_id, "timeframe", "5m", "15m", user_id=3)
     return sample_ids
 
 
@@ -447,7 +464,7 @@ def test_recent_and_count_are_user_scoped(two_user_corrections, in_memory_db):
 
     assert count_corrections(user_id=1) == 2
     assert count_corrections(user_id=2) == 1
-    assert count_corrections(user_id=None) == 1  # legacy rows only
+    assert count_corrections(user_id=3) == 1
 
     fields = {c["field"] for c in get_recent_corrections(user_id=1)}
     assert fields == {"bias"}
@@ -479,41 +496,40 @@ def test_few_shot_block_excludes_other_users(two_user_corrections, in_memory_db)
     block = build_correction_few_shot(user_id=1)
     assert "bearish" in block
     assert "OB" not in block  # user 2's correction must not leak
-    assert "15m" not in block  # legacy row must not leak either
+    assert "15m" not in block  # user 3's correction must not leak either
 
 
 def test_active_user_contextvar_scopes_default_calls(
     two_user_corrections, in_memory_db
 ):
-    """ai_client calls corrections with no user arg — the auth layer sets the
-    active user once per script run and everything downstream scopes to it."""
+    """ai_client calls corrections with no user arg — the request-scoped
+    context manager sets the active user for the duration of a block and
+    everything downstream scopes to it."""
     from src.tradelens.services.corrections import (
         build_correction_few_shot,
+        corrections_scope,
         count_corrections,
-        set_corrections_user,
     )
 
-    set_corrections_user(2)
-    try:
+    with corrections_scope(2):
         assert count_corrections() == 1
         block = build_correction_few_shot()
         assert "OB" in block
         assert "bearish" not in block
-    finally:
-        set_corrections_user(None)
-    assert count_corrections() == 1  # back to legacy (NULL) scope
+
+    # Outside the scope there is no active owner — refuse rather than fall
+    # back to whatever the previous scope left behind.
+    with pytest.raises(LookupError):
+        count_corrections()
 
 
 def test_record_correction_defaults_to_active_user(sample_ids, in_memory_db):
     from src.tradelens.services.corrections import (
+        corrections_scope,
         record_correction,
-        set_corrections_user,
     )
 
     trade_id, analysis_id = sample_ids
-    set_corrections_user(9)
-    try:
+    with corrections_scope(9):
         row = record_correction(trade_id, analysis_id, "bias", "x", "y")
-    finally:
-        set_corrections_user(None)
     assert row.user_id == 9
