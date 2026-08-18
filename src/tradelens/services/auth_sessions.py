@@ -245,3 +245,73 @@ def revoke_all_for_user(user_id: int, now: Optional[datetime] = None) -> int:
         raise
     finally:
         db.close()
+
+
+def restore_website_session(token, now: Optional[datetime] = None) -> Optional[int]:
+    """Resolve a WEBSITE session credential to a user id, sliding the idle window.
+
+    The Python counterpart of ``authenticateWebsiteRequest`` in
+    ``web/lib/auth/session.ts``, and deliberately a re-check rather than a
+    convenience: the API backend must not act on an account merely because the
+    Next.js layer said it had already validated the session. A bug or a
+    compromise there would otherwise be sufficient on its own.
+
+    All five conditions, matching the TypeScript exactly:
+
+        hash matches a row with surface='website'
+        revoked_at IS NULL
+        expires_at > now
+        now - last_seen_at < 8h
+        users.is_active = 1
+
+    Returns None — failing closed — when any of them does not hold. All five
+    failures look identical to the caller.
+
+    ``is_active`` is joined here even though ``restore_streamlit_session`` does
+    not check it. That is not an inconsistency to tidy away: this function
+    mirrors the website contract, where a disabled account must not be able to
+    act through a credential minted while it was still enabled.
+
+    ``expires_at`` is never touched, which is what keeps the 12-hour cap
+    absolute rather than something activity can push indefinitely.
+    """
+    if not token or not isinstance(token, str):
+        return None
+
+    at = now or _now()
+    digest = _hash(token, WEBSITE_DOMAIN)
+    db = SessionLocal()
+    try:
+        row = db.execute(
+            text(
+                "SELECT s.user_id, s.expires_at, s.last_seen_at, s.revoked_at "
+                "FROM auth_sessions s JOIN users u ON u.id = s.user_id "
+                "WHERE s.token_hash = :h AND s.surface = :s AND u.is_active = 1"
+            ).columns(**_SESSION_ROW_TYPES),
+            {"h": digest, "s": SURFACE_WEBSITE},
+        ).first()
+        if row is None:
+            return None
+
+        user_id, expires_at, last_seen_at, revoked_at = row
+        if revoked_at is not None:
+            return None
+        if _as_aware(expires_at) <= at:
+            return None
+        if at - _as_aware(last_seen_at) > timedelta(seconds=IDLE_TIMEOUT_S):
+            return None
+
+        db.execute(
+            text(
+                "UPDATE auth_sessions SET last_seen_at = :now "
+                "WHERE token_hash = :h AND surface = :s"
+            ),
+            {"now": at, "h": digest, "s": SURFACE_WEBSITE},
+        )
+        db.commit()
+        return int(user_id)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
