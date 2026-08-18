@@ -1,10 +1,14 @@
 from sqlalchemy import inspect, text
 
-from src.tradelens.db.session import SessionLocal, engine
+# `engine` is resolved through the module at call time, never imported by
+# value: the two_users fixture reloads db.session to point at an isolated
+# database, and a name bound at import would still inspect the original.
+from src.tradelens.db import session as db_session
+from src.tradelens.db.session import SessionLocal
 
 
 def test_users_has_app_surface_defaulting_to_streamlit(two_users):
-    cols = {c["name"] for c in inspect(engine).get_columns("users")}
+    cols = {c["name"] for c in inspect(db_session.engine).get_columns("users")}
     assert "app_surface" in cols
 
     db = SessionLocal()

@@ -151,7 +151,12 @@ def test_run_once_dispatches_to_the_handler_for_the_job_kind(two_users):
     assert seen == {"user_id": a, "payload": {"trade_id": 7}}
 
 
-def test_run_once_returns_false_when_the_queue_is_empty():
+def test_run_once_returns_false_when_the_queue_is_empty(two_users):
+    """Takes the fixture purely for its schema.
+
+    Without it this reached whatever database happened to exist — a fully
+    migrated one on a developer machine, and none at all in CI.
+    """
     assert jobs.run_once({}) is False
 
 
