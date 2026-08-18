@@ -1,0 +1,11 @@
+# FastAPI surface. Installed in the API and worker container, which does NOT
+# install requirements.txt — Streamlit, PyArrow and Plotly are presentation
+# dependencies with no business in a backend.
+-r requirements-base.txt
+# Pinned to versions that support BOTH Python 3.9 (local development) and 3.11
+# (the container), so tests and production run identical code. uvicorn >=0.40
+# and httpx >=0.29 require Python 3.10 and cannot be used until local moves up.
+fastapi==0.120.4
+uvicorn[standard]==0.39.0
+# Cloudflare R2 is S3-compatible. Used by the storage adapter.
+boto3==1.42.7

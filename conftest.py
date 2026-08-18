@@ -105,3 +105,48 @@ def two_users(tmp_path, monkeypatch):
         # same throwaway engine again.
         monkeypatch.undo()
         importlib.reload(db_session)
+
+
+@pytest.fixture
+def website_session(two_users):
+    """A live website session for the first test user: ``(user_id, raw_token)``.
+
+    Inserted directly rather than through a login flow: this is the credential
+    the API's Lock 2 resolves, and the point is to exercise that resolution, not
+    the website's sign-in form.
+    """
+    import datetime as dt
+    import hashlib
+    import secrets
+
+    from sqlalchemy import text as sa_text
+
+    from src.tradelens.db.session import SessionLocal
+    from src.tradelens.services import auth_sessions
+
+    user_id = two_users[0]
+    token = secrets.token_urlsafe(32)
+    now = dt.datetime.now(dt.timezone.utc)
+    digest = hashlib.sha256(
+        (auth_sessions.WEBSITE_DOMAIN + token).encode("utf-8")
+    ).hexdigest()
+    db = SessionLocal()
+    try:
+        db.execute(
+            sa_text(
+                "INSERT INTO auth_sessions (token_hash, user_id, created_at, "
+                "expires_at, last_seen_at, surface) VALUES (:h,:u,:c,:e,:l,:s)"
+            ),
+            {
+                "h": digest,
+                "u": user_id,
+                "c": now,
+                "e": now + dt.timedelta(hours=12),
+                "l": now,
+                "s": auth_sessions.SURFACE_WEBSITE,
+            },
+        )
+        db.commit()
+    finally:
+        db.close()
+    return user_id, token

@@ -2,8 +2,13 @@
 #   pip install -r requirements-dev.txt   (also installs the runtime deps)
 # The deployed app installs ONLY requirements.txt.
 -r requirements.txt
+# The API surface too: the test suite imports FastAPI and its TestClient.
+-r requirements-api.txt
 faker==37.12.0
 pytest==8.4.2
 pytest-cov==7.1.0
 black==25.1.0
 ruff==0.15.16
+
+# FastAPI TestClient transport.
+httpx==0.28.1

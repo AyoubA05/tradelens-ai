@@ -10,6 +10,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = (ROOT / "requirements.txt").read_text(encoding="utf-8")
 DEV = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
+API = (ROOT / "requirements-api.txt").read_text(encoding="utf-8")
+
+
+def _resolve(text: str) -> str:
+    """Inline any `-r other.txt` includes, recursively.
+
+    The runtime set is split across surfaces: shared deps live in
+    requirements-base.txt, and requirements.txt (Streamlit) and
+    requirements-api.txt (FastAPI) each include it. What matters to these gates
+    is what a surface EFFECTIVELY installs, so the includes are followed rather
+    than skipped — otherwise the split would silently defeat every assertion
+    below.
+    """
+    out = []
+    for ln in text.splitlines():
+        stripped = ln.strip()
+        if stripped.startswith("-r "):
+            target = ROOT / stripped[3:].strip()
+            out.append(_resolve(target.read_text(encoding="utf-8")))
+        else:
+            out.append(ln)
+    return "\n".join(out)
 
 _DEV_TOOLS = ["pytest", "pytest-cov", "black", "ruff", "faker"]
 _RUNTIME_CORE = [
@@ -29,14 +51,35 @@ def _dep_names(text: str) -> set:
         ln = ln.strip()
         if not ln or ln.startswith("#") or ln.startswith("-r "):
             continue
-        names.add(ln.split("==")[0].split(">=")[0].strip())
+        name = ln.split("==")[0].split(">=")[0].strip()
+        # Strip extras: "uvicorn[standard]" is the uvicorn distribution.
+        name = name.split("[")[0].strip()
+        names.add(name)
     return names
 
 
 def test_runtime_has_core_deps():
-    names = _dep_names(RUNTIME)
+    names = _dep_names(_resolve(RUNTIME))
     for dep in _RUNTIME_CORE:
         assert dep in names, f"runtime requirements.txt missing {dep}"
+
+
+def test_the_api_surface_excludes_presentation_dependencies():
+    """The whole point of the split.
+
+    Streamlit, PyArrow and Plotly are presentation dependencies with no business
+    in a backend image, and they roughly triple its size. If one reappears here,
+    the split has quietly stopped paying for itself.
+    """
+    names = _dep_names(_resolve(API))
+    for dep in ("streamlit", "pyarrow", "plotly"):
+        assert dep not in names, f"requirements-api.txt must not install {dep}"
+
+
+def test_the_api_surface_has_what_it_needs():
+    names = _dep_names(_resolve(API))
+    for dep in ("fastapi", "uvicorn", "sqlalchemy", "anthropic"):
+        assert dep in names, f"requirements-api.txt missing {dep}"
 
 
 def test_pyarrow_is_pinned_to_ci_verified_version():
