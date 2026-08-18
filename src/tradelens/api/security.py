@@ -55,6 +55,14 @@ def canonical_query(query: str) -> str:
     """
     if not query:
         return ""
+    # A leading "?" is not part of the query. `URLSearchParams` strips it and
+    # `parse_qsl` does not, so without this the two implementations disagreed
+    # on every query a caller happened to pass with its delimiter attached —
+    # the signer producing one signature and the verifier expecting another,
+    # surfacing as an unexplainable 401 rather than as an obvious bug. Found by
+    # the differential corpus in scripts/generate_canonical_query_cases.py.
+    if query.startswith("?"):
+        query = query[1:]
     pairs = [
         (quote(name, safe=_UNRESERVED), quote(value, safe=_UNRESERVED))
         for name, value in parse_qsl(query, keep_blank_values=True)

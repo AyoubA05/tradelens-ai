@@ -80,3 +80,14 @@ def test_sub_delims_are_escaped():
     """Python's quote() escapes these; JavaScript's encodeURIComponent does not.
     The TypeScript side compensates, and this pins the expected form."""
     assert canonical_query("q=a'b") == "q=a%27b"
+
+
+def test_a_leading_question_mark_is_not_part_of_the_query():
+    """URLSearchParams strips it and parse_qsl does not.
+
+    Found by the differential corpus, not by inspection. Without this the signer
+    and the verifier disagreed on every query passed with its delimiter
+    attached, which surfaces as an unexplainable 401 rather than an obvious bug.
+    """
+    assert canonical_query("?a=1&b=2") == canonical_query("a=1&b=2")
+    assert canonical_query("?") == ""
