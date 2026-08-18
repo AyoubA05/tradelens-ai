@@ -122,3 +122,52 @@ def test_dev_has_all_dev_tools():
     names = _dep_names(DEV)
     for tool in _DEV_TOOLS:
         assert tool in names, f"requirements-dev.txt missing {tool}"
+
+
+# --- surface split -------------------------------------------------------
+#
+# requirements-dev.txt lists the API packages individually instead of
+# including requirements-api.txt, because that file pins pillow 12.3.0 while
+# Streamlit — which the dev environment also installs — requires pillow<12.
+# The duplication is deliberate and these tests are what stop it drifting.
+
+_PILLOW_SPLIT_EXEMPT = {"pillow"}
+
+
+def test_dev_installs_every_api_package():
+    """The test suite imports the API surface, so dev must carry its packages.
+
+    Fails when requirements-api.txt gains a dependency that the development
+    environment would not install — which would surface as an ImportError in
+    CI rather than as an obvious missing pin.
+    """
+    missing = (
+        _dep_names(_resolve(API)) - _dep_names(_resolve(DEV)) - _PILLOW_SPLIT_EXEMPT
+    )
+    assert (
+        not missing
+    ), f"requirements-dev.txt is missing API packages: {sorted(missing)}"
+
+
+def test_dev_does_not_include_the_api_requirements_file():
+    """Including it would reintroduce the unsatisfiable pillow pair.
+
+    Streamlit 1.50 requires pillow<12 and requirements-api.txt pins 12.3.0 on
+    Python 3.10+, so one resolution cannot contain both. CI is where that
+    surfaces, as a dependency install failure before any test runs.
+    """
+    includes = [
+        line.strip() for line in DEV.splitlines() if line.strip().startswith("-r ")
+    ]
+    assert "-r requirements-api.txt" not in includes, includes
+
+
+def test_only_the_api_surface_takes_the_patched_pillow_line():
+    """The container that decodes untrusted uploads gets the patched line.
+
+    Streamlit's ceiling keeps the other two surfaces on 11.3.0; that surface
+    never handles untrusted image bytes, so the exposure differs.
+    """
+    assert 'pillow==12.3.0; python_version >= "3.10"' in API
+    assert "pillow==12.3.0" not in RUNTIME
+    assert "pillow==12.3.0" not in DEV

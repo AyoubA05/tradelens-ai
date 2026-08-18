@@ -1,9 +1,26 @@
 # Dev / test / lint dependencies.
 #   pip install -r requirements-dev.txt   (also installs the runtime deps)
-# The deployed app installs ONLY requirements.txt.
+# The deployed app installs ONLY requirements.txt; the API image installs ONLY
+# requirements-api.txt.
 -r requirements.txt
-# The API surface too: the test suite imports FastAPI and its TestClient.
--r requirements-api.txt
+
+# The API surface's packages are listed individually rather than via
+# `-r requirements-api.txt`, and that is deliberate.
+#
+# The test suite imports BOTH surfaces: Streamlit AppTest for the UI and
+# FastAPI's TestClient for the API. Streamlit 1.50 requires pillow<12, while
+# requirements-api.txt pins pillow 12.3.0 on Python 3.10+ to stay off a
+# known-vulnerable line in the container that decodes untrusted uploads.
+# Including that file here would put both pins in one resolution and make the
+# development environment unsatisfiable on the deploy interpreter.
+#
+# So development and CI test against pillow 11.3.0 (Streamlit's ceiling) while
+# the API image runs 12.3.0. tests/test_requirements.py asserts this list stays
+# in step with requirements-api.txt so the duplication cannot drift silently.
+fastapi==0.120.4
+uvicorn[standard]==0.39.0
+boto3==1.42.7
+
 faker==37.12.0
 pytest==8.4.2
 pytest-cov==7.1.0
