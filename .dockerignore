@@ -1,0 +1,11 @@
+.git
+.venv
+node_modules
+web
+site
+tests
+data
+docs
+*.db
+.streamlit
+__pycache__

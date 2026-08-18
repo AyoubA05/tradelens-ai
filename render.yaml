@@ -1,0 +1,48 @@
+# render.yaml
+# Two services from one image: the HTTP API and the job worker.
+#
+# The API is a WEB service, not a private service. Vercel functions egress from
+# dynamic addresses and are not inside Render's private network, so a private
+# service would be unreachable — and designing as if it were unreachable from
+# the internet, while it is in fact reachable, is worse than treating it as
+# public and defending it. Defence is TL_SERVICE_SECRET plus database-backed
+# session validation, not network topology. Do not "fix" this to a private
+# service later without re-deriving that Vercel can reach it.
+services:
+  - type: web
+    name: tradelens-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile.api
+    healthCheckPath: /health
+    envVars:
+      - key: TL_ENV
+        value: production
+      - key: TL_SERVICE_SECRET
+        sync: false
+      - key: TL_SERVICE_SECRET_PREVIOUS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+
+  - type: worker
+    name: tradelens-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile.api
+    dockerCommand: python -m src.tradelens.api.worker
+    envVars:
+      - key: TL_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
