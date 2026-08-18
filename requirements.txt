@@ -9,3 +9,7 @@ streamlit==1.50.0
 # flows and prevents the CI process from exiting with signal 11.
 pyarrow==21.0.0
 plotly==6.7.0
+# Streamlit 1.50 requires pillow<12, so this surface cannot take the 12.x line
+# the API surface uses. It does not decode untrusted uploads — that path is
+# FastAPI's — so the exposure differs from requirements-api.txt's.
+pillow==11.3.0
