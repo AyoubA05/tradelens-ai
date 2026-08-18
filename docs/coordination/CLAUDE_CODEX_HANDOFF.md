@@ -5288,3 +5288,91 @@ definition; this change is aimed at the narrower and common logging/tracing boun
   runtime.
 - Do not start Phase 1 until the normal Vercel/Turbopack CI build and new Python dependency
   audit pass in a network-enabled runner.
+
+## Phase 0 CI checkpoint — 2026-08-18 (Claude)
+
+Codex's review work was committed unaltered as `44f4bb5` and is the Phase 0 baseline.
+`.claude/settings.json` was not touched. Network-enabled CI is **green** on `2ff8266`
+(run 32144524731).
+
+### Green CI — every gate, exact result
+
+| Gate | Result |
+|---|---|
+| `pip-audit -r requirements-api.txt` | **No known vulnerabilities found** |
+| `ruff check src/ scripts/` | All checks passed |
+| `black --check src/ scripts/ tests/` | 265 files unchanged |
+| Alembic apply + reverse | single head; full chain up, Phase 0 pair down twice, back up |
+| `pytest tests/` | **2562 passed, 9 skipped** in 282.92s |
+| Services coverage gate | **89.73%** against an 80% floor |
+| OpenAPI / type / signature / query-corpus drift | no diff after regeneration |
+| Marketing site build | passed |
+| Web Vitest | **810 passed, 22 files** |
+| ESLint | clean |
+| `tsc --noEmit` | clean |
+| **Next.js production build** | **Next.js 16.3.0 (Turbopack), compiled successfully in 4.8s** |
+| `npm audit --omit=dev --audit-level=high` | found 0 vulnerabilities |
+
+Two gates the workflow had been missing were added: `black --check` (now including `tests/`,
+which is how three files had drifted unnoticed — the documented lint command omits that
+directory) and the Alembic round-trip.
+
+### Four CI failures fixed, root cause each time
+
+None of these could fail on the development machine, which is why CI was the only place they
+could be found.
+
+1. **Pillow pinned in the shared base file.** The review put `pillow==12.3.0` (Python 3.10+)
+   in `requirements-base.txt`, which both surfaces include. Streamlit 1.50 requires
+   `pillow<12`, so on the deploy interpreter pip could not satisfy both and dependency
+   installation failed outright. On local Python 3.9 the marker selects 11.3.0 and no conflict
+   exists.
+2. **The split alone was not enough.** `requirements-dev.txt` includes both surfaces, so
+   pinning per surface simply moved the same conflict into the dev resolution. Development
+   cannot take the 12.x line at all, because the suite drives Streamlit AppTest as well as
+   FastAPI's TestClient. Dev now lists the API's packages individually; the container and
+   `pip-audit` still get 12.3.0.
+3. **Eight advisories in the API runtime.** starlette 0.49.3 (PYSEC-2026-161, -248, -249,
+   -2280, -2281) and python-dotenv 1.2.1 (PYSEC-2026-2270). Clearing starlette required
+   moving FastAPI too, since 0.120.x caps starlette below 0.50 and every fixed release needs
+   Python 3.10+. Pinned per interpreter, with the markers mirrored into `requirements-dev.txt`
+   deliberately so **CI exercises the same FastAPI and Starlette the container ships**. A
+   major framework bump was not sent to CI untested: a 3.11 environment was built locally and
+   the whole suite run against FastAPI 0.141.1 / Starlette 1.6.0 — 2564 passed.
+4. **Two tests depended on an ambient database.** One took no fixture and reached whatever
+   database existed — fully migrated locally, absent in CI. The other imported `engine` by
+   value at module load, so the `two_users` fixture's reload never reached it and it inspected
+   the default database; this is the same by-value capture hazard the review flagged in
+   `db/init_db.py`. Verified by reproducing the CI condition exactly — pip-installed 3.11, dev
+   database moved aside — rather than by assuming.
+
+Also fixed a real fragility rather than a symptom: 76 `AppTest.run()` call sites inherited
+Streamlit's 3-second default, which is comfortable locally and marginal on a shared runner.
+`AppTest.run` is now wrapped once in conftest. A timeout that only holds on fast hardware
+tests the hardware, not the app.
+
+### Pre-deployment verification — still outstanding, cannot be done here
+
+These are **not** cleared by green CI and must be done before the first deployment:
+
+1. **`Dockerfile.api` build and startup smoke test** — `docker build`, then `/health` and an
+   authenticated `whoami`. Docker is unavailable in this environment; the image has never been
+   built or booted anywhere.
+2. **Disposable PostgreSQL migration verification** — upgrade and downgrade against a real
+   Postgres. Only SQLite has been exercised. `TRADELENS_PG_TEST_URL` is absent, so the Postgres
+   suite skips.
+3. **Real PostgreSQL concurrent AI-job enqueue/claim test** — two true thread races pass
+   against SQLite, but exclusivity under Postgres connection pooling is unproven.
+
+Additionally: use Neon's direct/unpooled URL for Alembic and the pooled endpoint at runtime;
+keep Production and Preview on separate Neon branches, API origins and service secrets; and
+configure exact-origin R2 bucket CORS, never `*`.
+
+### Architecture preserved
+
+The raw website cookie never crosses into FastAPI — only the `WEBSITE_DOMAIN`-separated
+handle, under the HMAC. Service-layer ownership stays mandatory. R2 uploads stay quarantined
+until server-side finalization. HMAC query canonicalization preserves observable parameter
+order and treats a leading `?` as literal data.
+
+**Phase 1 has not been started and no Phase 1 plan has been written.**
