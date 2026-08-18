@@ -7,6 +7,33 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _widen_apptest_timeout():
+    """Raise Streamlit AppTest's 3-second default for the whole session.
+
+    76 call sites across 29 files call `.run()` with no timeout and inherit
+    `default_timeout=3`. Three seconds is comfortable on a developer machine and
+    marginal on a shared CI runner, which is why two subprocess-driven UI tests
+    were intermittently red in CI while passing in isolation every time.
+
+    A timeout that only holds on fast hardware tests the hardware, not the app.
+    `run` is wrapped rather than each call site patched, so a future test cannot
+    reintroduce the 3-second default by forgetting to pass one. An explicit
+    timeout still wins — the tests that pass 120 keep it.
+    """
+    from streamlit.testing.v1.app_test import AppTest
+
+    widened = 30.0
+    original = AppTest.run
+
+    def run(self, *, timeout=None):
+        return original(self, timeout=widened if timeout is None else timeout)
+
+    AppTest.run = run
+    yield
+    AppTest.run = original
+
+
 @pytest.fixture(autouse=True)
 def _isolate_streamlit_secrets(monkeypatch):
     """Keep a developer's real ``.streamlit/secrets.toml`` out of the test run.
@@ -92,6 +119,7 @@ def two_users(tmp_path, monkeypatch):
     db_models.Base.metadata.create_all(db_session.engine)
 
     from src.tradelens.services import users
+
     a = users.create_user("trader_a", "correct-horse-battery-1")
     b = users.create_user("trader_b", "correct-horse-battery-2")
     try:
