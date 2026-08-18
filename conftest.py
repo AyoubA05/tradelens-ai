@@ -75,12 +75,23 @@ def two_users(tmp_path, monkeypatch):
     importlib.reload(db_session)
     from src.tradelens.db import models as db_models
 
-    importlib.reload(db_models)
+    # `db.models` and the services are NOT reloaded, and that is load-bearing.
+    # Neither holds an engine: `db.models` owns only Base/metadata, which is
+    # engine-agnostic, and `users` reaches the database through `SessionLocal`.
+    #
+    # Reloading `db.models` re-registers its tables against whatever `Base` it
+    # re-imports, which raises "Table 'users' is already defined for this
+    # MetaData instance" depending on which modules a given test file happened
+    # to import first — green in one run order and red in another, which is the
+    # worst failure mode a fixture can have.
+    #
+    # Reloading `db.session` alone is sufficient: reload replaces that module's
+    # globals IN PLACE, so the `SessionLocal` function object every service
+    # already captured by reference reads the new `_sessionmaker` through its
+    # own __globals__.
     db_models.Base.metadata.create_all(db_session.engine)
 
     from src.tradelens.services import users
-
-    importlib.reload(users)
     a = users.create_user("trader_a", "correct-horse-battery-1")
     b = users.create_user("trader_b", "correct-horse-battery-2")
     try:
@@ -94,5 +105,3 @@ def two_users(tmp_path, monkeypatch):
         # same throwaway engine again.
         monkeypatch.undo()
         importlib.reload(db_session)
-        importlib.reload(db_models)
-        importlib.reload(users)
