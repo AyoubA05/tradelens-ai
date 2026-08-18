@@ -1,0 +1,227 @@
+{
+  "basic": {
+    "avg_loss": -157.5,
+    "avg_rr_realized": 1.12,
+    "avg_win": 445.0,
+    "best_trade": 480.0,
+    "breakevens": 1,
+    "loss_rate": 0.4,
+    "losses": 2,
+    "profit_factor": 2.8253968253968256,
+    "total_pnl": 575.0,
+    "total_trades": 5,
+    "win_rate": 0.4,
+    "wins": 2,
+    "worst_trade": -220.0
+  },
+  "by_asset": [
+    {
+      "asset": "NQ",
+      "breakevens": 0,
+      "losses": 1,
+      "profit_factor": 9.368421052631579,
+      "total_pnl": 795.0,
+      "trades": 3,
+      "win_rate": 0.6666666666666666,
+      "wins": 2
+    },
+    {
+      "asset": "EURUSD",
+      "breakevens": 1,
+      "losses": 0,
+      "profit_factor": 0.0,
+      "total_pnl": 0.0,
+      "trades": 1,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "asset": "ES",
+      "breakevens": 0,
+      "losses": 1,
+      "profit_factor": 0.0,
+      "total_pnl": -220.0,
+      "trades": 1,
+      "win_rate": 0.0,
+      "wins": 0
+    }
+  ],
+  "by_day_of_week": [
+    {
+      "avg_rr_realized": 2.7,
+      "breakevens": 0,
+      "day_of_week": "Monday",
+      "losses": 0,
+      "total_pnl": 480.0,
+      "trades": 1,
+      "win_rate": 1.0,
+      "wins": 1
+    },
+    {
+      "avg_rr_realized": 0.0,
+      "breakevens": 0,
+      "day_of_week": "Tuesday",
+      "losses": 1,
+      "total_pnl": -220.0,
+      "trades": 1,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "avg_rr_realized": 2.73,
+      "breakevens": 0,
+      "day_of_week": "Wednesday",
+      "losses": 0,
+      "total_pnl": 410.0,
+      "trades": 1,
+      "win_rate": 1.0,
+      "wins": 1
+    },
+    {
+      "avg_rr_realized": 0.0,
+      "breakevens": 1,
+      "day_of_week": "Thursday",
+      "losses": 0,
+      "total_pnl": 0.0,
+      "trades": 1,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "avg_rr_realized": -0.95,
+      "breakevens": 0,
+      "day_of_week": "Friday",
+      "losses": 1,
+      "total_pnl": -95.0,
+      "trades": 1,
+      "win_rate": 0.0,
+      "wins": 0
+    }
+  ],
+  "by_session": [
+    {
+      "avg_rr_realized": 1.4933333333333334,
+      "breakevens": 0,
+      "losses": 2,
+      "session": "New York Open",
+      "total_pnl": 575.0,
+      "trades": 4,
+      "win_rate": 0.5,
+      "wins": 2
+    },
+    {
+      "avg_rr_realized": 0.0,
+      "breakevens": 1,
+      "losses": 0,
+      "session": "London",
+      "total_pnl": 0.0,
+      "trades": 1,
+      "win_rate": 0.0,
+      "wins": 0
+    }
+  ],
+  "by_setup_type": [
+    {
+      "breakevens": 0,
+      "losses": 2,
+      "setup_type": "Liquidity Sweep + FVG",
+      "trades": 3,
+      "wins": 1
+    },
+    {
+      "breakevens": 0,
+      "losses": 0,
+      "setup_type": "BOS + OB Retest",
+      "trades": 1,
+      "wins": 1
+    },
+    {
+      "breakevens": 1,
+      "losses": 0,
+      "setup_type": "CHoCH Entry",
+      "trades": 1,
+      "wins": 0
+    }
+  ],
+  "consistency_score": 64.5,
+  "daily_pnl": [
+    {
+      "daily_pnl": 480.0,
+      "trade_date": "2026-08-10"
+    },
+    {
+      "daily_pnl": -220.0,
+      "trade_date": "2026-08-11"
+    },
+    {
+      "daily_pnl": 410.0,
+      "trade_date": "2026-08-12"
+    },
+    {
+      "daily_pnl": 0.0,
+      "trade_date": "2026-08-13"
+    },
+    {
+      "daily_pnl": -95.0,
+      "trade_date": "2026-08-14"
+    }
+  ],
+  "equity_curve": [
+    {
+      "cumulative_pnl": 480.0,
+      "pnl": 480.0,
+      "trade_date": "2026-08-10"
+    },
+    {
+      "cumulative_pnl": 260.0,
+      "pnl": -220.0,
+      "trade_date": "2026-08-11"
+    },
+    {
+      "cumulative_pnl": 670.0,
+      "pnl": 410.0,
+      "trade_date": "2026-08-12"
+    },
+    {
+      "cumulative_pnl": 670.0,
+      "pnl": 0.0,
+      "trade_date": "2026-08-13"
+    },
+    {
+      "cumulative_pnl": 575.0,
+      "pnl": -95.0,
+      "trade_date": "2026-08-14"
+    }
+  ],
+  "expectancy": 115.0,
+  "killzone_performance": [
+    {
+      "avg_rr_realized": 1.12,
+      "breakevens": 1,
+      "killzone": "ny_am",
+      "losses": 2,
+      "profit_factor": 2.8253968253968256,
+      "total_pnl": 575.0,
+      "trades": 5,
+      "win_rate": 0.4,
+      "wins": 2
+    }
+  ],
+  "max_drawdown": 220.0,
+  "mistake_frequency": [
+    {
+      "avg_pnl": -220.0,
+      "count": 1,
+      "mistake_tag": "Counter-trend entry",
+      "total_pnl": -220.0
+    }
+  ],
+  "profit_factor_raw": 2.8253968253968256,
+  "streaks": {
+    "current_streak": -1,
+    "max_loss_streak": 1,
+    "max_win_streak": 1,
+    "streak_type": "loss"
+  },
+  "total_edge_leak": -220.0
+}
