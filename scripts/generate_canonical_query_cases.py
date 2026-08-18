@@ -24,7 +24,15 @@ DEST = pathlib.Path("web/__tests__/fixtures/canonical-query-cases.json")
 # Characters chosen to probe the places the two languages encode differently:
 # the sub-delims JavaScript leaves bare, the space/plus ambiguity, reserved
 # delimiters, non-ASCII, and percent signs that are already escapes.
-ALPHABET = list("abcAZ09-._~!*'()&=+%; ,/?:@$#[]{}\"\\<>|^`é中🙂\t\n")
+# Alphanumerics span the full ranges, not a sparse sample: a review noted the
+# earlier subset (a,b,c / A,Z / 0,9) could miss an encoder that treated some
+# other letter or digit specially.
+ALPHABET = list(
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "0123456789"
+    "-._~!*'()&=+%; ,/?:@$#[]{}\"\\<>|^`é中🙂\t\n"
+)
 
 HANDWRITTEN = [
     "",
@@ -57,6 +65,29 @@ HANDWRITTEN = [
     "comma=a,b",
     "eq=a=b",
     "amp=a%26b",
+    # Leading "?" — the divergence this corpus actually caught. URLSearchParams
+    # strips it; parse_qsl did not, until it was taught to.
+    "?a=1",
+    "?a=1&b=2",
+    "?",
+    # Malformed percent-escapes. Python's unquote is lenient and the WHATWG
+    # parser substitutes U+FFFD, so a review flagged this as a plausible
+    # remaining disagreement surface. Verified equivalent on both sides and
+    # pinned here so it stays that way — the hypothesis was reasonable even
+    # though the answer was no.
+    "x=%zz",
+    "x=%2",
+    "x=%",
+    "x=100%",
+    "a=%GG&b=1",
+    "%=1",
+    "x=%%41",
+    "x=%41",
+    # Truncated multi-byte UTF-8 sequences: both sides must land on U+FFFD.
+    "x=%e4%b8",
+    "x=%C3%28",
+    "x=%FF",
+    "x=%C3",
 ]
 
 
