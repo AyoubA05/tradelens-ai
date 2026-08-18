@@ -5,7 +5,7 @@ import { AuthShell } from "@/components/auth-shell";
 import { AutoSubmit } from "@/components/auto-submit";
 import {
   authenticateSessionToken,
-  nextDestinationFor,
+  continuePageRedirect,
   sessionTokenFromCookieHeader,
 } from "@/lib/auth/session";
 import { handoffEligibility, hasEnteredAppBefore } from "@/lib/auth/handoff";
@@ -40,13 +40,12 @@ export default async function ContinuePage() {
 
   if (!user) redirect("/login");
 
-  // A migrated account never mints a Streamlit handoff. The redirect is here
-  // rather than in middleware so the decision stays in the same place as the
-  // rest of the continuation logic.
-  if (user && user.appSurface === "nextjs") redirect("/app");
-
+  // A migrated account never mints a Streamlit handoff, but it still has to
+  // clear the same email/onboarding gates as every other account first —
+  // `continuePageRedirect` enforces that ordering, not this call site.
   const eligibility = handoffEligibility(user);
-  if (!eligibility.eligible) redirect(nextDestinationFor(user));
+  const redirectTo = continuePageRedirect(user, eligibility.eligible);
+  if (redirectTo) redirect(redirectTo);
 
   // Presentation only. Whether this account may cross was decided above; this
   // decides nothing but which words it reads on the way.

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { nextDestinationFor, type WebsiteUser } from "@/lib/auth/session";
+import { continuePageRedirect, nextDestinationFor, type WebsiteUser } from "@/lib/auth/session";
 
 function user(overrides: Partial<WebsiteUser> = {}): WebsiteUser {
   return {
@@ -50,26 +50,63 @@ describe("the cutover is opt-in", () => {
     expect(nextDestinationFor(user())).toBe("/continue");
   });
 
-  it("has no bulk switch anywhere in the web layer", () => {
-    // The invariant that survives review and then dies in a later convenience
-    // commit. If a "migrate all users" path is ever added, this fails.
-    const dir = path.join(__dirname, "..", "lib");
+  it("has no write to app_surface anywhere under web/", () => {
+    // Phase 1 has no legitimate reason to write this column at all, so the
+    // strongest simple invariant is asserted directly: no assignment to
+    // app_surface anywhere in lib/, app/, or scripts/. A later phase that adds
+    // a deliberate, reviewed, per-account opt-in path will have to touch this
+    // test to add one back.
+    const roots = ["lib", "app", "scripts"].map((d) => path.join(__dirname, "..", d));
+    const selfPath = path.join(__dirname, "app-surface-routing.test.ts");
     const files: string[] = [];
-    (function walk(d: string) {
+    function walk(d: string) {
+      if (!fs.existsSync(d)) return;
       for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
         const full = path.join(d, entry.name);
         if (entry.isDirectory()) walk(full);
-        else if (entry.name.endsWith(".ts")) files.push(full);
+        else if (/\.(ts|tsx)$/.test(entry.name)) files.push(full);
       }
-    })(dir);
+    }
+    roots.forEach(walk);
 
     for (const file of files) {
+      if (file === selfPath) continue;
       const source = fs.readFileSync(file, "utf8");
-      // A write to app_surface that is not scoped to a single id.
+      // Any assignment to the column — `SET app_surface = ...` or
+      // `app_surface = ...` in a write clause — regardless of what else
+      // precedes it in the statement or how it claims to be scoped.
       expect(
-        /UPDATE\s+users\s+SET\s+app_surface(?![\s\S]{0,200}WHERE[\s\S]{0,40}id)/i.test(source),
-        `${file} appears to switch app_surface without scoping to one account`,
+        /app_surface\s*=(?!=)/.test(source),
+        `${file} appears to write app_surface`,
       ).toBe(false);
     }
+  });
+});
+
+describe("continuePageRedirect", () => {
+  // This is what /continue itself calls. It exists so the ordering — gates
+  // before the surface check — is pinned by an assertion here rather than by
+  // trusting the page's control flow, which is exactly what regressed:
+  // review round 1 found the page redirecting a migrated-but-unverified
+  // account straight to /app.
+  it("sends an eligible, migrated account to /app", () => {
+    expect(continuePageRedirect(user({ appSurface: "nextjs" }), true)).toBe("/app");
+  });
+
+  it("leaves an eligible, unmigrated account on /continue", () => {
+    expect(continuePageRedirect(user({ appSurface: "streamlit" }), true)).toBeNull();
+  });
+
+  it("never returns /app for an ineligible account, migrated or not", () => {
+    // The regression this pins: appSurface alone must not be enough. An
+    // account that failed the email/onboarding gate is ineligible regardless
+    // of appSurface, and must be sent by nextDestinationFor's own gates, not
+    // to /app.
+    expect(
+      continuePageRedirect(user({ appSurface: "nextjs", emailVerifiedAt: null }), false),
+    ).toBe("/verify-email");
+    expect(
+      continuePageRedirect(user({ appSurface: "nextjs", onboardingCompleted: false }), false),
+    ).toBe("/onboarding");
   });
 });

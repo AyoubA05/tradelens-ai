@@ -153,3 +153,24 @@ export function nextDestinationFor(user: WebsiteUser): string {
   if (user.appSurface === "nextjs") return "/app";
   return "/continue";
 }
+
+/**
+ * The redirect `/continue` should perform before rendering its form, if any.
+ *
+ * `eligible` is `/continue`'s own `handoffEligibility(user).eligible` — the
+ * email/onboarding gate it already enforces for the Streamlit handoff. This
+ * function exists so that gate check is structurally in front of the surface
+ * check: an ineligible account is sent wherever `nextDestinationFor` (which
+ * itself re-applies the same gates) says, and only an eligible account is
+ * even considered for `/app`. `null` means "stay on `/continue` and render
+ * the handoff form" — the account is eligible and not migrated.
+ *
+ * The page calls this instead of inlining the two checks itself so that the
+ * ordering is pinned by a test on a plain function rather than by trusting
+ * the page's control flow to stay in the right order.
+ */
+export function continuePageRedirect(user: WebsiteUser, eligible: boolean): string | null {
+  if (!eligible) return nextDestinationFor(user);
+  if (user.appSurface === "nextjs") return "/app";
+  return null;
+}
