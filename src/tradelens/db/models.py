@@ -553,3 +553,49 @@ class PasswordReset(Base):
     superseded_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class AIJob(Base):
+    """One asynchronous AI request.
+
+    AI calls run 60-120 seconds, which is longer than a request should live and
+    longer than most proxies allow. They are therefore enqueued here and run by
+    a separate worker process against the same database.
+
+    `(user_id, idempotency_key)` is unique. That constraint is the only thing
+    standing between a double-submitted form and a second Anthropic bill, and it
+    is per-owner rather than global so one trader's key cannot block another's.
+    """
+
+    __tablename__ = "ai_jobs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "idempotency_key", name="uq_ai_jobs_user_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="queued", server_default=text("'queued'")
+    )
+    payload: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # A pointer to where the result landed (e.g. an aianalysis id), never the
+    # result itself: generated content belongs in its own table.
+    result_ref: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Safe for a user to read: no provider text, no stack trace.
+    error: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    created_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
