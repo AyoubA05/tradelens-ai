@@ -21,3 +21,14 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* One focus treatment for the whole product.
+   :focus-visible, not :focus — a mouse user clicking a button should not get a
+   ring, and a keyboard user must never lose one. */
+:root { --tl-focus-ring: 0 0 0 2px theme('colors.bg'), 0 0 0 4px theme('colors.focus'); }
+
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: var(--tl-focus-ring);
+  border-radius: 6px;
+}
