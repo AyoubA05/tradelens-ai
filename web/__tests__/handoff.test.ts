@@ -63,6 +63,7 @@ const ELIGIBLE: WebsiteUser = {
   emailVerificationRequired: false,
   onboardingCompleted: true,
   strategyProfileCompleted: false,
+  appSurface: "streamlit",
 };
 
 const APP = "https://app.example.test";

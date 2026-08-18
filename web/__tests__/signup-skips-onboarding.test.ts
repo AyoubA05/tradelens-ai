@@ -27,6 +27,7 @@ function user(overrides: Partial<WebsiteUser> = {}): WebsiteUser {
     emailVerificationRequired: false,
     onboardingCompleted: true,
     strategyProfileCompleted: false,
+    appSurface: "streamlit",
     ...overrides,
   };
 }

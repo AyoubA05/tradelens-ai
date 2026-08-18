@@ -37,6 +37,8 @@ export type WebsiteUser = {
   emailVerificationRequired: boolean;
   onboardingCompleted: boolean;
   strategyProfileCompleted: boolean;
+  /** Which product this account lands on: "streamlit" or "nextjs". */
+  appSurface: string;
 };
 
 /** Parse the session credential without letting malformed percent escapes throw. */
@@ -89,6 +91,7 @@ export async function authenticateSessionToken(
     email_verification_required: boolean;
     onboarding_completed: boolean;
     strategy_profile_completed: boolean;
+    app_surface: string;
   }>(
     `UPDATE auth_sessions s
         SET last_seen_at = $2
@@ -102,7 +105,7 @@ export async function authenticateSessionToken(
         AND u.is_active = 1
       RETURNING u.id AS user_id, u.email, u.email_verified_at,
                 u.email_verification_required, u.onboarding_completed,
-                u.strategy_profile_completed`,
+                u.strategy_profile_completed, u.app_surface`,
     [tokenHash, now, IDLE_TIMEOUT_S],
   );
 
@@ -115,6 +118,7 @@ export async function authenticateSessionToken(
     emailVerificationRequired: row.email_verification_required,
     onboardingCompleted: row.onboarding_completed,
     strategyProfileCompleted: row.strategy_profile_completed,
+    appSurface: row.app_surface,
   };
 }
 
@@ -135,11 +139,17 @@ export function emailGatePassed(user: WebsiteUser): boolean {
  * Where an authenticated user belongs right now.
  *
  * One function so login, onboarding, and the continuation page cannot disagree
- * about it. `/continue` is a placeholder that says so on the page; step 9
- * replaces it with the real handoff.
+ * about it.
+ *
+ * The surface check is last, and deliberately so: a migrated account still has
+ * to clear the email and onboarding gates. It also compares against the one
+ * known value rather than checking "not streamlit", so an unrecognised entry
+ * keeps the existing journal instead of stranding a trader on a shell that
+ * cannot yet show their trades.
  */
 export function nextDestinationFor(user: WebsiteUser): string {
   if (!emailGatePassed(user)) return "/verify-email";
   if (!user.onboardingCompleted) return "/onboarding";
+  if (user.appSurface === "nextjs") return "/app";
   return "/continue";
 }

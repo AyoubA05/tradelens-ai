@@ -40,6 +40,11 @@ export default async function ContinuePage() {
 
   if (!user) redirect("/login");
 
+  // A migrated account never mints a Streamlit handoff. The redirect is here
+  // rather than in middleware so the decision stays in the same place as the
+  // rest of the continuation logic.
+  if (user && user.appSurface === "nextjs") redirect("/app");
+
   const eligibility = handoffEligibility(user);
   if (!eligibility.eligible) redirect(nextDestinationFor(user));
 
