@@ -8,6 +8,28 @@ It is a coordination contract, not automatic inter-process communication and
 not a substitute for Git. Claude Code and Codex must not edit this worktree at
 the same time.
 
+---
+
+# ⚠️ OPEN PRE-DEPLOYMENT GATES — NOT COMPLETED
+
+**Owner-approved Phase 0 checkpoint, 2026-08-18.** CI run `32170167686` on `8672c36` is
+green and Codex's review fixes at `44f4bb5` are accepted. Green CI does **not** clear the
+three gates below. They are pre-deployment gates, not Phase 1 planning items, and none has
+been run. **Do not describe any of them as done until it has actually been executed and its
+real output recorded here.**
+
+| # | Gate | Status | Why it cannot be closed yet |
+|---|---|---|---|
+| 1 | `Dockerfile.api` build + FastAPI startup/health smoke test (`/health` and an authenticated `whoami`) | **NOT RUN** | Docker is unavailable in the development environment. The image has never been built or booted anywhere. |
+| 2 | Disposable PostgreSQL migration upgrade/downgrade verification | **NOT RUN** | Only SQLite has been exercised. `TRADELENS_PG_TEST_URL` is absent, so the Postgres suite skips. |
+| 3 | Real PostgreSQL concurrent AI-job enqueue/claim verification | **NOT RUN** | Two true thread races pass against SQLite; exclusivity under Postgres connection pooling is unproven. |
+
+Deployment configuration that also remains unproven from Git: use Neon's direct/unpooled URL
+for Alembic and the pooled endpoint at runtime; keep Production and Preview on separate Neon
+branches, API origins and service secrets; configure exact-origin R2 bucket CORS, never `*`.
+
+---
+
 ## Current website security review — 2026-08-16 (Codex)
 
 **Workspace:** `/Users/ayoub/tradelens-ai`, branch `main`, starting HEAD
