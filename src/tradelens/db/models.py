@@ -77,6 +77,15 @@ class User(Base):
         Boolean, nullable=False, server_default=sa_true()
     )
 
+    # Which application surface this account lands on after login. Defaults to
+    # 'streamlit' so every existing account keeps the product it already knows;
+    # accounts are moved to 'nextjs' individually during the parity window.
+    # Both surfaces read one database, so this routes a person, not their data.
+    # Removed once Streamlit is retired (Phase 10).
+    app_surface: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'streamlit'")
+    )
+
 
 class Strategy(Base):
     __tablename__ = "strategies"
