@@ -233,8 +233,8 @@ def _review(week_start="2026-06-15", content="### What Worked\n\nv1") -> dict:
 def test_save_and_get_round_trip(in_memory_db):
     from src.tradelens.services.weekly import get_weekly_review, save_weekly_review
 
-    save_weekly_review(_review())
-    got = get_weekly_review("2026-06-15")
+    save_weekly_review(_review(), user_id=1)
+    got = get_weekly_review("2026-06-15", user_id=1)
 
     assert got is not None
     assert got["content_md"] == "### What Worked\n\nv1"
@@ -245,7 +245,7 @@ def test_save_and_get_round_trip(in_memory_db):
 def test_get_weekly_review_missing_returns_none(in_memory_db):
     from src.tradelens.services.weekly import get_weekly_review
 
-    assert get_weekly_review("2099-01-04") is None
+    assert get_weekly_review("2099-01-04", user_id=1) is None
 
 
 def test_overwrite_requires_confirm(in_memory_db):
@@ -255,33 +255,18 @@ def test_overwrite_requires_confirm(in_memory_db):
         save_weekly_review,
     )
 
-    save_weekly_review(_review(content="### What Worked\n\nv1"))
+    save_weekly_review(_review(content="### What Worked\n\nv1"), user_id=1)
 
     # second save without overwrite must refuse
     with pytest.raises(WeeklyReviewExistsError):
-        save_weekly_review(_review(content="### What Worked\n\nv2"))
+        save_weekly_review(_review(content="### What Worked\n\nv2"), user_id=1)
 
     # overwrite=True replaces in place (still one row)
-    save_weekly_review(_review(content="### What Worked\n\nv2"), overwrite=True)
-    got = get_weekly_review("2026-06-15")
+    save_weekly_review(
+        _review(content="### What Worked\n\nv2"), overwrite=True, user_id=1
+    )
+    got = get_weekly_review("2026-06-15", user_id=1)
     assert got["content_md"] == "### What Worked\n\nv2"
-
-    from src.tradelens.services.weekly import list_weekly_reviews
-
-    assert len(list_weekly_reviews()) == 1
-
-
-def test_list_weekly_reviews_orders_recent_first(in_memory_db):
-    from src.tradelens.services.weekly import list_weekly_reviews, save_weekly_review
-
-    save_weekly_review(_review(week_start="2026-06-08"))
-    save_weekly_review(_review(week_start="2026-06-15"))
-
-    rows = list_weekly_reviews()
-    assert [r["week_start"] for r in rows] == ["2026-06-15", "2026-06-08"]
-    # stats survive the round-trip as a dict
-    assert isinstance(rows[0]["stats"], dict)
-    assert json.dumps(rows[0]["stats"])  # serialisable
 
 
 # ---------------------------------------------------------------------------

@@ -342,6 +342,17 @@ def is_authenticated() -> bool:
     return bool(st.session_state.get(_AUTH_KEY, False))
 
 
+# Shown when a session is authenticated but carries no concrete owner (the
+# emergency legacy path, engaged only when the users table is empty). Every
+# user-facing service now requires a real owner id, so this session can read
+# nothing — stated once here, at the shared gate, rather than discovered as a
+# crash the first time a page calls a service.
+OWNERLESS_SESSION_MESSAGE = (
+    "This preview account has no trades to show. Sign in with a personal "
+    "account to use your journal."
+)
+
+
 def require_auth() -> None:
     """Gate: if not signed in, render the login page and halt the script.
 
@@ -393,11 +404,19 @@ def require_auth() -> None:
         # A full reload wipes st.session_state — the signed URL token survives.
         _try_restore(st)
     if is_authenticated():
+        uid = st.session_state.get(_UID_KEY)
+        if uid is None:
+            # Authenticated, but no concrete owner: the emergency legacy path
+            # engaged with no users table to sign into. Refuse plainly rather
+            # than letting the page crash on its first scoped service call.
+            st.title("Sign in to TradeLens AI")
+            st.write(OWNERLESS_SESSION_MESSAGE)
+            st.stop()
         # Scope correction memory to the signed-in user for this script run, so
         # the few-shot injection in ai_client never mixes traders' corrections.
         from src.tradelens.services.corrections import set_corrections_user
 
-        set_corrections_user(st.session_state.get(_UID_KEY))
+        set_corrections_user(uid)
         _persist_token(st)
         return
     # Lazy import: auth_screen imports logic from this module, so a top-level

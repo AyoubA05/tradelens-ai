@@ -67,9 +67,16 @@ def main() -> int:
 
     from streamlit.testing.v1 import AppTest
 
+    # Every user-facing service now requires a concrete owner (Ruling 10), so
+    # an ownerless session is refused at the shared auth gate before the page
+    # body runs at all. This harness boots signed in as a real owner, exactly
+    # as production sessions always are.
+    boot_uid = 1
+
     def _boot(lens: str, state: dict | None = None):
         at = AppTest.from_file(f"{root}/src/tradelens/ui/pages/6_Insights.py")
         at.session_state["authenticated"] = True
+        at.session_state["current_user_id"] = boot_uid
         at.session_state["ai_review_lens"] = lens
         for key, value in (state or {}).items():
             at.session_state[key] = value
@@ -91,7 +98,7 @@ def main() -> int:
         )
         return 2
     demo_monday = review_week_options(demo.get_demo_df())[0].isoformat()
-    if weekly_service.get_weekly_review(demo_monday, None) is not None:
+    if weekly_service.get_weekly_review(demo_monday, boot_uid) is not None:
         print("unpatched demo weekly review wrote a saved note", file=sys.stderr)
         return 3
 

@@ -29,6 +29,7 @@ def db_session(monkeypatch):
 
 
 _TRADE = {
+    "user_id": 1,
     "trade_date": "2026-06-20",
     "asset": "NQ",
     "direction": "Long",
@@ -50,7 +51,9 @@ def test_trade_hash_is_stable_and_identifying():
 
 def test_recent_duplicate_detected(db_session):
     trade_service.create_trade(dict(_TRADE))
-    dup = trade_service.find_recent_duplicate(dict(_TRADE), within_seconds=60)
+    dup = trade_service.find_recent_duplicate(
+        dict(_TRADE), _TRADE["user_id"], within_seconds=60
+    )
     assert dup is not None
     assert dup.asset == "NQ"
 
@@ -58,7 +61,7 @@ def test_recent_duplicate_detected(db_session):
 def test_duplicate_trade_not_created(db_session):
     """The UI flow: detect the recent duplicate and skip the second insert."""
     trade_service.create_trade(dict(_TRADE))
-    if trade_service.find_recent_duplicate(dict(_TRADE)) is None:
+    if trade_service.find_recent_duplicate(dict(_TRADE), _TRADE["user_id"]) is None:
         trade_service.create_trade(dict(_TRADE))
     db = db_session()
     try:
@@ -70,7 +73,7 @@ def test_duplicate_trade_not_created(db_session):
 def test_no_false_positive_for_distinct_trade(db_session):
     trade_service.create_trade(dict(_TRADE))
     other = {**_TRADE, "asset": "ES", "pnl": -200.0}
-    assert trade_service.find_recent_duplicate(other) is None
+    assert trade_service.find_recent_duplicate(other, other["user_id"]) is None
 
 
 def test_csv_import_skips_duplicates(db_session):
@@ -82,7 +85,9 @@ def test_csv_import_skips_duplicates(db_session):
         {**_TRADE, "asset": "EURUSD", "pnl": 120.0},  # genuinely new
     ]
     csv_bytes = pd.DataFrame(rows).to_csv(index=False).encode()
-    inserted, skipped, errors = csvio.import_trades_csv(io.BytesIO(csv_bytes))
+    inserted, skipped, errors = csvio.import_trades_csv(
+        io.BytesIO(csv_bytes), user_id=_TRADE["user_id"]
+    )
     assert inserted == 1
     assert skipped == 2
     assert errors == []

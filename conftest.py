@@ -36,3 +36,35 @@ def _isolate_streamlit_secrets(monkeypatch):
             st.secrets._secrets = saved
     except Exception:  # noqa: BLE001 — Streamlit not importable shouldn't break tests
         yield
+
+
+@pytest.fixture
+def two_users(tmp_path, monkeypatch):
+    """Two real user rows in an isolated database.
+
+    Isolation tests are worthless against a shared database: a leak and a clean
+    run look identical if the other tenant's rows happen not to exist. This
+    guarantees both tenants exist and are distinguishable.
+    """
+    import importlib
+
+    db_path = tmp_path / "isolation.db"
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+
+    from src.tradelens import config as tl_config
+
+    importlib.reload(tl_config)
+    from src.tradelens.db import session as db_session
+
+    importlib.reload(db_session)
+    from src.tradelens.db import models as db_models
+
+    importlib.reload(db_models)
+    db_models.Base.metadata.create_all(db_session.engine)
+
+    from src.tradelens.services import users
+
+    importlib.reload(users)
+    a = users.create_user("trader_a", "correct-horse-battery-1")
+    b = users.create_user("trader_b", "correct-horse-battery-2")
+    yield a.id, b.id

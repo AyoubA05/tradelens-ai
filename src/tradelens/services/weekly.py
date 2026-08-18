@@ -26,6 +26,7 @@ from src.tradelens.services.metrics import (
     compute_profit_factor_raw,
     total_edge_leak,
 )
+from src.tradelens.services.ownership import require_user_id
 from src.tradelens.services.patterns import compute_candidates
 from src.tradelens.services.trade_service import get_trades
 
@@ -302,15 +303,21 @@ def save_weekly_review(
         db.close()
 
 
-def get_weekly_review(week_start: str, user_id: Optional[int] = None) -> Optional[dict]:
-    """Return the persisted review for the given ISO Monday (scoped to user), or None."""
+def get_weekly_review(week_start: str, user_id: int) -> Optional[dict]:
+    """Return this user's persisted review for the given ISO Monday, or None.
+
+    The owner is required. It was `Optional[int]` defaulting to None, which
+    matched only legacy NULL-owner reviews rather than raising — a missing
+    owner looked like a missing review instead of a programming error.
+    """
+    owner = require_user_id(user_id)
     db = SessionLocal()
     try:
         row = (
             db.query(WeeklyReview)
             .filter(
                 WeeklyReview.week_start == week_start,
-                WeeklyReview.user_id == user_id,
+                WeeklyReview.user_id == owner,
             )
             .first()
         )
@@ -319,31 +326,18 @@ def get_weekly_review(week_start: str, user_id: Optional[int] = None) -> Optiona
         db.close()
 
 
-def list_weekly_reviews() -> list:
-    """Return all persisted reviews as dicts, most recent week first (unscoped)."""
-    db = SessionLocal()
-    try:
-        rows = (
-            db.query(WeeklyReview)
-            .order_by(WeeklyReview.week_start.desc(), WeeklyReview.id.desc())
-            .all()
-        )
-        return [_row_to_dict(r) for r in rows]
-    finally:
-        db.close()
+def get_weekly_reviews(user_id: int, limit: int = 10) -> list:
+    """Return this user's saved reviews (newest week first), capped at `limit`.
 
-
-def get_weekly_reviews(user_id: Optional[int] = None, limit: int = 10) -> list:
-    """Return a user's saved reviews (newest week first), capped at `limit`.
-
-    Strictly scoped: a user never sees another user's reviews. Passing None
-    returns the legacy (NULL-owner) reviews.
+    The owner is required, for the same reason as `get_weekly_review`.
+    Strictly scoped: a user never sees another user's reviews.
     """
+    owner = require_user_id(user_id)
     db = SessionLocal()
     try:
         rows = (
             db.query(WeeklyReview)
-            .filter(WeeklyReview.user_id == user_id)
+            .filter(WeeklyReview.user_id == owner)
             .order_by(WeeklyReview.week_start.desc(), WeeklyReview.id.desc())
             .limit(limit)
             .all()

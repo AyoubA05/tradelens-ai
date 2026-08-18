@@ -1,11 +1,11 @@
 """Every live journal read is scoped to one account.
 
-``get_trades``'s user filter defaults to *unscoped* — omit the argument and it
-returns every trade in the table, across all accounts. That default is load
-bearing for one legitimate caller (the metrics recompute script, which really
-does operate over everything), so it cannot simply be made required without
-inventing a way to say "all users" that reads as deliberately as the current
-omission reads as accidental.
+``get_trades`` requires ``user_id`` — there is no unscoped default. It used to
+default to an ``_UNSCOPED`` sentinel that applied no owner filter at all,
+supposedly load-bearing for the metrics recompute script; that script instead
+had a defect (it accepted an owner and then read every user's trades) and is
+now scoped like everything else, so nothing needs the sentinel and it was
+deleted.
 
 What can be guaranteed cheaply is the property that actually matters: no page
 or service the application routes to may read the journal unscoped. That is
@@ -78,10 +78,7 @@ def test_every_parameter_is_keyword_only():
     assert positional == []
 
 
-def test_the_unscoped_default_is_still_reachable_on_purpose():
-    """Kept, because the metrics recompute legitimately spans every account.
-
-    Documented here so removing it later is a decision rather than a surprise.
-    """
+def test_user_id_has_no_default():
+    """No unscoped escape hatch remains — every caller must name a real owner."""
     signature = inspect.signature(trade_service.get_trades)
-    assert signature.parameters["user_id"].default is trade_service._UNSCOPED
+    assert signature.parameters["user_id"].default is inspect.Parameter.empty

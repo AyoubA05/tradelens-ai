@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import pandas as pd
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
@@ -105,17 +104,6 @@ def test_registered_user_does_not_receive_null_owned_legacy_rows(two_user_trades
     create_trade({"asset": "ES", "trade_date": "2026-07-02", "user_id": None})
 
     assert [trade.id for trade in get_trades(user_id=user_a.id)] == [trade_a.id]
-
-
-def test_explicit_none_scopes_to_null_owned_legacy_rows(two_user_trades):
-    _, _, trade_a = two_user_trades
-    legacy_trade = create_trade(
-        {"asset": "ES", "trade_date": "2026-07-02", "user_id": None}
-    )
-
-    assert [trade.id for trade in get_trades(user_id=None)] == [legacy_trade.id]
-    assert get_trade(legacy_trade.id, user_id=None).id == legacy_trade.id
-    assert get_trade(trade_a.id, user_id=None) is None
 
 
 def test_direct_trade_operations_require_an_owner_argument(two_user_trades):
@@ -272,17 +260,17 @@ def test_bulk_delete_rejects_invalid_owner_before_opening_session(
 
 
 def test_ownerless_settings_page_disables_bulk_delete(monkeypatch):
+    """An ownerless legacy session never reaches the Danger Zone at all.
+
+    Every user-facing service now requires a concrete owner (Ruling 10), so
+    the refusal moved from "render the section with its controls disabled" to
+    "refuse at the shared auth gate, before the page body runs." The Danger
+    Zone's own disabled-button behaviour is unreachable — and untestable —
+    once the session never gets that far.
+    """
     from streamlit.testing.v1 import AppTest
 
-    from src.tradelens.services import cost
-
-    monkeypatch.setattr(
-        cost,
-        "monthly_cost_by_feature",
-        lambda *_args, **_kwargs: pd.DataFrame(
-            columns=["feature", "cost_usd", "calls"]
-        ),
-    )
+    from src.tradelens.ui.components.auth import OWNERLESS_SESSION_MESSAGE
 
     at = AppTest.from_file(
         str(ROOT / "src" / "tradelens" / "ui" / "pages" / "9_Settings.py"),
@@ -290,15 +278,9 @@ def test_ownerless_settings_page_disables_bulk_delete(monkeypatch):
     )
     at.session_state["authenticated"] = True
     at.run()
-    at.text_input(key="danger_confirm").set_value("DELETE").run()
 
     assert not at.exception
-    # Renamed in the Settings pass: "Delete all trades permanently" — the
-    # label states the consequence rather than shouting one word of it.
-    buttons = [
-        button
-        for button in at.button
-        if button.label == "Delete all trades permanently"
-    ]
-    assert len(buttons) == 1
-    assert buttons[0].disabled
+    rendered = "\n".join(m.value for m in at.markdown)
+    assert OWNERLESS_SESSION_MESSAGE in rendered
+    # The page halted at the gate — no Danger Zone widgets exist to disable.
+    assert not any(button.key == "secondary_delete_trades" for button in at.button)

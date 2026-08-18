@@ -21,7 +21,17 @@ Usage:
 Exits 0 on success; nonzero with a message on failure.
 """
 
+import json as _json
 import sys
+
+# The default owner for seeded boot data. Every user-facing service now
+# requires a concrete owner (Ruling 10), so a page booted with no owner in
+# session state is refused at require_auth() before it ever reads a trade —
+# this constant is what makes the *seeded* boots (the overwhelming majority
+# of callers) exercise the real, signed-in path instead. A caller that wants
+# to boot genuinely ownerless (to prove the refusal itself) passes an explicit
+# ``"current_user_id": null`` in its preset, which overrides this default.
+DEFAULT_SEED_UID = 1
 
 
 def main() -> int:
@@ -30,6 +40,16 @@ def main() -> int:
     # Lets a caller boot a page in a specific state (a Journal view, a
     # selected trade) without the runner knowing anything about that page.
     preset = sys.argv[5] if len(sys.argv) > 5 else "{}"
+    preset_state = _json.loads(preset)
+    # Resolve the seed owner BEFORE any Trade rows are inserted below, so
+    # seeded data is owned by whichever session the AppTest will actually run
+    # as. An explicit (including null) "current_user_id" in the preset wins;
+    # otherwise every boot defaults to a real, signed-in owner.
+    seed_uid = (
+        preset_state["current_user_id"]
+        if "current_user_id" in preset_state
+        else DEFAULT_SEED_UID
+    )
     sys.path.insert(0, root)
 
     # Isolate from a developer's real .streamlit/secrets.toml BEFORE config is
@@ -71,6 +91,7 @@ def main() -> int:
                     setup_type="BOS + FVG",
                     killzone="ny_am",
                     session="New York",
+                    user_id=seed_uid,
                 )
                 for day, pnl in (
                     (15, 250.0),
@@ -98,6 +119,7 @@ def main() -> int:
                 result="Loss",
                 pnl=-500.0,
                 killzone="ny_am",
+                user_id=seed_uid,
             )
         )
         s.commit()
@@ -124,6 +146,7 @@ def main() -> int:
                     setup_type="BOS & FVG",
                     killzone="ny_am",
                     session="New York",
+                    user_id=seed_uid,
                 )
                 for day, pnl in (
                     ("2026-06-01", 200.0),
@@ -148,11 +171,11 @@ def main() -> int:
         from src.tradelens.services.strategy import upsert_strategy_profile
 
         s = SessionLocal()
-        s.add(User(id=1, username="booter", password_hash="x"))
+        s.add(User(id=seed_uid, username="booter", password_hash="x"))
         s.commit()
         s.close()
         upsert_strategy_profile(
-            1,
+            seed_uid,
             name="ICT Continuation",
             trading_style="ICT / SMC",
             markets="NQ, ES",
@@ -177,6 +200,7 @@ def main() -> int:
                     pnl=200.0,
                     ai_grade="A",
                     killzone="ny_am",
+                    user_id=seed_uid,
                 ),
                 Trade(
                     trade_date="2026-06-16",
@@ -186,6 +210,7 @@ def main() -> int:
                     pnl=-90.0,
                     ai_grade="C",
                     killzone="london",
+                    user_id=seed_uid,
                 ),
             ]
         )
@@ -196,9 +221,12 @@ def main() -> int:
 
     at = AppTest.from_file(app_path)
     at.session_state["authenticated"] = True  # bypass the login gate during boot
-    import json as _json
+    # Same default as the seeded data above, so a boot with no explicit
+    # preset lands on the owner its own seed rows were stamped with. A
+    # caller wanting the ownerless refusal path overrides this explicitly.
+    at.session_state["current_user_id"] = seed_uid
 
-    for _key, _value in _json.loads(preset).items():
+    for _key, _value in preset_state.items():
         at.session_state[_key] = _value
     at = at.run()
     if at.exception:

@@ -816,6 +816,9 @@ def test_owned_unavailable_partner_apptest_keeps_one_status_per_width(monkeypatc
     page = Path(__file__).resolve().parents[1] / ("src/tradelens/ui/pages/7_Partner.py")
     at = AppTest.from_file(str(page), default_timeout=30)
     at.session_state["authenticated"] = True
+    # The shared auth gate reads session state directly, not through the
+    # patched current_user_id() above — it must see the same owner.
+    at.session_state["current_user_id"] = 7
     at = at.run()
 
     assert not at.exception
@@ -1292,13 +1295,21 @@ def test_the_desktop_visitor_is_told_where_the_partner_is():
 
 
 def test_ownerless_partner_apptest_has_truthful_desktop_and_phone_states(monkeypatch):
-    """A bookmarked desktop route must not point at the launcher the same
-    availability state intentionally suppresses."""
+    """An ownerless session never reaches the Partner page's own desktop or
+    phone presentation at all.
+
+    Every user-facing service now requires a concrete owner (Ruling 10), so
+    this session is refused at the shared auth gate before the page body —
+    launcher, desktop note, and phone body alike — ever runs. This used to
+    assert that both presentations independently rendered the truthful
+    OWNERLESS_PREVIEW copy; now there is exactly one place that copy is
+    decided, and it is not page code.
+    """
     from streamlit.testing.v1 import AppTest
 
     from src.tradelens.ui.components import auth
     from src.tradelens.ui.components import partner_panel as pp
-    from src.tradelens.ui.components.partner_turn import OWNERLESS_PREVIEW
+    from src.tradelens.ui.components.auth import OWNERLESS_SESSION_MESSAGE
 
     monkeypatch.setattr(auth, "current_user_id", lambda: None)
     monkeypatch.setattr(pp, "ai_available", lambda: True)
@@ -1309,16 +1320,8 @@ def test_ownerless_partner_apptest_has_truthful_desktop_and_phone_states(monkeyp
 
     assert not at.exception
     assert not any(button.key == "partner_open_btn" for button in at.button)
-    phone_page = _main_keyed_block(at, "tl_partner_page")
-    assert "\n".join(_markdown_below(phone_page)).count(OWNERLESS_PREVIEW) == 1
-    desktop = [
-        markdown.value
-        for markdown in at.markdown
-        if markdown.value.startswith('<p class="tl-partner-desktop-note"')
-    ]
-    assert len(desktop) == 1
-    assert OWNERLESS_PREVIEW in desktop[0]
-    assert "Ask about a trade" not in desktop[0]
+    rendered = "\n".join(m.value for m in at.markdown)
+    assert OWNERLESS_SESSION_MESSAGE in rendered
     assert at.chat_input == []
 
 

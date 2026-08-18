@@ -23,6 +23,9 @@ import sys
 PAGE = "src/tradelens/ui/pages/2_Trades.py"
 
 
+BOOT_UID = 1
+
+
 def _seed():
     """Three dated trades on two days, so a calendar day has two openers."""
     from src.tradelens.db.models import Trade
@@ -41,6 +44,7 @@ def _seed():
                 setup_type="BOS + FVG",
                 killzone="ny_am",
                 session="New York",
+                user_id=BOOT_UID,
             ),
             Trade(
                 trade_date="2026-06-15",
@@ -52,6 +56,7 @@ def _seed():
                 setup_type="FVG + OB",
                 killzone="london_open",
                 session="London",
+                user_id=BOOT_UID,
             ),
             Trade(
                 trade_date="2026-06-16",
@@ -63,6 +68,7 @@ def _seed():
                 setup_type="CHoCH Entry",
                 killzone="asia",
                 session="Asian",
+                user_id=BOOT_UID,
             ),
         ]
     )
@@ -77,6 +83,10 @@ def _app(root: str, **state):
 
     at = AppTest.from_file(f"{root}/{PAGE}", default_timeout=90)
     at.session_state["authenticated"] = True
+    # Every user-facing service now requires a concrete owner (Ruling 10); an
+    # ownerless session is refused at the shared auth gate before this page
+    # ever renders. Boot signed in as the same owner the seed data is under.
+    at.session_state["current_user_id"] = BOOT_UID
     # A window that comfortably contains the seeded dates.
     at.session_state["jf_from"] = __import__("datetime").date(2026, 6, 1)
     at.session_state["jf_to"] = __import__("datetime").date(2026, 6, 30)

@@ -4740,3 +4740,97 @@ Ownership returned to `NONE`. Stopped before implementation.
   a Codex-owned public adherence metric, amended the scope, and deferred browser
   capture until the Opus migration is integrated and the baseline is green.
 - No product implementation has started.
+
+---
+
+## Phase 0 (Next.js migration foundations) — interrupted session state, 2026-08-16 (Claude)
+
+**Status: IN PROGRESS, PAUSED.** Stopped by an API session limit, not a code
+failure. Resume in a fresh session.
+
+**Spec:** `docs/superpowers/specs/2026-08-16-nextjs-saas-migration-design.md`
+**Plan:** `docs/superpowers/plans/2026-08-16-nextjs-migration-phase0-foundations.md`
+**Worktree:** `.claude/worktrees/phase0-foundations`, branch
+`worktree-phase0-foundations`. Full working ledger (all ten rulings, verbatim)
+is at `.superpowers/sdd/2026-08-16-nextjs-migration-phase0-foundations/progress.md`
+inside that worktree. That path is git-ignored, which is why the load-bearing
+parts are duplicated here.
+
+### Commit state
+
+| Commit | What |
+|---|---|
+| `c69d84b` | Codex website/auth security remediation, committed as its own baseline |
+| `7565f6b` | Task 1 — `require_user_id` guard. Reviewed clean |
+| `0873a69` | Plan + spec execution corrections |
+| `a0d2359` | **WIP, SUITE RED.** Task 2 service layer, incomplete. Must be replaced before merge |
+
+`.claude/settings.json` was deliberately left uncommitted — local tooling
+config, and the Codex security plan's own constraints say to leave it alone.
+
+### Verified state before the interruption
+
+Combined baseline after rebasing Phase 0 onto the security work: Python
+**2385 passed / 7 skipped / 0 failed**; web **388 passed / 19 files**;
+`tsc --noEmit` clean. The rebase was conflict-free — the security work
+(`web/`, `site/`, `docs/`, CI) and Task 1 (`src/tradelens/services/`) touch
+disjoint files.
+
+One known flake, pre-existing and NOT Phase 0's:
+`tests/test_pages_boot.py::test_analytics_category_names_are_escaped_exactly_once`
+— a 3s Streamlit `AppTest` timeout that only fails under full-suite load.
+
+### Rulings that change the approved plan
+
+1. **The archived pages stay until Phase 10.** The plan's justification for
+   deleting `ui/pages/_archive/` in Phase 0 was wrong: its unscoped
+   `get_trades()` calls sit in three files no test executes, and Streamlit
+   cannot route into subdirectories of `pages/`. Nine passing tests read those
+   files' source.
+2. **No `*_for_maintenance` / `*_all_users` helper is created.**
+   `scripts/recompute_metrics.py` accepted a `user_id` and then loaded every
+   user's trades — a defect to scope, not a case for an escape hatch.
+3. **Deleting `weekly.list_weekly_reviews` takes two tests with it**
+   (`tests/test_weekly.py:269-280`). They assert it returns every user's
+   reviews, so they test the behaviour being removed.
+4. **Golden-dataset encodings were wrong**: `"Break-even"` is rejected by
+   `trade_validation.VALID_OUTCOMES`; `Trade.followed_rules` is an `Integer`
+   storing `1`/`0`/`None`, not display strings.
+5. **Ruling 10 — recorded but NOT YET EXECUTED. This is the blocker.**
+   `ui/components/auth.py:477 current_user_id()` returns `None` for the
+   secrets-fallback legacy user, and five pages pass that into
+   `get_trades(user_id=uid)`. Once a null owner raises, those pages crash —
+   ~62 tests. Decision: **merge Task 2 and Task 3 into one atomic change and
+   refuse ownerless sessions at the shared `require_auth()` gate**, not
+   per-page. Justification: the approved spec already requires services to
+   reject a null owner, so an ownerless session cannot read trades; the only
+   open choice is crash vs. graceful refusal, and the Partner page already
+   pins graceful refusal. Verified first: `legacy_streamlit_auth_enabled()`
+   fails closed, the mode engages only when the users table is empty, it is
+   documented as emergency regression access, and site-hosted auth always sets
+   a real int uid — so production is unaffected. The 62 failures are largely a
+   harness artifact of `conftest.py:26` force-enabling the legacy flag for
+   every test.
+
+### To resume
+
+Execute Ruling 10 (gate + Task 3's nine signature changes + update the `_boot`
+helpers at `tests/test_pages_boot.py:43`, `tests/test_data_state.py:114`,
+`tests/insights_review_options_check.py:70` to supply a concrete uid; keep the
+ownerless-refusal tests asserting refusal; delete
+`test_user_isolation.py::test_explicit_none_scopes_to_null_owned_legacy_rows`).
+Get green, then replace `a0d2359` so no red commit survives.
+
+Then Tasks 4, 6, 9 (owner-authorized scope for that session), and stop.
+Tasks 5, 7, 8, 10-17 are deferred by owner direction. **Do not start Phase 1.**
+
+### For Codex to review independently, when Phase 0 completes
+
+The approved architecture forwards the raw website session token from Next.js
+to FastAPI as `X-TL-Session`, where it is re-validated against the database.
+Assess that against a short-lived, audience-bound internal credential minted
+per request. Specifically: does forwarding a long-lived credential to a second
+service widen the blast radius of a backend compromise or a log leak enough to
+justify the extra moving part, and what is the migration cost of changing
+later? The approved architecture stands unless implementation surfaces a
+concrete reason to change it.

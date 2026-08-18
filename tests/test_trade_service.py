@@ -125,9 +125,13 @@ def test_create_trade_strips_unknown_keys(in_memory_db):
 # ---------------------------------------------------------------------------
 
 
+_SEED_OWNER = 1
+
+
 def _seed_three(in_memory_db):
     trade_service.create_trade(
         {
+            "user_id": _SEED_OWNER,
             "asset": "NQ",
             "result": "Win",
             "pnl": 100.0,
@@ -138,6 +142,7 @@ def _seed_three(in_memory_db):
     )
     trade_service.create_trade(
         {
+            "user_id": _SEED_OWNER,
             "asset": "ES",
             "result": "Loss",
             "pnl": -50.0,
@@ -148,6 +153,7 @@ def _seed_three(in_memory_db):
     )
     trade_service.create_trade(
         {
+            "user_id": _SEED_OWNER,
             "asset": "BTCUSD",
             "result": "Win",
             "pnl": 200.0,
@@ -160,16 +166,28 @@ def _seed_three(in_memory_db):
 
 def test_get_trades_date_range(in_memory_db):
     _seed_three(in_memory_db)
-    rows = trade_service.get_trades(start_date="2026-06-12", end_date="2026-06-18")
+    rows = trade_service.get_trades(
+        user_id=_SEED_OWNER, start_date="2026-06-12", end_date="2026-06-18"
+    )
     assert [r.asset for r in rows] == ["ES"]
 
 
 def test_get_trades_filters_asset_result_session_strategy(in_memory_db):
     _seed_three(in_memory_db)
-    assert {r.asset for r in trade_service.get_trades(asset="NQ")} == {"NQ"}
-    assert {r.asset for r in trade_service.get_trades(result="Win")} == {"NQ", "BTCUSD"}
-    assert {r.asset for r in trade_service.get_trades(session="London")} == {"ES"}
-    assert {r.asset for r in trade_service.get_trades(strategy="ICT")} == {
+    assert {
+        r.asset for r in trade_service.get_trades(user_id=_SEED_OWNER, asset="NQ")
+    } == {"NQ"}
+    assert {
+        r.asset for r in trade_service.get_trades(user_id=_SEED_OWNER, result="Win")
+    } == {"NQ", "BTCUSD"}
+    assert {
+        r.asset
+        for r in trade_service.get_trades(user_id=_SEED_OWNER, session="London")
+    } == {"ES"}
+    assert {
+        r.asset
+        for r in trade_service.get_trades(user_id=_SEED_OWNER, strategy="ICT")
+    } == {
         "NQ",
         "BTCUSD",
     }
@@ -177,12 +195,12 @@ def test_get_trades_filters_asset_result_session_strategy(in_memory_db):
 
 def test_get_trades_result_all_is_ignored(in_memory_db):
     _seed_three(in_memory_db)
-    assert len(trade_service.get_trades(result="All")) == 3
+    assert len(trade_service.get_trades(user_id=_SEED_OWNER, result="All")) == 3
 
 
 def test_get_trades_orders_recent_first(in_memory_db):
     _seed_three(in_memory_db)
-    dates = [r.trade_date for r in trade_service.get_trades()]
+    dates = [r.trade_date for r in trade_service.get_trades(user_id=_SEED_OWNER)]
     assert dates == ["2026-06-20", "2026-06-15", "2026-06-10"]
 
 
@@ -228,9 +246,10 @@ def test_prices_store_and_retrieve_without_precision_loss(in_memory_db):
             "stop_price": 3.3765,
             "tp_price": 3.5125,
             "exit_price": 3.4995,
+            "user_id": 1,
         }
     )
-    row = get_trade(trade.id, user_id=None)
+    row = get_trade(trade.id, user_id=1)
     assert row.entry_price == 3.496
     assert row.stop_price == 3.3765
     assert row.tp_price == 3.5125
@@ -248,9 +267,10 @@ def test_trade_process_notes_stores_and_retrieves(in_memory_db):
             "asset": "MNQ",
             "result": "Win",
             "trade_process_notes": note,
+            "user_id": 1,
         }
     )
-    row = get_trade(trade.id, user_id=None)
+    row = get_trade(trade.id, user_id=1)
     assert row.trade_process_notes == note
 
 
@@ -261,13 +281,20 @@ def test_get_trade_relationships_usable_after_session_closes(in_memory_db):
     from src.tradelens.db.models import AIAnalysis
     from src.tradelens.services.trade_service import create_trade, get_trade
 
-    trade = create_trade({"trade_date": "2026-07-03", "asset": "MNQ", "result": "Win"})
+    trade = create_trade(
+        {
+            "trade_date": "2026-07-03",
+            "asset": "MNQ",
+            "result": "Win",
+            "user_id": 1,
+        }
+    )
     db = trade_service.SessionLocal()  # the fixture's monkeypatched sessionmaker
     db.add(AIAnalysis(trade_id=trade.id, bias="bullish", trade_quality=7))
     db.commit()
     db.close()
 
-    row = get_trade(trade.id, user_id=None)
+    row = get_trade(trade.id, user_id=1)
     assert row.screenshots == []  # off-session access must not raise
     analysis = row.ai_analysis  # was DetachedInstanceError before the fix
     assert analysis is not None
@@ -309,16 +336,28 @@ def test_update_trade_rejects_contradiction_against_stored_pnl(in_memory_db):
     from src.tradelens.services.trade_validation import OutcomeMismatch
 
     trade = trade_service.create_trade(
-        {"asset": "NQ", "result": "Loss", "pnl": -500.0, "trade_date": "2026-07-18"}
+        {
+            "asset": "NQ",
+            "result": "Loss",
+            "pnl": -500.0,
+            "trade_date": "2026-07-18",
+            "user_id": 1,
+        }
     )
     with pytest.raises(OutcomeMismatch):
-        trade_service.update_trade(trade.id, None, result="Win")
+        trade_service.update_trade(trade.id, 1, result="Win")
 
 
 def test_update_trade_relabels_when_pnl_flips_sign(in_memory_db):
     trade = trade_service.create_trade(
-        {"asset": "NQ", "result": "Loss", "pnl": -500.0, "trade_date": "2026-07-18"}
+        {
+            "asset": "NQ",
+            "result": "Loss",
+            "pnl": -500.0,
+            "trade_date": "2026-07-18",
+            "user_id": 1,
+        }
     )
-    updated = trade_service.update_trade(trade.id, None, pnl=250.0)
+    updated = trade_service.update_trade(trade.id, 1, pnl=250.0)
     assert updated.result == "Win"
     assert updated.pnl == 250.0

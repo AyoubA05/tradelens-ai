@@ -26,15 +26,15 @@ def in_memory_db(monkeypatch):
 
 
 def test_load_sample_trades_inserts_flagged(in_memory_db):
-    inserted = sample_data.load_sample_trades()
+    inserted = sample_data.load_sample_trades(1)
     assert inserted == N == 20
-    assert sample_data.count_sample_trades() == N
+    assert sample_data.count_sample_trades(1) == N
 
 
 def test_load_sample_trades_is_idempotent(in_memory_db):
-    sample_data.load_sample_trades()
-    sample_data.load_sample_trades()  # clears, then reloads — no pile-up
-    assert sample_data.count_sample_trades() == N
+    sample_data.load_sample_trades(1)
+    sample_data.load_sample_trades(1)  # clears, then reloads — no pile-up
+    assert sample_data.count_sample_trades(1) == N
 
 
 def test_clear_removes_only_sample_trades(in_memory_db):
@@ -52,8 +52,8 @@ def test_clear_removes_only_sample_trades(in_memory_db):
     db.commit()
     db.close()
 
-    sample_data.load_sample_trades()
-    removed = sample_data.clear_sample_trades()
+    sample_data.load_sample_trades(1)
+    removed = sample_data.clear_sample_trades(1)
     assert removed == N
 
     db = SessionLocal()

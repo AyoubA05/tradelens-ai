@@ -60,12 +60,12 @@ def test_export_orders_columns():
 
 def test_export_then_import_round_trip(in_memory_db):
     csv_bytes = export_trades_csv(_sample_df())
-    inserted, _skipped, errors = import_trades_csv(io.BytesIO(csv_bytes))
+    inserted, _skipped, errors = import_trades_csv(io.BytesIO(csv_bytes), user_id=1)
 
     assert inserted == 2
     assert errors == []
 
-    rows = trade_service.get_trades()
+    rows = trade_service.get_trades(user_id=1)
     assert {r.asset for r in rows} == {"NQ", "ES"}
     assert {r.pnl for r in rows} == {200.0, -90.0}
 
@@ -73,7 +73,7 @@ def test_export_then_import_round_trip(in_memory_db):
 def test_import_missing_required_columns_returns_error(in_memory_db):
     bad = pd.DataFrame([{"asset": "NQ"}])  # missing trade_date/direction/result/pnl
     inserted, _skipped, errors = import_trades_csv(
-        io.BytesIO(bad.to_csv(index=False).encode())
+        io.BytesIO(bad.to_csv(index=False).encode()), user_id=1
     )
     assert inserted == 0
     assert errors and "missing required columns" in errors[0]
@@ -81,7 +81,7 @@ def test_import_missing_required_columns_returns_error(in_memory_db):
 
 def test_import_corrupt_csv_returns_error(in_memory_db):
     inserted, _skipped, errors = import_trades_csv(
-        io.BytesIO(b"\x00\x01 not,a,valid\ncsv\x00")
+        io.BytesIO(b"\x00\x01 not,a,valid\ncsv\x00"), user_id=1
     )
     assert inserted == 0
     assert errors  # parse or column error reported, never raised
@@ -100,7 +100,7 @@ def test_import_reports_bad_rows_individually(in_memory_db, monkeypatch):
 
     monkeypatch.setattr("src.tradelens.services.csvio.create_trade", flaky_create)
     csv_bytes = export_trades_csv(_sample_df())
-    inserted, _skipped, errors = import_trades_csv(io.BytesIO(csv_bytes))
+    inserted, _skipped, errors = import_trades_csv(io.BytesIO(csv_bytes), user_id=1)
 
     assert inserted == 1
     assert len(errors) == 1 and "Row 3" in errors[0]

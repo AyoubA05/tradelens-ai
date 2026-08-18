@@ -461,9 +461,16 @@ def test_strategy_name_error_survives_the_rerun(tmp_path):
 
 
 def test_strategy_boots_signed_out_without_a_profile(tmp_path):
-    """uid is None for the secrets-fallback legacy user; the page must not
-    call the service with it."""
-    _boot(_STRATEGY, tmp_path / "s-anon.db", "0", "-")
+    """uid is None for the secrets-fallback legacy user. The page never sees
+    it: an ownerless session is refused at the shared auth gate before any
+    page body — including this one — runs."""
+    _boot(
+        _STRATEGY,
+        tmp_path / "s-anon.db",
+        "0",
+        "-",
+        json.dumps({"current_user_id": None}),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -505,7 +512,7 @@ def test_the_partner_conversation_survives_arriving_on_the_page(tmp_path):
         "PERSISTED QUESTION",
         json.dumps(
             {
-                "partner_history_None": [
+                "partner_history_1": [
                     {"role": "user", "content": "PERSISTED QUESTION"}
                 ]
             }
@@ -514,21 +521,24 @@ def test_the_partner_conversation_survives_arriving_on_the_page(tmp_path):
 
 
 def test_the_partner_page_refuses_an_ownerless_session(tmp_path):
-    """The harness boots authenticated with no user id — a legacy login. The
-    Partner cannot scope a read to an owner, so it says so instead of offering
-    a composer whose every submission would be refused.
+    """The harness boots authenticated with no user id — a legacy login.
+    Every user-facing service now requires a concrete owner, so this session
+    is refused at the shared auth gate before the Partner page body — the
+    composer it would otherwise render — ever runs.
 
-    This assertion changed with the Partner presentation amendment. It
-    previously expected the empty-state scope copy, which is what a signed-in
-    trader sees; an ownerless session never reaches it.
+    This assertion changed with the Ruling 10 gate: it previously expected
+    the Partner's own OWNERLESS_PREVIEW copy, which the page rendered itself;
+    an ownerless session no longer reaches page code at all.
     """
-    from src.tradelens.ui.components.partner_turn import (
-        NO_USER_ERROR,
-        OWNERLESS_PREVIEW,
-    )
+    from src.tradelens.ui.components.auth import OWNERLESS_SESSION_MESSAGE
 
-    assert NO_USER_ERROR not in OWNERLESS_PREVIEW
-    _boot("7_Partner.py", tmp_path / "empty.db", "0", OWNERLESS_PREVIEW)
+    _boot(
+        "7_Partner.py",
+        tmp_path / "empty.db",
+        "0",
+        OWNERLESS_SESSION_MESSAGE,
+        json.dumps({"current_user_id": None}),
+    )
 
 
 def test_the_partner_page_states_its_scope_to_a_signed_in_trader(tmp_path):

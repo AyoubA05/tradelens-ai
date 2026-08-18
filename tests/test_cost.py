@@ -177,14 +177,14 @@ def test_log_ai_usage_never_raises(in_memory_db, monkeypatch):
         raise RuntimeError("db down")
 
     monkeypatch.setattr(cost_mod, "SessionLocal", boom)
-    cost_mod.log_ai_usage("AI Partner", _usage())  # must not raise
+    cost_mod.log_ai_usage("AI Partner", _usage(), user_id=1)  # must not raise
 
 
 def test_log_ai_usage_ignores_none_usage(in_memory_db):
     from src.tradelens.db.models import AIUsageLog
     from src.tradelens.services.cost import log_ai_usage
 
-    log_ai_usage("AI Partner", None)
+    log_ai_usage("AI Partner", None, user_id=1)
     db = in_memory_db()
     assert db.query(AIUsageLog).count() == 0
     db.close()

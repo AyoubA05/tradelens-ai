@@ -57,6 +57,7 @@ def main() -> int:
             result="Win",
             pnl=200.0,
             killzone="ny_am",
+            user_id=1,
         )
     )
     session.commit()
@@ -104,6 +105,10 @@ def main() -> int:
 
     at = AppTest.from_file(f"{root}/src/tradelens/ui/pages/6_Insights.py")
     at.session_state["authenticated"] = True
+    # Every user-facing service now requires a concrete owner (Ruling 10); an
+    # ownerless session is refused at the shared auth gate before this page
+    # ever renders. Boot signed in as a real owner, as production always is.
+    at.session_state["current_user_id"] = 1
     at.session_state["ai_review_lens"] = "Daily Debrief"
     at.session_state["ins_dbf_day"] = __import__("datetime").date(2026, 6, 15)
     at = at.run(timeout=120)

@@ -50,7 +50,7 @@ def _build_df(trades) -> pd.DataFrame:
 
 def recompute(user_id: int) -> None:
     print(f"Loading trades for user_id={user_id}…")
-    trades = get_trades()
+    trades = get_trades(user_id=user_id)
     df = _build_df(trades)
 
     if df.empty:

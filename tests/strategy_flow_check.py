@@ -101,8 +101,16 @@ def _fail(message: str) -> int:
 
 
 def scenario_ownerless_demo_is_one_read_only_profile(root: str) -> int:
-    """The public demo shows one complete sample without offering a write."""
+    """An ownerless legacy session never reaches the page's own preview mode.
+
+    Every user-facing service now requires a concrete owner (Ruling 10), so
+    an authenticated-but-ownerless session is refused at the shared auth gate
+    before any page body — including this one's read-only sample-profile
+    preview — ever runs. The refusal is what now proves no write path is
+    reachable, not the page's own disabled controls.
+    """
     from src.tradelens.services import strategy as strategy_service
+    from src.tradelens.ui.components.auth import OWNERLESS_SESSION_MESSAGE
 
     def _write_without_owner(*_args, **_kwargs):
         raise AssertionError("ownerless demo attempted strategy persistence")
@@ -118,16 +126,10 @@ def scenario_ownerless_demo_is_one_read_only_profile(root: str) -> int:
         return _fail(f"ownerless demo raised: {at.exception}")
 
     rendered = _rendered(at)
-    for expected in (
-        "ICT/SMC Day Trading",
-        "6 of 6 sections written",
-        "Sample playbook used by demo reviews",
-        "Sample strategy: <b>ICT/SMC Day Trading",
-    ):
-        if expected not in rendered:
-            return _fail(f"ownerless demo omitted {expected!r}")
-    if "No playbook yet" in rendered:
-        return _fail("ownerless demo presented the sample as an empty account")
+    if OWNERLESS_SESSION_MESSAGE not in rendered:
+        return _fail("ownerless session was not refused at the auth gate")
+    if "ICT/SMC Day Trading" in rendered:
+        return _fail("ownerless session reached the page's own preview content")
 
     write_labels = {
         button.label

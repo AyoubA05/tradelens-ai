@@ -105,9 +105,32 @@ def test_require_auth_passes_when_legacy_authenticated(monkeypatch):
     monkeypatch.setenv("ENABLE_LEGACY_STREAMLIT_AUTH", "true")
     at = AppTest.from_string(_GATE_SCRIPT)
     at.session_state["authenticated"] = True
+    at.session_state["current_user_id"] = 1
     at.run()
     assert not at.exception
     assert "SECRET_DASHBOARD_BODY" in _markdowns(at)
+
+
+def test_require_auth_refuses_an_ownerless_legacy_session(monkeypatch):
+    """The emergency legacy path with no concrete owner is refused at the
+    shared gate, not passed through to the page body.
+
+    Every user-facing service now requires a concrete owner, so an ownerless
+    session can read nothing — Ruling 10 states that once here, at the gate,
+    rather than letting each page discover it as a crash.
+    """
+    from streamlit.testing.v1 import AppTest
+
+    from src.tradelens.ui.components.auth import OWNERLESS_SESSION_MESSAGE
+
+    monkeypatch.setenv("ENABLE_LEGACY_STREAMLIT_AUTH", "true")
+    at = AppTest.from_string(_GATE_SCRIPT)
+    at.session_state["authenticated"] = True
+    at.run()
+    assert not at.exception
+    rendered = _markdowns(at)
+    assert "SECRET_DASHBOARD_BODY" not in rendered
+    assert OWNERLESS_SESSION_MESSAGE in rendered
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +200,14 @@ def test_restore_ignores_forged_token():
 
 def test_full_reload_survives_auth_gate_apptest(tmp_path, monkeypatch):
     """End-to-end: a fresh Streamlit session (reload) with a valid URL token
-    passes require_auth and reaches page content — no login page, no st.stop."""
+    for a concrete owner passes require_auth and reaches page content — no
+    login page, no st.stop.
+
+    The token carries a real user id, not None: production sessions are
+    never ownerless (site-hosted auth always sets a real int uid), and an
+    ownerless legacy token is refused at the gate by design — see
+    `test_require_auth_refuses_an_ownerless_legacy_session`.
+    """
     from pathlib import Path
 
     from streamlit.testing.v1 import AppTest
@@ -196,10 +226,11 @@ def test_full_reload_survives_auth_gate_apptest(tmp_path, monkeypatch):
         'st.write("DASHBOARD_OK")\n'
     )
     at = AppTest.from_string(script)
-    at.query_params["auth"] = auth._issue_token("demo", None)
+    at.query_params["auth"] = auth._issue_token("demo", 7)
     at.run()
     assert not at.exception
     assert at.session_state["authenticated"] is True
+    assert at.session_state["current_user_id"] == 7
     assert any("DASHBOARD_OK" in str(el.value) for el in at.markdown) or any(
         "DASHBOARD_OK" in str(getattr(el, "value", "")) for el in at.get("text")
     )

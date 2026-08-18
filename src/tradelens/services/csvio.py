@@ -3,6 +3,7 @@ import logging
 
 import pandas as pd
 
+from src.tradelens.services.ownership import require_user_id
 from src.tradelens.services.trade_service import (
     compute_trade_hash,
     create_trade,
@@ -63,14 +64,22 @@ def export_trades_csv(df: pd.DataFrame) -> bytes:
     return out.to_csv(index=False).encode("utf-8")
 
 
-def import_trades_csv(file, user_id=None) -> tuple[int, int, list[str]]:
+def import_trades_csv(file, user_id: int) -> tuple[int, int, list[str]]:
     """
     Parse a CSV UploadedFile and insert each row as a Trade via create_trade().
 
+    The owner is required. It was `Optional[int]` defaulting to None, which
+    matched only legacy NULL-owner rows for the duplicate check rather than
+    raising — a missing owner looked like an empty account instead of a
+    programming error.
+
     Returns (rows_inserted, skipped_duplicates, errors). Duplicate rows — those
     whose trade_hash already exists (scoped to `user_id`) or repeat within the
-    file — are skipped, not inserted. Never raises; bad rows go into `errors`.
+    file — are skipped, not inserted. Never raises on a bad row; bad rows go
+    into `errors`. An invalid owner still raises — that is a caller defect,
+    not a row the trader can fix.
     """
+    owner = require_user_id(user_id)
     try:
         df = pd.read_csv(io.BytesIO(file.read()))
     except Exception:
@@ -90,11 +99,10 @@ def import_trades_csv(file, user_id=None) -> tuple[int, int, list[str]]:
         try:
             # Drop NaN cells so optional fields aren't passed as float('nan')
             trade_data = {k: v for k, v in row.items() if pd.notna(v)}
-            if user_id is not None:
-                trade_data["user_id"] = user_id
+            trade_data["user_id"] = owner
 
             row_hash = compute_trade_hash(trade_data)
-            if row_hash in seen_hashes or trade_hash_exists(row_hash, user_id=user_id):
+            if row_hash in seen_hashes or trade_hash_exists(row_hash, user_id=owner):
                 skipped += 1
                 continue
             seen_hashes.add(row_hash)

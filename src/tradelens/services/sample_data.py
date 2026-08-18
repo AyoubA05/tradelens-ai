@@ -13,6 +13,7 @@ import json
 
 from src.tradelens.db.models import Trade
 from src.tradelens.db.session import SessionLocal
+from src.tradelens.services.ownership import require_user_id
 
 _ASSETS = [
     ("NQ", "Futures"),
@@ -28,15 +29,19 @@ _GRADES = ["A", "B", "C", "B+", "A-"]
 SAMPLE_COUNT = 20
 
 
-def _sample_filter(query, user_id):
-    """Scope a query to a user's sample trades (NULL owner when user_id is None)."""
-    query = query.filter(Trade.is_sample == 1)
-    if user_id is None:
-        return query.filter(Trade.user_id.is_(None))
-    return query.filter(Trade.user_id == user_id)
+def _sample_filter(query, user_id: int):
+    """Scope a query to one user's sample trades.
+
+    The owner is required. It used to fall back to the NULL-owner (legacy)
+    tenant when `user_id` was None instead of raising — a missing owner
+    silently widened the query rather than being caught as a programming
+    error.
+    """
+    owner = require_user_id(user_id)
+    return query.filter(Trade.is_sample == 1, Trade.user_id == owner)
 
 
-def count_sample_trades(user_id=None) -> int:
+def count_sample_trades(user_id) -> int:
     """How many sample trades exist for this user."""
     db = SessionLocal()
     try:
@@ -45,7 +50,7 @@ def count_sample_trades(user_id=None) -> int:
         db.close()
 
 
-def clear_sample_trades(user_id=None) -> int:
+def clear_sample_trades(user_id) -> int:
     """Delete only this user's sample-flagged trades. Returns the number removed."""
     db = SessionLocal()
     try:
@@ -120,10 +125,11 @@ def _build_sample_trades(user_id) -> list:
     return rows
 
 
-def load_sample_trades(user_id=None) -> int:
+def load_sample_trades(user_id) -> int:
     """Insert SAMPLE_COUNT demo trades flagged is_sample=1 for `user_id`.
 
-    Clears this user's existing sample rows first so repeated loads don't pile up
+    The owner is required, for the same reason as `_sample_filter`. Clears
+    this user's existing sample rows first so repeated loads don't pile up
     duplicates. Returns the number of rows inserted.
 
     Each row is stamped with the user's active strategy, exactly as
@@ -132,18 +138,18 @@ def load_sample_trades(user_id=None) -> int:
     sits permanently empty for anyone exploring the product with sample
     data — a control that offers nothing is worse than no control.
     """
-    clear_sample_trades(user_id)
-    rows = _build_sample_trades(user_id)
+    owner = require_user_id(user_id)
+    clear_sample_trades(owner)
+    rows = _build_sample_trades(owner)
 
     strategy_name = None
-    if user_id is not None:
-        try:
-            from src.tradelens.services.strategy import get_active_strategy
+    try:
+        from src.tradelens.services.strategy import get_active_strategy
 
-            active = get_active_strategy(user_id)
-            strategy_name = (active or {}).get("name") or None
-        except Exception:  # noqa: BLE001 — sample data must load regardless
-            strategy_name = None
+        active = get_active_strategy(owner)
+        strategy_name = (active or {}).get("name") or None
+    except Exception:  # noqa: BLE001 — sample data must load regardless
+        strategy_name = None
     if strategy_name:
         for row in rows:
             row.strategy_used = strategy_name

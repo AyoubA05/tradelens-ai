@@ -11,12 +11,12 @@ No Streamlit imports here.
 """
 
 from datetime import datetime, timezone
-from typing import Optional
 
 import pandas as pd
 
 from src.tradelens.db.models import AIAnalysis, AIUsageLog, Trade, WeeklyReview
 from src.tradelens.db.session import SessionLocal
+from src.tradelens.services.ownership import require_user_id
 
 _COST_COLS = ["feature", "cost_usd", "calls"]
 
@@ -31,21 +31,19 @@ def _f(value) -> float:
         return 0.0
 
 
-def _require_concrete_user_id(user_id: int) -> int:
-    """Return a concrete cost owner ID or reject ownerless access."""
-    if isinstance(user_id, bool) or not isinstance(user_id, int) or user_id <= 0:
-        raise ValueError("user_id must be a positive integer")
-    return user_id
-
-
-def log_ai_usage(feature: str, usage, user_id: Optional[int] = None) -> None:
-    """Persist one AI call's usage to ai_usage_log (best-effort; never raises).
+def log_ai_usage(feature: str, usage, user_id: int) -> None:
+    """Persist one AI call's usage to ai_usage_log (best-effort past this point).
 
     For features with no natural persistence row — the AI Partner chat and
-    pattern-card detection. ``usage`` is an ai_client.Usage; None is ignored.
+    pattern-card detection. ``usage`` is an ai_client.Usage; None is ignored
+    (a no-op, not an error — nothing was spent). The owner is required once
+    there is something to log: it was `Optional[int]` defaulting to None,
+    which wrote a NULL-owner usage row instead of raising, so a missing owner
+    silently mis-attributed spend rather than surfacing as a bug.
     """
     if usage is None or not feature:
         return
+    owner = require_user_id(user_id)
     try:
         db = SessionLocal()
         try:
@@ -56,7 +54,7 @@ def log_ai_usage(feature: str, usage, user_id: Optional[int] = None) -> None:
                     tokens_input=getattr(usage, "tokens_in", None),
                     tokens_output=getattr(usage, "tokens_out", None),
                     cost_usd=getattr(usage, "estimated_cost_usd", None),
-                    user_id=user_id,
+                    user_id=owner,
                     created_at=datetime.now(timezone.utc).isoformat(),
                 )
             )
@@ -75,7 +73,7 @@ def monthly_cost_by_feature(year: int, month: int, user_id: int) -> pd.DataFrame
     Features with no spend in the month are omitted; an empty month yields an
     empty frame with the correct columns.
     """
-    user_id = _require_concrete_user_id(user_id)
+    user_id = require_user_id(user_id)
     prefix = f"{year:04d}-{month:02d}"
 
     db = SessionLocal()

@@ -441,8 +441,16 @@ def _wizard(**state):
     os.environ.setdefault("DEMO_MODE", "true")
     at = AppTest.from_file(str(_PAGE), default_timeout=60)
     at.session_state["authenticated"] = True
+    # Every user-facing service now requires a concrete owner (Ruling 10); an
+    # ownerless session is refused at the shared auth gate before the wizard
+    # ever renders. Boot signed in as a real owner, as production always is.
+    at.session_state["current_user_id"] = 1
     at.session_state["current_user"] = "test-trader"
-    at.session_state[tw.WIZARD_OWNER_KEY] = "user:test-trader"
+    # Must match what the page itself computes for `_wizard_owner` (an "id:"
+    # scope once a concrete uid is present) — otherwise scope_wizard_to_owner
+    # reads this as an identity change and clears the draft, including the
+    # step, back to step one before anything below is ever rendered.
+    at.session_state[tw.WIZARD_OWNER_KEY] = "id:1"
     for key, value in state.items():
         at.session_state[key] = value
     return at.run()
