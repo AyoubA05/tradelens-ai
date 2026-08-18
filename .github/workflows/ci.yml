@@ -39,6 +39,25 @@ jobs:
       - name: Run ruff (linter)
         run: ruff check src/ scripts/
 
+      - name: Run black (formatter check)
+        run: black --check src/ scripts/ tests/
+
+      - name: Alembic migrations apply and reverse
+        # A migration that cannot be rolled back is a deploy that cannot be
+        # undone. The Phase 0 pair is exercised in both directions, and a
+        # single head is asserted so a branched chain fails here rather than
+        # at deploy time.
+        env:
+          DATABASE_URL: sqlite:///./data/ci-migrations.db
+        run: |
+          mkdir -p data
+          heads="$(alembic heads | wc -l | tr -d ' ')"
+          test "$heads" = "1" || { echo "expected exactly one Alembic head"; alembic heads; exit 1; }
+          alembic upgrade head
+          alembic downgrade -1
+          alembic downgrade -1
+          alembic upgrade head
+
       - name: Run pytest
         run: pytest tests/ -v --tb=short
 

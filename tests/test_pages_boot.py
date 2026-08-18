@@ -511,11 +511,7 @@ def test_the_partner_conversation_survives_arriving_on_the_page(tmp_path):
         "0",
         "PERSISTED QUESTION",
         json.dumps(
-            {
-                "partner_history_1": [
-                    {"role": "user", "content": "PERSISTED QUESTION"}
-                ]
-            }
+            {"partner_history_1": [{"role": "user", "content": "PERSISTED QUESTION"}]}
         ),
     )
 

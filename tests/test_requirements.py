@@ -33,6 +33,7 @@ def _resolve(text: str) -> str:
             out.append(ln)
     return "\n".join(out)
 
+
 _DEV_TOOLS = ["pytest", "pytest-cov", "black", "ruff", "faker"]
 _RUNTIME_CORE = [
     "streamlit",
@@ -104,7 +105,10 @@ def test_runtime_has_no_dev_tools():
     added there would reach production twice over while a text-only check of
     requirements.txt saw nothing wrong.
     """
-    for surface, text_ in (("requirements.txt", RUNTIME), ("requirements-api.txt", API)):
+    for surface, text_ in (
+        ("requirements.txt", RUNTIME),
+        ("requirements-api.txt", API),
+    ):
         names = _dep_names(_resolve(text_))
         for tool in _DEV_TOOLS:
             assert tool not in names, f"dev tool {tool} must not be in {surface}"

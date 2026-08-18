@@ -4,6 +4,7 @@ These already failed closed for a real user. The risk was quieter: a None
 arriving by mistake read or wrote the legacy tenant instead of raising, so the
 bug surfaced as missing data rather than an error.
 """
+
 import pytest
 
 from src.tradelens.services import cost, csvio, sample_data, trade_service, weekly
