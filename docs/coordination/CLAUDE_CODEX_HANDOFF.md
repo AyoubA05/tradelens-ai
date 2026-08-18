@@ -4939,3 +4939,152 @@ CORS middleware (asserted). No schema served in production.
   from the security baseline commit per Codex's own constraint.
 - Merge conflicts are expected in `.github/workflows/ci.yml`, `web/package.json` and
   `.env.example` if the deferred Tasks 14/16 land against other edits to those files.
+
+## Phase 0 complete — 2026-08-18 (Claude)
+
+**Branch:** `worktree-phase0-foundations`, based on the Codex security remediation
+`c69d84b`. **Not merged, not pushed, not deployed.** Phase 1 has not been started.
+
+### Verified gates — real numbers, each run directly
+
+| Gate | Result |
+|---|---|
+| `pytest tests/ -q` | **2528 passed, 7 skipped, 0 failed** |
+| Phase 0's own new tests | **146** |
+| `ruff check src/ scripts/` | clean |
+| `black --check src/ scripts/` | clean, 122 files |
+| `alembic heads` | single head `z6a7b8c9d0e1` — no branched chain |
+| `vitest run` (web) | **809 passed, 21 files** |
+| `tsc --noEmit` | clean |
+| `eslint .` | clean |
+
+Two known load-dependent flaky tests, both passing in isolation and on re-runs, both driving
+Streamlit in a subprocess: `test_pages_boot.py::test_analytics_category_names_are_escaped_exactly_once`
+and `test_account_ui.py::test_reset_is_reachable_when_signup_is_enabled_too`. Neither appeared
+in the final runs.
+
+### What Phase 0 built
+
+`src/tradelens/api/` — `config`, `security` (Lock 1), `deps` (`current_user`), `app`,
+`routers/session`, `serialization`, `storage` (R2), `imaging`, `jobs`, `worker`.
+`src/tradelens/services/ownership.py` — `require_user_id`, the single owner definition.
+`tests/parity/` — the golden harness that will prove migrated screens compute what Streamlit
+computed. Two migrations: `users.app_surface`, and `ai_jobs`.
+
+### Implementation discoveries — things the plan got wrong
+
+Every one of these was found by executing, not by planning. They are listed because the plan
+document alone would mislead someone re-reading it.
+
+1. **`weekly.save_weekly_review` accepted `user_id=None`** and would stamp `WeeklyReview` rows
+   with `user_id IS NULL` — a WRITE into the legacy shared tenant. The Class B enumeration in
+   the spec missed it entirely; a review caught it. Unreachable in practice (the one live
+   caller always passed an owner), but nothing prevented reintroduction. Now guarded by a
+   signature test.
+2. **`restore_website_session` was check-then-act.** It read the session row, evaluated the
+   five conditions in Python, then wrote — while the TypeScript it claims to mirror uses one
+   atomic `UPDATE ... WHERE <all five>`. Between the two statements a revoked session still
+   authenticated the in-flight request, so for that window signing out meant nothing. Now one
+   atomic UPDATE, admission on `rowcount`.
+3. **The HMAC did not bind the query string.** No endpoint read query parameters for
+   authorization, so nothing was exploitable — but the contract depended on a property of the
+   handlers rather than of the signature. Now bound, canonically.
+4. **The two canonicalisers disagreed.** `URLSearchParams` strips a leading `?`; `parse_qsl`
+   did not. Found by a 400-case differential corpus, not by inspection — all 11 hand-written
+   vectors passed. The bug lived in the space between them.
+5. **`scripts/recompute_metrics.py`** accepted a `user_id` and then called `get_trades()`
+   unscoped, recomputing one user's stored metrics from every user's trades.
+6. **The archived pages were not blocking anything.** The plan deleted
+   `ui/pages/_archive/` in Phase 0 because its unscoped `get_trades()` calls supposedly blocked
+   the isolation work. They do not: no test executes those files and Streamlit cannot route
+   into subdirectories of `pages/`. Deleting would have cost nine passing tests for nothing.
+   They stay until Phase 10.
+7. **The parity harness would have crashed on its own dataset.** Its frame read
+   `t.entry_time`, which is not a `Trade` column — it is hash-only input that `create_trade`
+   strips. Plus two encoding errors: `"Break-even"` is rejected by `VALID_OUTCOMES`, and
+   `followed_rules` is an Integer column storing 1/0/None, not display strings. As written it
+   would have raised, or pinned numbers no real row could produce.
+8. **The presigned PUT could not bind a maximum size.** `ContentLength` on an S3-compatible
+   presigned PUT binds an EXACT size, so the planned policy would have rejected every upload
+   that was not exactly 10MB. The size gate moved server-side into
+   `imaging.validate_and_normalise`.
+9. **Ownerless legacy sessions.** `current_user_id()` returns `None` for the secrets-fallback
+   user, and five pages then called `get_trades(user_id=None)`, which now raises. Refusal
+   lives at the shared `require_auth()` gate. **Consequence: the Strategy page's read-only
+   sample-profile preview for ownerless sessions is no longer reachable.**
+10. **Dependency pins.** The plan pinned `uvicorn==0.41.0` and `httpx==0.29.4`; both require
+    Python >=3.10 and local development is 3.9.6. Pinned to `uvicorn[standard]==0.39.0` and
+    `httpx==0.28.1`, which support 3.9 and 3.11, so local tests and the container run
+    identical code.
+11. **Local dev database drift.** `data/tradelens.db` had `alembic_version` pointing at an old
+    revision while its schema already matched head. Corrected with a metadata-only
+    `alembic stamp` after verifying the schema matched. Local artifact; other worktrees may
+    hit it.
+12. **A red commit existed and has been squashed.** `a0d2359` ("WIP … INCOMPLETE, SUITE RED")
+    was a forced checkpoint when a session limit killed an implementer mid-task. History was
+    rewritten so it is no longer standalone; `git diff` against the pre-rewrite backup was
+    empty, proving content was preserved byte-for-byte. Backup tag:
+    `phase0-backup-pre-squash`.
+
+### Honest limits
+
+- **The container has never been built or booted.** Docker is unavailable in the development
+  environment, so `Dockerfile.api` and `render.yaml` were verified only by reading: every
+  `COPY` path exists, the YAML parses, the CMD matches the modules. Treat as unverified until
+  someone runs `docker build`.
+- **Job-claim exclusivity is not tested under real concurrency.** The conditional UPDATE is
+  correct by inspection and tested sequentially; no multi-process race test exists.
+- **Several commits were written by the controller rather than an implementer subagent**,
+  after repeated subagent failures — specifically Lock 2, the FastAPI app, the query binding,
+  and the differential corpus. Reviews were dispatched against all of them, and the review
+  caught the atomicity defect in exactly that code.
+- **`.claude/settings.json` remains uncommitted** on `main` — local tooling config, excluded
+  from the security baseline per Codex's own constraint.
+
+### For Codex to review independently
+
+1. **Raw `X-TL-Session` forwarding vs a short-lived audience-bound internal credential.**
+   The backend receives the raw website session token — a 12-hour credential — and
+   re-validates it against the database. Assess against minting a per-request internal
+   credential (JWT with `aud`, `sub`, ~60s expiry, signed with the service secret). Does
+   forwarding the long-lived credential to a second service widen the blast radius of a
+   backend compromise or a log leak enough to justify the extra moving part? What is the
+   migration cost once endpoints exist? The approved architecture stands unless there is a
+   concrete reason to change it, and implementation surfaced none.
+2. **HMAC construction, including query binding.** Message is
+   `{timestamp}.{METHOD}.{path}.{canonical_query}.{sha256(body)}`. Assess the canonical form
+   (RFC 3986 encode, then sort by name then value), the 60-second bidirectional replay window
+   (~120s of wall clock), constant-time comparison, and dual-secret rotation without early
+   exit. Is there an input class where `security.py` and `sign.ts` still disagree that the
+   400-case corpus does not reach?
+3. **Tenant isolation / nullable-owner audit.** Every user-facing service now requires a
+   concrete owner via `require_user_id`. The enumeration missed `save_weekly_review` once —
+   is anything still missing? Note `require_user_id` rejects `bool` explicitly because
+   `isinstance(True, int)` is True.
+4. **Atomic session revocation.** `restore_website_session` enforces all five conditions in
+   one UPDATE. Is `rowcount` a sound admission signal on Postgres specifically, and is the
+   post-UPDATE owner read safe under real concurrency?
+5. **Correction ContextVar isolation.** `corrections_scope` resets by token in a `finally`,
+   and `current_user` yields inside it. Can a value leak to the next request on a reused
+   FastAPI threadpool worker?
+6. **R2 ownership and presign enforcement.** Keys are `u/{user}/t/{trade}/{uuid4}.{ext}`,
+   server-generated. Ownership is checked before any GET is signed and a non-owner gets an
+   indistinguishable `None`. The PUT policy binds `ContentType` but deliberately not
+   `ContentLength` — confirm the server-side size gate genuinely covers it.
+7. **Image validation.** Magic bytes, decompression-bomb guard, dimension caps, animated-frame
+   rejection, and re-encode through pixel data to defeat polyglots and strip EXIF. Is the
+   re-encode complete, and is SVG refused on every path?
+8. **AI-job concurrency and idempotency.** Enqueue catches the uniqueness violation rather
+   than pre-checking; claim is a conditional UPDATE. Prove or disprove exclusivity under
+   genuinely concurrent workers — this is the gap we could not close.
+9. **Serialization correctness.** Unknown types raise rather than being stringified; `pd.NaT`
+   is checked before the `datetime` branch because it IS a `datetime`; non-finite floats
+   become `None` with `finite_or_state` naming the reason. Can anything still become a
+   confident wrong number?
+10. **The OpenAPI boundary.** Schema is generated and committed, never served in production;
+    CI regenerates and diffs so drift fails the build rather than the browser. Is the boundary
+    airtight, and does the committed schema leak anything it should not?
+11. **Migrations and rollback safety.** `users.app_surface` and `ai_jobs`, both with real
+    `downgrade()`, verified upgrade → downgrade → upgrade on SQLite only. Assess rollback
+    safety against Postgres, and whether the `ai_jobs` uniqueness constraint is correctly
+    per-owner rather than global.
