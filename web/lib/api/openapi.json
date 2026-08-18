@@ -1,0 +1,50 @@
+{
+  "info": {
+    "title": "TradeLens API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "description": "Liveness only. Reveals nothing about configuration, data, or version.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/v1/session/whoami": {
+      "get": {
+        "description": "Echo the authenticated owner.\n\nExists to prove both locks end to end. The value returned is the one the\nsession row resolved to, never anything the caller supplied.",
+        "operationId": "whoami_v1_session_whoami_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Whoami V1 Session Whoami Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Whoami",
+        "tags": [
+          "session"
+        ]
+      }
+    }
+  }
+}
