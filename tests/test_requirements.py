@@ -98,11 +98,16 @@ def test_pyarrow_is_pinned_to_ci_verified_version():
 
 
 def test_runtime_has_no_dev_tools():
-    names = _dep_names(RUNTIME)
-    for tool in _DEV_TOOLS:
-        assert (
-            tool not in names
-        ), f"dev tool {tool} must not be in runtime requirements.txt"
+    """Includes are resolved here too.
+
+    Both deployed surfaces now include requirements-base.txt, so a dev tool
+    added there would reach production twice over while a text-only check of
+    requirements.txt saw nothing wrong.
+    """
+    for surface, text_ in (("requirements.txt", RUNTIME), ("requirements-api.txt", API)):
+        names = _dep_names(_resolve(text_))
+        for tool in _DEV_TOOLS:
+            assert tool not in names, f"dev tool {tool} must not be in {surface}"
 
 
 def test_dev_references_runtime():

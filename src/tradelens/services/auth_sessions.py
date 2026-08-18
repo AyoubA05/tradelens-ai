@@ -256,60 +256,74 @@ def restore_website_session(token, now: Optional[datetime] = None) -> Optional[i
     Next.js layer said it had already validated the session. A bug or a
     compromise there would otherwise be sufficient on its own.
 
-    All five conditions, matching the TypeScript exactly:
+    All five conditions, matching the TypeScript:
 
         hash matches a row with surface='website'
         revoked_at IS NULL
         expires_at > now
-        now - last_seen_at < 8h
+        last_seen_at > now - 8h   (idle window)
         users.is_active = 1
 
-    Returns None — failing closed — when any of them does not hold. All five
+    **Enforced in one atomic UPDATE**, not a SELECT followed by an UPDATE. The
+    read-then-write shape used by ``restore_streamlit_session`` above leaves a
+    window in which a session revoked between the two statements still
+    authenticates the request that is mid-flight. The window is small; the
+    consequence is that sign-out means nothing for the length of it, which is
+    precisely the property this credential's revocability exists to provide. The
+    row is admitted only if it still satisfies every condition at the moment of
+    the write, and ``rowcount`` is the answer.
+
+    The interval bound is computed in Python rather than in SQL. Postgres would
+    take ``make_interval``, but SQLite — which the test suite runs on — would
+    not, and a dialect-specific predicate on the authentication path would mean
+    the two backends enforced subtly different rules.
+
+    Returns None — failing closed — when any condition does not hold. All five
     failures look identical to the caller.
 
-    ``is_active`` is joined here even though ``restore_streamlit_session`` does
-    not check it. That is not an inconsistency to tidy away: this function
-    mirrors the website contract, where a disabled account must not be able to
-    act through a credential minted while it was still enabled.
+    ``is_active`` is checked here even though ``restore_streamlit_session`` does
+    not check it. That asymmetry is deliberate, not an oversight to tidy away:
+    this mirrors the website contract, where a disabled account must not be able
+    to act through a credential minted while it was still enabled.
 
-    ``expires_at`` is never touched, which is what keeps the 12-hour cap
+    ``expires_at`` is never written, which is what keeps the 12-hour cap
     absolute rather than something activity can push indefinitely.
     """
     if not token or not isinstance(token, str):
         return None
 
     at = now or _now()
+    idle_cutoff = at - timedelta(seconds=IDLE_TIMEOUT_S)
     digest = _hash(token, WEBSITE_DOMAIN)
     db = SessionLocal()
     try:
+        updated = db.execute(
+            text(
+                "UPDATE auth_sessions SET last_seen_at = :now "
+                "WHERE token_hash = :h "
+                "AND surface = :s "
+                "AND revoked_at IS NULL "
+                "AND expires_at > :now "
+                "AND last_seen_at > :idle_cutoff "
+                "AND user_id IN (SELECT id FROM users WHERE is_active = 1)"
+            ),
+            {"now": at, "idle_cutoff": idle_cutoff, "h": digest, "s": SURFACE_WEBSITE},
+        )
+        if updated.rowcount != 1:
+            db.rollback()
+            return None
+
+        # Safe to read after the fact: the decision was committed by the UPDATE
+        # above, and a row's owner never changes.
         row = db.execute(
             text(
-                "SELECT s.user_id, s.expires_at, s.last_seen_at, s.revoked_at "
-                "FROM auth_sessions s JOIN users u ON u.id = s.user_id "
-                "WHERE s.token_hash = :h AND s.surface = :s AND u.is_active = 1"
+                "SELECT user_id FROM auth_sessions "
+                "WHERE token_hash = :h AND surface = :s"
             ).columns(**_SESSION_ROW_TYPES),
             {"h": digest, "s": SURFACE_WEBSITE},
         ).first()
-        if row is None:
-            return None
-
-        user_id, expires_at, last_seen_at, revoked_at = row
-        if revoked_at is not None:
-            return None
-        if _as_aware(expires_at) <= at:
-            return None
-        if at - _as_aware(last_seen_at) > timedelta(seconds=IDLE_TIMEOUT_S):
-            return None
-
-        db.execute(
-            text(
-                "UPDATE auth_sessions SET last_seen_at = :now "
-                "WHERE token_hash = :h AND surface = :s"
-            ),
-            {"now": at, "h": digest, "s": SURFACE_WEBSITE},
-        )
         db.commit()
-        return int(user_id)
+        return int(row[0]) if row is not None else None
     except Exception:
         db.rollback()
         raise
