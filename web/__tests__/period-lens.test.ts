@@ -52,6 +52,29 @@ describe("reading a period from the URL", () => {
   it("ignores a partial range", () => {
     expect(periodFromParams(new URLSearchParams("from=2026-08-01"), TODAY).presetId).toBe("30d");
   });
+
+  it("rejects a calendar-invalid date instead of letting it roll over", () => {
+    // `new Date("2026-02-30T00:00:00Z")` silently becomes 2026-03-02. That
+    // substitutes a window the reader never asked for, so this must fall back
+    // to the default rather than honour the rolled-over date.
+    const p = periodFromParams(
+      new URLSearchParams("from=2026-02-30&to=2026-02-30"),
+      TODAY,
+    );
+    expect(p.presetId).toBe("30d");
+    expect(p.from).toBe("2026-07-20");
+    expect(p.to).toBe("2026-08-18");
+  });
+
+  it("still parses a real date that looks similarly extreme", () => {
+    const p = periodFromParams(
+      new URLSearchParams("from=2026-02-28&to=2026-02-28"),
+      TODAY,
+    );
+    expect(p.from).toBe("2026-02-28");
+    expect(p.to).toBe("2026-02-28");
+    expect(p.presetId).toBe("custom");
+  });
 });
 
 describe("writing a period back", () => {

@@ -36,7 +36,13 @@ function toIso(date: Date): string {
 function parseIso(value: string | null): Date | null {
   if (!value || !ISO_DATE.test(value)) return null;
   const parsed = new Date(`${value}T00:00:00Z`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  if (Number.isNaN(parsed.getTime())) return null;
+  // `new Date` silently rolls a calendar-invalid value like 2026-02-30 over to
+  // 2026-03-02 rather than rejecting it. A round-trip through the same ISO
+  // format is the cheapest way to catch that: a valid date always comes back
+  // unchanged, and a rolled-over one never does.
+  if (toIso(parsed) !== value) return null;
+  return parsed;
 }
 
 function shiftDays(from: Date, days: number): Date {
