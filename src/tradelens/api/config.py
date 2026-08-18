@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+from src.tradelens.settings_source import read_setting
+
 
 def service_secrets() -> list:
     """Accepted signing secrets, current first.
@@ -23,6 +25,33 @@ def service_secrets() -> list:
 
 def is_production() -> bool:
     return os.getenv("TL_ENV", "development").lower() == "production"
+
+
+def _production_database_is_remote() -> bool:
+    value = read_setting("DATABASE_URL")
+    return value.startswith(("postgresql://", "postgres://"))
+
+
+def validate_api_runtime() -> None:
+    """Refuse an insecure or ephemeral production API configuration."""
+    if not is_production():
+        return
+    invalid = []
+    secrets = service_secrets()
+    if not secrets or any(len(secret.encode("utf-8")) < 32 for secret in secrets):
+        invalid.append("TL_SERVICE_SECRET")
+    if not _production_database_is_remote():
+        invalid.append("DATABASE_URL")
+    if invalid:
+        raise RuntimeError(
+            "invalid production configuration: " + ", ".join(sorted(set(invalid)))
+        )
+
+
+def validate_worker_runtime() -> None:
+    """The worker must never poll an ephemeral local database in production."""
+    if is_production() and not _production_database_is_remote():
+        raise RuntimeError("invalid production configuration: DATABASE_URL")
 
 
 def r2_config() -> dict:

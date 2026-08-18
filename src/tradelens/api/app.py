@@ -15,12 +15,13 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from src.tradelens.api.config import is_production
+from src.tradelens.api.config import is_production, validate_api_runtime
 from src.tradelens.api.routers import session
 
 
 def create_app() -> FastAPI:
     production = is_production()
+    validate_api_runtime()
     app = FastAPI(
         title="TradeLens API",
         version="0.1.0",

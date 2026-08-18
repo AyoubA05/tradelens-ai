@@ -47,7 +47,8 @@ def two_user_trades(in_memory_db):
     db.close()
 
     trade_a = create_trade(
-        {"asset": "NQ", "trade_date": "2026-07-01", "user_id": user_a.id}
+        {"asset": "NQ", "trade_date": "2026-07-01", "user_id": user_a.id},
+        user_id=user_a.id,
     )
     return user_a, user_b, trade_a
 
@@ -101,7 +102,10 @@ def test_same_owner_can_read_update_and_delete_trade(two_user_trades):
 
 def test_registered_user_does_not_receive_null_owned_legacy_rows(two_user_trades):
     user_a, _, trade_a = two_user_trades
-    create_trade({"asset": "ES", "trade_date": "2026-07-02", "user_id": None})
+    db = trade_service.SessionLocal()
+    db.add(Trade(asset="ES", trade_date="2026-07-02", user_id=None))
+    db.commit()
+    db.close()
 
     assert [trade.id for trade in get_trades(user_id=user_a.id)] == [trade_a.id]
 
@@ -139,10 +143,12 @@ def test_bulk_delete_removes_only_owner_trades_and_preserves_other_dependents(
 ):
     user_a, user_b, trade_a = two_user_trades
     trade_b = create_trade(
-        {"asset": "YM", "trade_date": "2026-07-02", "user_id": user_b.id}
+        {"asset": "YM", "trade_date": "2026-07-02", "user_id": user_b.id},
+        user_id=user_b.id,
     )
     second_trade_a = create_trade(
-        {"asset": "ES", "trade_date": "2026-07-03", "user_id": user_a.id}
+        {"asset": "ES", "trade_date": "2026-07-03", "user_id": user_a.id},
+        user_id=user_a.id,
     )
 
     owner_dependents = _add_trade_dependents(
@@ -173,10 +179,12 @@ def test_bulk_delete_prevents_private_children_attaching_to_reused_trade_id(
 ):
     user_a, user_b, _ = two_user_trades
     existing_trade_b = create_trade(
-        {"asset": "YM", "trade_date": "2026-07-02", "user_id": user_b.id}
+        {"asset": "YM", "trade_date": "2026-07-02", "user_id": user_b.id},
+        user_id=user_b.id,
     )
     private_trade_a = create_trade(
-        {"asset": "ES", "trade_date": "2026-07-03", "user_id": user_a.id}
+        {"asset": "ES", "trade_date": "2026-07-03", "user_id": user_a.id},
+        user_id=user_a.id,
     )
     private_dependents = _add_trade_dependents(
         trade_service.SessionLocal, private_trade_a.id, user_a.id, "alice-reused"
@@ -186,7 +194,8 @@ def test_bulk_delete_prevents_private_children_attaching_to_reused_trade_id(
     assert trade_service.delete_all_trades(user_a.id) == 2
 
     replacement_trade_b = create_trade(
-        {"asset": "RTY", "trade_date": "2026-07-04", "user_id": user_b.id}
+        {"asset": "RTY", "trade_date": "2026-07-04", "user_id": user_b.id},
+        user_id=user_b.id,
     )
     assert replacement_trade_b.id == private_trade_a.id
 

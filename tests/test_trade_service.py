@@ -8,6 +8,11 @@ from src.tradelens.db.models import Base
 from src.tradelens.services.metrics import compute_basic_metrics, compute_equity_curve
 
 
+def _create(data):
+    """Keep legacy unit fixtures explicit about the authenticated owner."""
+    return trade_service.create_trade(data, user_id=data.get("user_id", 1))
+
+
 @pytest.fixture
 def in_memory_db(monkeypatch):
     """Redirect SessionLocal to an in-memory SQLite DB for the duration of a test."""
@@ -20,7 +25,7 @@ def in_memory_db(monkeypatch):
 
 
 def test_create_trade_success(in_memory_db):
-    trade = trade_service.create_trade(
+    trade = _create(
         {
             "asset": "NQ",
             "result": "Win",
@@ -60,21 +65,21 @@ def test_equity_curve_cumulative():
 
 
 def test_create_trade_derives_day_of_week(in_memory_db):
-    t = trade_service.create_trade(
+    t = _create(
         {"asset": "NQ", "result": "Win", "pnl": 1.0, "trade_date": "2026-06-15"}
     )
     assert t.day_of_week == "Monday"
 
 
 def test_create_trade_invalid_date_no_day_of_week(in_memory_db):
-    t = trade_service.create_trade(
+    t = _create(
         {"asset": "NQ", "result": "Win", "pnl": 1.0, "trade_date": "not-a-date"}
     )
     assert t.day_of_week is None
 
 
 def test_create_trade_computes_rr_long(in_memory_db):
-    t = trade_service.create_trade(
+    t = _create(
         {
             "asset": "NQ",
             "result": "Win",
@@ -91,7 +96,7 @@ def test_create_trade_computes_rr_long(in_memory_db):
 
 
 def test_create_trade_zero_risk_rr_none(in_memory_db):
-    t = trade_service.create_trade(
+    t = _create(
         {
             "asset": "NQ",
             "result": "Breakeven",
@@ -107,7 +112,7 @@ def test_create_trade_zero_risk_rr_none(in_memory_db):
 
 
 def test_create_trade_strips_unknown_keys(in_memory_db):
-    t = trade_service.create_trade(
+    t = _create(
         {
             "asset": "NQ",
             "result": "Win",
@@ -129,7 +134,7 @@ _SEED_OWNER = 1
 
 
 def _seed_three(in_memory_db):
-    trade_service.create_trade(
+    _create(
         {
             "user_id": _SEED_OWNER,
             "asset": "NQ",
@@ -140,7 +145,7 @@ def _seed_three(in_memory_db):
             "strategy_used": "ICT OB",
         }
     )
-    trade_service.create_trade(
+    _create(
         {
             "user_id": _SEED_OWNER,
             "asset": "ES",
@@ -151,7 +156,7 @@ def _seed_three(in_memory_db):
             "strategy_used": "FVG",
         }
     )
-    trade_service.create_trade(
+    _create(
         {
             "user_id": _SEED_OWNER,
             "asset": "BTCUSD",
@@ -181,12 +186,10 @@ def test_get_trades_filters_asset_result_session_strategy(in_memory_db):
         r.asset for r in trade_service.get_trades(user_id=_SEED_OWNER, result="Win")
     } == {"NQ", "BTCUSD"}
     assert {
-        r.asset
-        for r in trade_service.get_trades(user_id=_SEED_OWNER, session="London")
+        r.asset for r in trade_service.get_trades(user_id=_SEED_OWNER, session="London")
     } == {"ES"}
     assert {
-        r.asset
-        for r in trade_service.get_trades(user_id=_SEED_OWNER, strategy="ICT")
+        r.asset for r in trade_service.get_trades(user_id=_SEED_OWNER, strategy="ICT")
     } == {
         "NQ",
         "BTCUSD",
@@ -210,27 +213,27 @@ def test_get_trades_orders_recent_first(in_memory_db):
 
 
 def test_get_primary_screenshot_none_for_no_screenshot(in_memory_db):
-    t = trade_service.create_trade(
+    t = _create(
         {"asset": "NQ", "result": "Win", "pnl": 1.0, "trade_date": "2026-06-15"}
     )
-    assert trade_service.get_primary_screenshot(t.id) is None
+    assert trade_service.get_primary_screenshot(t.id, user_id=1) is None
 
 
 def test_get_primary_screenshot_none_id(in_memory_db):
-    assert trade_service.get_primary_screenshot(None) is None
+    assert trade_service.get_primary_screenshot(None, user_id=1) is None
 
 
 def test_get_primary_screenshot_returns_path(in_memory_db):
     from src.tradelens.db.models import Screenshot
 
-    t = trade_service.create_trade(
+    t = _create(
         {"asset": "NQ", "result": "Win", "pnl": 1.0, "trade_date": "2026-06-15"}
     )
     db = trade_service.SessionLocal()
     db.add(Screenshot(trade_id=t.id, file_path="/tmp/shot.png"))
     db.commit()
     db.close()
-    assert trade_service.get_primary_screenshot(t.id) == "/tmp/shot.png"
+    assert trade_service.get_primary_screenshot(t.id, user_id=1) == "/tmp/shot.png"
 
 
 def test_prices_store_and_retrieve_without_precision_loss(in_memory_db):
@@ -247,7 +250,8 @@ def test_prices_store_and_retrieve_without_precision_loss(in_memory_db):
             "tp_price": 3.5125,
             "exit_price": 3.4995,
             "user_id": 1,
-        }
+        },
+        user_id=1,
     )
     row = get_trade(trade.id, user_id=1)
     assert row.entry_price == 3.496
@@ -268,7 +272,8 @@ def test_trade_process_notes_stores_and_retrieves(in_memory_db):
             "result": "Win",
             "trade_process_notes": note,
             "user_id": 1,
-        }
+        },
+        user_id=1,
     )
     row = get_trade(trade.id, user_id=1)
     assert row.trade_process_notes == note
@@ -287,7 +292,8 @@ def test_get_trade_relationships_usable_after_session_closes(in_memory_db):
             "asset": "MNQ",
             "result": "Win",
             "user_id": 1,
-        }
+        },
+        user_id=1,
     )
     db = trade_service.SessionLocal()  # the fixture's monkeypatched sessionmaker
     db.add(AIAnalysis(trade_id=trade.id, bias="bullish", trade_quality=7))
@@ -306,7 +312,7 @@ def test_create_trade_rejects_outcome_contradicting_pnl(in_memory_db):
     from src.tradelens.services.trade_validation import OutcomeMismatch
 
     with pytest.raises(OutcomeMismatch):
-        trade_service.create_trade(
+        _create(
             {
                 "asset": "NQ",
                 "result": "Win",
@@ -317,16 +323,12 @@ def test_create_trade_rejects_outcome_contradicting_pnl(in_memory_db):
 
 
 def test_create_trade_derives_result_from_pnl_when_absent(in_memory_db):
-    trade = trade_service.create_trade(
-        {"asset": "NQ", "pnl": -120.0, "trade_date": "2026-07-18"}
-    )
+    trade = _create({"asset": "NQ", "pnl": -120.0, "trade_date": "2026-07-18"})
     assert trade.result == "Loss"
 
 
 def test_create_trade_keeps_manual_result_without_pnl(in_memory_db):
-    trade = trade_service.create_trade(
-        {"asset": "NQ", "result": "Breakeven", "trade_date": "2026-07-18"}
-    )
+    trade = _create({"asset": "NQ", "result": "Breakeven", "trade_date": "2026-07-18"})
     assert trade.result == "Breakeven"
     assert trade.pnl is None
 
@@ -335,7 +337,7 @@ def test_update_trade_rejects_contradiction_against_stored_pnl(in_memory_db):
     """Editing only the label must be validated against the row's stored P&L."""
     from src.tradelens.services.trade_validation import OutcomeMismatch
 
-    trade = trade_service.create_trade(
+    trade = _create(
         {
             "asset": "NQ",
             "result": "Loss",
@@ -349,7 +351,7 @@ def test_update_trade_rejects_contradiction_against_stored_pnl(in_memory_db):
 
 
 def test_update_trade_relabels_when_pnl_flips_sign(in_memory_db):
-    trade = trade_service.create_trade(
+    trade = _create(
         {
             "asset": "NQ",
             "result": "Loss",

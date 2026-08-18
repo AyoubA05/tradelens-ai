@@ -4,6 +4,7 @@ The TypeScript suite asserts it reproduces the expectations file; this asserts
 the expectations file still matches the Python implementation that produced it.
 Together they fail the build if either side drifts.
 """
+
 import json
 import pathlib
 import subprocess
@@ -51,7 +52,9 @@ def test_the_expectations_file_is_regenerable():
     before = EXPECTATIONS_PATH.read_text(encoding="utf-8")
     subprocess.run(
         [sys.executable, "scripts/generate_signature_expectations.py"],
-        cwd=ROOT, check=True, capture_output=True,
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
     )
     assert EXPECTATIONS_PATH.read_text(encoding="utf-8") == before
 
@@ -62,9 +65,16 @@ def test_method_case_does_not_change_the_message():
     )
 
 
-def test_reordering_the_query_does_not_change_the_signature():
-    """The property canonicalisation exists to provide."""
-    assert canonical_query("b=2&a=1") == canonical_query("a=1&b=2")
+def test_reordering_the_query_changes_the_signature():
+    """Parameter order is observable for duplicate keys and must be bound.
+
+    Treating every reordering as equivalent let a captured signature for
+    ``sort=created&sort=name`` authorize the reverse order even though common
+    query parsers expose that order to handlers.
+    """
+    assert canonical_query("sort=created&sort=name") != canonical_query(
+        "sort=name&sort=created"
+    )
 
 
 def test_a_changed_query_value_changes_the_signature():
@@ -82,12 +92,12 @@ def test_sub_delims_are_escaped():
     assert canonical_query("q=a'b") == "q=a%27b"
 
 
-def test_a_leading_question_mark_is_not_part_of_the_query():
-    """URLSearchParams strips it and parse_qsl does not.
+def test_a_leading_question_mark_is_literal_query_data():
+    """The verifier receives a raw query without its URL delimiter.
 
-    Found by the differential corpus, not by inspection. Without this the signer
-    and the verifier disagreed on every query passed with its delimiter
-    attached, which surfaces as an unexplainable 401 rather than an obvious bug.
+    A leading ``?`` is therefore part of the first parameter name. Collapsing
+    it with the delimiter-free form lets one signature authorize two query
+    strings that Starlette exposes differently to a handler.
     """
-    assert canonical_query("?a=1&b=2") == canonical_query("a=1&b=2")
-    assert canonical_query("?") == ""
+    assert canonical_query("?a=1&b=2") != canonical_query("a=1&b=2")
+    assert canonical_query("?") == "%3F="

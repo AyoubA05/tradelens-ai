@@ -14,6 +14,7 @@ import logging
 import time
 
 from src.tradelens.api.jobs import run_once
+from src.tradelens.api.config import validate_worker_runtime
 
 logging.basicConfig(level=logging.INFO)
 _log = logging.getLogger(__name__)
@@ -24,13 +25,14 @@ IDLE_SLEEP_SECONDS = 2.0
 
 
 def main() -> None:
+    validate_worker_runtime()
     _log.info("worker started with %d handler(s)", len(HANDLERS))
     while True:
         try:
             if not run_once(HANDLERS):
                 time.sleep(IDLE_SLEEP_SECONDS)
-        except Exception:  # noqa: BLE001 — a worker must outlive one bad job
-            _log.exception("worker loop error")
+        except Exception as exc:  # noqa: BLE001 — a worker must outlive one bad job
+            _log.error("worker loop error (%s)", type(exc).__name__)
             time.sleep(IDLE_SLEEP_SECONDS)
 
 

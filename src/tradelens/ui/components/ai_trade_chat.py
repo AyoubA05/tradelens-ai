@@ -101,7 +101,7 @@ def _render_coach_notes(st, analysis) -> None:
             )
 
 
-def render_ask_ai(trade, strategy_profile=None) -> None:
+def render_ask_ai(trade, strategy_profile=None, *, user_id: int) -> None:
     """Render the Ask-AI panel for the selected trade (or guidance if none)."""
     import streamlit as st
 
@@ -125,7 +125,7 @@ def render_ask_ai(trade, strategy_profile=None) -> None:
     try:
         from src.tradelens.services.ai_analysis_service import get_analysis_for_trade
 
-        analysis = get_analysis_for_trade(trade.id)
+        analysis = get_analysis_for_trade(trade.id, user_id=user_id)
     except Exception:  # noqa: BLE001
         analysis = None
     _render_coach_notes(st, analysis)

@@ -13,7 +13,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import src.tradelens.services.screenshot_service as screenshot_service
-from src.tradelens.db.models import Base
+from src.tradelens.db.models import Base, Trade
 
 
 class _FakeUpload:
@@ -34,6 +34,10 @@ def isolated(monkeypatch, tmp_path):
     InMemorySession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr(screenshot_service, "SessionLocal", InMemorySession)
     monkeypatch.setattr(screenshot_service, "SCREENSHOTS_DIR", tmp_path / "shots")
+    db = InMemorySession()
+    db.add_all([Trade(id=trade_id, user_id=1, asset="NQ") for trade_id in (1, 2, 3)])
+    db.commit()
+    db.close()
     yield
     Base.metadata.drop_all(engine)
 
@@ -49,7 +53,9 @@ def _image_bytes(fmt: str) -> bytes:
     [("chart.png", "PNG"), ("chart.jpg", "JPEG"), ("chart.webp", "WEBP")],
 )
 def test_save_valid_image_formats(isolated, name, fmt):
-    rec = screenshot_service.save_screenshot(1, _FakeUpload(name, _image_bytes(fmt)))
+    rec = screenshot_service.save_screenshot(
+        1, _FakeUpload(name, _image_bytes(fmt)), user_id=1
+    )
 
     assert rec.id is not None
     assert rec.trade_id == 1
@@ -61,7 +67,7 @@ def test_save_valid_image_formats(isolated, name, fmt):
 
 def test_save_oversized_image_still_persists(isolated):
     big = b"\x00" * (11 * 1024 * 1024)  # 11 MB, not a decodable image
-    rec = screenshot_service.save_screenshot(2, _FakeUpload("big.png", big))
+    rec = screenshot_service.save_screenshot(2, _FakeUpload("big.png", big), user_id=1)
 
     from pathlib import Path
 
@@ -72,7 +78,9 @@ def test_save_oversized_image_still_persists(isolated):
 
 
 def test_save_corrupt_file_persists_with_null_dims(isolated):
-    rec = screenshot_service.save_screenshot(3, _FakeUpload("bad.png", b"not an image"))
+    rec = screenshot_service.save_screenshot(
+        3, _FakeUpload("bad.png", b"not an image"), user_id=1
+    )
 
     from pathlib import Path
 

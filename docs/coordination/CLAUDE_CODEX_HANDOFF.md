@@ -5088,3 +5088,203 @@ document alone would mislead someone re-reading it.
     `downgrade()`, verified upgrade → downgrade → upgrade on SQLite only. Assess rollback
     safety against Postgres, and whether the `ai_jobs` uniqueness constraint is correctly
     per-owner rather than global.
+
+## Phase 0 independent Codex security/engineering review — 2026-08-18
+
+**Review target:** handoff `7eedb52`, independently compared with the website/auth baseline
+`c69d84b`. **Worktree:** `worktree-phase0-foundations`. Phase 1 was not started. No commit,
+push, deployment, or unrelated `.claude/settings.json` change was made.
+
+### Clearance verdict
+
+**Phase 0 is cleared for Phase 1 at the code-review level after the fixes below.** This is
+not a deployment clearance: the container and live PostgreSQL behavior remain unverified in
+this environment. Phase 1 must preserve the owner-explicit service signatures and must not
+persist or display an R2 quarantine key.
+
+### Findings, ordered by severity
+
+#### Critical
+
+None confirmed.
+
+#### High
+
+1. **Raw browser credential crossed the Next.js → FastAPI boundary.**
+   `web/lib/api/client.ts` forwarded the 12-hour HttpOnly website bearer as
+   `X-TL-Session`. A FastAPI/infrastructure trace or header-log compromise would therefore
+   yield a credential replayable directly against the website; HMAC integrity and current
+   no-log conventions do not provide confidentiality. Fixed by forwarding only the existing
+   `WEBSITE_DOMAIN`-separated database hash as `X-TL-Session-Handle`. FastAPI still performs
+   its own atomic database revalidation of revocation, absolute/idle expiry, surface, and
+   account activity. The raw header is now rejected, and a web regression proves the raw
+   value is absent from the complete fetch init.
+
+2. **The Phase 0 service boundary still admitted cross-owner object access.**
+   `trade_service.create_trade` trusted a payload `user_id` and permitted NULL; the entire
+   AI-analysis persistence service read/updated rows by ID without owner predicates;
+   screenshot persistence accepted arbitrary trade IDs; primary screenshot lookup was
+   unscoped; correction writes trusted cross-owner trade/analysis IDs; and metrics timestamp
+   lookup defaulted to user 1. These were not reachable through Phase 0's sole `whoami`
+   route, but they made the promised "thin router" boundary unsafe for the first Phase 1
+   caller. Fixed at the service layer: authenticated owners are mandatory, payload owners
+   are overwritten, every ID fetch carries/derives an ownership predicate, and active
+   Streamlit callers were updated only as needed to keep existing behavior. New adversarial
+   tests cover each cross-user path.
+
+#### Medium
+
+1. **The HMAC canonicalizer authorized observably different queries.** Both languages
+   sorted query pairs, so a signature for `sort=created&sort=name` authorized the reversed
+   duplicate order. They also treated a leading `?` as a removable delimiter even though
+   the verifier receives `request.url.query`, where a leading `?` is literal first-key data;
+   `/path??admin=true` collided with `/path?admin=true`. Both forms were reproduced through
+   the real API and then fixed by preserving pair order and treating the leading character
+   literally. The regenerated 400-case differential corpus now covers malformed escapes,
+   invalid/truncated UTF-8, Unicode, empty values, `+`/`%20`, duplicate order, and the
+   leading-`?` case. CI now regenerates this corpus; previously it could silently go stale.
+
+2. **R2's claimed validation boundary was not connected to storage.** Presigned PUTs wrote
+   directly into the same final `u/...` namespace that downloads trusted, while
+   `validate_and_normalise` was an isolated helper. A caller could persist or display the
+   original polyglot/metadata-bearing bytes, the advertised 10 MB cap was advisory, a row
+   pointing at another owner's key could be signed, and no R2 deletion contract existed.
+   Fixed with a non-downloadable `quarantine/u/...` namespace and server-side
+   `finalize_upload`: check owned trade/key prefix, enforce `ContentLength` and a capped read,
+   decode/re-encode a fresh PNG, write a new owner/trade UUID key with `private, no-store`,
+   and discard quarantine on success/content rejection. Download signing accepts only that
+   final key shape. Owner-key-validated deletion and streaming-body closure were added.
+   Cloudflare R2 does not support presigned POST, so a `content-length-range` policy is not
+   available; server finalization is the actual enforcement point.
+
+3. **The public API buffered an unlimited body before applying its 1 MB limit.**
+   `verified_body` called `request.body()` and checked the size afterward, letting an
+   unauthenticated client consume large per-request memory before HMAC rejection. A chunked
+   ASGI regression proved the third chunk was read after the cap had already been exceeded.
+   The dependency now rejects oversized declared lengths early and enforces the cap while
+   streaming, caches only the verified bytes for downstream use, and stops reading at the
+   first over-limit chunk.
+
+4. **Production could boot with an ephemeral/weak security configuration.** Missing
+   `TL_SERVICE_SECRET` or `DATABASE_URL` allowed the API to construct under production and
+   inherit the local SQLite default; `/health` still reported OK. The API now refuses
+   production startup unless every accepted service secret is at least 32 bytes and
+   `DATABASE_URL` is PostgreSQL. The worker independently refuses a production non-Postgres
+   database. Error text names variables only, never values.
+
+5. **The OpenAPI drift gate protected an untyped contract.** `whoami -> dict` generated only
+   `{[key:string]: unknown}` and no response component, so a green drift check did not
+   describe the Pydantic boundary. `WhoAmI(user_id: int)` now produces a concrete component
+   and generated TypeScript type. Regeneration was run twice with an identical artifact
+   digest; CI regenerates schema, client, signature expectations, and query corpus before
+   diffing.
+
+6. **The production image dependency was behind current security fixes.** Python 3.11
+   production resolved Pillow 11.3.0, which current advisories list below the patched 12.3.0
+   line. Production/CI now resolve Pillow 12.3.0; Python 3.9 local compatibility remains on
+   11.3.0 because Pillow 12 requires Python 3.10. CI now installs `pip-audit` and audits the
+   API runtime requirements. The reviewed PNG/JPEG/WebP path does not invoke the vulnerable
+   PDF/font/JPEG2000/filter APIs, but a production native dependency should not remain on a
+   known-vulnerable line merely because current call paths reduce reachability.
+
+#### Low
+
+1. `Image.DecompressionBombError` was not among the caught Pillow exceptions, so a crafted
+   oversized IHDR escaped as a 500. It now becomes the same stable `ImageRejected` refusal.
+2. AI job failures used `logger.exception`, exposing provider exception messages and
+   tracebacks despite storing a generic DB error. Logs now contain job ID/kind and exception
+   class only.
+3. R2 `StreamingBody` objects were never closed after capped reads, risking connection-pool
+   exhaustion under repeated finalization. They are closed in `finally`, with a regression.
+
+#### Hardening / accepted limitations
+
+1. HMAC freshness is **not** nonce-based replay prevention. An exact request is accepted
+   more than once inside the ±60-second clock window; a regression documents this. The only
+   current authenticated route is GET. Every future mutation must be idempotent (the AI job
+   enqueue already is) or add a durable nonce store. Do not claim "replayed signatures are
+   rejected" without this qualification.
+2. Two true thread races against the SQLite test database now prove one row under concurrent
+   `(user_id, idempotency_key)` enqueue and one winner under concurrent job claim. A live
+   PostgreSQL race could not run. A crash after Anthropic succeeds but before `complete()`
+   leaves a job `running`; there is no automatic duplicate spend today, but any future
+   reaper/retry design needs provider idempotency or result recovery before re-running paid
+   work. `_finish` should also gain a claim/attempt token before retries exist.
+3. `corrections_scope` passed normal, exceptional, nested, and FastAPI sync/threadpool tests.
+   A plain background thread does not inherit it and fails closed; the separate AI worker
+   scopes each job explicitly. Unset context raises and never selects NULL/shared data.
+4. Strict serialization passed NaN, ±Infinity, numpy scalars, pandas nulls/frames/series,
+   Decimal, aware datetime/date, nested containers, and unknown-type refusal. Undefined
+   financial metrics retain a named state through `finite_or_state` rather than becoming 0.
+5. Migrations have one head and the full SQLite chain plus Phase 0
+   upgrade → downgrade-to-`x4y5z6a7b8c9` → upgrade round-trip passed. The live disposable
+   PostgreSQL migration suite was skipped because `TRADELENS_PG_TEST_URL` is absent. The
+   `ai_jobs.status`/`users.app_surface` value sets are application-enforced rather than CHECK
+   constrained; add DB checks in a future migration before external writers exist.
+6. The R2 adapter is secure only if later routes persist **only** `finalize_upload()`'s final
+   key. Phase 4 must wire finalization, screenshot-row persistence, AI reads, and account/
+   trade deletion as one reviewed flow. The legacy local-disk deletion helpers do not delete
+   R2 objects. Configure exact-origin bucket CORS for direct PUT/GET; never `*`.
+7. Docker is unavailable, so `Dockerfile.api` was not built or started. The default
+   Turbopack build also cannot bind its internal sandbox port here; the webpack production
+   build passed. CI/Vercel must run the normal Turbopack build before deployment.
+8. Registry-backed `npm audit` could not reach the npm advisory endpoint from this sandbox.
+   CI already has `npm audit --omit=dev --audit-level=high`; the new Python audit is now
+   parallel protection. Current installed Next 16.3.0 and Sharp 0.35.3 are beyond the known
+   affected ranges reviewed manually, but CI remains authoritative.
+9. Vercel dashboard state cannot be proven from Git. Production and Preview must use
+   separate Neon branches/API/service secrets. Production DB/API secrets must never be
+   available to preview code or named `NEXT_PUBLIC_*`. The deployment guide now says this
+   explicitly and requires Neon's direct/unpooled connection for Alembic, with the pooled
+   endpoint reserved for runtime.
+
+### Architectural verdict: `X-TL-Session`
+
+Forwarding the raw 12-hour browser credential **materially widened the blast radius** for a
+header log, trace export, or infrastructure observer: it turned downstream visibility into
+direct website account takeover. HMAC and no-log controls did not compensate because neither
+encrypts headers, and conventions do not constrain infrastructure instrumentation.
+
+A simple `{sub,aud,exp}` internal credential would reduce that exposure but would also make
+FastAPI trust Next.js's asserted subject, weakening the independent database-backed Lock 2.
+If it carried a session identifier/handle and FastAPI still revalidated the row, the extra
+token expiry would largely duplicate the per-request HMAC timestamp. The reviewed compromise
+is therefore preferable: forward the domain-separated database hash under the HMAC. It is
+not replayable as the website cookie, preserves independent revocation/expiry/account checks,
+requires no new signing format/key/audience parser, and was cheap to change before routes
+proliferated. FastAPI compromise still exposes DB session hashes and the service secret by
+definition; this change is aimed at the narrower and common logging/tracing boundary.
+
+### Verification actually run by Codex
+
+| Gate | Independent result |
+|---|---|
+| Full Python suite | **2,560 passed, 7 skipped** in 200.44s; one later documentation test for exact in-window replay passed in the focused 32-test security file |
+| Services coverage gate | **89.76%**, **2,560 passed, 7 skipped**, threshold 80% |
+| Web Vitest | **810 passed, 22 files** |
+| Focused security/ownership/storage/session/job/image/OpenAPI tests | all passed; includes 2 real thread races on SQLite |
+| ESLint | clean |
+| TypeScript `tsc --noEmit` | clean |
+| Ruff `src/ scripts/` | clean |
+| Black | all changed Python files clean; repository-wide check still identifies three pre-existing test-only formatting deviations outside this review diff |
+| Generated contracts | OpenAPI/types/signature/query corpus regenerated twice; digest stable |
+| Alembic | one head `z6a7b8c9d0e1`; full SQLite upgrade and Phase 0 downgrade/upgrade passed |
+| Dependency integrity | `pip check` clean; npm registry audit unavailable; CI audit gates present |
+| Next.js production build | webpack build passed; default Turbopack blocked by sandbox port restriction |
+| Docker / live PostgreSQL | unavailable; explicitly unverified |
+
+### Instructions for Claude before Phase 1
+
+- Keep every service owner keyword mandatory. Never restore NULL-owner compatibility or
+  accept `user_id` from a request body/query/header as authority.
+- All Next.js → API calls go through `callApi`; never reintroduce raw `X-TL-Session`.
+- Treat exact HMAC replay inside 60 seconds as real. Add idempotency to mutations.
+- Do not create a screenshot row from a quarantine key. Finalize, persist the returned final
+  key, and ensure only final bytes reach Anthropic or a download presign.
+- Add a disposable Neon/Postgres CI job for migrations and concurrent job claim/enqueue
+  before relying on worker throughput or retry behavior.
+- Build and smoke-test `Dockerfile.api` (`/health` plus authenticated `whoami`) before the
+  first Render deployment. Use the direct Neon URL only for Alembic and the pooled URL at
+  runtime.
+- Do not start Phase 1 until the normal Vercel/Turbopack CI build and new Python dependency
+  audit pass in a network-enabled runner.

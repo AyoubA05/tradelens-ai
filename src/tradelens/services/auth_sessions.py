@@ -247,6 +247,18 @@ def revoke_all_for_user(user_id: int, now: Optional[datetime] = None) -> int:
         db.close()
 
 
+def website_session_handle(token: str) -> str:
+    """Return the database lookup handle for a raw website credential.
+
+    Next.js sends this value to FastAPI instead of the HttpOnly cookie itself.
+    It is sufficient for the backend's database revalidation but cannot be
+    replayed as a browser cookie on the website.
+    """
+    if not token or not isinstance(token, str):
+        raise ValueError("a website session handle requires a raw token")
+    return _hash(token, WEBSITE_DOMAIN)
+
+
 def restore_website_session(token, now: Optional[datetime] = None) -> Optional[int]:
     """Resolve a WEBSITE session credential to a user id, sliding the idle window.
 
@@ -291,10 +303,29 @@ def restore_website_session(token, now: Optional[datetime] = None) -> Optional[i
     """
     if not token or not isinstance(token, str):
         return None
+    return _restore_website_session_digest(website_session_handle(token), now=now)
+
+
+def restore_website_session_handle(
+    handle, now: Optional[datetime] = None
+) -> Optional[int]:
+    """Revalidate a non-browser-replayable website session lookup handle."""
+    if (
+        not isinstance(handle, str)
+        or len(handle) != 64
+        or any(char not in "0123456789abcdef" for char in handle)
+    ):
+        return None
+    return _restore_website_session_digest(handle, now=now)
+
+
+def _restore_website_session_digest(
+    digest: str, now: Optional[datetime] = None
+) -> Optional[int]:
+    """Atomic website-session restoration for an already-derived digest."""
 
     at = now or _now()
     idle_cutoff = at - timedelta(seconds=IDLE_TIMEOUT_S)
-    digest = _hash(token, WEBSITE_DOMAIN)
     db = SessionLocal()
     try:
         updated = db.execute(

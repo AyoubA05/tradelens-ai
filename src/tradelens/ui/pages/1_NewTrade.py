@@ -841,10 +841,10 @@ def _soft_warnings() -> list:
 
 
 def _persist(data: dict) -> None:
-    trade = create_trade(data)
+    trade = create_trade(data, user_id=uid)
     if screenshot_file is not None:
         try:
-            save_screenshot(trade.id, screenshot_file)
+            save_screenshot(trade.id, screenshot_file, user_id=uid)
         except Exception:  # noqa: BLE001 — screenshot is best-effort
             st.warning(
                 "Trade saved. The screenshot didn't upload — "
@@ -852,12 +852,12 @@ def _persist(data: dict) -> None:
             )
     if (screenshot_url or "").strip():
         try:
-            save_screenshot_url(trade.id, screenshot_url.strip())
+            save_screenshot_url(trade.id, screenshot_url.strip(), user_id=uid)
         except Exception:  # noqa: BLE001
             pass
     # Persist any staged AI screenshot analysis to the now-saved trade so the
     # Journal shows it without paying for a second vision call.
-    persist_analysis_for_trade(trade.id)
+    persist_analysis_for_trade(trade.id, user_id=uid)
     st.session_state["just_saved_trade_id"] = trade.id
 
 

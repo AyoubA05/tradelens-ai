@@ -13,7 +13,7 @@
  },
  {
   "query": "b=2&a=1",
-  "canonical": "a=1&b=2"
+  "canonical": "b=2&a=1"
  },
  {
   "query": "a=1&a=2",
@@ -21,7 +21,7 @@
  },
  {
   "query": "a=2&a=1",
-  "canonical": "a=1&a=2"
+  "canonical": "a=2&a=1"
  },
  {
   "query": "debug",
@@ -89,7 +89,7 @@
  },
  {
   "query": "z=&y=",
-  "canonical": "y=&z="
+  "canonical": "z=&y="
  },
  {
   "query": "k=v&k=v",
@@ -121,15 +121,15 @@
  },
  {
   "query": "?a=1",
-  "canonical": "a=1"
+  "canonical": "%3Fa=1"
  },
  {
   "query": "?a=1&b=2",
-  "canonical": "a=1&b=2"
+  "canonical": "%3Fa=1&b=2"
  },
  {
   "query": "?",
-  "canonical": ""
+  "canonical": "%3F="
  },
  {
   "query": "x=%zz",
@@ -181,11 +181,11 @@
  },
  {
   "query": "/=B _&N[/.>\t=&JF&nb\\I4=v",
-  "canonical": "%2F=B%20_&JF=&N%5B%2F.%3E%09=&nb%5CI4=v"
+  "canonical": "%2F=B%20_&N%5B%2F.%3E%09=&JF=&nb%5CI4=v"
  },
  {
   "query": "<,=/08&aD[BdD&Q=!|*e&?m{`\t=7C\\z\n🙂W",
-  "canonical": "%3C%2C=%2F08&%3Fm%7B%60%09=7C%5Cz%0A%F0%9F%99%82W&Q=%21%7C%2Ae&aD%5BBdD="
+  "canonical": "%3C%2C=%2F08&aD%5BBdD=&Q=%21%7C%2Ae&%3Fm%7B%60%09=7C%5Cz%0A%F0%9F%99%82W"
  },
  {
   "query": "cUiiG)=*éY`dj~",
@@ -197,7 +197,7 @@
  },
  {
   "query": "M=A>8.6-Pv&?x=,0|o,&Z\\=Pc&X<582X=xC>~",
-  "canonical": "%3Fx=%2C0%7Co%2C&M=A%3E8.6-Pv&X%3C582X=xC%3E~&Z%5C=Pc"
+  "canonical": "M=A%3E8.6-Pv&%3Fx=%2C0%7Co%2C&Z%5C=Pc&X%3C582X=xC%3E~"
  },
  {
   "query": "NJN\\=U\tz*\\",
@@ -205,11 +205,11 @@
  },
  {
   "query": "j8=é5o&9=dN~b",
-  "canonical": "9=dN~b&j8=%C3%A95o"
+  "canonical": "j8=%C3%A95o&9=dN~b"
  },
  {
   "query": "EUR9yF=4&E1Gj1=}rp'LN&\\%Wi=L_\n]Bj&mW[2x=sXdLgK",
-  "canonical": "%5C%25Wi=L_%0A%5DBj&E1Gj1=%7Drp%27LN&EUR9yF=4&mW%5B2x=sXdLgK"
+  "canonical": "EUR9yF=4&E1Gj1=%7Drp%27LN&%5C%25Wi=L_%0A%5DBj&mW%5B2x=sXdLgK"
  },
  {
   "query": ")Kgna=a*&{?g4 =`q\"I)ui",
@@ -225,7 +225,7 @@
  },
  {
   "query": "TmW_sx=>^Ys&\"Zw>Zu=U=:{H&é&j\"F &Fj=Rn0ca",
-  "canonical": "%22Zw%3EZu=U%3D%3A%7BH&%C3%A9=&Fj=Rn0ca&TmW_sx=%3E%5EYs&j%22F%20="
+  "canonical": "TmW_sx=%3E%5EYs&%22Zw%3EZu=U%3D%3A%7BH&%C3%A9=&j%22F%20=&Fj=Rn0ca"
  },
  {
   "query": "@ZfS=._A4e&me",
@@ -233,11 +233,11 @@
  },
  {
   "query": "`l\"QM=q20&,'=6=8|1Z&pS=l;nS",
-  "canonical": "%2C%27=6%3D8%7C1Z&%60l%22QM=q20&pS=l%3BnS"
+  "canonical": "%60l%22QM=q20&%2C%27=6%3D8%7C1Z&pS=l%3BnS"
  },
  {
   "query": "C8Bl=,[<Jb.n#&>S:x)=&Sh=a1{ét`&&",
-  "canonical": "%3ES%3Ax%29=&C8Bl=%2C%5B%3CJb.n%23&Sh=a1%7B%C3%A9t%60"
+  "canonical": "C8Bl=%2C%5B%3CJb.n%23&%3ES%3Ax%29=&Sh=a1%7B%C3%A9t%60"
  },
  {
   "query": "]{=F(tsqéc*&]53~6]=8w0中 &xXa$",
@@ -245,23 +245,23 @@
  },
  {
   "query": "\n=h&Mlgo中=&6$#k=~",
-  "canonical": "%0A=h&6%24%23k=~&Mlgo%E4%B8%AD="
+  "canonical": "%0A=h&Mlgo%E4%B8%AD=&6%24%23k=~"
  },
  {
   "query": ";2!=cw':w1&#7{Nu=&9Z=4g`P4",
-  "canonical": "%237%7BNu=&%3B2%21=cw%27%3Aw1&9Z=4g%60P4"
+  "canonical": "%3B2%21=cw%27%3Aw1&%237%7BNu=&9Z=4g%60P4"
  },
  {
   "query": "x|?L&GUZ0=&S",
-  "canonical": "GUZ0=&S=&x%7C%3FL="
+  "canonical": "x%7C%3FL=&GUZ0=&S="
  },
  {
   "query": "19t`=o&yb=|🙂&/中^tC=🙂D&*xc%b=Sh\"",
-  "canonical": "%2Axc%25b=Sh%22&%2F%E4%B8%AD%5EtC=%F0%9F%99%82D&19t%60=o&yb=%7C%F0%9F%99%82"
+  "canonical": "19t%60=o&yb=%7C%F0%9F%99%82&%2F%E4%B8%AD%5EtC=%F0%9F%99%82D&%2Axc%25b=Sh%22"
  },
  {
   "query": "|P]%&M(z=D\tvA&8rEPp\"=中&cVL7=iSéb[",
-  "canonical": "%7CP%5D%25=&8rEPp%22=%E4%B8%AD&M%28z=D%09vA&cVL7=iS%C3%A9b%5B"
+  "canonical": "%7CP%5D%25=&M%28z=D%09vA&8rEPp%22=%E4%B8%AD&cVL7=iS%C3%A9b%5B"
  },
  {
   "query": "\nN🙂4K=LkQS&]{",
@@ -269,11 +269,11 @@
  },
  {
   "query": "}AD&@=n%3",
-  "canonical": "%40=n%253&%7DAD="
+  "canonical": "%7DAD=&%40=n%253"
  },
  {
   "query": "%'\"h=6HM&fS$}=pd&XbT +I=z6",
-  "canonical": "%25%27%22h=6HM&XbT%20%20I=z6&fS%24%7D=pd"
+  "canonical": "%25%27%22h=6HM&fS%24%7D=pd&XbT%20%20I=z6"
  },
  {
   "query": "DEI|(o",
@@ -285,15 +285,15 @@
  },
  {
   "query": "8j==s=Wj7'a4c&%🙂c6_{=7$*I0&",
-  "canonical": "%25%F0%9F%99%82c6_%7B=7%24%2AI0&8j=%3Ds%3DWj7%27a4c"
+  "canonical": "8j=%3Ds%3DWj7%27a4c&%25%F0%9F%99%82c6_%7B=7%24%2AI0"
  },
  {
   "query": "P,?A=K&=x'=(d'7rV&i0ipPm",
-  "canonical": "=x%27%3D%28d%277rV&P%2C%3FA=K&i0ipPm="
+  "canonical": "P%2C%3FA=K&=x%27%3D%28d%277rV&i0ipPm="
  },
  {
   "query": "az=ujqm&!\t%#y=%O*X&dPIa=-+37",
-  "canonical": "%21%09%25%23y=%25O%2AX&az=ujqm&dPIa=-%2037"
+  "canonical": "az=ujqm&%21%09%25%23y=%25O%2AX&dPIa=-%2037"
  },
  {
   "query": "\tt\"Z=H(",
@@ -301,7 +301,7 @@
  },
  {
   "query": "|A6=*I&U6wYm\t=&'",
-  "canonical": "%27=&%7CA6=%2AI&U6wYm%09="
+  "canonical": "%7CA6=%2AI&U6wYm%09=&%27="
  },
  {
   "query": "x6nsl=Fl;",
@@ -309,11 +309,11 @@
  },
  {
   "query": "gCCx=RE&';=>F\n",
-  "canonical": "%27%3B=%3EF%0A&gCCx=RE"
+  "canonical": "gCCx=RE&%27%3B=%3EF%0A"
  },
  {
   "query": "6Kq].=-8AczC&c=é%]oU&B=&P{!<Fi=G",
-  "canonical": "6Kq%5D.=-8AczC&B=&P%7B%21%3CFi=G&c=%C3%A9%25%5DoU"
+  "canonical": "6Kq%5D.=-8AczC&c=%C3%A9%25%5DoU&B=&P%7B%21%3CFi=G"
  },
  {
   "query": "}LCT",
@@ -321,19 +321,19 @@
  },
  {
   "query": "-L7O-F=3P`@&Cp-=NSx~U&(=$;;~中",
-  "canonical": "%28=%24%3B%3B~%E4%B8%AD&-L7O-F=3P%60%40&Cp-=NSx~U"
+  "canonical": "-L7O-F=3P%60%40&Cp-=NSx~U&%28=%24%3B%3B~%E4%B8%AD"
  },
  {
   "query": "j=d\n{$HW'&,wwU]=éo0,~+",
-  "canonical": "%2CwwU%5D=%C3%A9o0%2C~%20&j=d%0A%7B%24HW%27"
+  "canonical": "j=d%0A%7B%24HW%27&%2CwwU%5D=%C3%A9o0%2C~%20"
  },
  {
   "query": "g/i=P中=jr\t&Bn|![=",
-  "canonical": "Bn%7C%21%5B=&g%2Fi=P%E4%B8%AD%3Djr%09"
+  "canonical": "g%2Fi=P%E4%B8%AD%3Djr%09&Bn%7C%21%5B="
  },
  {
   "query": "p=j\\t_&VjV",
-  "canonical": "VjV=&p=j%5Ct_"
+  "canonical": "p=j%5Ct_&VjV="
  },
  {
   "query": "J%(me\t",
@@ -345,7 +345,7 @@
  },
  {
   "query": "APTo)4=\n&{&e=",
-  "canonical": "%7B=&APTo%294=%0A&e="
+  "canonical": "APTo%294=%0A&%7B=&e="
  },
  {
   "query": "f|=tEKs>AK",
@@ -353,23 +353,23 @@
  },
  {
   "query": "b=k\"}g+&It",
-  "canonical": "It=&b=k%22%7Dg%20"
+  "canonical": "b=k%22%7Dg%20&It="
  },
  {
   "query": "/=IJ&U=j\"?/Dn&8X+S=ewG&vld",
-  "canonical": "%2F=IJ&8X%20S=ewG&U=j%22%3F%2FDn&vld="
+  "canonical": "%2F=IJ&U=j%22%3F%2FDn&8X%20S=ewG&vld="
  },
  {
   "query": "yQ&{c=s:2QJPt",
-  "canonical": "%7Bc=s%3A2QJPt&yQ="
+  "canonical": "yQ=&%7Bc=s%3A2QJPt"
  },
  {
   "query": "d =npEU&Za=\\p(^]8qS",
-  "canonical": "Za=%5Cp%28%5E%5D8qS&d%20=npEU"
+  "canonical": "d%20=npEU&Za=%5Cp%28%5E%5D8qS"
  },
  {
   "query": "V'<wéq&pR=&-tqZxa=\\Vi~5",
-  "canonical": "-tqZxa=%5CVi~5&V%27%3Cw%C3%A9q=&pR="
+  "canonical": "V%27%3Cw%C3%A9q=&pR=&-tqZxa=%5CVi~5"
  },
  {
   "query": ",r.=GUw&?m_-🙂=&.:9.v[=$",
@@ -381,7 +381,7 @@
  },
  {
   "query": "#é&I*F?;4=oG&QzcLN=0&&中*kZ0=*m~`",
-  "canonical": "%23%C3%A9=&%E4%B8%AD%2AkZ0=%2Am~%60&I%2AF%3F%3B4=oG&QzcLN=0"
+  "canonical": "%23%C3%A9=&I%2AF%3F%3B4=oG&QzcLN=0&%E4%B8%AD%2AkZ0=%2Am~%60"
  },
  {
   "query": "'=:",
@@ -389,23 +389,23 @@
  },
  {
   "query": "ioUS&}Y?^=B@Y~s",
-  "canonical": "%7DY%3F%5E=B%40Y~s&ioUS="
+  "canonical": "ioUS=&%7DY%3F%5E=B%40Y~s"
  },
  {
   "query": "🙂gPq=DaS!\n8&\nAT=qN{0x7K_",
-  "canonical": "%0AAT=qN%7B0x7K_&%F0%9F%99%82gPq=DaS%21%0A8"
+  "canonical": "%F0%9F%99%82gPq=DaS%21%0A8&%0AAT=qN%7B0x7K_"
  },
  {
   "query": "Hf!=&IhT=J&`vMUE[=HOi&tT)=S6l\"W~\n",
-  "canonical": "%60vMUE%5B=HOi&Hf%21=&IhT=J&tT%29=S6l%22W~%0A"
+  "canonical": "Hf%21=&IhT=J&%60vMUE%5B=HOi&tT%29=S6l%22W~%0A"
  },
  {
   "query": "R3M&!S\\=o%-O?+ &@w中8m*=Td",
-  "canonical": "%21S%5C=o%25-O%3F%20%20&%40w%E4%B8%AD8m%2A=Td&R3M="
+  "canonical": "R3M=&%21S%5C=o%25-O%3F%20%20&%40w%E4%B8%AD8m%2A=Td"
  },
  {
   "query": "cWC=p&u]*gP=iéé[&L;6[2 =h_}&e)J=",
-  "canonical": "L%3B6%5B2%20=h_%7D&cWC=p&e%29J=&u%5D%2AgP=i%C3%A9%C3%A9%5B"
+  "canonical": "cWC=p&u%5D%2AgP=i%C3%A9%C3%A9%5B&L%3B6%5B2%20=h_%7D&e%29J="
  },
  {
   "query": "s0 _=Y?(",
@@ -421,31 +421,31 @@
  },
  {
   "query": "D#Q&+]##FB=yrumv?",
-  "canonical": "%20%5D%23%23FB=yrumv%3F&D%23Q="
+  "canonical": "D%23Q=&%20%5D%23%23FB=yrumv%3F"
  },
  {
   "query": "tsm&9,j=Ri^B[V&%w=.p0s{d",
-  "canonical": "%25w=.p0s%7Bd&9%2Cj=Ri%5EB%5BV&tsm="
+  "canonical": "tsm=&9%2Cj=Ri%5EB%5BV&%25w=.p0s%7Bd"
  },
  {
   "query": "/Ro&x`vq=zX[Cr9<e&) o=?U3",
-  "canonical": "%29%20o=%3FU3&%2FRo=&x%60vq=zX%5BCr9%3Ce"
+  "canonical": "%2FRo=&x%60vq=zX%5BCr9%3Ce&%29%20o=%3FU3"
  },
  {
   "query": "\\IWVQ=/&f+\t\"&EL&[\"7Q@=M",
-  "canonical": "%5B%227Q%40=M&%5CIWVQ=%2F&EL=&f%20%09%22="
+  "canonical": "%5CIWVQ=%2F&f%20%09%22=&EL=&%5B%227Q%40=M"
  },
  {
   "query": "$é&}=GPr&n^@='W&7&`j?@t=I",
-  "canonical": "%24%C3%A9=&%60j%3F%40t=I&%7D=GPr&7=&n%5E%40=%27W"
+  "canonical": "%24%C3%A9=&%7D=GPr&n%5E%40=%27W&7=&%60j%3F%40t=I"
  },
  {
   "query": "~k.|D=kInBb&$eHEg&G=\"n]",
-  "canonical": "%24eHEg=&G=%22n%5D&~k.%7CD=kInBb"
+  "canonical": "~k.%7CD=kInBb&%24eHEg=&G=%22n%5D"
  },
  {
   "query": "1=R.U&7#&@R==\n;",
-  "canonical": "%40R=%3D%0A%3B&1=R.U&7%23="
+  "canonical": "1=R.U&7%23=&%40R=%3D%0A%3B"
  },
  {
   "query": "6Fql@'=r$ZiK",
@@ -453,11 +453,11 @@
  },
  {
   "query": "\"9ésC;=f&r=fc~mU|D&'&D",
-  "canonical": "%229%C3%A9sC%3B=f&%27=&D=&r=fc~mU%7CD"
+  "canonical": "%229%C3%A9sC%3B=f&r=fc~mU%7CD&%27=&D="
  },
  {
   "query": "éi=mK}'&?=&0prh=",
-  "canonical": "%3F=&%C3%A9i=mK%7D%27&0prh="
+  "canonical": "%C3%A9i=mK%7D%27&%3F=&0prh="
  },
  {
   "query": "\\q.e{3=",
@@ -465,27 +465,27 @@
  },
  {
   "query": "~Z7g4;=xG\n&l&(~^éMO=?Ry+fG&{\"éJ",
-  "canonical": "%28~%5E%C3%A9MO=%3FRy%20fG&%7B%22%C3%A9J=&l=&~Z7g4%3B=xG%0A"
+  "canonical": "~Z7g4%3B=xG%0A&l=&%28~%5E%C3%A9MO=%3FRy%20fG&%7B%22%C3%A9J="
  },
  {
   "query": "&u y&=!9X&CJ0y<=&d#%",
-  "canonical": "=%219X&CJ0y%3C=&d%23%25=&u%20y="
+  "canonical": "u%20y=&=%219X&CJ0y%3C=&d%23%25="
  },
  {
   "query": ",i0lO=&g_c=9b🙂K&gR(;=&B=NQ_mY\\s8",
-  "canonical": "%2Ci0lO=&B=NQ_mY%5Cs8&gR%28%3B=&g_c=9b%F0%9F%99%82K"
+  "canonical": "%2Ci0lO=&g_c=9b%F0%9F%99%82K&gR%28%3B=&B=NQ_mY%5Cs8"
  },
  {
   "query": "A&7=V6D;]&@é.bR{=Ys",
-  "canonical": "%40%C3%A9.bR%7B=Ys&7=V6D%3B%5D&A="
+  "canonical": "A=&7=V6D%3B%5D&%40%C3%A9.bR%7B=Ys"
  },
  {
   "query": "V&p G=3J:&da{é=BT4\\&;5;\n=",
-  "canonical": "%3B5%3B%0A=&V=&da%7B%C3%A9=BT4%5C&p%20G=3J%3A"
+  "canonical": "V=&p%20G=3J%3A&da%7B%C3%A9=BT4%5C&%3B5%3B%0A="
  },
  {
   "query": "jIYma=c&F{,~s=DbT\\4ut&;N @=7\"HVrr",
-  "canonical": "%3BN%20%40=7%22HVrr&F%7B%2C~s=DbT%5C4ut&jIYma=c"
+  "canonical": "jIYma=c&F%7B%2C~s=DbT%5C4ut&%3BN%20%40=7%22HVrr"
  },
  {
   "query": "'zcjq=EDa",
@@ -493,11 +493,11 @@
  },
  {
   "query": "EU28o=r&bpn=&1}j=]MLk",
-  "canonical": "1%7Dj=%5DMLk&EU28o=r&bpn="
+  "canonical": "EU28o=r&bpn=&1%7Dj=%5DMLk"
  },
  {
   "query": "28=\\8&Tq(>u=]y+&='r=RZ",
-  "canonical": "=%27r%3DRZ&28=%5C8&Tq%28%3Eu=%5Dy%20"
+  "canonical": "28=%5C8&Tq%28%3Eu=%5Dy%20&=%27r%3DRZ"
  },
  {
   "query": "N-🙂@w&T=IZXO",
@@ -509,11 +509,11 @@
  },
  {
   "query": "sd=*<TdzEt&>8=!PC e,&e\"kIQ3=t[S(&B🙂é-E=mgMa|",
-  "canonical": "%3E8=%21PC%20e%2C&B%F0%9F%99%82%C3%A9-E=mgMa%7C&e%22kIQ3=t%5BS%28&sd=%2A%3CTdzEt"
+  "canonical": "sd=%2A%3CTdzEt&%3E8=%21PC%20e%2C&e%22kIQ3=t%5BS%28&B%F0%9F%99%82%C3%A9-E=mgMa%7C"
  },
  {
   "query": "<Y=}&9SGv3=\ncVI=i&[S-qt_=>\"!KPh\"",
-  "canonical": "%3CY=%7D&%5BS-qt_=%3E%22%21KPh%22&9SGv3=%0AcVI%3Di"
+  "canonical": "%3CY=%7D&9SGv3=%0AcVI%3Di&%5BS-qt_=%3E%22%21KPh%22"
  },
  {
   "query": "!:9.Eé",
@@ -525,19 +525,19 @@
  },
  {
   "query": "Er!r&ORkAj=\no1&A'v=Ae&C=s>^L",
-  "canonical": "A%27v=Ae&C=s%3E%5EL&Er%21r=&ORkAj=%0Ao1"
+  "canonical": "Er%21r=&ORkAj=%0Ao1&A%27v=Ae&C=s%3E%5EL"
  },
  {
   "query": "V=fOT/Uw&-CT*p,&aL[{=m",
-  "canonical": "-CT%2Ap%2C=&V=fOT%2FUw&aL%5B%7B=m"
+  "canonical": "V=fOT%2FUw&-CT%2Ap%2C=&aL%5B%7B=m"
  },
  {
   "query": "7{D=$\\s1H'&5=N]/q,o0+",
-  "canonical": "5=N%5D%2Fq%2Co0%20&7%7BD=%24%5Cs1H%27"
+  "canonical": "7%7BD=%24%5Cs1H%27&5=N%5D%2Fq%2Co0%20"
  },
  {
   "query": "Z==mA&>dQ=Pos/h$\"h",
-  "canonical": "%3EdQ=Pos%2Fh%24%22h&Z=%3DmA"
+  "canonical": "Z=%3DmA&%3EdQ=Pos%2Fh%24%22h"
  },
  {
   "query": "3`=xk🙂P&K?fS=e[&Z=3R&s+Bc]=6J)K",
@@ -545,7 +545,7 @@
  },
  {
   "query": "Hh8i🙂=&🙂!=UtdnJxh&!=@g\t",
-  "canonical": "%21=%40g%09&%F0%9F%99%82%21=UtdnJxh&Hh8i%F0%9F%99%82="
+  "canonical": "Hh8i%F0%9F%99%82=&%F0%9F%99%82%21=UtdnJxh&%21=%40g%09"
  },
  {
   "query": "h+y=?*&hl=|o,J\tO|2&zF?v=6g.6🙂Y~",
@@ -553,15 +553,15 @@
  },
  {
   "query": " 1K&=ERn(_K&:X{L=&:=ET%GY5e&A{",
-  "canonical": "=ERn%28_K&%201K=&%3A=ET%25GY5e&%3AX%7BL=&A%7B="
+  "canonical": "%201K=&=ERn%28_K&%3AX%7BL=&%3A=ET%25GY5e&A%7B="
  },
  {
   "query": "uw2T=&5oei'=OKEia&Un0&4=5z\\W!tL",
-  "canonical": "4=5z%5CW%21tL&5oei%27=OKEia&Un0=&uw2T="
+  "canonical": "uw2T=&5oei%27=OKEia&Un0=&4=5z%5CW%21tL"
  },
  {
   "query": "x3N,=d&s2中中1=drS)7W&bé#5#&)9a [= rutys",
-  "canonical": "%299a%20%5B=%20rutys&b%C3%A9%235%23=&s2%E4%B8%AD%E4%B8%AD1=drS%297W&x3N%2C=d"
+  "canonical": "x3N%2C=d&s2%E4%B8%AD%E4%B8%AD1=drS%297W&b%C3%A9%235%23=&%299a%20%5B=%20rutys"
  },
  {
   "query": "<Edz&Efs:h9=",
@@ -569,15 +569,15 @@
  },
  {
   "query": "aO@^k+=4&*x1=/BH.-",
-  "canonical": "%2Ax1=%2FBH.-&aO%40%5Ek%20=4"
+  "canonical": "aO%40%5Ek%20=4&%2Ax1=%2FBH.-"
  },
  {
   "query": "x>G=&nIv=jFypmjG",
-  "canonical": "nIv=jFypmjG&x%3EG="
+  "canonical": "x%3EG=&nIv=jFypmjG"
  },
  {
   "query": "T`:=j&5I!h=FuC~.",
-  "canonical": "5I%21h=FuC~.&T%60%3A=j"
+  "canonical": "T%60%3A=j&5I%21h=FuC~."
  },
  {
   "query": "0_=\t;n",
@@ -585,27 +585,27 @@
  },
  {
   "query": ",&\"{(=e26Z",
-  "canonical": "%22%7B%28=e26Z&%2C="
+  "canonical": "%2C=&%22%7B%28=e26Z"
  },
  {
   "query": "u$P=mq9&s:=",
-  "canonical": "s%3A=&u%24P=mq9"
+  "canonical": "u%24P=mq9&s%3A="
  },
  {
   "query": "f$=cQ<zY6^]&w=#e\"&b~b=^=5E&%L_h=Z0fjLA",
-  "canonical": "%25L_h=Z0fjLA&b~b=%5E%3D5E&f%24=cQ%3CzY6%5E%5D&w=%23e%22"
+  "canonical": "f%24=cQ%3CzY6%5E%5D&w=%23e%22&b~b=%5E%3D5E&%25L_h=Z0fjLA"
  },
  {
   "query": "6=X&uUXkh&*$/=&&B{=m}!",
-  "canonical": "%2A%24%2F=&6=X&B%7B=m%7D%21&uUXkh="
+  "canonical": "6=X&uUXkh=&%2A%24%2F=&B%7B=m%7D%21"
  },
  {
   "query": "fX}YP=8A[k-}d)&2x.=BnPb1U&C,LFO=&&W",
-  "canonical": "2x.=BnPb1U&C%2CLFO=&W=&fX%7DYP=8A%5Bk-%7Dd%29"
+  "canonical": "fX%7DYP=8A%5Bk-%7Dd%29&2x.=BnPb1U&C%2CLFO=&W="
  },
  {
   "query": "_X=m&\tuc&xpz7\t0=@ekJ|ds",
-  "canonical": "%09uc=&_X=m&xpz7%090=%40ekJ%7Cds"
+  "canonical": "_X=m&%09uc=&xpz7%090=%40ekJ%7Cds"
  },
  {
   "query": "GéMya=B#f9&Z中=w\\NH\nv7",
@@ -613,23 +613,23 @@
  },
  {
   "query": "74bB[&=j5HTA=||Z4&^<}G=AWk&R;=~q~(<",
-  "canonical": "=j5HTA%3D%7C%7CZ4&%5E%3C%7DG=AWk&74bB%5B=&R%3B=~q~%28%3C"
+  "canonical": "74bB%5B=&=j5HTA%3D%7C%7CZ4&%5E%3C%7DG=AWk&R%3B=~q~%28%3C"
  },
  {
   "query": "🙂V  =2z]|-&\tu=%EY",
-  "canonical": "%09u=%25EY&%F0%9F%99%82V%20%20=2z%5D%7C-"
+  "canonical": "%F0%9F%99%82V%20%20=2z%5D%7C-&%09u=%25EY"
  },
  {
   "query": "dO=uOYR-} &4'lvO1=,é&.>B\"=P^;A&}'}=",
-  "canonical": "%7D%27%7D=&.%3EB%22=P%5E%3BA&4%27lvO1=%2C%C3%A9&dO=uOYR-%7D%20"
+  "canonical": "dO=uOYR-%7D%20&4%27lvO1=%2C%C3%A9&.%3EB%22=P%5E%3BA&%7D%27%7D="
  },
  {
   "query": "b>PU~\n=|\n&A\"_y=yS@Z9H&&NG0#=Na\\Qz",
-  "canonical": "A%22_y=yS%40Z9H&NG0%23=Na%5CQz&b%3EPU~%0A=%7C%0A"
+  "canonical": "b%3EPU~%0A=%7C%0A&A%22_y=yS%40Z9H&NG0%23=Na%5CQz"
  },
  {
   "query": "[\n%h>=zrb&q=*&jpw\té\"=9",
-  "canonical": "%5B%0A%25h%3E=zrb&jpw%09%C3%A9%22=9&q=%2A"
+  "canonical": "%5B%0A%25h%3E=zrb&q=%2A&jpw%09%C3%A9%22=9"
  },
  {
   "query": ">zcl",
@@ -637,19 +637,19 @@
  },
  {
   "query": "HV7,y7=Z&@\\kz",
-  "canonical": "%40%5Ckz=&HV7%2Cy7=Z"
+  "canonical": "HV7%2Cy7=Z&%40%5Ckz="
  },
  {
   "query": "NC&Pzb=&Z&\n^6D|@=*0",
-  "canonical": "%0A%5E6D%7C%40=%2A0&NC=&Pzb=&Z="
+  "canonical": "NC=&Pzb=&Z=&%0A%5E6D%7C%40=%2A0"
  },
  {
   "query": "wc}5J1= PP4ét&ZN L4[=a&xB*=^oH\n\"",
-  "canonical": "ZN%20L4%5B=a&wc%7D5J1=%20PP4%C3%A9t&xB%2A=%5EoH%0A%22"
+  "canonical": "wc%7D5J1=%20PP4%C3%A9t&ZN%20L4%5B=a&xB%2A=%5EoH%0A%22"
  },
  {
   "query": "qZ*wré=)OK4[Id[&@f2'=l=Fv.)/iK",
-  "canonical": "%40f2%27=l%3DFv.%29%2FiK&qZ%2Awr%C3%A9=%29OK4%5BId%5B"
+  "canonical": "qZ%2Awr%C3%A9=%29OK4%5BId%5B&%40f2%27=l%3DFv.%29%2FiK"
  },
  {
   "query": "+R]Cf=9Kt-&Y>y=.VY^",
@@ -657,23 +657,23 @@
  },
  {
   "query": "74?🙂%B=zo9&/C=&\n~wO=(8LvR3&x=(.;Z",
-  "canonical": "%0A~wO=%288LvR3&%2FC=&74%3F%F0%9F%99%82%25B=zo9&x=%28.%3BZ"
+  "canonical": "74%3F%F0%9F%99%82%25B=zo9&%2FC=&%0A~wO=%288LvR3&x=%28.%3BZ"
  },
  {
   "query": "K,=é)`ui)a &aHA\n=o^2B&(t`jMM=E",
-  "canonical": "%28t%60jMM=E&K%2C=%C3%A9%29%60ui%29a%20&aHA%0A=o%5E2B"
+  "canonical": "K%2C=%C3%A9%29%60ui%29a%20&aHA%0A=o%5E2B&%28t%60jMM=E"
  },
  {
   "query": "[]&4🙂)&'=中,H*Wv",
-  "canonical": "%27=%E4%B8%AD%2CH%2AWv&%5B%5D=&4%F0%9F%99%82%29="
+  "canonical": "%5B%5D=&4%F0%9F%99%82%29=&%27=%E4%B8%AD%2CH%2AWv"
  },
  {
   "query": ";Rm3q=6h||4&&M\n1 T=\\&D>=&f8",
-  "canonical": "%3BRm3q=6h%7C%7C4&D%3E=&M%0A1%20T=%5C&f8="
+  "canonical": "%3BRm3q=6h%7C%7C4&M%0A1%20T=%5C&D%3E=&f8="
  },
  {
   "query": "M8$uQ4=gW&f/>8%=~$J!D!&{$",
-  "canonical": "%7B%24=&M8%24uQ4=gW&f%2F%3E8%25=~%24J%21D%21"
+  "canonical": "M8%24uQ4=gW&f%2F%3E8%25=~%24J%21D%21&%7B%24="
  },
  {
   "query": "%P\tv&éa=JH",
@@ -681,11 +681,11 @@
  },
  {
   "query": ";j:B=mVqH\néf&p.Y&1é\"rK=YKB_Iqh&4+v\ns\t",
-  "canonical": "%3Bj%3AB=mVqH%0A%C3%A9f&1%C3%A9%22rK=YKB_Iqh&4%20v%0As%09=&p.Y="
+  "canonical": "%3Bj%3AB=mVqH%0A%C3%A9f&p.Y=&1%C3%A9%22rK=YKB_Iqh&4%20v%0As%09="
  },
  {
   "query": "A*=;p&MQ&pnl^@Y=@z#&m-1`=3=&y#OH7Kk&h9X=E&2d",
-  "canonical": "2d=&A%2A=%3Bp&MQ=&h9X=E&m-1%60=3%3D&pnl%5E%40Y=%40z%23&y%23OH7Kk="
+  "canonical": "A%2A=%3Bp&MQ=&pnl%5E%40Y=%40z%23&m-1%60=3%3D&y%23OH7Kk=&h9X=E&2d="
  },
  {
   "query": "Mkw>=7_jP\t&~=9~ha\"G",
@@ -693,7 +693,7 @@
  },
  {
   "query": "\\{<t4=S;&kQ= &2@;=\t{a",
-  "canonical": "%5C%7B%3Ct4=S%3B&2%40%3B=%09%7Ba&kQ=%20"
+  "canonical": "%5C%7B%3Ct4=S%3B&kQ=%20&2%40%3B=%09%7Ba"
  },
  {
   "query": ",éQ*5w=g{u&Q=lGSy",
@@ -705,7 +705,7 @@
  },
  {
   "query": "@/tgvl=&xj*&:=yOBCm|🙂5&中=&U=?",
-  "canonical": "%3A=yOBCm%7C%F0%9F%99%825&%40%2Ftgvl=&%E4%B8%AD=&U=%3F&xj%2A="
+  "canonical": "%40%2Ftgvl=&xj%2A=&%3A=yOBCm%7C%F0%9F%99%825&%E4%B8%AD=&U=%3F"
  },
  {
   "query": "7%=,hX[l&F中Ju=gv <é",
@@ -713,11 +713,11 @@
  },
  {
   "query": "op3UQI=&U7E=&%/]g-",
-  "canonical": "%25%2F%5Dg-=&U7E=&op3UQI="
+  "canonical": "op3UQI=&U7E=&%25%2F%5Dg-="
  },
  {
   "query": "jt=x~<k?Y`&<DZ=''\"WBa&=A8s6/=2HMbk&m_Y\nb=cdlD9Z",
-  "canonical": "=A8s6%2F%3D2HMbk&%3CDZ=%27%27%22WBa&jt=x~%3Ck%3FY%60&m_Y%0Ab=cdlD9Z"
+  "canonical": "jt=x~%3Ck%3FY%60&%3CDZ=%27%27%22WBa&=A8s6%2F%3D2HMbk&m_Y%0Ab=cdlD9Z"
  },
  {
   "query": "\t=S!=S",
@@ -729,23 +729,23 @@
  },
  {
   "query": "中中4|& qQ<=}u>$",
-  "canonical": "%20qQ%3C=%7Du%3E%24&%E4%B8%AD%E4%B8%AD4%7C="
+  "canonical": "%E4%B8%AD%E4%B8%AD4%7C=&%20qQ%3C=%7Du%3E%24"
  },
  {
   "query": "4@H:\"E=2U8t&h.ny=D+\"A&MsKc=*/中}D]*",
-  "canonical": "4%40H%3A%22E=2U8t&MsKc=%2A%2F%E4%B8%AD%7DD%5D%2A&h.ny=D%20%22A"
+  "canonical": "4%40H%3A%22E=2U8t&h.ny=D%20%22A&MsKc=%2A%2F%E4%B8%AD%7DD%5D%2A"
  },
  {
   "query": "?V&2=O8_",
-  "canonical": "2=O8_&V="
+  "canonical": "%3FV=&2=O8_"
  },
  {
   "query": "r\\H)H=&w>*&🙂\\6l\\N=Gf$S",
-  "canonical": "%F0%9F%99%82%5C6l%5CN=Gf%24S&r%5CH%29H=&w%3E%2A="
+  "canonical": "r%5CH%29H=&w%3E%2A=&%F0%9F%99%82%5C6l%5CN=Gf%24S"
  },
  {
   "query": "m&`~sC3%=s<Ta",
-  "canonical": "%60~sC3%25=s%3CTa&m="
+  "canonical": "m=&%60~sC3%25=s%3CTa"
  },
  {
   "query": "0jaAM=-O?&qmT=",
@@ -753,19 +753,19 @@
  },
  {
   "query": "rw<2\n~=C?NXoU&)=h:Z🙂u(",
-  "canonical": "%29=h%3AZ%F0%9F%99%82u%28&rw%3C2%0A~=C%3FNXoU"
+  "canonical": "rw%3C2%0A~=C%3FNXoU&%29=h%3AZ%F0%9F%99%82u%28"
  },
  {
   "query": "中6&k;=z{I&UXL.<=DQ中1",
-  "canonical": "%E4%B8%AD6=&UXL.%3C=DQ%E4%B8%AD1&k%3B=z%7BI"
+  "canonical": "%E4%B8%AD6=&k%3B=z%7BI&UXL.%3C=DQ%E4%B8%AD1"
  },
  {
   "query": ")]Y8Ov&sb_L&IE=9RaTph(",
-  "canonical": "%29%5DY8Ov=&IE=9RaTph%28&sb_L="
+  "canonical": "%29%5DY8Ov=&sb_L=&IE=9RaTph%28"
  },
  {
   "query": "}🙂@v\nO=Wd?&%Su`i2&+",
-  "canonical": "%20=&%25Su%60i2=&%7D%F0%9F%99%82%40v%0AO=Wd%3F"
+  "canonical": "%7D%F0%9F%99%82%40v%0AO=Wd%3F&%25Su%60i2=&%20="
  },
  {
   "query": "9é(S`B=u:d3r🙂$I",
@@ -777,7 +777,7 @@
  },
  {
   "query": "8Yj^v=/fFO5&2(",
-  "canonical": "2%28=&8Yj%5Ev=%2FfFO5"
+  "canonical": "8Yj%5Ev=%2FfFO5&2%28="
  },
  {
   "query": "🙂o=)O)IijF&8",
@@ -785,11 +785,11 @@
  },
  {
   "query": "ITU=Kiét&V'R&~ 3X%-&9w4h=icU\n(t:",
-  "canonical": "9w4h=icU%0A%28t%3A&ITU=Ki%C3%A9t&V%27R=&~%203X%25-="
+  "canonical": "ITU=Ki%C3%A9t&V%27R=&~%203X%25-=&9w4h=icU%0A%28t%3A"
  },
  {
   "query": "b1_PeR&$JW&gléx)=9k;;O",
-  "canonical": "%24JW=&b1_PeR=&gl%C3%A9x%29=9k%3B%3BO"
+  "canonical": "b1_PeR=&%24JW=&gl%C3%A9x%29=9k%3B%3BO"
  },
  {
   "query": "tVm{e\n",
@@ -801,7 +801,7 @@
  },
  {
   "query": "T/\"@Su=8FDi./BM&,m}R=no9Ha&sx=中w<d'🙂&EX5H=b{f|",
-  "canonical": "%2Cm%7DR=no9Ha&EX5H=b%7Bf%7C&T%2F%22%40Su=8FDi.%2FBM&sx=%E4%B8%ADw%3Cd%27%F0%9F%99%82"
+  "canonical": "T%2F%22%40Su=8FDi.%2FBM&%2Cm%7DR=no9Ha&sx=%E4%B8%ADw%3Cd%27%F0%9F%99%82&EX5H=b%7Bf%7C"
  },
  {
   "query": "=&`=WyiQo中Le",
@@ -809,11 +809,11 @@
  },
  {
   "query": "5@&)=&:Hd&9=D3^foE",
-  "canonical": "%29=&%3AHd=&5%40=&9=D3%5EfoE"
+  "canonical": "5%40=&%29=&%3AHd=&9=D3%5EfoE"
  },
  {
   "query": "x429&/9<:'=#\t}~",
-  "canonical": "%2F9%3C%3A%27=%23%09%7D~&x429="
+  "canonical": "x429=&%2F9%3C%3A%27=%23%09%7D~"
  },
  {
   "query": "9hg\n\n=(,&Lc=&PHLK/=COQqb\\é",
@@ -825,7 +825,7 @@
  },
  {
   "query": "7L.<AW=RX&\n1([tM=",
-  "canonical": "%0A1%28%5BtM=&7L.%3CAW=RX"
+  "canonical": "7L.%3CAW=RX&%0A1%28%5BtM="
  },
  {
   "query": "V=",
@@ -833,7 +833,7 @@
  },
  {
   "query": "r=u&Q6+*5&&&7K_*g=FXh7k\t$",
-  "canonical": "7K_%2Ag=FXh7k%09%24&Q6%20%2A5=&r=u"
+  "canonical": "r=u&Q6%20%2A5=&7K_%2Ag=FXh7k%09%24"
  },
  {
   "query": "6",
@@ -849,15 +849,15 @@
  },
  {
   "query": "?$'=#[{én",
-  "canonical": "%24%27=%23%5B%7B%C3%A9n"
+  "canonical": "%3F%24%27=%23%5B%7B%C3%A9n"
  },
  {
   "query": "57={&ycLX&pVL=?*j]=a>&e}o}=&9(+co*=\"(0rHD:",
-  "canonical": "57=%7B&9%28%20co%2A=%22%280rHD%3A&e%7Do%7D=&pVL=%3F%2Aj%5D%3Da%3E&ycLX="
+  "canonical": "57=%7B&ycLX=&pVL=%3F%2Aj%5D%3Da%3E&e%7Do%7D=&9%28%20co%2A=%22%280rHD%3A"
  },
  {
   "query": "J]smQ=i&qd=C{Mh7\t:W&2",
-  "canonical": "2=&J%5DsmQ=i&qd=C%7BMh7%09%3AW"
+  "canonical": "J%5DsmQ=i&qd=C%7BMh7%09%3AW&2="
  },
  {
   "query": "8=KF'&o=\n",
@@ -865,11 +865,11 @@
  },
  {
   "query": "0vQmy=*S&#u",
-  "canonical": "%23u=&0vQmy=%2AS"
+  "canonical": "0vQmy=%2AS&%23u="
  },
  {
   "query": "H\nMéd\\=/}5eBd&jN<=?&Y{",
-  "canonical": "H%0AM%C3%A9d%5C=%2F%7D5eBd&Y%7B=&jN%3C=%3F"
+  "canonical": "H%0AM%C3%A9d%5C=%2F%7D5eBd&jN%3C=%3F&Y%7B="
  },
  {
   "query": "2Q=RSo",
@@ -885,15 +885,15 @@
  },
  {
   "query": "zSB中]D&N{&srq/B8=BlC1A}V",
-  "canonical": "N%7B=&srq%2FB8=BlC1A%7DV&zSB%E4%B8%AD%5DD="
+  "canonical": "zSB%E4%B8%AD%5DD=&N%7B=&srq%2FB8=BlC1A%7DV"
  },
  {
   "query": "ZD!cp\n=}l%n&:é-=uYs*B&\t\"3🙂^=NVKX'&dPzC5",
-  "canonical": "%09%223%F0%9F%99%82%5E=NVKX%27&%3A%C3%A9-=uYs%2AB&ZD%21cp%0A=%7Dl%25n&dPzC5="
+  "canonical": "ZD%21cp%0A=%7Dl%25n&%3A%C3%A9-=uYs%2AB&%09%223%F0%9F%99%82%5E=NVKX%27&dPzC5="
  },
  {
   "query": "N3NVR=&wtn&E_=T)0^[VK&1=?T0|",
-  "canonical": "1=%3FT0%7C&E_=T%290%5E%5BVK&N3NVR=&wtn="
+  "canonical": "N3NVR=&wtn=&E_=T%290%5E%5BVK&1=%3FT0%7C"
  },
  {
   "query": "`mb🙂T?=&Ié`z=48",
@@ -909,11 +909,11 @@
  },
  {
   "query": ">\"=ipB(!OR&EO;sL=G1&\"/=6RcS%mvK",
-  "canonical": "%22%2F=6RcS%25mvK&%3E%22=ipB%28%21OR&EO%3BsL=G1"
+  "canonical": "%3E%22=ipB%28%21OR&EO%3BsL=G1&%22%2F=6RcS%25mvK"
  },
  {
   "query": "s\\=htNz^l&g;=&s=",
-  "canonical": "g%3B=&s=&s%5C=htNz%5El"
+  "canonical": "s%5C=htNz%5El&g%3B=&s="
  },
  {
   "query": "^; 🙂&n=6",
@@ -925,11 +925,11 @@
  },
  {
   "query": "Xm:-Wp=中}9;3!&NV=/.+?}L",
-  "canonical": "NV=%2F.%20%3F%7DL&Xm%3A-Wp=%E4%B8%AD%7D9%3B3%21"
+  "canonical": "Xm%3A-Wp=%E4%B8%AD%7D9%3B3%21&NV=%2F.%20%3F%7DL"
  },
  {
   "query": "M\"+&L?Rlb'=Ij#Q1&nV&M=U=]&?0+PY=J",
-  "canonical": "%3F0%20PY=J&L%3FRlb%27=Ij%23Q1&M=U%3D%5D&M%22%20=&nV="
+  "canonical": "M%22%20=&L%3FRlb%27=Ij%23Q1&nV=&M=U%3D%5D&%3F0%20PY=J"
  },
  {
   "query": "Tw5|)=@(>&n8=!=🙂T",
@@ -937,11 +937,11 @@
  },
  {
   "query": "wjHZy=&M>:,=<]BIV🙂HG&@yh&{p",
-  "canonical": "%40yh=&%7Bp=&M%3E%3A%2C=%3C%5DBIV%F0%9F%99%82HG&wjHZy="
+  "canonical": "wjHZy=&M%3E%3A%2C=%3C%5DBIV%F0%9F%99%82HG&%40yh=&%7Bp="
  },
  {
   "query": "6[_ b&🙂9__~v&m4_=v7,{",
-  "canonical": "%F0%9F%99%829__~v=&6%5B_%20b=&m4_=v7%2C%7B"
+  "canonical": "6%5B_%20b=&%F0%9F%99%829__~v=&m4_=v7%2C%7B"
  },
  {
   "query": "EH=j&Oa8=QDO&T=🙂%&X{iV9",
@@ -949,23 +949,23 @@
  },
  {
   "query": "6vV~$&fRUfq@=]h ju3&Wmt=\tw<",
-  "canonical": "6vV~%24=&Wmt=%09w%3C&fRUfq%40=%5Dh%20ju3"
+  "canonical": "6vV~%24=&fRUfq%40=%5Dh%20ju3&Wmt=%09w%3C"
  },
  {
   "query": "klif=uMlOBSe&kxX~(=N8o\\y_,&fE\t\\=.Pré\\&4=wSy\"\\&",
-  "canonical": "4=wSy%22%5C&fE%09%5C=.Pr%C3%A9%5C&klif=uMlOBSe&kxX~%28=N8o%5Cy_%2C"
+  "canonical": "klif=uMlOBSe&kxX~%28=N8o%5Cy_%2C&fE%09%5C=.Pr%C3%A9%5C&4=wSy%22%5C"
  },
  {
   "query": "^HM=U&\t7U&XMb=&>cR+",
-  "canonical": "%097U=&%3EcR%20=&%5EHM=U&XMb="
+  "canonical": "%5EHM=U&%097U=&XMb=&%3EcR%20="
  },
  {
   "query": "tIy&5@==,_/s&*Bj?[=Vh>&~3\nQC=",
-  "canonical": "%2ABj%3F%5B=Vh%3E&5%40=%3D%2C_%2Fs&tIy=&~3%0AQC="
+  "canonical": "tIy=&5%40=%3D%2C_%2Fs&%2ABj%3F%5B=Vh%3E&~3%0AQC="
  },
  {
   "query": "c=|mJuo9I&J=Rs%",
-  "canonical": "J=Rs%25&c=%7CmJuo9I"
+  "canonical": "c=%7CmJuo9I&J=Rs%25"
  },
  {
   "query": "\n:=tBN",
@@ -977,27 +977,27 @@
  },
  {
   "query": "<E++-=h|&;=v3?+#k[",
-  "canonical": "%3B=v3%3F%20%23k%5B&%3CE%20%20-=h%7C"
+  "canonical": "%3CE%20%20-=h%7C&%3B=v3%3F%20%23k%5B"
  },
  {
   "query": "7Kz&&[Xr=中dAR%&p8s{=III?0T{&6#V=F",
-  "canonical": "%5BXr=%E4%B8%ADdAR%25&6%23V=F&7Kz=&p8s%7B=III%3F0T%7B"
+  "canonical": "7Kz=&%5BXr=%E4%B8%ADdAR%25&p8s%7B=III%3F0T%7B&6%23V=F"
  },
  {
   "query": "t中jW\nE=>26[&f(OéN=C",
-  "canonical": "f%28O%C3%A9N=C&t%E4%B8%ADjW%0AE=%3E26%5B"
+  "canonical": "t%E4%B8%ADjW%0AE=%3E26%5B&f%28O%C3%A9N=C"
  },
  {
   "query": "2.=p~~ca{:r&s=Jw\n~&9A=cl{h>-#\t&8FM?,=)#l?",
-  "canonical": "2.=p~~ca%7B%3Ar&8FM%3F%2C=%29%23l%3F&9A=cl%7Bh%3E-%23%09&s=Jw%0A~"
+  "canonical": "2.=p~~ca%7B%3Ar&s=Jw%0A~&9A=cl%7Bh%3E-%23%09&8FM%3F%2C=%29%23l%3F"
  },
  {
   "query": "é*B=;cfT&F[\"=\"Y{tA🙂:&0=Rd^EO",
-  "canonical": "%C3%A9%2AB=%3BcfT&0=Rd%5EEO&F%5B%22=%22Y%7BtA%F0%9F%99%82%3A"
+  "canonical": "%C3%A9%2AB=%3BcfT&F%5B%22=%22Y%7BtA%F0%9F%99%82%3A&0=Rd%5EEO"
  },
  {
   "query": "SpGO=ks@vx}!5&kGY(&;8}=f;u'🙂&:[(@",
-  "canonical": "%3A%5B%28%40=&%3B8%7D=f%3Bu%27%F0%9F%99%82&SpGO=ks%40vx%7D%215&kGY%28="
+  "canonical": "SpGO=ks%40vx%7D%215&kGY%28=&%3B8%7D=f%3Bu%27%F0%9F%99%82&%3A%5B%28%40="
  },
  {
   "query": "_n1+=_",
@@ -1013,7 +1013,7 @@
  },
  {
   "query": "2,4D:=Yt/5@&!/W!=0(é6U9&72i&`=HC",
-  "canonical": "%21%2FW%21=0%28%C3%A96U9&%60=HC&2%2C4D%3A=Yt%2F5%40&72i="
+  "canonical": "2%2C4D%3A=Yt%2F5%40&%21%2FW%21=0%28%C3%A96U9&72i=&%60=HC"
  },
  {
   "query": "-\n=w+D45E+&J:N=-",
@@ -1025,7 +1025,7 @@
  },
  {
   "query": "'=\tg&%LJ#={S4JEGs|&X=Yr^%97Y&L!t>PT=",
-  "canonical": "%25LJ%23=%7BS4JEGs%7C&%27=%09g&L%21t%3EPT=&X=Yr%5E%EF%BF%BDY"
+  "canonical": "%27=%09g&%25LJ%23=%7BS4JEGs%7C&X=Yr%5E%EF%BF%BDY&L%21t%3EPT="
  },
  {
   "query": "l,lgpZ=l<<;",
@@ -1033,7 +1033,7 @@
  },
  {
   "query": ";h^=d(\téB🙂Pd&ov32c=kb$>%&I{=uVQ",
-  "canonical": "%3Bh%5E=d%28%09%C3%A9B%F0%9F%99%82Pd&I%7B=uVQ&ov32c=kb%24%3E%25"
+  "canonical": "%3Bh%5E=d%28%09%C3%A9B%F0%9F%99%82Pd&ov32c=kb%24%3E%25&I%7B=uVQ"
  },
  {
   "query": "QIVZf9=}é&u\nE|=>++M;u<L",
@@ -1041,11 +1041,11 @@
  },
  {
   "query": "H\"EQQq=9evXcW!&'s)>Sb",
-  "canonical": "%27s%29%3ESb=&H%22EQQq=9evXcW%21"
+  "canonical": "H%22EQQq=9evXcW%21&%27s%29%3ESb="
  },
  {
   "query": "St4B/&zmzgf&/]UdY4=0-",
-  "canonical": "%2F%5DUdY4=0-&St4B%2F=&zmzgf="
+  "canonical": "St4B%2F=&zmzgf=&%2F%5DUdY4=0-"
  },
  {
   "query": "E&T+=G/N",
@@ -1053,7 +1053,7 @@
  },
  {
   "query": "Hq3i=@Cnl&.xe=r@w5u中N&|OB",
-  "canonical": "%7COB=&.xe=r%40w5u%E4%B8%ADN&Hq3i=%40Cnl"
+  "canonical": "Hq3i=%40Cnl&.xe=r%40w5u%E4%B8%ADN&%7COB="
  },
  {
   "query": " {2^=z\"E中&~CA2=",
@@ -1081,31 +1081,31 @@
  },
  {
   "query": "A&%7:9=zF!l",
-  "canonical": "%257%3A9=zF%21l&A="
+  "canonical": "A=&%257%3A9=zF%21l"
  },
  {
   "query": "?<:Xs/=g",
-  "canonical": "%3C%3AXs%2F=g"
+  "canonical": "%3F%3C%3AXs%2F=g"
  },
  {
   "query": "cI=JyS&CU|oc;=K:Oé73&V p'nb=sui81fkT",
-  "canonical": "CU%7Coc%3B=K%3AO%C3%A973&V%20p%27nb=sui81fkT&cI=JyS"
+  "canonical": "cI=JyS&CU%7Coc%3B=K%3AO%C3%A973&V%20p%27nb=sui81fkT"
  },
  {
   "query": "o\nR8Kx=WnP.g^x9&'YHA中=.Oc&:rUb=",
-  "canonical": "%27YHA%E4%B8%AD=.Oc&%3ArUb=&o%0AR8Kx=WnP.g%5Ex9"
+  "canonical": "o%0AR8Kx=WnP.g%5Ex9&%27YHA%E4%B8%AD=.Oc&%3ArUb="
  },
  {
   "query": "pM'aCY&:(ra=D3&4;r\\Z(=t7Ob>&[=8^ge",
-  "canonical": "%3A%28ra=D3&%5B=8%5Ege&4%3Br%5CZ%28=t7Ob%3E&pM%27aCY="
+  "canonical": "pM%27aCY=&%3A%28ra=D3&4%3Br%5CZ%28=t7Ob%3E&%5B=8%5Ege"
  },
  {
   "query": "c*t=🙂3🙂;P-|+&+H6G[=a&'=k(",
-  "canonical": "%20H6G%5B=a&%27=k%28&c%2At=%F0%9F%99%823%F0%9F%99%82%3BP-%7C%20"
+  "canonical": "c%2At=%F0%9F%99%823%F0%9F%99%82%3BP-%7C%20&%20H6G%5B=a&%27=k%28"
  },
  {
   "query": "iCDb= C\\z&9a?=&V\nMi=Ae\nk!b''&yf",
-  "canonical": "9a%3F=&V%0AMi=Ae%0Ak%21b%27%27&iCDb=%20C%5Cz&yf="
+  "canonical": "iCDb=%20C%5Cz&9a%3F=&V%0AMi=Ae%0Ak%21b%27%27&yf="
  },
  {
   "query": "==\tVpLu=0&6qn)~J=:-",
@@ -1129,23 +1129,23 @@
  },
  {
   "query": "g~5='_/R)4&/=2XG#$.Wm&4hmrj",
-  "canonical": "%2F=2XG%23%24.Wm&4hmrj=&g~5=%27_%2FR%294"
+  "canonical": "g~5=%27_%2FR%294&%2F=2XG%23%24.Wm&4hmrj="
  },
  {
   "query": "A^k`NM=G,%kyv&P=V🙂rUu}&,",
-  "canonical": "%2C=&A%5Ek%60NM=G%2C%25kyv&P=V%F0%9F%99%82rUu%7D"
+  "canonical": "A%5Ek%60NM=G%2C%25kyv&P=V%F0%9F%99%82rUu%7D&%2C="
  },
  {
   "query": "'F&s🙂*=^\t=g[,&f7`W\"é=,/{&FW中&H\nZH&GdTjH",
-  "canonical": "%27F=&FW%E4%B8%AD=&GdTjH=&H%0AZH=&f7%60W%22%C3%A9=%2C%2F%7B&s%F0%9F%99%82%2A=%5E%09%3Dg%5B%2C"
+  "canonical": "%27F=&s%F0%9F%99%82%2A=%5E%09%3Dg%5B%2C&f7%60W%22%C3%A9=%2C%2F%7B&FW%E4%B8%AD=&H%0AZH=&GdTjH="
  },
  {
   "query": "VhlgZ=&M",
-  "canonical": "M=&VhlgZ="
+  "canonical": "VhlgZ=&M="
  },
  {
   "query": "h&Braae=",
-  "canonical": "Braae=&h="
+  "canonical": "h=&Braae="
  },
  {
   "query": "}Qc{sz=N<&k=tH[]55,",
@@ -1153,15 +1153,15 @@
  },
  {
   "query": "bcH =Z\t3&ak*`=&\n中%,`=~Wv[uUg&3XAF🙂",
-  "canonical": "%0A%E4%B8%AD%25%2C%60=~Wv%5BuUg&3XAF%F0%9F%99%82=&ak%2A%60=&bcH%20=Z%093"
+  "canonical": "bcH%20=Z%093&ak%2A%60=&%0A%E4%B8%AD%25%2C%60=~Wv%5BuUg&3XAF%F0%9F%99%82="
  },
  {
   "query": "3éU[=%&\\=B&\nCf|=A,中3@)",
-  "canonical": "%0ACf%7C=A%2C%E4%B8%AD3%40%29&%5C=B&3%C3%A9U%5B=%25"
+  "canonical": "3%C3%A9U%5B=%25&%5C=B&%0ACf%7C=A%2C%E4%B8%AD3%40%29"
  },
  {
   "query": "{W&3&]43It=GB&?\t==oF$",
-  "canonical": "%3F%09=%3DoF%24&%5D43It=GB&%7BW=&3="
+  "canonical": "%7BW=&3=&%5D43It=GB&%3F%09=%3DoF%24"
  },
  {
   "query": "PIW?`=%)q!13~O",
@@ -1173,15 +1173,15 @@
  },
  {
   "query": "2/8On:=elosf_z&SoXdK=s=W $&s t\"=>\t5&#2>=rUSm<-cA",
-  "canonical": "%232%3E=rUSm%3C-cA&2%2F8On%3A=elosf_z&SoXdK=s%3DW%20%24&s%20t%22=%3E%095"
+  "canonical": "2%2F8On%3A=elosf_z&SoXdK=s%3DW%20%24&s%20t%22=%3E%095&%232%3E=rUSm%3C-cA"
  },
  {
   "query": "]?9=.-🙂F.&n]!M=?CF^l'{@& =*83o=eUB\n&;QB",
-  "canonical": "%20=%2A83o%3DeUB%0A&%3BQB=&%5D%3F9=.-%F0%9F%99%82F.&n%5D%21M=%3FCF%5El%27%7B%40"
+  "canonical": "%5D%3F9=.-%F0%9F%99%82F.&n%5D%21M=%3FCF%5El%27%7B%40&%20=%2A83o%3DeUB%0A&%3BQB="
  },
  {
   "query": "c&-\n@4=bu6h5)&27VaCP&nT=Ipg}\t>k",
-  "canonical": "-%0A%404=bu6h5%29&27VaCP=&c=&nT=Ipg%7D%09%3Ek"
+  "canonical": "c=&-%0A%404=bu6h5%29&27VaCP=&nT=Ipg%7D%09%3Ek"
  },
  {
   "query": " \"=lx",
@@ -1193,35 +1193,35 @@
  },
  {
   "query": "CataW=qy&中é🙂",
-  "canonical": "%E4%B8%AD%C3%A9%F0%9F%99%82=&CataW=qy"
+  "canonical": "CataW=qy&%E4%B8%AD%C3%A9%F0%9F%99%82="
  },
  {
   "query": "snk_p&oxMJ=nCS&S{q& K\tyd=Z'tu",
-  "canonical": "%20K%09yd=Z%27tu&S%7Bq=&oxMJ=nCS&snk_p="
+  "canonical": "snk_p=&oxMJ=nCS&S%7Bq=&%20K%09yd=Z%27tu"
  },
  {
   "query": "H)]&m\n=,[P&Dw]O",
-  "canonical": "Dw%5DO=&H%29%5D=&m%0A=%2C%5BP"
+  "canonical": "H%29%5D=&m%0A=%2C%5BP&Dw%5DO="
  },
  {
   "query": "ABo=b&\"3&",
-  "canonical": "%223=&ABo=b"
+  "canonical": "ABo=b&%223="
  },
  {
   "query": ",_{^b=F9T6qpa&(vX=h,82S&Zt)I?",
-  "canonical": "%28vX=h%2C82S&%2C_%7B%5Eb=F9T6qpa&Zt%29I%3F="
+  "canonical": "%2C_%7B%5Eb=F9T6qpa&%28vX=h%2C82S&Zt%29I%3F="
  },
  {
   "query": "r &2Ae-C.='/b&}:=N/0NS9?^",
-  "canonical": "%7D%3A=N%2F0NS9%3F%5E&2Ae-C.=%27%2Fb&r%20="
+  "canonical": "r%20=&2Ae-C.=%27%2Fb&%7D%3A=N%2F0NS9%3F%5E"
  },
  {
   "query": "g j\n#=C&I=~1A)|{C",
-  "canonical": "I=~1A%29%7C%7BC&g%20j%0A%23=C"
+  "canonical": "g%20j%0A%23=C&I=~1A%29%7C%7BC"
  },
  {
   "query": "YG2&AT+2Eb=c>yS~w4f&?3-中=55tjU5",
-  "canonical": "%3F3-%E4%B8%AD=55tjU5&AT%202Eb=c%3EyS~w4f&YG2="
+  "canonical": "YG2=&AT%202Eb=c%3EyS~w4f&%3F3-%E4%B8%AD=55tjU5"
  },
  {
   "query": "vFk=LQU9I9L",
@@ -1229,11 +1229,11 @@
  },
  {
   "query": "N=éD!&9Irr=]aX&)Y9J",
-  "canonical": "%29Y9J=&9Irr=%5DaX&N=%C3%A9D%21"
+  "canonical": "N=%C3%A9D%21&9Irr=%5DaX&%29Y9J="
  },
  {
   "query": "&xK&Rn=中KUM&cj.&Z_U6p=2",
-  "canonical": "Rn=%E4%B8%ADKUM&Z_U6p=2&cj.=&xK="
+  "canonical": "xK=&Rn=%E4%B8%ADKUM&cj.=&Z_U6p=2"
  },
  {
   "query": "%EK=8L>6i\n",
@@ -1241,23 +1241,23 @@
  },
  {
   "query": "7%=md&&{r*o&gQb &=",
-  "canonical": "=&%7Br%2Ao=&7%25=md&gQb%20="
+  "canonical": "7%25=md&%7Br%2Ao=&gQb%20=&="
  },
  {
   "query": "hP!fU=&Nr6=LQ&a>In=H7t",
-  "canonical": "Nr6=LQ&a%3EIn=H7t&hP%21fU="
+  "canonical": "hP%21fU=&Nr6=LQ&a%3EIn=H7t"
  },
  {
   "query": ",S\n4wy=rn5B&-=n1y()&@éUV#=7r52Y&dAuA=wY中*sw&",
-  "canonical": "%2CS%0A4wy=rn5B&%40%C3%A9UV%23=7r52Y&-=n1y%28%29&dAuA=wY%E4%B8%AD%2Asw"
+  "canonical": "%2CS%0A4wy=rn5B&-=n1y%28%29&%40%C3%A9UV%23=7r52Y&dAuA=wY%E4%B8%AD%2Asw"
  },
  {
   "query": "dyé\tF=c{xvA&ZA&Z🙂#=n&0|eé:p",
-  "canonical": "0%7Ce%C3%A9%3Ap=&Z%F0%9F%99%82%23=n&ZA=&dy%C3%A9%09F=c%7BxvA"
+  "canonical": "dy%C3%A9%09F=c%7BxvA&ZA=&Z%F0%9F%99%82%23=n&0%7Ce%C3%A9%3Ap="
  },
  {
   "query": "#n'=X<D[y2@S&n8r!+=+7BTh&V=w_\"yX#\"X&,imb\\=?",
-  "canonical": "%23n%27=X%3CD%5By2%40S&%2Cimb%5C=%3F&V=w_%22yX%23%22X&n8r%21%20=%207BTh"
+  "canonical": "%23n%27=X%3CD%5By2%40S&n8r%21%20=%207BTh&V=w_%22yX%23%22X&%2Cimb%5C=%3F"
  },
  {
   "query": "NW\"=-<éBdd&p$🙂#$=",
@@ -1265,15 +1265,15 @@
  },
  {
   "query": "&=&UJ012X=$YV&j4dpw:=czg;&;",
-  "canonical": "=&%3B=&UJ012X=%24YV&j4dpw%3A=czg%3B"
+  "canonical": "=&UJ012X=%24YV&j4dpw%3A=czg%3B&%3B="
  },
  {
   "query": "aS@G🙂=ZMP&KlI=pQn/t)",
-  "canonical": "KlI=pQn%2Ft%29&aS%40G%F0%9F%99%82=ZMP"
+  "canonical": "aS%40G%F0%9F%99%82=ZMP&KlI=pQn%2Ft%29"
  },
  {
   "query": "0WP'>U=Cd_:45Sw&|1cW=old&ZN&&4",
-  "canonical": "%7C1cW=old&0WP%27%3EU=Cd_%3A45Sw&4=&ZN="
+  "canonical": "0WP%27%3EU=Cd_%3A45Sw&%7C1cW=old&ZN=&4="
  },
  {
   "query": "GU1,W",
@@ -1281,19 +1281,19 @@
  },
  {
   "query": "t|&a|=FAv]5&?1Wz=sS&P'g{y1&L?,",
-  "canonical": "%3F1Wz=sS&L%3F%2C=&P%27g%7By1=&a%7C=FAv%5D5&t%7C="
+  "canonical": "t%7C=&a%7C=FAv%5D5&%3F1Wz=sS&P%27g%7By1=&L%3F%2C="
  },
  {
   "query": "?a=R&U=3J# (@e&{=中eXéK&:+=bNEx",
-  "canonical": "%3A%20=bNEx&%7B=%E4%B8%ADeX%C3%A9K&U=3J%23%20%28%40e&a=R"
+  "canonical": "%3Fa=R&U=3J%23%20%28%40e&%7B=%E4%B8%ADeX%C3%A9K&%3A%20=bNEx"
  },
  {
   "query": "R中(HQ&mgpjG=d中5\n4Q&W<=",
-  "canonical": "R%E4%B8%AD%28HQ=&W%3C=&mgpjG=d%E4%B8%AD5%0A4Q"
+  "canonical": "R%E4%B8%AD%28HQ=&mgpjG=d%E4%B8%AD5%0A4Q&W%3C="
  },
  {
   "query": "D@m中=p\"+&bv8@中=&\n&(f}g=#Eé==",
-  "canonical": "%0A=&%28f%7Dg=%23E%C3%A9%3D%3D&D%40m%E4%B8%AD=p%22%20&bv8%40%E4%B8%AD="
+  "canonical": "D%40m%E4%B8%AD=p%22%20&bv8%40%E4%B8%AD=&%0A=&%28f%7Dg=%23E%C3%A9%3D%3D"
  },
  {
   "query": "BL,+=j&Tj-8X=Aza",
@@ -1301,7 +1301,7 @@
  },
  {
   "query": "\\4koK^&$\th&)C.Ci=y\np_Fvt",
-  "canonical": "%24%09h=&%29C.Ci=y%0Ap_Fvt&%5C4koK%5E="
+  "canonical": "%5C4koK%5E=&%24%09h=&%29C.Ci=y%0Ap_Fvt"
  },
  {
   "query": "X\\`Z<=中ee",
@@ -1309,11 +1309,11 @@
  },
  {
   "query": "L?|U;|=&df.%2&:R=$5TTt4n0",
-  "canonical": "%3AR=%245TTt4n0&L%3F%7CU%3B%7C=&df.%252="
+  "canonical": "L%3F%7CU%3B%7C=&df.%252=&%3AR=%245TTt4n0"
  },
  {
   "query": "'Ud&=DA&F中=,UCaK",
-  "canonical": "=DA&%27Ud=&F%E4%B8%AD=%2CUCaK"
+  "canonical": "%27Ud=&=DA&F%E4%B8%AD=%2CUCaK"
  },
  {
   "query": "' WaA=&-=6T]+=jz)y",
@@ -1325,19 +1325,19 @@
  },
  {
   "query": ";y=N&6*&^5=lé&@tBj=",
-  "canonical": "%3By=N&%40tBj=&%5E5=l%C3%A9&6%2A="
+  "canonical": "%3By=N&6%2A=&%5E5=l%C3%A9&%40tBj="
  },
  {
   "query": "7🙂m=s`s+B7D&:8",
-  "canonical": "%3A8=&7%F0%9F%99%82m=s%60s%20B7D"
+  "canonical": "7%F0%9F%99%82m=s%60s%20B7D&%3A8="
  },
  {
   "query": "0$^{{=&a5$=I\"A/#Sk*&{$4(=I&&6G=3c中f",
-  "canonical": "%7B%244%28=I&0%24%5E%7B%7B=&6G=3c%E4%B8%ADf&a5%24=I%22A%2F%23Sk%2A"
+  "canonical": "0%24%5E%7B%7B=&a5%24=I%22A%2F%23Sk%2A&%7B%244%28=I&6G=3c%E4%B8%ADf"
  },
  {
   "query": "8\\=:#O%h&L=P&\\<;N)=_3^.",
-  "canonical": "%5C%3C%3BN%29=_3%5E.&8%5C=%3A%23O%25h&L=P"
+  "canonical": "8%5C=%3A%23O%25h&L=P&%5C%3C%3BN%29=_3%5E."
  },
  {
   "query": ")]=UD>UD+_7&Zx)é=[iv'(",
@@ -1345,23 +1345,23 @@
  },
  {
   "query": "H&;=pA:-\\",
-  "canonical": "%3B=pA%3A-%5C&H="
+  "canonical": "H=&%3B=pA%3A-%5C"
  },
  {
   "query": "ti6:=ge@\nx&-x=5mZ中&Da1E2=|W:t^中5S&[5|0P!=?t'\n中\"pA",
-  "canonical": "%5B5%7C0P%21=%3Ft%27%0A%E4%B8%AD%22pA&-x=5mZ%E4%B8%AD&Da1E2=%7CW%3At%5E%E4%B8%AD5S&ti6%3A=ge%40%0Ax"
+  "canonical": "ti6%3A=ge%40%0Ax&-x=5mZ%E4%B8%AD&Da1E2=%7CW%3At%5E%E4%B8%AD5S&%5B5%7C0P%21=%3Ft%27%0A%E4%B8%AD%22pA"
  },
  {
   "query": "^2H='@&'hDO=p7<)'3&Y4中={CY*L中m&1C>:=IX",
-  "canonical": "%27hDO=p7%3C%29%273&%5E2H=%27%40&1C%3E%3A=IX&Y4%E4%B8%AD=%7BCY%2AL%E4%B8%ADm"
+  "canonical": "%5E2H=%27%40&%27hDO=p7%3C%29%273&Y4%E4%B8%AD=%7BCY%2AL%E4%B8%ADm&1C%3E%3A=IX"
  },
  {
   "query": "=Q2*uK=&\")+=&W=&🙂E=?a<CR",
-  "canonical": "=Q2%2AuK%3D&%22%29%20=&%F0%9F%99%82E=%3Fa%3CCR&W="
+  "canonical": "=Q2%2AuK%3D&%22%29%20=&W=&%F0%9F%99%82E=%3Fa%3CCR"
  },
  {
   "query": "O54=n&a=&vq,PBC=%>o&$v=f+w",
-  "canonical": "%24v=f%20w&O54=n&a=&vq%2CPBC=%25%3Eo"
+  "canonical": "O54=n&a=&vq%2CPBC=%25%3Eo&%24v=f%20w"
  },
  {
   "query": "FZR{I=!",
@@ -1369,11 +1369,11 @@
  },
  {
   "query": "w=Du_(ZBE&I=E,9oYf=#",
-  "canonical": "I=E%2C9oYf%3D%23&w=Du_%28ZBE"
+  "canonical": "w=Du_%28ZBE&I=E%2C9oYf%3D%23"
  },
  {
   "query": ",/&p!=\n3x&>f4~f=(&4=)h\"wr🙂&L",
-  "canonical": "%2C%2F=&%3Ef4~f=%28&4=%29h%22wr%F0%9F%99%82&L=&p%21=%0A3x"
+  "canonical": "%2C%2F=&p%21=%0A3x&%3Ef4~f=%28&4=%29h%22wr%F0%9F%99%82&L="
  },
  {
   "query": ");w=f",
@@ -1381,11 +1381,11 @@
  },
  {
   "query": "4\\O(=@~?_:YUp&bNR=8&JP=p^Elh=&]Z=U-`Wt",
-  "canonical": "%5DZ=U-%60Wt&4%5CO%28=%40~%3F_%3AYUp&JP=p%5EElh%3D&bNR=8"
+  "canonical": "4%5CO%28=%40~%3F_%3AYUp&bNR=8&JP=p%5EElh%3D&%5DZ=U-%60Wt"
  },
  {
   "query": "#xéEM&En^=&7;m=\t",
-  "canonical": "%23x%C3%A9EM=&7%3Bm=%09&En%5E="
+  "canonical": "%23x%C3%A9EM=&En%5E=&7%3Bm=%09"
  },
  {
   "query": "+7=>pr;F",
@@ -1401,39 +1401,39 @@
  },
  {
   "query": "1=&>&%`/_=8<?&g\"j95=.6?Go",
-  "canonical": "%25%60%2F_=8%3C%3F&%3E=&1=&g%22j95=.6%3FGo"
+  "canonical": "1=&%3E=&%25%60%2F_=8%3C%3F&g%22j95=.6%3FGo"
  },
  {
   "query": "\n&k=99+J|.b&@a=VI;aPh#&;中1w:p='\"<:e",
-  "canonical": "%0A=&%3B%E4%B8%AD1w%3Ap=%27%22%3C%3Ae&%40a=VI%3BaPh%23&k=99%20J%7C.b"
+  "canonical": "%0A=&k=99%20J%7C.b&%40a=VI%3BaPh%23&%3B%E4%B8%AD1w%3Ap=%27%22%3C%3Ae"
  },
  {
   "query": "'XeD8#=~&S=>fS&.",
-  "canonical": "%27XeD8%23=~&.=&S=%3EfS"
+  "canonical": "%27XeD8%23=~&S=%3EfS&.="
  },
  {
   "query": "2R#`L=do\nzAE=Y&/b:=JZ]Ls&f%uDh",
-  "canonical": "%2Fb%3A=JZ%5DLs&2R%23%60L=do%0AzAE%3DY&f%25uDh="
+  "canonical": "2R%23%60L=do%0AzAE%3DY&%2Fb%3A=JZ%5DLs&f%25uDh="
  },
  {
   "query": "-W.=rOl&t!NZ&s2h'J",
-  "canonical": "-W.=rOl&s2h%27J=&t%21NZ="
+  "canonical": "-W.=rOl&t%21NZ=&s2h%27J="
  },
  {
   "query": ";AO=-!gt,\"g>&J=&中=> #/j&dt3']=eB",
-  "canonical": "%3BAO=-%21gt%2C%22g%3E&%E4%B8%AD=%3E%20%23%2Fj&J=&dt3%27%5D=eB"
+  "canonical": "%3BAO=-%21gt%2C%22g%3E&J=&%E4%B8%AD=%3E%20%23%2Fj&dt3%27%5D=eB"
  },
  {
   "query": "=O=?k q_a%中&f=`ISU+<U&{-=m🙂",
-  "canonical": "=O%3D%3Fk%20q_a%25%E4%B8%AD&%7B-=m%F0%9F%99%82&f=%60ISU%20%3CU"
+  "canonical": "=O%3D%3Fk%20q_a%25%E4%B8%AD&f=%60ISU%20%3CU&%7B-=m%F0%9F%99%82"
  },
  {
   "query": "RKf中T🙂=cA>q\\vé&}I=d)6&B7Wf=#X",
-  "canonical": "%7DI=d%296&B7Wf=%23X&RKf%E4%B8%ADT%F0%9F%99%82=cA%3Eq%5Cv%C3%A9"
+  "canonical": "RKf%E4%B8%ADT%F0%9F%99%82=cA%3Eq%5Cv%C3%A9&%7DI=d%296&B7Wf=%23X"
  },
  {
   "query": "0SA&|\\>r =8GnLe4M.",
-  "canonical": "%7C%5C%3Er%20=8GnLe4M.&0SA="
+  "canonical": "0SA=&%7C%5C%3Er%20=8GnLe4M."
  },
  {
   "query": "Hm&Is&MG=XP[",
@@ -1445,19 +1445,19 @@
  },
  {
   "query": " 🙂n&&=aoB&>>2\\z=gg}%[",
-  "canonical": "=aoB&%20%F0%9F%99%82n=&%3E%3E2%5Cz=gg%7D%25%5B"
+  "canonical": "%20%F0%9F%99%82n=&=aoB&%3E%3E2%5Cz=gg%7D%25%5B"
  },
  {
   "query": "0é$= (/8z&tk<Kk=🙂{g\n&}=)g)+(%9%&M~=mWucw+\n",
-  "canonical": "%7D=%29g%29%20%28%259%25&0%C3%A9%24=%20%28%2F8z&M~=mWucw%20%0A&tk%3CKk=%F0%9F%99%82%7Bg%0A"
+  "canonical": "0%C3%A9%24=%20%28%2F8z&tk%3CKk=%F0%9F%99%82%7Bg%0A&%7D=%29g%29%20%28%259%25&M~=mWucw%20%0A"
  },
  {
   "query": "){bDT=^G|中zf*u&agu=J+🙂XSw|&A",
-  "canonical": "%29%7BbDT=%5EG%7C%E4%B8%ADzf%2Au&A=&agu=J%20%F0%9F%99%82XSw%7C"
+  "canonical": "%29%7BbDT=%5EG%7C%E4%B8%ADzf%2Au&agu=J%20%F0%9F%99%82XSw%7C&A="
  },
  {
   "query": "Y=Qe5H&\tnE='|U<O&🙂[/g)=r&e=vS6=",
-  "canonical": "%09nE=%27%7CU%3CO&%F0%9F%99%82%5B%2Fg%29=r&Y=Qe5H&e=vS6%3D"
+  "canonical": "Y=Qe5H&%09nE=%27%7CU%3CO&%F0%9F%99%82%5B%2Fg%29=r&e=vS6%3D"
  },
  {
   "query": "0F~G71=&7|w,[&E{VC =4W^p5VL中&P!g=",
@@ -1465,7 +1465,7 @@
  },
  {
   "query": "2sy=nLWK4G&2=']B)Lm",
-  "canonical": "2=%27%5DB%29Lm&2sy=nLWK4G"
+  "canonical": "2sy=nLWK4G&2=%27%5DB%29Lm"
  },
  {
   "query": "中K]:I:=lj6",
@@ -1473,11 +1473,11 @@
  },
  {
   "query": "v^Qol=&[5A=FaxC?hle&/v!F<!=t5s1",
-  "canonical": "%2Fv%21F%3C%21=t5s1&%5B5A=FaxC%3Fhle&v%5EQol="
+  "canonical": "v%5EQol=&%5B5A=FaxC%3Fhle&%2Fv%21F%3C%21=t5s1"
  },
  {
   "query": "zaC|=+yI&<=%Bqv2+n&4&KEo)=;\"nr&I3!J",
-  "canonical": "%3C=%25Bqv2%20n&4=&I3%21J=&KEo%29=%3B%22nr&zaC%7C=%20yI"
+  "canonical": "zaC%7C=%20yI&%3C=%25Bqv2%20n&4=&KEo%29=%3B%22nr&I3%21J="
  },
  {
   "query": "{'=ehYx&-QOhj=r'Py{\"q",
@@ -1489,11 +1489,11 @@
  },
  {
   "query": "s🙂`dS&o|=é",
-  "canonical": "o%7C=%C3%A9&s%F0%9F%99%82%60dS="
+  "canonical": "s%F0%9F%99%82%60dS=&o%7C=%C3%A9"
  },
  {
   "query": "]nL&U?}aMy=jFB&\"[Q=H",
-  "canonical": "%22%5BQ=H&%5DnL=&U%3F%7DaMy=jFB"
+  "canonical": "%5DnL=&U%3F%7DaMy=jFB&%22%5BQ=H"
  },
  {
   "query": "BG=&fL,~",
@@ -1501,23 +1501,23 @@
  },
  {
   "query": "Z=nyo=XqIUV&w🙂=&:i,%=+u5B\"o`v&z/=bY!!🙂",
-  "canonical": "%3Ai%2C%25=%20u5B%22o%60v&Z=nyo%3DXqIUV&w%F0%9F%99%82=&z%2F=bY%21%21%F0%9F%99%82"
+  "canonical": "Z=nyo%3DXqIUV&w%F0%9F%99%82=&%3Ai%2C%25=%20u5B%22o%60v&z%2F=bY%21%21%F0%9F%99%82"
  },
  {
   "query": "e{🙂=|eyGX*@&&中 Vhh=k8H/1<>=",
-  "canonical": "%E4%B8%AD%20Vhh=k8H%2F1%3C%3E%3D&e%7B%F0%9F%99%82=%7CeyGX%2A%40"
+  "canonical": "e%7B%F0%9F%99%82=%7CeyGX%2A%40&%E4%B8%AD%20Vhh=k8H%2F1%3C%3E%3D"
  },
  {
   "query": "PdF@b,=&éqZn,k=Ne&]4=+!:&A=WnJ",
-  "canonical": "%5D4=%20%21%3A&%C3%A9qZn%2Ck=Ne&A=WnJ&PdF%40b%2C="
+  "canonical": "PdF%40b%2C=&%C3%A9qZn%2Ck=Ne&%5D4=%20%21%3A&A=WnJ"
  },
  {
   "query": "dP<X9&Dvd=r>1g1oWL",
-  "canonical": "Dvd=r%3E1g1oWL&dP%3CX9="
+  "canonical": "dP%3CX9=&Dvd=r%3E1g1oWL"
  },
  {
   "query": "E+a=uEéG[{AG&[=~d&va",
-  "canonical": "%5B=~d&E%20a=uE%C3%A9G%5B%7BAG&va="
+  "canonical": "E%20a=uE%C3%A9G%5B%7BAG&%5B=~d&va="
  },
  {
   "query": "yv=kl",
@@ -1525,7 +1525,7 @@
  },
  {
   "query": "XIDK}=V~&K+/TH+=é#@1&y;Zueg=中9\"J8H|&\t=Zfv+,.",
-  "canonical": "%09=Zfv%20%2C.&K%20%2FTH%20=%C3%A9%23%401&XIDK%7D=V~&y%3BZueg=%E4%B8%AD9%22J8H%7C"
+  "canonical": "XIDK%7D=V~&K%20%2FTH%20=%C3%A9%23%401&y%3BZueg=%E4%B8%AD9%22J8H%7C&%09=Zfv%20%2C."
  },
  {
   "query": "*\tD`)P=",
@@ -1537,11 +1537,11 @@
  },
  {
   "query": "}=hUFye[FJ&\n=]=E#[l6[&)Sl t=RT&V=,*é\t",
-  "canonical": "%0A=%5D%3DE%23%5Bl6%5B&%29Sl%20t=RT&%7D=hUFye%5BFJ&V=%2C%2A%C3%A9%09"
+  "canonical": "%7D=hUFye%5BFJ&%0A=%5D%3DE%23%5Bl6%5B&%29Sl%20t=RT&V=%2C%2A%C3%A9%09"
  },
  {
   "query": "zaS=}W>&(O=&Ot\"=_{SK\\",
-  "canonical": "%28O=&Ot%22=_%7BSK%5C&zaS=%7DW%3E"
+  "canonical": "zaS=%7DW%3E&%28O=&Ot%22=_%7BSK%5C"
  },
  {
   "query": "Z<=|[Y*W",
@@ -1549,7 +1549,7 @@
  },
  {
   "query": "g:U=\\MN🙂(N$*&?2=",
-  "canonical": "%3F2=&g%3AU=%5CMN%F0%9F%99%82%28N%24%2A"
+  "canonical": "g%3AU=%5CMN%F0%9F%99%82%28N%24%2A&%3F2="
  },
  {
   "query": "L8r?=eN6&k?f,=e",
@@ -1557,11 +1557,11 @@
  },
  {
   "query": "p中/&L_I;?{=>&Qd~{4`",
-  "canonical": "L_I%3B%3F%7B=%3E&Qd~%7B4%60=&p%E4%B8%AD%2F="
+  "canonical": "p%E4%B8%AD%2F=&L_I%3B%3F%7B=%3E&Qd~%7B4%60="
  },
  {
   "query": "%&PI:5$r&0U=[xsd",
-  "canonical": "%25=&0U=%5Bxsd&PI%3A5%24r="
+  "canonical": "%25=&PI%3A5%24r=&0U=%5Bxsd"
  },
  {
   "query": "Px8}$中=BHbDx^",
@@ -1573,11 +1573,11 @@
  },
  {
   "query": "e@yC=H0W_<HZD&+K,&D=&Mé38🙂%=V\"k.",
-  "canonical": "%20K%2C=&D=&M%C3%A938%F0%9F%99%82%25=V%22k.&e%40yC=H0W_%3CHZD"
+  "canonical": "e%40yC=H0W_%3CHZD&%20K%2C=&D=&M%C3%A938%F0%9F%99%82%25=V%22k."
  },
  {
   "query": "tx&'&f6='*u",
-  "canonical": "%27=&f6=%27%2Au&tx="
+  "canonical": "tx=&%27=&f6=%27%2Au"
  },
  {
   "query": "}&qN",
@@ -1585,7 +1585,7 @@
  },
  {
   "query": "nS\\=&ip+中N=6f7&X,T&}H=8%&l#f#{8=Neél7K",
-  "canonical": "%7DH=8%25&X%2CT=&ip%20%E4%B8%ADN=6f7&l%23f%23%7B8=Ne%C3%A9l7K&nS%5C="
+  "canonical": "nS%5C=&ip%20%E4%B8%ADN=6f7&X%2CT=&%7DH=8%25&l%23f%23%7B8=Ne%C3%A9l7K"
  },
  {
   "query": "BOu  m=Cd8&CoPcTM=&tQdP=",
@@ -1597,6 +1597,6 @@
  },
  {
   "query": "hJ=)RH/\"@&u&|#=(>F*(éP",
-  "canonical": "%7C%23=%28%3EF%2A%28%C3%A9P&hJ=%29RH%2F%22%40&u="
+  "canonical": "hJ=%29RH%2F%22%40&u=&%7C%23=%28%3EF%2A%28%C3%A9P"
  }
 ]

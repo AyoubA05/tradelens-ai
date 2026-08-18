@@ -29,16 +29,16 @@ def test_disabled_ai_short_circuits(monkeypatch):
     monkeypatch.setattr(
         comp,
         "get_analysis_for_trade",
-        lambda tid: called.__setitem__("analysis", True),
+        lambda tid, **kwargs: called.__setitem__("analysis", True),
     )
-    comp.render_ai_review(_trade())
+    comp.render_ai_review(_trade(), user_id=1)
     assert called["analysis"] is False  # gated before any DB access
 
 
 def test_no_analysis_renders_guidance_without_crash(monkeypatch):
     monkeypatch.setattr(comp, "ai_available", lambda: True)
-    monkeypatch.setattr(comp, "get_analysis_for_trade", lambda tid: None)
-    comp.render_ai_review(_trade())  # must not raise
+    monkeypatch.setattr(comp, "get_analysis_for_trade", lambda tid, **kwargs: None)
+    comp.render_ai_review(_trade(), user_id=1)  # must not raise
 
 
 def test_with_saved_journal_and_grade_renders(monkeypatch):
@@ -50,10 +50,12 @@ def test_with_saved_journal_and_grade_renders(monkeypatch):
             '"rubric": {"rule_adherence": {"score": 8, "note": "Followed plan."}}}'
         ),
     )
-    monkeypatch.setattr(comp, "get_analysis_for_trade", lambda tid: analysis)
-    comp.render_ai_review(_trade(), strategy_profile={"name": "S"})  # must not raise
+    monkeypatch.setattr(comp, "get_analysis_for_trade", lambda tid, **kwargs: analysis)
+    comp.render_ai_review(
+        _trade(), strategy_profile={"name": "S"}, user_id=1
+    )  # must not raise
 
 
 def test_none_trade_is_noop(monkeypatch):
     monkeypatch.setattr(comp, "ai_available", lambda: True)
-    comp.render_ai_review(None)  # must not raise
+    comp.render_ai_review(None, user_id=1)  # must not raise

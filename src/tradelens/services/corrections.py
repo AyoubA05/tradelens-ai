@@ -11,7 +11,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Optional
 
-from src.tradelens.db.models import Correction
+from src.tradelens.db.models import AIAnalysis, Correction, Trade
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services.ownership import require_user_id
 
@@ -101,9 +101,22 @@ def record_correction(
     if serialized_ai == serialized_user:
         return None
 
+    owner = _resolve_user(user_id)
     now = datetime.now(timezone.utc).isoformat()
     db = SessionLocal()
     try:
+        owned_context = (
+            db.query(AIAnalysis.id)
+            .join(Trade, Trade.id == AIAnalysis.trade_id)
+            .filter(
+                AIAnalysis.id == ai_analysis_id,
+                AIAnalysis.trade_id == trade_id,
+                Trade.user_id == owner,
+            )
+            .first()
+        )
+        if owned_context is None:
+            raise ValueError("correction context not found")
         row = Correction(
             trade_id=trade_id,
             ai_analysis_id=ai_analysis_id,
@@ -112,7 +125,7 @@ def record_correction(
             user_value=serialized_user,
             user_reason=user_reason,
             created_at=now,
-            user_id=_resolve_user(user_id),
+            user_id=owner,
         )
         db.add(row)
         db.commit()

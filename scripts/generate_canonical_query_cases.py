@@ -65,8 +65,9 @@ HANDWRITTEN = [
     "comma=a,b",
     "eq=a=b",
     "amp=a%26b",
-    # Leading "?" — the divergence this corpus actually caught. URLSearchParams
-    # strips it; parse_qsl did not, until it was taught to.
+    # Leading "?" is literal data because the input is already a raw query and
+    # excludes the URL delimiter. URLSearchParams strips one unless the
+    # TypeScript canonicaliser protects it before parsing.
     "?a=1",
     "?a=1&b=2",
     "?",

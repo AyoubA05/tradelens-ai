@@ -50,7 +50,13 @@ export interface paths {
 }
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: never;
+    schemas: {
+        /** WhoAmI */
+        WhoAmI: {
+            /** User Id */
+            user_id: number;
+        };
+    };
     responses: never;
     parameters: never;
     requestBodies: never;
@@ -94,9 +100,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["WhoAmI"];
                 };
             };
         };

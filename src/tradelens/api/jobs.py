@@ -148,7 +148,9 @@ def run_once(handlers: Dict[str, Callable[[int, dict], str]]) -> bool:
         with corrections_scope(job.user_id):
             result_ref = handler(job.user_id, payload)
         complete(job.id, result_ref)
-    except Exception:  # noqa: BLE001 — message withheld deliberately
-        _log.exception("job %s (%s) failed", job.id, job.kind)
+    except Exception as exc:  # noqa: BLE001 — message withheld deliberately
+        # Provider exceptions can embed request fragments, response bodies, or
+        # credentials. Log only the class name; no message and no traceback.
+        _log.error("job %s (%r) failed (%s)", job.id, job.kind, type(exc).__name__)
         fail(job.id, _GENERIC_FAILURE)
     return True

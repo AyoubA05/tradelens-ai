@@ -102,12 +102,16 @@ def find_recent_duplicate(
         db.close()
 
 
-def create_trade(trade_data: dict) -> Trade:
+def create_trade(trade_data: dict, *, user_id: int) -> Trade:
     """
     Insert a trade row. Auto-calculates day_of_week, rr_planned, rr_realized,
     and a trade_hash fingerprint. Returns the persisted Trade.
     """
+    owner = require_user_id(user_id)
     data = dict(trade_data)
+    # Authentication context owns this field. A body may contain a stale or
+    # malicious user_id, but it can never select where the row is written.
+    data["user_id"] = owner
 
     # A stored row may never contradict itself: P&L decides the outcome label.
     data["result"] = canonical_outcome(data.get("result"), data.get("pnl"))
@@ -331,21 +335,21 @@ def delete_all_trades(user_id: int) -> int:
         db.close()
 
 
-def get_primary_screenshot(trade_id: int) -> Optional[str]:
+def get_primary_screenshot(trade_id: int, *, user_id: int) -> Optional[str]:
     """Return the file_path of a trade's first screenshot, or None.
 
     Best-effort lookup for the Trade-of-the-Week thumbnail; never raises on a
     missing trade or missing screenshot — the caller renders without a thumbnail.
     """
-    if trade_id is None:
-        return None
+    owner = require_user_id(user_id)
     db: Session = SessionLocal()
     try:
         from src.tradelens.db.models import Screenshot
 
         shot = (
             db.query(Screenshot)
-            .filter(Screenshot.trade_id == trade_id)
+            .join(Trade, Trade.id == Screenshot.trade_id)
+            .filter(Screenshot.trade_id == trade_id, Trade.user_id == owner)
             .order_by(Screenshot.id.asc())
             .first()
         )

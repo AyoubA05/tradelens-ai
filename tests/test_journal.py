@@ -41,7 +41,7 @@ def in_memory_db(monkeypatch):
 @pytest.fixture()
 def sample_analysis(in_memory_db):
     db = in_memory_db()
-    trade = Trade(asset="NQ", direction="Long", result="Win", pnl=300.0)
+    trade = Trade(user_id=1, asset="NQ", direction="Long", result="Win", pnl=300.0)
     db.add(trade)
     db.flush()
     analysis = AIAnalysis(
@@ -291,7 +291,7 @@ def test_save_journal_persists_markdown(sample_analysis, in_memory_db):
     _, analysis = sample_analysis
     md = _full_journal()
 
-    save_journal(analysis.id, md)
+    save_journal(analysis.id, md, user_id=1)
 
     db = in_memory_db()
     row = db.query(AIAnalysis).filter(AIAnalysis.id == analysis.id).first()

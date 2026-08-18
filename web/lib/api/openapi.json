@@ -1,4 +1,21 @@
 {
+  "components": {
+    "schemas": {
+      "WhoAmI": {
+        "properties": {
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "user_id"
+        ],
+        "title": "WhoAmI",
+        "type": "object"
+      }
+    }
+  },
   "info": {
     "title": "TradeLens API",
     "version": "0.1.0"
@@ -31,9 +48,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Whoami V1 Session Whoami Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/WhoAmI"
                 }
               }
             },

@@ -1,4 +1,6 @@
 import io
+import struct
+import zlib
 
 import pytest
 from PIL import Image
@@ -56,6 +58,17 @@ def test_an_oversized_image_is_refused():
     # bomb guard inside the test itself rather than inside the validator.
     with pytest.raises(ImageRejected):
         validate_and_normalise(_png(size=(12001, 10)))
+
+
+def test_a_pillow_decompression_bomb_is_a_stable_rejection_not_a_500():
+    """Trigger Pillow's own >2x bomb error without allocating the pixels."""
+    data = bytearray(_png(size=(1, 1)))
+    ihdr_data = struct.pack(">II", 12001, 12001) + bytes(data[24:29])
+    data[16:29] = ihdr_data
+    data[29:33] = struct.pack(">I", zlib.crc32(b"IHDR" + ihdr_data))
+
+    with pytest.raises(ImageRejected):
+        validate_and_normalise(bytes(data))
 
 
 def test_empty_input_is_refused():

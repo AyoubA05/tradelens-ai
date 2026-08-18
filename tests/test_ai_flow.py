@@ -40,7 +40,7 @@ def in_memory_db(monkeypatch):
 def sample_trade(in_memory_db):
     """Insert a minimal Trade row and return it."""
     db = in_memory_db()
-    trade = Trade(asset="NQ", direction="Long", result="Win", pnl=250.0)
+    trade = Trade(user_id=1, asset="NQ", direction="Long", result="Win", pnl=250.0)
     db.add(trade)
     db.commit()
     db.refresh(trade)
@@ -93,7 +93,7 @@ def test_create_analysis_persists_all_fields(sample_trade, in_memory_db):
     from src.tradelens.services.ai_analysis_service import create_or_update_analysis
 
     usage = _make_usage()
-    row = create_or_update_analysis(sample_trade.id, _VISION_RESULT, usage)
+    row = create_or_update_analysis(sample_trade.id, _VISION_RESULT, usage, user_id=1)
 
     assert row.id is not None
     assert row.trade_id == sample_trade.id
@@ -116,8 +116,8 @@ def test_get_analysis_returns_existing_row(sample_trade, in_memory_db):
         get_analysis_for_trade,
     )
 
-    create_or_update_analysis(sample_trade.id, _VISION_RESULT, _make_usage())
-    result = get_analysis_for_trade(sample_trade.id)
+    create_or_update_analysis(sample_trade.id, _VISION_RESULT, _make_usage(), user_id=1)
+    result = get_analysis_for_trade(sample_trade.id, user_id=1)
 
     assert result is not None
     assert result.trade_id == sample_trade.id
@@ -127,7 +127,7 @@ def test_get_analysis_returns_existing_row(sample_trade, in_memory_db):
 def test_get_analysis_returns_none_for_unknown_trade(in_memory_db):
     from src.tradelens.services.ai_analysis_service import get_analysis_for_trade
 
-    assert get_analysis_for_trade(99999) is None
+    assert get_analysis_for_trade(99999, user_id=1) is None
 
 
 def test_create_or_update_overwrites_on_rerun(sample_trade, in_memory_db):
@@ -135,10 +135,10 @@ def test_create_or_update_overwrites_on_rerun(sample_trade, in_memory_db):
         create_or_update_analysis,
     )
 
-    create_or_update_analysis(sample_trade.id, _VISION_RESULT, _make_usage())
+    create_or_update_analysis(sample_trade.id, _VISION_RESULT, _make_usage(), user_id=1)
 
     updated_result = {**_VISION_RESULT, "bias": "bearish", "trade_quality": 4}
-    create_or_update_analysis(sample_trade.id, updated_result, _make_usage())
+    create_or_update_analysis(sample_trade.id, updated_result, _make_usage(), user_id=1)
 
     db = in_memory_db()
     rows = db.query(AIAnalysis).filter(AIAnalysis.trade_id == sample_trade.id).all()
@@ -152,7 +152,9 @@ def test_create_or_update_overwrites_on_rerun(sample_trade, in_memory_db):
 def test_zones_json_roundtrip(sample_trade, in_memory_db):
     from src.tradelens.services.ai_analysis_service import create_or_update_analysis
 
-    row = create_or_update_analysis(sample_trade.id, _VISION_RESULT, _make_usage())
+    row = create_or_update_analysis(
+        sample_trade.id, _VISION_RESULT, _make_usage(), user_id=1
+    )
 
     zones = json.loads(row.zones_json)
     assert isinstance(zones, list)
@@ -165,7 +167,9 @@ def test_zones_json_roundtrip(sample_trade, in_memory_db):
 def test_raw_response_json_roundtrip(sample_trade, in_memory_db):
     from src.tradelens.services.ai_analysis_service import create_or_update_analysis
 
-    row = create_or_update_analysis(sample_trade.id, _VISION_RESULT, _make_usage())
+    row = create_or_update_analysis(
+        sample_trade.id, _VISION_RESULT, _make_usage(), user_id=1
+    )
 
     raw = json.loads(row.raw_response_json)
     assert raw["bias"] == "bullish"
@@ -180,14 +184,16 @@ def test_save_journal_persists_markdown(sample_trade, in_memory_db):
         get_analysis_for_trade,
     )
 
-    row = create_or_update_analysis(sample_trade.id, _VISION_RESULT, _make_usage())
+    row = create_or_update_analysis(
+        sample_trade.id, _VISION_RESULT, _make_usage(), user_id=1
+    )
     markdown = "### Trade Summary\nSolid trade.\n### Market Bias\nBullish."
-    updated = save_journal(row.id, markdown)
+    updated = save_journal(row.id, markdown, user_id=1)
 
     assert updated.journal_entry_md == markdown
     assert updated.updated_at is not None
 
-    reloaded = get_analysis_for_trade(sample_trade.id)
+    reloaded = get_analysis_for_trade(sample_trade.id, user_id=1)
     assert reloaded.journal_entry_md == markdown
 
 
@@ -197,7 +203,9 @@ def test_save_grade_writes_grading_json_and_ai_grade(sample_trade, in_memory_db)
         save_grade,
     )
 
-    row = create_or_update_analysis(sample_trade.id, _VISION_RESULT, _make_usage())
+    row = create_or_update_analysis(
+        sample_trade.id, _VISION_RESULT, _make_usage(), user_id=1
+    )
     grading_result = {
         "grade": "B",
         "score": 7,
@@ -210,7 +218,7 @@ def test_save_grade_writes_grading_json_and_ai_grade(sample_trade, in_memory_db)
             "emotional_control": {"score": 7, "note": "No revenge trading."},
         },
     }
-    updated = save_grade(row.id, grading_result)
+    updated = save_grade(row.id, grading_result, user_id=1)
 
     assert updated.grading_json is not None
     saved = json.loads(updated.grading_json)
@@ -231,7 +239,9 @@ def test_save_user_grade_does_not_overwrite_ai_grade(sample_trade, in_memory_db)
         save_user_grade,
     )
 
-    row = create_or_update_analysis(sample_trade.id, _VISION_RESULT, _make_usage())
+    row = create_or_update_analysis(
+        sample_trade.id, _VISION_RESULT, _make_usage(), user_id=1
+    )
     grading_result = {
         "grade": "C",
         "score": 5,
@@ -244,8 +254,8 @@ def test_save_user_grade_does_not_overwrite_ai_grade(sample_trade, in_memory_db)
             "emotional_control": {"score": 5, "note": "OK."},
         },
     }
-    save_grade(row.id, grading_result)
-    save_user_grade(sample_trade.id, "A")
+    save_grade(row.id, grading_result, user_id=1)
+    save_user_grade(sample_trade.id, "A", user_id=1)
 
     db = in_memory_db()
     trade = db.query(Trade).filter(Trade.id == sample_trade.id).first()
@@ -258,8 +268,8 @@ def test_save_user_grade_does_not_overwrite_ai_grade(sample_trade, in_memory_db)
 def test_save_user_grade_can_clear_to_null(sample_trade, in_memory_db):
     from src.tradelens.services.ai_analysis_service import save_user_grade
 
-    save_user_grade(sample_trade.id, "B")
-    save_user_grade(sample_trade.id, None)
+    save_user_grade(sample_trade.id, "B", user_id=1)
+    save_user_grade(sample_trade.id, None, user_id=1)
 
     db = in_memory_db()
     trade = db.query(Trade).filter(Trade.id == sample_trade.id).first()
@@ -273,9 +283,11 @@ def test_update_analysis_fields_denormalizes_to_trade(sample_trade, in_memory_db
         update_analysis_fields,
     )
 
-    row = create_or_update_analysis(sample_trade.id, _VISION_RESULT, _make_usage())
+    row = create_or_update_analysis(
+        sample_trade.id, _VISION_RESULT, _make_usage(), user_id=1
+    )
     update_analysis_fields(
-        row.id, bias="bearish", detected_setup="FVG", trade_quality=6
+        row.id, user_id=1, bias="bearish", detected_setup="FVG", trade_quality=6
     )
 
     # Check that trade row was also updated
@@ -317,7 +329,7 @@ def test_get_smc_prefill_uses_ai_proposal_when_user_value_absent(
         get_smc_prefill,
     )
 
-    create_or_update_analysis(sample_trade.id, _SMC_VISION, _make_usage())
+    create_or_update_analysis(sample_trade.id, _SMC_VISION, _make_usage(), user_id=1)
     db = in_memory_db()
     trade = db.query(Trade).filter(Trade.id == sample_trade.id).first()
     analysis = (
@@ -339,8 +351,8 @@ def test_get_smc_prefill_prefers_user_value_over_ai(sample_trade, in_memory_db):
         save_trade_smc,
     )
 
-    create_or_update_analysis(sample_trade.id, _SMC_VISION, _make_usage())
-    save_trade_smc(sample_trade.id, htf_bias="bullish")  # user override
+    create_or_update_analysis(sample_trade.id, _SMC_VISION, _make_usage(), user_id=1)
+    save_trade_smc(sample_trade.id, user_id=1, htf_bias="bullish")  # user override
 
     db = in_memory_db()
     trade = db.query(Trade).filter(Trade.id == sample_trade.id).first()
@@ -359,6 +371,7 @@ def test_save_trade_smc_persists_to_trade(sample_trade, in_memory_db):
 
     save_trade_smc(
         sample_trade.id,
+        user_id=1,
         htf_bias="bullish",
         liquidity_sweep=1,
         fvg_used=0,

@@ -38,8 +38,12 @@ def in_memory_db(monkeypatch):
 @pytest.fixture()
 def sample_ids(in_memory_db):
     """Create a Trade + AIAnalysis and return (trade_id, analysis_id)."""
-    db = in_memory_db()
-    trade = Trade(asset="NQ", direction="Long", result="Win")
+    return _owned_ids(in_memory_db, 1)
+
+
+def _owned_ids(session_factory, owner):
+    db = session_factory()
+    trade = Trade(user_id=owner, asset="NQ", direction="Long", result="Win")
     db.add(trade)
     db.flush()
     analysis = AIAnalysis(trade_id=trade.id, bias="bullish", trade_quality=7)
@@ -431,7 +435,7 @@ def test_repeated_corrections_below_threshold_excluded(in_memory_db, sample_ids)
 
 
 @pytest.fixture()
-def two_user_corrections(sample_ids):
+def two_user_corrections(sample_ids, in_memory_db):
     """Corrections for user 1, user 2, and user 3 — three distinct owners.
 
     A third real owner (rather than a legacy NULL row) proves isolation without
@@ -443,15 +447,17 @@ def two_user_corrections(sample_ids):
     trade_id, analysis_id = sample_ids
     record_correction(trade_id, analysis_id, "bias", "bullish", "bearish", user_id=1)
     record_correction(trade_id, analysis_id, "bias", "neutral", "bearish", user_id=1)
-    record_correction(trade_id, analysis_id, "setup", "FVG", "OB", user_id=2)
-    record_correction(trade_id, analysis_id, "timeframe", "5m", "15m", user_id=3)
+    trade_2, analysis_2 = _owned_ids(in_memory_db, 2)
+    trade_3, analysis_3 = _owned_ids(in_memory_db, 3)
+    record_correction(trade_2, analysis_2, "setup", "FVG", "OB", user_id=2)
+    record_correction(trade_3, analysis_3, "timeframe", "5m", "15m", user_id=3)
     return sample_ids
 
 
 def test_record_correction_stores_user_id(sample_ids, in_memory_db):
     from src.tradelens.services.corrections import record_correction
 
-    trade_id, analysis_id = sample_ids
+    trade_id, analysis_id = _owned_ids(in_memory_db, 42)
     row = record_correction(trade_id, analysis_id, "bias", "a", "b", user_id=42)
     assert row.user_id == 42
 
@@ -529,7 +535,41 @@ def test_record_correction_defaults_to_active_user(sample_ids, in_memory_db):
         record_correction,
     )
 
-    trade_id, analysis_id = sample_ids
+    trade_id, analysis_id = _owned_ids(in_memory_db, 9)
     with corrections_scope(9):
         row = record_correction(trade_id, analysis_id, "bias", "x", "y")
     assert row.user_id == 9
+
+
+def test_nested_and_exceptional_scopes_restore_the_previous_owner(in_memory_db):
+    from src.tradelens.services.corrections import (
+        corrections_scope,
+        count_corrections,
+    )
+
+    with corrections_scope(1):
+        assert count_corrections() == 0
+        with pytest.raises(RuntimeError):
+            with corrections_scope(2):
+                assert count_corrections() == 0
+                raise RuntimeError("leave the inner scope")
+        assert count_corrections() == 0
+
+    with pytest.raises(LookupError):
+        count_corrections()
+
+
+def test_a_plain_background_thread_fails_closed_without_propagated_context(
+    in_memory_db,
+):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from src.tradelens.services.corrections import (
+        corrections_scope,
+        count_corrections,
+    )
+
+    with corrections_scope(1), ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(count_corrections)
+        with pytest.raises(LookupError):
+            future.result()

@@ -76,7 +76,12 @@ def validate_and_normalise(data: bytes) -> tuple[bytes, str, int, int]:
             clean.paste(image.convert("RGB"))
     except ImageRejected:
         raise
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
+    except (
+        Image.DecompressionBombError,
+        UnidentifiedImageError,
+        OSError,
+        ValueError,
+    ) as exc:
         raise ImageRejected("not a supported image") from exc
 
     out = io.BytesIO()

@@ -4,6 +4,15 @@
 
 **Goal:** Build every non-visible foundation the Next.js app will stand on — hardened tenant isolation in the service layer, a doubly-authenticated FastAPI backend, R2 storage with validated uploads, a background AI job runner, and a parity harness — without shipping a single user-visible screen.
 
+> **Independent-review amendment (2026-08-18).** This file records the plan as
+> originally executed, so some embedded code samples are intentionally
+> historical. The reviewed implementation and design spec supersede two parts:
+> Next.js sends `X-TL-Session-Handle` (the domain-separated database hash), not
+> the raw `X-TL-Session` browser credential; R2 PUTs land in quarantine and the
+> server enforces size plus image normalization before producing the only key
+> that may be persisted or downloaded. Query-pair order is also HMAC-bound; an
+> exact signed request remains replayable inside the 60-second freshness window.
+
 **Architecture:** A new `src/tradelens/api/` package wraps the existing, untouched `src/tradelens/services/` behind FastAPI. It is a public HTTPS service that is never called by a browser: every request must carry both a timestamped HMAC service signature and a website session token that FastAPI resolves against the database itself. The owner of a request is derived from the session row and passed explicitly into services whose signatures no longer accept a nullable owner.
 
 **Tech Stack:** Python 3.11 · FastAPI · Pydantic v2 · SQLAlchemy 2.x · Alembic · boto3 (Cloudflare R2, S3-compatible) · Pillow · pytest · Next.js 16 / TypeScript / Vitest · openapi-typescript

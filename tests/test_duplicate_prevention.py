@@ -41,6 +41,10 @@ _TRADE = {
 }
 
 
+def _create(data):
+    return trade_service.create_trade(data, user_id=data["user_id"])
+
+
 def test_trade_hash_is_stable_and_identifying():
     a = trade_service.compute_trade_hash(_TRADE)
     b = trade_service.compute_trade_hash(dict(_TRADE))
@@ -50,7 +54,7 @@ def test_trade_hash_is_stable_and_identifying():
 
 
 def test_recent_duplicate_detected(db_session):
-    trade_service.create_trade(dict(_TRADE))
+    _create(dict(_TRADE))
     dup = trade_service.find_recent_duplicate(
         dict(_TRADE), _TRADE["user_id"], within_seconds=60
     )
@@ -60,9 +64,9 @@ def test_recent_duplicate_detected(db_session):
 
 def test_duplicate_trade_not_created(db_session):
     """The UI flow: detect the recent duplicate and skip the second insert."""
-    trade_service.create_trade(dict(_TRADE))
+    _create(dict(_TRADE))
     if trade_service.find_recent_duplicate(dict(_TRADE), _TRADE["user_id"]) is None:
-        trade_service.create_trade(dict(_TRADE))
+        _create(dict(_TRADE))
     db = db_session()
     try:
         assert db.query(Trade).count() == 1
@@ -71,14 +75,14 @@ def test_duplicate_trade_not_created(db_session):
 
 
 def test_no_false_positive_for_distinct_trade(db_session):
-    trade_service.create_trade(dict(_TRADE))
+    _create(dict(_TRADE))
     other = {**_TRADE, "asset": "ES", "pnl": -200.0}
     assert trade_service.find_recent_duplicate(other, other["user_id"]) is None
 
 
 def test_csv_import_skips_duplicates(db_session):
     # Pre-existing trade in the DB, plus a CSV that repeats it twice + one new row.
-    trade_service.create_trade(dict(_TRADE))
+    _create(dict(_TRADE))
     rows = [
         _TRADE,  # duplicate of the existing row
         _TRADE,  # duplicate within the file

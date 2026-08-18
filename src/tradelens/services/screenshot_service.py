@@ -5,14 +5,31 @@ from pathlib import Path
 from PIL import Image
 from sqlalchemy.orm import Session
 
-from src.tradelens.db.models import Screenshot
+from src.tradelens.db.models import Screenshot, Trade
 from src.tradelens.db.session import SessionLocal
+from src.tradelens.services.ownership import require_user_id
 
 # Relative to CWD (project root); consistent with session.py's sqlite:///./data/tradelens.db
 SCREENSHOTS_DIR = Path("data/screenshots")
 
 
-def save_screenshot(trade_id: int, uploaded_file) -> Screenshot:
+def _require_owned_trade(trade_id: int, user_id: int) -> int:
+    owner = require_user_id(user_id)
+    db = SessionLocal()
+    try:
+        exists = (
+            db.query(Trade.id)
+            .filter(Trade.id == trade_id, Trade.user_id == owner)
+            .first()
+        )
+    finally:
+        db.close()
+    if exists is None:
+        raise PermissionError("trade not found")
+    return owner
+
+
+def save_screenshot(trade_id: int, uploaded_file, *, user_id: int) -> Screenshot:
     """
     Write an uploaded chart image to disk and insert a screenshots row.
 
@@ -25,6 +42,7 @@ def save_screenshot(trade_id: int, uploaded_file) -> Screenshot:
     Session pattern: SessionLocal() directly, matching trade_service.py.
     uploaded_file: Streamlit UploadedFile object.
     """
+    _require_owned_trade(trade_id, user_id)
     SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     dest = SCREENSHOTS_DIR / f"{trade_id}_{uploaded_file.name}"
@@ -59,12 +77,13 @@ def save_screenshot(trade_id: int, uploaded_file) -> Screenshot:
         db.close()
 
 
-def save_screenshot_url(trade_id: int, url: str) -> Screenshot:
+def save_screenshot_url(trade_id: int, url: str, *, user_id: int) -> Screenshot:
     """Insert a screenshots row pointing at a remote image URL (no disk write).
 
     The file_path stores the URL as-is; the UI renders http(s) paths directly and
     only does a local-file existence check for non-URL paths.
     """
+    _require_owned_trade(trade_id, user_id)
     db: Session = SessionLocal()
     try:
         record = Screenshot(

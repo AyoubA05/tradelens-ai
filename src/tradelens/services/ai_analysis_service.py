@@ -11,13 +11,35 @@ from typing import Optional
 from src.tradelens.db.models import AIAnalysis, Trade
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services.ai_client import Usage
+from src.tradelens.services.ownership import require_user_id
 
 
-def get_analysis_for_trade(trade_id: int) -> Optional[AIAnalysis]:
+def _owned_trade(db, trade_id: int, user_id: int) -> Optional[Trade]:
+    owner = require_user_id(user_id)
+    return db.query(Trade).filter(Trade.id == trade_id, Trade.user_id == owner).first()
+
+
+def _owned_analysis(db, analysis_id: int, user_id: int) -> Optional[AIAnalysis]:
+    owner = require_user_id(user_id)
+    return (
+        db.query(AIAnalysis)
+        .join(Trade, Trade.id == AIAnalysis.trade_id)
+        .filter(AIAnalysis.id == analysis_id, Trade.user_id == owner)
+        .first()
+    )
+
+
+def get_analysis_for_trade(trade_id: int, *, user_id: int) -> Optional[AIAnalysis]:
     """Return the saved AIAnalysis row for a trade, or None if not yet run."""
     db = SessionLocal()
     try:
-        return db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).first()
+        owner = require_user_id(user_id)
+        return (
+            db.query(AIAnalysis)
+            .join(Trade, Trade.id == AIAnalysis.trade_id)
+            .filter(AIAnalysis.trade_id == trade_id, Trade.user_id == owner)
+            .first()
+        )
     finally:
         db.close()
 
@@ -27,6 +49,8 @@ def create_or_update_analysis(
     vision_result: dict,
     usage: Usage,
     prompt_version: str = "screenshot_v2",
+    *,
+    user_id: int,
 ) -> AIAnalysis:
     """
     Persist an AI screenshot analysis result.
@@ -38,6 +62,8 @@ def create_or_update_analysis(
     now = datetime.now(timezone.utc).isoformat()
     db = SessionLocal()
     try:
+        if _owned_trade(db, trade_id, user_id) is None:
+            raise ValueError("trade not found")
         row = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).first()
         if row is None:
             row = AIAnalysis(trade_id=trade_id, created_at=now)
@@ -65,7 +91,7 @@ def create_or_update_analysis(
         db.close()
 
 
-def update_analysis_fields(analysis_id: int, **fields) -> AIAnalysis:
+def update_analysis_fields(analysis_id: int, *, user_id: int, **fields) -> AIAnalysis:
     """
     Partial update for user-confirmed labels (bias, detected_setup, trade_quality, zones_json).
 
@@ -84,7 +110,7 @@ def update_analysis_fields(analysis_id: int, **fields) -> AIAnalysis:
     now = datetime.now(timezone.utc).isoformat()
     db = SessionLocal()
     try:
-        row = db.query(AIAnalysis).filter(AIAnalysis.id == analysis_id).first()
+        row = _owned_analysis(db, analysis_id, user_id)
         if row is None:
             raise ValueError(f"AIAnalysis row {analysis_id} not found")
 
@@ -94,7 +120,7 @@ def update_analysis_fields(analysis_id: int, **fields) -> AIAnalysis:
         row.updated_at = now
 
         # denormalize confirmed labels back to the trade row
-        trade = db.query(Trade).filter(Trade.id == row.trade_id).first()
+        trade = _owned_trade(db, row.trade_id, user_id)
         if trade:
             if "bias" in fields:
                 trade.bias = fields["bias"]
@@ -108,7 +134,7 @@ def update_analysis_fields(analysis_id: int, **fields) -> AIAnalysis:
         db.close()
 
 
-def save_grade(analysis_id: int, grading_result: dict) -> AIAnalysis:
+def save_grade(analysis_id: int, grading_result: dict, *, user_id: int) -> AIAnalysis:
     """
     Persist grading JSON to aianalysis.grading_json and letter grade to trades.ai_grade.
 
@@ -117,13 +143,13 @@ def save_grade(analysis_id: int, grading_result: dict) -> AIAnalysis:
     now = datetime.now(timezone.utc).isoformat()
     db = SessionLocal()
     try:
-        row = db.query(AIAnalysis).filter(AIAnalysis.id == analysis_id).first()
+        row = _owned_analysis(db, analysis_id, user_id)
         if row is None:
             raise ValueError(f"AIAnalysis row {analysis_id} not found")
         row.grading_json = json.dumps(grading_result)
         row.updated_at = now
 
-        trade = db.query(Trade).filter(Trade.id == row.trade_id).first()
+        trade = _owned_trade(db, row.trade_id, user_id)
         if trade:
             trade.ai_grade = grading_result.get("grade")
 
@@ -134,7 +160,7 @@ def save_grade(analysis_id: int, grading_result: dict) -> AIAnalysis:
         db.close()
 
 
-def save_user_grade(trade_id: int, grade: Optional[str]) -> Trade:
+def save_user_grade(trade_id: int, grade: Optional[str], *, user_id: int) -> Trade:
     """
     Persist user-override grade to trades.user_grade.
 
@@ -142,7 +168,7 @@ def save_user_grade(trade_id: int, grade: Optional[str]) -> Trade:
     """
     db = SessionLocal()
     try:
-        trade = db.query(Trade).filter(Trade.id == trade_id).first()
+        trade = _owned_trade(db, trade_id, user_id)
         if trade is None:
             raise ValueError(f"Trade {trade_id} not found")
         trade.user_grade = grade  # None clears the override
@@ -193,7 +219,7 @@ def get_smc_prefill(trade: Trade, analysis: Optional[AIAnalysis]) -> dict:
     return out
 
 
-def save_trade_smc(trade_id: int, **fields) -> Trade:
+def save_trade_smc(trade_id: int, *, user_id: int, **fields) -> Trade:
     """Persist user-confirmed SMC/ICT values to the trade row.
 
     Only known SMC columns are written; unknown keys are ignored. Does not touch
@@ -202,7 +228,7 @@ def save_trade_smc(trade_id: int, **fields) -> Trade:
     allowed = set(_SMC_PREFILL_KEYS)
     db = SessionLocal()
     try:
-        trade = db.query(Trade).filter(Trade.id == trade_id).first()
+        trade = _owned_trade(db, trade_id, user_id)
         if trade is None:
             raise ValueError(f"Trade {trade_id} not found")
         for key, val in fields.items():
@@ -215,12 +241,12 @@ def save_trade_smc(trade_id: int, **fields) -> Trade:
         db.close()
 
 
-def save_journal(analysis_id: int, markdown: str) -> AIAnalysis:
+def save_journal(analysis_id: int, markdown: str, *, user_id: int) -> AIAnalysis:
     """Persist a generated journal entry to aianalysis.journal_entry_md."""
     now = datetime.now(timezone.utc).isoformat()
     db = SessionLocal()
     try:
-        row = db.query(AIAnalysis).filter(AIAnalysis.id == analysis_id).first()
+        row = _owned_analysis(db, analysis_id, user_id)
         if row is None:
             raise ValueError(f"AIAnalysis row {analysis_id} not found")
         row.journal_entry_md = markdown

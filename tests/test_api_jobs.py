@@ -1,4 +1,7 @@
 import pytest
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 from src.tradelens.api import jobs
 from src.tradelens.db.models import AIJob
@@ -21,6 +24,26 @@ def test_the_same_key_returns_the_existing_job_without_a_second_row(two_users):
     assert first == second
     assert created_second is False
 
+    db = SessionLocal()
+    try:
+        assert db.query(AIJob).filter(AIJob.user_id == a).count() == 1
+    finally:
+        db.close()
+
+
+def test_concurrent_duplicate_enqueues_create_exactly_one_job(two_users):
+    a, _ = two_users
+    gate = Barrier(2)
+
+    def submit():
+        gate.wait()
+        return jobs.enqueue(a, "grading", "concurrent-key", {"trade_id": 1})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: submit(), range(2)))
+
+    assert len({job_id for job_id, _ in results}) == 1
+    assert sorted(created for _, created in results) == [False, True]
     db = SessionLocal()
     try:
         assert db.query(AIJob).filter(AIJob.user_id == a).count() == 1
@@ -57,6 +80,30 @@ def test_a_claimed_job_is_not_claimed_twice(two_users):
     jobs.enqueue(a, "grading", "k3", {})
     assert jobs.claim_next() is not None
     assert jobs.claim_next() is None
+
+
+def test_concurrent_claims_cannot_both_take_the_same_job(two_users):
+    a, _ = two_users
+    job_id, _ = jobs.enqueue(a, "grading", "claim-race", {})
+    gate = Barrier(2)
+
+    def claim():
+        gate.wait()
+        row = jobs.claim_next()
+        return None if row is None else row.id
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        claimed = list(pool.map(lambda _: claim(), range(2)))
+
+    assert claimed.count(job_id) == 1
+    assert claimed.count(None) == 1
+    db = SessionLocal()
+    try:
+        row = db.get(AIJob, job_id)
+        assert row.status == "running"
+        assert row.attempts == 1
+    finally:
+        db.close()
 
 
 def test_complete_records_where_the_result_landed(two_users):
@@ -108,14 +155,17 @@ def test_run_once_returns_false_when_the_queue_is_empty():
     assert jobs.run_once({}) is False
 
 
-def test_a_handler_that_raises_fails_the_job_without_leaking_detail(two_users):
+def test_a_handler_that_raises_fails_without_leaking_detail_to_db_or_logs(
+    two_users, caplog
+):
     a, _ = two_users
     jobs.enqueue(a, "grading", "k7", {})
 
     def explode(user_id, payload):
         raise RuntimeError("anthropic said something with a key in it")
 
-    jobs.run_once({"grading": explode})
+    with caplog.at_level(logging.ERROR, logger="src.tradelens.api.jobs"):
+        jobs.run_once({"grading": explode})
 
     db = SessionLocal()
     try:
@@ -124,3 +174,4 @@ def test_a_handler_that_raises_fails_the_job_without_leaking_detail(two_users):
         assert "anthropic said" not in (job.error or "")
     finally:
         db.close()
+    assert "anthropic said" not in caplog.text

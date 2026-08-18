@@ -19,6 +19,7 @@ the real size gate is enforced server-side in `imaging.validate_and_normalise`.
 from __future__ import annotations
 
 import uuid
+import logging
 from typing import Optional
 
 import boto3
@@ -37,6 +38,11 @@ ALLOWED_CONTENT_TYPES = {
 }
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 PRESIGN_TTL_SECONDS = 300
+_log = logging.getLogger(__name__)
+
+
+class UploadRejected(ValueError):
+    """Stable refusal for an invalid object in the upload quarantine."""
 
 
 def _client():
@@ -65,6 +71,30 @@ def build_object_key(user_id: int, trade_id: int, content_type: str) -> str:
     return f"u/{owner}/t/{int(trade_id)}/{uuid.uuid4()}.{extension}"
 
 
+def _build_quarantine_key(user_id: int, trade_id: int, content_type: str) -> str:
+    return f"quarantine/{build_object_key(user_id, trade_id, content_type)}"
+
+
+def _expected_prefix(user_id: int, trade_id: int, *, quarantine: bool) -> str:
+    base = f"u/{user_id}/t/{int(trade_id)}/"
+    return f"quarantine/{base}" if quarantine else base
+
+
+def _is_final_key(key: object, user_id: int, trade_id: int) -> bool:
+    if not isinstance(key, str) or not key.startswith(
+        _expected_prefix(user_id, trade_id, quarantine=False)
+    ):
+        return False
+    filename = key.rsplit("/", 1)[-1]
+    if not filename.endswith(".png"):
+        return False
+    try:
+        uuid.UUID(filename[:-4])
+    except (ValueError, AttributeError):
+        return False
+    return True
+
+
 def _owns_trade(user_id: int, trade_id: int) -> bool:
     db = SessionLocal()
     try:
@@ -90,7 +120,9 @@ def presign_upload(user_id: int, trade_id: int, content_type: str) -> dict:
     if not _owns_trade(owner, trade_id):
         raise PermissionError("trade not found")
 
-    key = build_object_key(owner, trade_id, content_type)
+    # Direct uploads land in a namespace that is never downloadable. Only
+    # `finalize_upload` can promote decoded/re-encoded bytes to `u/...`.
+    key = _build_quarantine_key(owner, trade_id, content_type)
     url = _client().generate_presigned_url(
         "put_object",
         Params={
@@ -119,7 +151,7 @@ def presign_download(user_id: int, screenshot_id: int) -> Optional[str]:
     db = SessionLocal()
     try:
         row = (
-            db.query(Screenshot.file_path)
+            db.query(Screenshot.file_path, Screenshot.trade_id)
             .join(Trade, Trade.id == Screenshot.trade_id)
             .filter(Screenshot.id == screenshot_id, Trade.user_id == owner)
             .first()
@@ -128,9 +160,92 @@ def presign_download(user_id: int, screenshot_id: int) -> Optional[str]:
         db.close()
     if row is None:
         return None
+    if not _is_final_key(row[0], owner, row[1]):
+        return None
 
     return _client().generate_presigned_url(
         "get_object",
         Params={"Bucket": r2_config()["bucket"], "Key": row[0]},
         ExpiresIn=PRESIGN_TTL_SECONDS,
     )
+
+
+def _discard_quarantine(client, bucket: str, key: str) -> None:
+    try:
+        client.delete_object(Bucket=bucket, Key=key)
+    except Exception:  # noqa: BLE001 — cleanup is best effort, but observable
+        _log.warning("Could not remove an object from the upload quarantine")
+
+
+def finalize_upload(user_id: int, trade_id: int, upload_key: str) -> dict:
+    """Validate an R2 upload and promote only fresh normalized PNG bytes.
+
+    The original object is in a non-downloadable quarantine prefix. It is
+    discarded on both successful validation and content rejection. Callers may
+    persist only the returned final key in ``screenshots.file_path``.
+    """
+    owner = require_user_id(user_id)
+    if not _owns_trade(owner, trade_id):
+        raise PermissionError("trade not found")
+    prefix = _expected_prefix(owner, trade_id, quarantine=True)
+    if not isinstance(upload_key, str) or not upload_key.startswith(prefix):
+        raise PermissionError("upload not found")
+
+    cfg = r2_config()
+    bucket = cfg["bucket"]
+    client = _client()
+    try:
+        response = client.get_object(Bucket=bucket, Key=upload_key)
+        body = response.get("Body")
+        try:
+            length = response.get("ContentLength")
+            if (
+                body is None
+                or not isinstance(length, int)
+                or length <= 0
+                or length > MAX_UPLOAD_BYTES
+            ):
+                raise UploadRejected("not a supported image")
+            data = body.read(MAX_UPLOAD_BYTES + 1)
+            if not data or len(data) > MAX_UPLOAD_BYTES:
+                raise UploadRejected("not a supported image")
+        finally:
+            close = getattr(body, "close", None)
+            if callable(close):
+                close()
+
+        from src.tradelens.api.imaging import ImageRejected, validate_and_normalise
+
+        try:
+            normalized, content_type, width, height = validate_and_normalise(data)
+        except ImageRejected as exc:
+            raise UploadRejected("not a supported image") from exc
+
+        final_key = build_object_key(owner, trade_id, content_type)
+        client.put_object(
+            Bucket=bucket,
+            Key=final_key,
+            Body=normalized,
+            ContentType=content_type,
+            CacheControl="private, no-store",
+        )
+    except UploadRejected:
+        _discard_quarantine(client, bucket, upload_key)
+        raise
+
+    _discard_quarantine(client, bucket, upload_key)
+    return {
+        "key": final_key,
+        "content_type": content_type,
+        "width": width,
+        "height": height,
+    }
+
+
+def delete_owned_object(user_id: int, trade_id: int, key: str) -> bool:
+    """Delete one normalized object only when its owner/trade prefix matches."""
+    owner = require_user_id(user_id)
+    if not _is_final_key(key, owner, trade_id):
+        return False
+    _client().delete_object(Bucket=r2_config()["bucket"], Key=key)
+    return True

@@ -17,12 +17,10 @@ range, or a page cursor from the query string would have silently inherited an
 unauthenticated input. Binding it now is cheap; retrofitting it after such an
 endpoint exists means changing an auth contract in production.
 
-**Canonical, not raw.** The query is normalised before signing: each name and
-value is RFC 3986 percent-encoded, then pairs are sorted by name and then value.
-Signing the raw string would mean `?a=1&b=2` and `?b=2&a=1` — the same request
-by every semantic that matters — produced different signatures, so any layer
-that reordered or re-encoded parameters between signer and verifier would break
-authentication rather than merely fail to help it.
+**Canonical, not raw.** The query is parsed and each name and value is RFC 3986
+percent-encoded. Pair order is preserved. Query parsers expose the order of
+repeated keys, so sorting would let one signed request authorize a different
+handler input (for example reversing two ordered ``sort`` values).
 
 This proves *which caller*. It proves nothing about *which user* — that is
 Lock 2's job, and neither lock is sufficient alone.
@@ -55,19 +53,14 @@ def canonical_query(query: str) -> str:
     """
     if not query:
         return ""
-    # A leading "?" is not part of the query. `URLSearchParams` strips it and
-    # `parse_qsl` does not, so without this the two implementations disagreed
-    # on every query a caller happened to pass with its delimiter attached —
-    # the signer producing one signature and the verifier expecting another,
-    # surfacing as an unexplainable 401 rather than as an obvious bug. Found by
-    # the differential corpus in scripts/generate_canonical_query_cases.py.
-    if query.startswith("?"):
-        query = query[1:]
+    # `request.url.query` never includes the URL's delimiter. A leading `?` is
+    # therefore literal data in the first parameter name and must not collapse
+    # with the delimiter-free form. Starlette exposes those two forms
+    # differently to handlers.
     pairs = [
         (quote(name, safe=_UNRESERVED), quote(value, safe=_UNRESERVED))
         for name, value in parse_qsl(query, keep_blank_values=True)
     ]
-    pairs.sort()
     return "&".join(f"{name}={value}" for name, value in pairs)
 
 

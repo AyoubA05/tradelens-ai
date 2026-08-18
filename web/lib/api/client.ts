@@ -1,6 +1,8 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import { signatureHeader } from "@/lib/api/sign";
+import { WEBSITE_DOMAIN } from "@/lib/auth/domains";
 import { requireEnv } from "@/lib/env";
 
 /**
@@ -10,8 +12,11 @@ import { requireEnv } from "@/lib/env";
  * the backend emits no CORS headers, so a browser could not call it anyway.
  * Both facts are load-bearing and neither should be "fixed".
  *
- * The session token is forwarded so the backend can resolve the user itself.
- * Nothing here tells it which account to act on — that would defeat the point.
+ * A domain-separated hash of the session token is forwarded so the backend
+ * can resolve and revalidate the database row itself. The raw HttpOnly-cookie
+ * bearer never crosses into the API service, its traces, or its infrastructure.
+ * Nothing here tells the API which account to act on — that would defeat the
+ * independent database check.
  */
 export class ApiError extends Error {
   constructor(readonly status: number) {
@@ -29,6 +34,9 @@ export async function callApi<T>(
   const body = init.body === undefined ? "" : JSON.stringify(init.body);
   const base = requireEnv("TL_API_ORIGIN");
   const url = query ? `${base}${path}?${query}` : `${base}${path}`;
+  const sessionHandle = createHash("sha256")
+    .update(WEBSITE_DOMAIN + sessionToken, "utf8")
+    .digest("hex");
 
   const response = await fetch(url, {
     method,
@@ -41,7 +49,7 @@ export async function callApi<T>(
         query,
         body,
       ),
-      "X-TL-Session": sessionToken,
+      "X-TL-Session-Handle": sessionHandle,
     },
     body: body === "" ? undefined : body,
     cache: "no-store",

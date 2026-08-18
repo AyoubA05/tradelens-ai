@@ -114,4 +114,4 @@ def seed_golden_dataset(user_id: int) -> None:
     for row in GOLDEN_TRADES:
         data = dict(row)
         data["killzone"] = detect_killzone(data["entry_time"], data["trade_date"])
-        trade_service.create_trade({**data, "user_id": user_id})
+        trade_service.create_trade({**data, "user_id": user_id}, user_id=user_id)

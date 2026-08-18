@@ -11,6 +11,10 @@ import src.tradelens.services.trade_service as trade_service
 from src.tradelens.db.models import Base
 
 
+def _create(data):
+    return trade_service.create_trade(data, user_id=data.get("user_id", 1))
+
+
 @pytest.fixture
 def in_memory_db(monkeypatch):
     engine = create_engine("sqlite:///:memory:")
@@ -22,7 +26,7 @@ def in_memory_db(monkeypatch):
 
 
 def test_quick_outcome_keeps_manual_r_no_prices(in_memory_db):
-    t = trade_service.create_trade(
+    t = _create(
         {
             "asset": "ES",
             "result": "Win",
@@ -39,7 +43,7 @@ def test_quick_outcome_keeps_manual_r_no_prices(in_memory_db):
 
 def test_exact_prices_compute_realized_r(in_memory_db):
     # entry 100, stop 95, exit 110 → realized R = |110-100| / |100-95| = 2.0
-    t = trade_service.create_trade(
+    t = _create(
         {
             "asset": "NQ",
             "result": "Win",
@@ -58,7 +62,7 @@ def test_exact_prices_compute_realized_r(in_memory_db):
 
 
 def test_direction_not_required_to_save(in_memory_db):
-    t = trade_service.create_trade(
+    t = _create(
         {
             "asset": "EURUSD",
             "result": "Loss",

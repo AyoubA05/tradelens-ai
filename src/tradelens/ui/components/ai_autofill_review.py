@@ -329,7 +329,7 @@ def ai_sourced_fields() -> set:
     return set(st.session_state.get(_FIELDS_KEY) or set())
 
 
-def persist_analysis_for_trade(trade_id: int) -> None:
+def persist_analysis_for_trade(trade_id: int, *, user_id: int) -> None:
     """Persist the staged AIAnalysis to the saved trade (best-effort, save-time)."""
     import streamlit as st
 
@@ -357,7 +357,11 @@ def persist_analysis_for_trade(trade_id: int) -> None:
         if record:
             to_persist["review_outcome"] = record
         create_or_update_analysis(
-            trade_id, to_persist, usage, prompt_version="screenshot_v3"
+            trade_id,
+            to_persist,
+            usage,
+            prompt_version="screenshot_v3",
+            user_id=user_id,
         )
     except Exception:  # noqa: BLE001 — analysis persistence is best-effort
         pass

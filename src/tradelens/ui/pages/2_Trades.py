@@ -717,7 +717,7 @@ if view == "Trade Detail":
                 "Add screenshot", type=["png", "jpg", "jpeg", "webp"], key="detail_shot"
             )
             if up is not None:
-                save_screenshot(trade.id, up)
+                save_screenshot(trade.id, up, user_id=uid)
                 st.toast("Screenshot added", icon=":material/check_circle:")
                 st.rerun()
         render_screenshot_analyzer(
@@ -844,4 +844,4 @@ if view == "Trade Detail":
     render_ai_review(trade, _strategy_profile, user_id=uid)
 
     # ── Ask AI About This Trade ───────────────────────────────────
-    render_ask_ai(trade, _strategy_profile)
+    render_ask_ai(trade, _strategy_profile, user_id=uid)

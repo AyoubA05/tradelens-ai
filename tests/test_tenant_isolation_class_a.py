@@ -4,6 +4,7 @@ Each test seeds two users and asserts that the function cannot be induced to
 see the other user's row — and that omitting the owner raises rather than
 quietly widening the query.
 """
+
 import pytest
 
 from src.tradelens.services import trade_service, weekly
@@ -21,6 +22,10 @@ def _trade(user_id, asset="NQ", date="2026-08-12"):
     }
 
 
+def _create(data):
+    return trade_service.create_trade(data, user_id=data["user_id"])
+
+
 def test_get_trades_requires_an_owner():
     with pytest.raises(TypeError):
         trade_service.get_trades()
@@ -33,8 +38,8 @@ def test_get_trades_refuses_a_null_owner():
 
 def test_get_trades_returns_only_the_owners_rows(two_users):
     a, b = two_users
-    trade_service.create_trade(_trade(a))
-    trade_service.create_trade(_trade(b))
+    _create(_trade(a))
+    _create(_trade(b))
 
     rows = trade_service.get_trades(user_id=a)
 
@@ -50,7 +55,7 @@ def test_trade_hash_exists_requires_an_owner():
 def test_trade_hash_does_not_leak_across_users(two_users):
     """An identical setup logged by another trader is not this trader's duplicate."""
     a, b = two_users
-    created = trade_service.create_trade(_trade(b))
+    created = _create(_trade(b))
 
     assert trade_service.trade_hash_exists(created.trade_hash, a) is False
     assert trade_service.trade_hash_exists(created.trade_hash, b) is True
@@ -63,7 +68,7 @@ def test_find_recent_duplicate_requires_an_owner():
 
 def test_find_recent_duplicate_never_returns_another_users_trade(two_users):
     a, b = two_users
-    trade_service.create_trade(_trade(b))
+    _create(_trade(b))
 
     assert trade_service.find_recent_duplicate(_trade(a), a) is None
 

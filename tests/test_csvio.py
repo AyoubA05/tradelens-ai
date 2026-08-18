@@ -92,11 +92,11 @@ def test_import_reports_bad_rows_individually(in_memory_db, monkeypatch):
     real_create = trade_service.create_trade
     calls = {"n": 0}
 
-    def flaky_create(data):
+    def flaky_create(data, *, user_id):
         calls["n"] += 1
         if calls["n"] == 2:
             raise ValueError("bad row")
-        return real_create(data)
+        return real_create(data, user_id=user_id)
 
     monkeypatch.setattr("src.tradelens.services.csvio.create_trade", flaky_create)
     csv_bytes = export_trades_csv(_sample_df())

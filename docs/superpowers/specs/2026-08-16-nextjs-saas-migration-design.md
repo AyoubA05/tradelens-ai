@@ -34,7 +34,7 @@ model or routing. Schema redesign. Pricing or packaging.
                          └───────────────┬────────────────────────┘
                                          │  server-to-server, TLS only
                                          │  X-TL-Signature  (HMAC, timestamped)
-                                         │  X-TL-Session    (raw session token)
+                                         │  X-TL-Session-Handle (domain hash)
                                          ▼
                          ┌────────────────────────────────────────┐
                          │  FastAPI — public HTTPS, not browser-  │
@@ -84,19 +84,29 @@ Every request must satisfy **both** of the following, independently:
 
 **Lock 1 — trusted server-to-server authentication.**
 `X-TL-Signature: v1={timestamp}:{hex-hmac}` where the HMAC-SHA256 is computed
-over `timestamp . method . path . sha256(body)` using `TL_SERVICE_SECRET`,
+over `timestamp . method . path . canonical_query . sha256(body)` using `TL_SERVICE_SECRET`,
 shared only between the Vercel environment and the backend environment.
-Rejected if the timestamp is more than 60 seconds from the server clock (replay
-window), if the signature is absent, or if it fails constant-time comparison.
-Binding the path and body into the signature prevents a captured signature from
-being replayed against a different endpoint.
+Rejected if the timestamp is more than 60 seconds from the server clock, if the
+signature is absent, or if it fails constant-time comparison. Binding the
+method, path, ordered canonical query, and body prevents a captured signature
+from being moved to a different request. An exact request can still be replayed
+inside the 60-second freshness window; future mutating routes require an
+idempotency key or a durable nonce if that replay is not intrinsically safe.
 
 **Lock 2 — database-backed session validation.**
-`X-TL-Session` carries the raw website session token, forwarded server-side by
-Next.js. FastAPI hashes it with the existing `WEBSITE_DOMAIN` prefix and
-resolves the row itself, applying the same five conditions Next.js applies:
+`X-TL-Session-Handle` carries the existing `WEBSITE_DOMAIN`-separated SHA-256
+database lookup handle. The raw HttpOnly browser credential never crosses into
+FastAPI, its tracing, or its hosting infrastructure. FastAPI resolves the row
+itself, applying the same five conditions Next.js applies:
 hash matches, `revoked_at IS NULL`, `expires_at > now`, within the 8h idle
 window, and `users.is_active = 1`.
+
+This preserves the independent database-backed second lock without making
+FastAPI trust an upstream `sub` claim. A short-lived audience-bound assertion
+would reduce exposure relative to forwarding the raw cookie, but by itself it
+would also move the identity trust decision to Next.js. Wrapping the same
+database handle in a second token adds expiry machinery without improving the
+existing HMAC freshness boundary.
 
 **The user id is never taken from a header, a body field, or a query
 parameter.** It is derived from the session row. This is the same rule
@@ -270,7 +280,11 @@ used in the key; it is stored as a display-only column.
 - Issued only for an authenticated user, only for a `trade_id` that user owns.
 - Content-Type allowlist enforced *in the presign policy*, not merely checked:
   `image/png`, `image/jpeg`, `image/webp`. No SVG.
-- Content-Length range enforced in the policy: 1 byte – 10 MB.
+- Uploads land under `quarantine/u/{user_id}/t/{trade_id}/{uuid4}.{ext}`. That
+  namespace is never eligible for a download presign or database persistence.
+- R2 presigned PUT does not support a maximum-size range condition. The client
+  receives a 10 MB advisory cap; finalization reads at most 10 MB + 1 byte and
+  rejects a missing, empty, or oversized object before decoding it.
 - The key is generated server-side and returned with the URL; the client cannot
   choose where its bytes land.
 
@@ -289,19 +303,20 @@ until proven otherwise. Before the object is read by `vision.py`:
 2. Decode with Pillow under a decompression-bomb guard
    (`Image.MAX_IMAGE_PIXELS`), rejecting anything that fails to decode.
 3. Enforce dimension caps and reject multi-frame/animated payloads.
-4. Re-encode to a normalised PNG/JPEG, stripping EXIF and any trailing bytes.
+4. Re-encode to a fresh normalised PNG, stripping EXIF and any trailing bytes.
    This defeats polyglot files and removes location metadata a trader did not
    intend to upload.
-5. The re-encoded object is what AI processing and display use. The original is
-   discarded.
+5. Write the result under a fresh `u/{user}/t/{trade}/{uuid}.png` key. Only that
+   returned final key may be persisted or signed for display. The quarantine
+   object is discarded on success and content rejection.
 
 `ai_screenshot_service.py`'s existing URL path keeps its SSRF protections
 (`_is_public_url`, no-redirect handler, extension check) and gains the same
 post-fetch validation.
 
-**Retention and deletion.** `account.delete_account` and `delete_all_trades`
-already delete owned screenshot files; the R2 adapter implements the same
-contract against object storage, and deletion failure is logged, never silent.
+**Retention and deletion.** The R2 adapter exposes owner/trade-key-validated
+deletion. The future API/account deletion paths must invoke it before the R2
+feature ships; the legacy local-disk deletion helpers do not delete R2 objects.
 
 **Migration.** Files under `data/screenshots/` are uploaded to R2 with rewritten
 `file_path` values. Files referenced by a row but absent from disk — expected,
@@ -448,7 +463,7 @@ user B's trade, analysis, weekly review, strategy, setting, screenshot, and job.
 Plus a route-walking test that fails when a new route is added without an owner
 dependency, and the import-boundary test from §4.
 
-**10.4 Security tests.** Missing/expired/replayed signature rejected · revoked
+**10.4 Security tests.** Missing/expired/out-of-scope signature rejected · revoked
 session rejected · idle-expired session rejected · inactive user rejected · no
 CORS header emitted on any response · `/openapi.json` absent in production mode ·
 presigned GET refused for a non-owner · oversized and wrong-MIME uploads

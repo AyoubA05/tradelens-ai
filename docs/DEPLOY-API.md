@@ -22,8 +22,9 @@ Set the result as `TL_SERVICE_SECRET` in **both**:
 - Vercel → website project → Environment Variables
 
 The values must be byte-for-byte identical. If they diverge, every
-website→API request 401s (the API checks the presented secret against
-`TL_SERVICE_SECRET` and, during rotation, `TL_SERVICE_SECRET_PREVIOUS`).
+website→API request 401s (the API verifies the request HMAC with
+`TL_SERVICE_SECRET` and, during rotation, `TL_SERVICE_SECRET_PREVIOUS`). Use at
+least 32 random bytes; the production API refuses to start with a weaker value.
 
 ## 2. Rotating `TL_SERVICE_SECRET`
 
@@ -47,8 +48,16 @@ In the Cloudflare dashboard: R2 → Create bucket. The bucket must be:
 - No public bucket listing.
 - No R2.dev / custom-domain public website endpoint attached.
 
-All access goes through the API using signed requests, never direct browser
-access to R2.
+Application requests go through Next.js and the API. Screenshot bytes are the
+one exception: the browser uploads directly to a short-lived, object-specific
+R2 presigned PUT URL and later may view through a presigned GET URL. Presigned
+URLs are bearer credentials; never log or cache them.
+
+Configure the bucket's CORS policy with the exact production website origin
+(and exact header/method requirements for `PUT`/`Content-Type`). Do not use `*`.
+Use a separate exact preview origin only with a preview bucket. CORS is required
+for the browser upload but is not an authorization control; the private bucket,
+short TTL, server-chosen quarantine key, and post-upload finalization are.
 
 Create an R2 API token scoped to that bucket only (Object Read & Write), and
 set on Render:
@@ -69,10 +78,11 @@ DATABASE_URL="postgresql://USER:PASSWORD@ep-xxxx.REGION.aws.neon.tech/DBNAME?ssl
   alembic upgrade head
 ```
 
-Use the same `DATABASE_URL` you set on Render — the API and the migration
-must target the same database. Every migration in this repo implements
-`downgrade()`, so `alembic downgrade -1` is available if a migration needs to
-be rolled back.
+Use Neon's **direct/unpooled** connection string for Alembic. It must target the
+same project, branch, database, and role as the pooled runtime URL configured on
+Render, but it should not be the pooled endpoint. Every migration in this repo
+implements `downgrade()`, but a downgrade is a recovery tool, not proof that a
+production data rollback is lossless; inspect the specific revision before use.
 
 ## 5. Deploy
 
@@ -95,3 +105,10 @@ On Vercel, set `TL_API_ORIGIN` to the API's Render URL
 (`https://<your-render-service>.onrender.com`). This is server-side only and
 must never be exposed to the browser — the website's server-side code calls
 the API, the browser never talks to Render directly.
+
+Scope `DATABASE_URL`, `TL_SERVICE_SECRET`, and `TL_API_ORIGIN` deliberately by
+Vercel environment. Production values belong to Production only. A Preview
+deployment must use its own Neon branch/database, its own API deployment (or no
+API access), and its own service secret; never grant preview code the production
+database URL or production service secret. None of these values may use a
+`NEXT_PUBLIC_` name.

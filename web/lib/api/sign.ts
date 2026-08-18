@@ -30,17 +30,19 @@ function rfc3986(value: string): string {
 /**
  * Normalise a raw query string into the form that gets signed.
  *
- * Sorting after encoding is deliberate: every byte is ASCII by then, so
- * JavaScript's UTF-16 ordering and Python's code-point ordering cannot differ.
- * Blank values are preserved — `?debug` is an input a handler can read.
+ * Pair order is preserved because handlers can observe the order of repeated
+ * keys. Blank values are preserved — `debug` is an input a handler can read.
  */
 export function canonicalQuery(query: string): string {
   if (!query) return "";
   const pairs: Array<[string, string]> = [];
-  for (const [name, value] of new URLSearchParams(query)) {
+  // URLSearchParams treats one leading `?` as a URL delimiter. Our input is
+  // already the raw query (the delimiter is absent), so encode a literal first
+  // question mark before parsing to match Python/Starlette semantics.
+  const parseable = query.startsWith("?") ? `%3F${query.slice(1)}` : query;
+  for (const [name, value] of new URLSearchParams(parseable)) {
     pairs.push([rfc3986(name), rfc3986(value)]);
   }
-  pairs.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
   return pairs.map(([name, value]) => `${name}=${value}`).join("&");
 }
 

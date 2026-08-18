@@ -56,7 +56,7 @@ def render_screenshot_analyzer(trade, user_id, strategy_profile=None) -> None:
         return
 
     shot_path = shots[0].file_path
-    existing = get_analysis_for_trade(trade.id)
+    existing = get_analysis_for_trade(trade.id, user_id=user_id)
     trade_ctx = {
         "id": trade.id,
         "asset": trade.asset,
@@ -71,7 +71,7 @@ def render_screenshot_analyzer(trade, user_id, strategy_profile=None) -> None:
         with st.spinner("Analyzing your chart…"):
             try:
                 result, usage = analyze_source(shot_path, trade_ctx, strategy_profile)
-                create_or_update_analysis(trade.id, result, usage)
+                create_or_update_analysis(trade.id, result, usage, user_id=user_id)
                 st.toast("Analysis complete", icon=":material/check_circle:")
                 st.rerun()
             except ScreenshotAnalysisError as exc:

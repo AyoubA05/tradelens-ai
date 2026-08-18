@@ -4,6 +4,7 @@ All five conditions are checked here rather than trusting the Next.js layer to
 have checked them: a bug or compromise upstream must not by itself make the
 backend act on the wrong account.
 """
+
 import datetime as dt
 
 import pytest
@@ -48,6 +49,21 @@ def test_a_live_session_resolves_to_its_user(two_users):
     a, _ = two_users
     token = _open_website_session(a)
     assert auth_sessions.restore_website_session(token) == a
+
+
+def test_a_domain_separated_handle_resolves_without_forwarding_the_raw_token(two_users):
+    a, _ = two_users
+    token = _open_website_session(a)
+    handle = auth_sessions.website_session_handle(token)
+
+    assert handle != token
+    assert len(handle) == 64
+    assert auth_sessions.restore_website_session_handle(handle) == a
+
+
+@pytest.mark.parametrize("bad", [None, "", "A" * 64, "g" * 64, "0" * 63, 123])
+def test_a_malformed_website_session_handle_is_refused(bad):
+    assert auth_sessions.restore_website_session_handle(bad) is None
 
 
 def test_a_streamlit_token_is_not_accepted(two_users):

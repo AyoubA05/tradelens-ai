@@ -42,6 +42,7 @@ def in_memory_db(monkeypatch):
 def sample_analysis(in_memory_db):
     db = in_memory_db()
     trade = Trade(
+        user_id=1,
         asset="NQ",
         direction="Long",
         result="Win",
@@ -286,7 +287,7 @@ def test_save_grade_writes_grading_json_and_ai_grade(sample_analysis, in_memory_
     trade, analysis = sample_analysis
     grading = _make_grading("A", 9)
 
-    save_grade(analysis.id, grading)
+    save_grade(analysis.id, grading, user_id=1)
 
     db = in_memory_db()
     row = db.query(AIAnalysis).filter(AIAnalysis.id == analysis.id).first()
@@ -302,8 +303,8 @@ def test_save_user_grade_does_not_overwrite_ai_grade(sample_analysis, in_memory_
     from src.tradelens.services.ai_analysis_service import save_grade, save_user_grade
 
     trade, analysis = sample_analysis
-    save_grade(analysis.id, _make_grading("B", 7))
-    save_user_grade(trade.id, "A")
+    save_grade(analysis.id, _make_grading("B", 7), user_id=1)
+    save_user_grade(trade.id, "A", user_id=1)
 
     db = in_memory_db()
     t = db.query(Trade).filter(Trade.id == trade.id).first()
@@ -317,8 +318,8 @@ def test_save_user_grade_can_clear_to_null(sample_analysis, in_memory_db):
     from src.tradelens.services.ai_analysis_service import save_user_grade
 
     trade, _ = sample_analysis
-    save_user_grade(trade.id, "C")
-    save_user_grade(trade.id, None)  # clear
+    save_user_grade(trade.id, "C", user_id=1)
+    save_user_grade(trade.id, None, user_id=1)  # clear
 
     db = in_memory_db()
     t = db.query(Trade).filter(Trade.id == trade.id).first()

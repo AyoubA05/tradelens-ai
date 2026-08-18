@@ -107,7 +107,7 @@ def import_trades_csv(file, user_id: int) -> tuple[int, int, list[str]]:
                 continue
             seen_hashes.add(row_hash)
 
-            create_trade(trade_data)
+            create_trade(trade_data, user_id=owner)
             rows_inserted += 1
         except Exception:
             # +2: 1-based + header row. The number is the actionable part;

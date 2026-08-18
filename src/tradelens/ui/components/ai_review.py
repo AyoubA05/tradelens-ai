@@ -60,7 +60,7 @@ def _render_journal(st, trade, analysis, strategy_profile, user_id) -> None:
             markdown, usage = generate_journal(
                 trade_dict, ai_dict, strategy_profile=strategy_profile
             )
-            save_journal(analysis.id, markdown)
+            save_journal(analysis.id, markdown, user_id=user_id)
             log_ai_usage("AI Journal", usage, user_id=user_id)
             st.toast("Journal saved", icon=":material/check_circle:")
             st.rerun()
@@ -114,8 +114,15 @@ def _render_grade(st, trade, analysis, strategy_profile, user_id) -> None:
         )
         if bc.button("Save override", key=f"ai_grade_override_btn_{trade.id}"):
             resolved = None if override == "(none)" else override
-            record_correction(trade.id, analysis.id, "grade", trade.ai_grade, resolved)
-            save_user_grade(trade.id, resolved)
+            record_correction(
+                trade.id,
+                analysis.id,
+                "grade",
+                trade.ai_grade,
+                resolved,
+                user_id=user_id,
+            )
+            save_user_grade(trade.id, resolved, user_id=user_id)
             st.toast("Grade override saved", icon=":material/check_circle:")
             st.rerun()
         run = st.button("Re-grade trade", key=f"ai_grade_{trade.id}")
@@ -126,7 +133,7 @@ def _render_grade(st, trade, analysis, strategy_profile, user_id) -> None:
         try:
             trade_dict, vision_dict = build_grading_context(trade, analysis)
             result, usage = grade_trade(trade_dict, strategy_profile, vision_dict)
-            save_grade(analysis.id, result)
+            save_grade(analysis.id, result, user_id=user_id)
             log_ai_usage("Trade Grading", usage, user_id=user_id)
             st.toast("Grade saved", icon=":material/check_circle:")
             st.rerun()
@@ -139,7 +146,7 @@ def _render_grade(st, trade, analysis, strategy_profile, user_id) -> None:
             )
 
 
-def render_ai_review(trade, strategy_profile=None, user_id=None) -> None:
+def render_ai_review(trade, strategy_profile=None, *, user_id: int) -> None:
     """Render the journal + grade section for a selected trade (post-trade only)."""
     import streamlit as st
 
@@ -156,7 +163,7 @@ def render_ai_review(trade, strategy_profile=None, user_id=None) -> None:
     if trade is None:
         return
 
-    analysis = get_analysis_for_trade(trade.id)
+    analysis = get_analysis_for_trade(trade.id, user_id=user_id)
     if analysis is None:
         st.caption(
             "Run the screenshot analysis above first — the journal and grade "

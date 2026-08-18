@@ -41,8 +41,10 @@ describe("service signature contract", () => {
 });
 
 describe("canonical query", () => {
-  it("is order-independent", () => {
-    expect(canonicalQuery("b=2&a=1")).toBe(canonicalQuery("a=1&b=2"));
+  it("binds the order of repeated parameters", () => {
+    expect(canonicalQuery("sort=created&sort=name")).not.toBe(
+      canonicalQuery("sort=name&sort=created"),
+    );
   });
 
   it("keeps blank values rather than dropping them", () => {
@@ -65,10 +67,8 @@ describe("canonical query", () => {
 });
 
 describe("leading question mark", () => {
-  it("is not part of the query, matching Python", () => {
-    // URLSearchParams already strips it; Python was taught to. Pinned by name
-    // here so the corpus is not the only thing holding the behaviour.
-    expect(canonicalQuery("?a=1&b=2")).toBe(canonicalQuery("a=1&b=2"));
-    expect(canonicalQuery("?")).toBe("");
+  it("is literal data because the raw query excludes the URL delimiter", () => {
+    expect(canonicalQuery("?a=1&b=2")).not.toBe(canonicalQuery("a=1&b=2"));
+    expect(canonicalQuery("?")).toBe("%3F=");
   });
 });

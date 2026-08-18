@@ -66,7 +66,7 @@ def _run(setup_line: str, call: str):
         f'sys.path.insert(0, r"{ROOT}")\n'
         "import src.tradelens.ui.components.ai_trade_chat as chat_mod\n"
         f"{setup_line}\n"
-        f"chat_mod.render_ask_ai({call})\n"
+        f"chat_mod.render_ask_ai({call}, user_id=1)\n"
     )
     return AppTest.from_string(script).run()
 
