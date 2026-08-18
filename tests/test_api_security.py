@@ -25,11 +25,12 @@ def client(monkeypatch):
     return TestClient(create_app(), raise_server_exceptions=False)
 
 
-def _headers(session_token, *, method="GET", path=PATH, body=b"", secret=SECRET,
-             timestamp=None):
+def _headers(session_token, *, method="GET", path=PATH, query="", body=b"",
+             secret=SECRET, timestamp=None):
     ts = timestamp or str(int(time.time()))
+    sig = sign_request(secret, ts, method, path, query, body)
     return {
-        "X-TL-Signature": f"v1={ts}:{sign_request(secret, ts, method, path, body)}",
+        "X-TL-Signature": f"v1={ts}:{sig}",
         "X-TL-Session": session_token,
     }
 
@@ -48,7 +49,7 @@ def test_a_valid_signature_with_no_session_is_refused(client):
     """Lock 1 alone is not enough. The service secret proves the caller is our
     frontend; it says nothing about which user is asking."""
     ts = str(int(time.time()))
-    sig = sign_request(SECRET, ts, "GET", PATH, b"")
+    sig = sign_request(SECRET, ts, "GET", PATH, "", b"")
     r = client.get(PATH, headers={"X-TL-Signature": f"v1={ts}:{sig}"})
     assert r.status_code == 401
 
@@ -79,7 +80,7 @@ def test_a_signature_for_a_different_path_is_refused(client, website_session):
     endpoint cannot be replayed against another."""
     _, token = website_session
     ts = str(int(time.time()))
-    sig = sign_request(SECRET, ts, "GET", "/health", b"")
+    sig = sign_request(SECRET, ts, "GET", "/health", "", b"")
     r = client.get(PATH, headers={"X-TL-Signature": f"v1={ts}:{sig}",
                                  "X-TL-Session": token})
     assert r.status_code == 401
@@ -103,7 +104,10 @@ def test_the_user_id_comes_from_the_session_not_the_request(client, website_sess
     wants to act on. The query string is not part of the signed path, so this
     request is otherwise perfectly valid."""
     user_id, token = website_session
-    r = client.get(f"{PATH}?user_id=999999", headers=_headers(token))
+    r = client.get(
+        f"{PATH}?user_id=999999",
+        headers=_headers(token, query="user_id=999999"),
+    )
     assert r.status_code == 200
     assert r.json()["user_id"] == user_id
 
@@ -147,3 +151,75 @@ def test_no_api_module_imports_a_maintenance_helper():
         if re.search(r"\b\w*(_for_maintenance|_all_users)\b", path.read_text()):
             offenders.append(str(path))
     assert offenders == []
+
+
+# --- query binding -------------------------------------------------------
+#
+# The query string is part of the signed message. Before it was, a handler
+# reading a filter or a cursor from the query string would have been consuming
+# an input Lock 1 never covered.
+
+
+def test_an_unsigned_query_parameter_is_refused(client, website_session):
+    """Appending a parameter to a request signed without one must not verify.
+
+    This is the finding these tests exist for: the signature must cover the
+    query, not merely the path it hangs off.
+    """
+    _, token = website_session
+    r = client.get(f"{PATH}?user_id=999999", headers=_headers(token, query=""))
+    assert r.status_code == 401
+
+
+def test_a_tampered_query_value_is_refused(client, website_session):
+    """A signature issued for one value must not carry another."""
+    _, token = website_session
+    r = client.get(
+        f"{PATH}?limit=999",
+        headers=_headers(token, query="limit=10"),
+    )
+    assert r.status_code == 401
+
+
+def test_a_dropped_query_parameter_is_refused(client, website_session):
+    """Removal is tampering too — a signed filter must not be strippable."""
+    _, token = website_session
+    r = client.get(PATH, headers=_headers(token, query="limit=10"))
+    assert r.status_code == 401
+
+
+def test_reordered_query_parameters_still_verify(client, website_session):
+    """Canonicalisation earns its keep here.
+
+    `?a=1&b=2` and `?b=2&a=1` are the same request by every semantic that
+    matters, so a layer that reorders parameters between signer and verifier
+    must not break authentication.
+    """
+    user_id, token = website_session
+    r = client.get(
+        f"{PATH}?b=2&a=1",
+        headers=_headers(token, query="a=1&b=2"),
+    )
+    assert r.status_code == 200
+    assert r.json()["user_id"] == user_id
+
+
+def test_a_signed_query_is_accepted(client, website_session):
+    user_id, token = website_session
+    r = client.get(
+        f"{PATH}?limit=10&offset=5",
+        headers=_headers(token, query="limit=10&offset=5"),
+    )
+    assert r.status_code == 200
+    assert r.json()["user_id"] == user_id
+
+
+def test_an_old_signature_on_a_query_request_is_refused(client, website_session):
+    """Replay: binding the query must not weaken the freshness bound."""
+    _, token = website_session
+    old = str(int(time.time()) - 3600)
+    r = client.get(
+        f"{PATH}?limit=10",
+        headers=_headers(token, query="limit=10", timestamp=old),
+    )
+    assert r.status_code == 401

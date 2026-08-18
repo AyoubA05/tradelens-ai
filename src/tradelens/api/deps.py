@@ -29,6 +29,7 @@ async def verified_body(request: Request) -> bytes:
         request.headers.get("X-TL-Signature"),
         request.method,
         request.url.path,
+        request.url.query,
         body,
     ):
         raise _unauthorized()

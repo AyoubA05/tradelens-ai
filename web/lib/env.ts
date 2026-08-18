@@ -27,6 +27,11 @@ const SECRET_NAMES = [
   "TRADELENS_SMTP_USER",
   "TRADELENS_SMTP_PASSWORD",
   "TRADELENS_SMTP_FROM",
+  // The FastAPI backend. The secret is obvious; the origin is here too because
+  // that service is not browser-consumed — it emits no CORS headers and nothing
+  // in a bundle should be able to name it.
+  "TL_SERVICE_SECRET",
+  "TL_API_ORIGIN",
 ] as const;
 
 /** Settings that are safe to render into a page, passed explicitly as props. */

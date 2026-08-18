@@ -1,0 +1,13 @@
+{
+  "GET with an empty body and no query": "ad05f2a4548adb1ff16c6cb313ec2d2ee105b6a8f1b16f390896cfa2aa8d1636",
+  "POST with a JSON body": "cfb44aa43c88eb4437807dcfb478bf935d787e722b8cf15cc124af97bbecd281",
+  "a simple query is bound into the signature": "13f2eb2fb0ebfe381b75db4609ecea0e09e94af6e7dd3cddf44c00dfc0d2b0f4",
+  "blank values are kept, not dropped": "a8275151bb995d9afa2aa339524c71fe235282ed795d5ea7301356cb6010e7ab",
+  "method is upper-cased before signing": "257bfd72f7aa2970242cb897d750a9ac3e9d5a42238c86e6b63646a5c915b44c",
+  "non-ASCII body is UTF-8 encoded before hashing": "573aecf548066683d0c2f748aebe7fbe75a8649544541c1ebbafd6b3fe65ad09",
+  "non-ASCII query values are percent-encoded consistently": "af138115b666325ad3c69cd5934165c66a4da2b7b69c9c4d91a018fdeac1b896",
+  "plus and percent-20 both mean space and canonicalise alike": "07165daee9c12ef7ff272780a3055716ab4e569fd760f4f778fcf7378468a8c1",
+  "query parameter order does not change the signature": "13f2eb2fb0ebfe381b75db4609ecea0e09e94af6e7dd3cddf44c00dfc0d2b0f4",
+  "repeated keys are sorted by value, both retained": "fcc200d3801e33e8fcf0ef9dc05e32aaecd8354b93dffc85c7706e3033264f13",
+  "sub-delims are escaped rather than left bare": "71ef82b6b8ef66219c48651e8f8884ab50c2ad5937efd633d3dcbf78b5a01337"
+}

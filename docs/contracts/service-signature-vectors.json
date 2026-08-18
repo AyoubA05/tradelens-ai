@@ -1,0 +1,111 @@
+{
+  "$comment": [
+    "Canonical HMAC request-signing vectors, shared by the Python and TypeScript",
+    "implementations of Lock 1.",
+    "",
+    "The scheme exists in two languages: src/tradelens/api/security.py signs and",
+    "verifies on the backend, web/lib/api/sign.ts signs on the Vercel side. They",
+    "cannot import each other, so these vectors are what stops them drifting into",
+    "two subtly different schemes that agree in each suite and disagree in",
+    "production. Follows the precedent of auth-contract-vectors.json.",
+    "",
+    "The query is CANONICALISED before signing: every name and value is RFC 3986",
+    "percent-encoded (unreserved set is A-Za-z0-9 and -._~), then pairs are sorted",
+    "by encoded name and then encoded value. Raw signing would mean ?a=1&b=2 and",
+    "?b=2&a=1 produced different signatures for the same request."
+  ],
+  "algorithm": "HMAC-SHA256 over '{timestamp}.{METHOD}.{path}.{canonical_query}.{sha256hex(body)}'",
+  "header_format": "v1={timestamp}:{hex_signature}",
+  "replay_window_seconds": 60,
+  "secret": "contract-vector-secret-do-not-use-in-production",
+  "vectors": [
+    {
+      "name": "GET with an empty body and no query",
+      "timestamp": "1755300000",
+      "method": "GET",
+      "path": "/v1/session/whoami",
+      "query": "",
+      "body": ""
+    },
+    {
+      "name": "POST with a JSON body",
+      "timestamp": "1755300000",
+      "method": "POST",
+      "path": "/v1/trades",
+      "query": "",
+      "body": "{\"asset\":\"NQ\",\"pnl\":410.0}"
+    },
+    {
+      "name": "method is upper-cased before signing",
+      "timestamp": "1755300000",
+      "method": "post",
+      "path": "/v1/trades",
+      "query": "",
+      "body": ""
+    },
+    {
+      "name": "non-ASCII body is UTF-8 encoded before hashing",
+      "timestamp": "1755300000",
+      "method": "POST",
+      "path": "/v1/trades",
+      "query": "",
+      "body": "{\"notes\":\"café — ✓\"}"
+    },
+    {
+      "name": "a simple query is bound into the signature",
+      "timestamp": "1755300000",
+      "method": "GET",
+      "path": "/v1/trades",
+      "query": "limit=10&offset=5",
+      "body": ""
+    },
+    {
+      "name": "query parameter order does not change the signature",
+      "timestamp": "1755300000",
+      "method": "GET",
+      "path": "/v1/trades",
+      "query": "offset=5&limit=10",
+      "body": ""
+    },
+    {
+      "name": "repeated keys are sorted by value, both retained",
+      "timestamp": "1755300000",
+      "method": "GET",
+      "path": "/v1/trades",
+      "query": "asset=NQ&asset=ES",
+      "body": ""
+    },
+    {
+      "name": "blank values are kept, not dropped",
+      "timestamp": "1755300000",
+      "method": "GET",
+      "path": "/v1/trades",
+      "query": "debug&limit=10",
+      "body": ""
+    },
+    {
+      "name": "plus and percent-20 both mean space and canonicalise alike",
+      "timestamp": "1755300000",
+      "method": "GET",
+      "path": "/v1/trades",
+      "query": "setup=Liquidity+Sweep",
+      "body": ""
+    },
+    {
+      "name": "non-ASCII query values are percent-encoded consistently",
+      "timestamp": "1755300000",
+      "method": "GET",
+      "path": "/v1/trades",
+      "query": "note=caf%C3%A9",
+      "body": ""
+    },
+    {
+      "name": "sub-delims are escaped rather than left bare",
+      "timestamp": "1755300000",
+      "method": "GET",
+      "path": "/v1/trades",
+      "query": "q=a!b'c(d)e*f",
+      "body": ""
+    }
+  ]
+}
