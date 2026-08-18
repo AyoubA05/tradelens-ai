@@ -30,8 +30,21 @@ Stated here because they shape every task, and because they are the decisions wo
 **1. The marketing token set is canonical; the app extends it.**
 `web/tailwind.config.ts` already mirrors `site/styles.css` (`bg #0d1117`, `surface #161b22`, `accent #00e5cc`). The Streamlit app used a different charcoal (`#091216`). One of them has to lose, and it is Streamlit's: the marketing site is live, recently redesigned, and is the identity a user meets first. The app joins that system. Phase 1 **adds** the tokens the app needs and marketing lacks — elevated surfaces, semantic green/red, hairlines, a chart ground — and changes no existing value. A test pins the marketing values so this config cannot drift the live site.
 
-**2. Signature element: the period lens.**
-Every figure in a post-trade journal is meaningless without its window and its sample size — that is the single most characteristic fact about this product, and the 10K audit's sharpest criticism was that the old app showed confident numbers over tiny samples. So the period being examined is **permanent chrome in the top bar**, not a control that each page re-invents. It is rendered in JetBrains Mono, reads `2026-08-12 → 2026-08-18`, and owns a URL contract (`?from=&to=`) that every later phase reads rather than duplicating.
+**2. Signature element: the period lens — the global analysis range.**
+Every figure in a post-trade journal is meaningless without its window and its sample size — that is the single most characteristic fact about this product, and the 10K audit's sharpest criticism was that the old app showed confident numbers over tiny samples. So on the surfaces that aggregate performance, the period under examination is **chrome rather than a control each page re-invents**. It renders in JetBrains Mono, reads `2026-08-12 → 2026-08-18`, and owns the `?from=&to=` URL contract.
+
+**It is the global analysis range, not a universal filter.** It governs the performance-oriented surfaces — Overview, Journal/Trades, Analytics, and the AI review views whose temporal semantics match it. Routes whose temporal meaning differs ignore it entirely and keep their own control:
+
+| Route | Its own temporal scope |
+|---|---|
+| Trade Detail | one trade — a range means nothing |
+| New Trade | the trade being logged |
+| Weekly Recap | keeps its week selector |
+| Daily Debrief | keeps its day selector |
+| Strategy Profile | not time-scoped |
+| Settings | not time-scoped |
+
+**The invariant is that no view ever shows two controls claiming the same temporal scope.** The lens is therefore hidden on routes it does not govern rather than displayed inertly beside a week or day selector — a control that appears to govern a page but does not is worse than no control at all. And `?from=&to=` is never forced onto a route with no use for it, so URLs do not carry parameters that mean nothing.
 
 This is the one place Phase 1 spends its boldness. Everything else in the shell stays quiet.
 
@@ -41,12 +54,16 @@ Six destinations — Overview, Journal, Analytics, AI Reviews, Strategy Profile,
 **4. Phase 1 calls no API.**
 The shell has no data to fetch. Identity comes from `authenticateWebsiteRequest`, exactly as `/continue` already does. This keeps the shell buildable and testable with no backend running, no `TL_API_ORIGIN`, and no `TL_SERVICE_SECRET` — and it means Phase 1 cannot possibly weaken the Phase 0 boundary, because it never touches it.
 
-**5. `users.app_surface` becomes the live cutover switch.**
-Phase 0 added the column; nothing reads it. Phase 1 teaches the session query to select it and routes `/continue` on it: `'nextjs'` goes to `/app`, everything else keeps the existing Streamlit handoff untouched. This is what makes the shell reachable at all, and it is per-account and instantly reversible.
+**5. `users.app_surface` becomes the live cutover switch — opt-in only.**
+Phase 0 added the column; nothing reads it. Phase 1 teaches the session query to select it and routes `/continue` on it: `'nextjs'` goes to `/app`, everything else keeps the existing Streamlit handoff untouched.
+
+**Reading the column must not move anybody.** The Phase 0 migration adds it with `server_default='streamlit'` and performs no backfill, so every existing account is already on Streamlit and stays there until somebody is deliberately opted in, one row at a time. Phase 1 therefore ships **no bulk switch, no default flip, and no "migrate all users" path** — and a test pins that, because this is the kind of invariant that survives review and then dies quietly in a later convenience commit. The switch is per-account and reversible in both directions.
 
 ## Risks
 
-**The period lens becoming a second filter.** The audit's specific finding against New Trade was two progress systems competing. A permanent period control plus per-page date filters would repeat that mistake exactly. Mitigation: the lens **is** the filter of record. Phase 1 defines the URL contract and later phases read it; no page may add its own date range.
+**Two controls claiming the same temporal scope.** The audit's specific finding against New Trade was two progress systems competing, and a period lens sitting above a page that has its own week or day selector would repeat that mistake exactly. Mitigation: `routeUsesPeriod()` is an explicit allowlist and the lens renders nowhere else, so a route that does not opt in cannot display it. Adding a period-scoped surface is a deliberate one-line act, not something a new route inherits by accident.
+
+**The inverse risk — a page silently ignoring the range.** A visible lens over a surface that does not honour it would be a lie about what the numbers mean. Same mitigation from the other side: if the lens is shown, that route is on the allowlist, and its phase owes the reader a range-scoped view.
 
 **Token changes regressing the live marketing site.** `tailwind.config.ts` is shared. Mitigation: additive only, plus a test that asserts each existing marketing value is unchanged.
 
@@ -253,12 +270,14 @@ shared with the live site."
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: `WebsiteUser.appSurface: string`; `nextDestinationFor(user)` returning `/app` for `'nextjs'` accounts
+- Produces: `WebsiteUser.appSurface: string`; `nextDestinationFor(user)` returning `/app` for `'nextjs'` accounts only. **No bulk-switch path is created.**
 
 - [ ] **Step 1: Write the failing test**
 
 ```typescript
 // web/__tests__/app-surface-routing.test.ts
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { nextDestinationFor, type WebsiteUser } from "@/lib/auth/session";
@@ -298,6 +317,38 @@ describe("app_surface routing", () => {
     expect(
       nextDestinationFor(user({ appSurface: "nextjs", onboardingCompleted: false })),
     ).toBe("/onboarding");
+  });
+});
+
+describe("the cutover is opt-in", () => {
+  it("moves nobody by default", () => {
+    // Reading the column must not migrate anyone. Every account arrives here
+    // as "streamlit" because the Phase 0 migration set that server-side
+    // default and backfilled nothing.
+    expect(nextDestinationFor(user())).toBe("/continue");
+  });
+
+  it("has no bulk switch anywhere in the web layer", () => {
+    // The invariant that survives review and then dies in a later convenience
+    // commit. If a "migrate all users" path is ever added, this fails.
+    const dir = path.join(__dirname, "..", "lib");
+    const files: string[] = [];
+    (function walk(d: string) {
+      for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+        const full = path.join(d, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith(".ts")) files.push(full);
+      }
+    })(dir);
+
+    for (const file of files) {
+      const source = fs.readFileSync(file, "utf8");
+      // A write to app_surface that is not scoped to a single id.
+      expect(
+        /UPDATE\s+users\s+SET\s+app_surface(?![\s\S]{0,200}WHERE[\s\S]{0,40}id)/i.test(source),
+        `${file} appears to switch app_surface without scoping to one account`,
+      ).toBe(false);
+    }
   });
 });
 ```
@@ -578,6 +629,8 @@ every screen in the product."
   - `periodFromParams(params: URLSearchParams, today?: Date): Period`
   - `periodToParams(period: Period): URLSearchParams`
   - `formatPeriod(period: Period): string`
+  - `PERIOD_SCOPED_ROUTES: string[]`
+  - `routeUsesPeriod(pathname: string): boolean`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -590,6 +643,7 @@ import {
   formatPeriod,
   periodFromParams,
   periodToParams,
+  routeUsesPeriod,
 } from "@/lib/app/period";
 
 const TODAY = new Date("2026-08-18T12:00:00Z");
@@ -662,6 +716,43 @@ describe("formatting", () => {
     expect(formatPeriod({ from: "2026-08-12", to: "2026-08-18", presetId: "7d" })).toBe(
       "2026-08-12 → 2026-08-18",
     );
+  });
+});
+
+describe("which routes the range governs", () => {
+  it("governs the surfaces that aggregate performance", () => {
+    expect(routeUsesPeriod("/app")).toBe(true);
+    expect(routeUsesPeriod("/app/journal")).toBe(true);
+    expect(routeUsesPeriod("/app/analytics")).toBe(true);
+    expect(routeUsesPeriod("/app/reviews")).toBe(true);
+  });
+
+  it("leaves a single trade alone — a range means nothing there", () => {
+    expect(routeUsesPeriod("/app/journal/42")).toBe(false);
+  });
+
+  it("leaves routes that are not time-scoped alone", () => {
+    expect(routeUsesPeriod("/app/trades/new")).toBe(false);
+    expect(routeUsesPeriod("/app/strategy")).toBe(false);
+    expect(routeUsesPeriod("/app/settings")).toBe(false);
+  });
+
+  it("yields to a view that carries its own temporal control", () => {
+    // Weekly Recap keeps its week selector and Daily Debrief its day selector.
+    // Two controls claiming the same scope on one view is the thing this
+    // allowlist exists to prevent.
+    expect(routeUsesPeriod("/app/reviews/weekly")).toBe(false);
+    expect(routeUsesPeriod("/app/reviews/daily")).toBe(false);
+  });
+
+  it("does not let a child route inherit the range by accident", () => {
+    // Exact matching, deliberately: a new sub-route must opt in on purpose
+    // rather than acquire a lens nobody decided it should have.
+    expect(routeUsesPeriod("/app/analytics/setups")).toBe(false);
+  });
+
+  it("ignores a trailing slash", () => {
+    expect(routeUsesPeriod("/app/journal/")).toBe(true);
   });
 });
 ```
@@ -775,12 +866,45 @@ export function periodToParams(period: Period): URLSearchParams {
 export function formatPeriod(period: Period): string {
   return `${period.from} → ${period.to}`;
 }
+
+/**
+ * The routes the global analysis range governs.
+ *
+ * Exact matches, and an allowlist rather than a denylist. A new sub-route has to
+ * opt in on purpose instead of inheriting a control nobody decided it should
+ * have, and forgetting to add a route costs a missing lens — visible and easily
+ * fixed — where forgetting to exclude one costs a lens that appears to govern a
+ * page it does not, which a reader has no way to detect.
+ */
+export const PERIOD_SCOPED_ROUTES = [
+  "/app", // Overview
+  "/app/journal", // Trades
+  "/app/analytics",
+  "/app/reviews", // Patterns; the weekly and daily views keep their own controls
+];
+
+/**
+ * Whether this route is governed by the global analysis range.
+ *
+ * Routes whose temporal semantics differ are absent by design: a trade detail
+ * page describes one trade, New Trade describes the trade being logged, Weekly
+ * Recap keeps its week selector, Daily Debrief its day selector, and Strategy
+ * Profile and Settings are not time-scoped at all.
+ *
+ * The lens is hidden where this returns false rather than shown inertly. A
+ * control that appears to govern a page but does not is worse than no control:
+ * the reader cannot tell that the numbers in front of them ignore it.
+ */
+export function routeUsesPeriod(pathname: string): boolean {
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  return PERIOD_SCOPED_ROUTES.includes(path);
+}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd web && npx vitest run __tests__/period-lens.test.ts`
-Expected: PASS (11 tests)
+Expected: PASS (17 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -1246,9 +1370,10 @@ import { describe, expect, it, vi } from "vitest";
 
 const replace = vi.fn();
 const searchParams = new URLSearchParams("from=2026-08-12&to=2026-08-18");
+const mockPathname = vi.fn(() => "/app/journal");
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace }),
-  usePathname: () => "/app/journal",
+  usePathname: () => mockPathname(),
   useSearchParams: () => searchParams,
 }));
 
@@ -1304,6 +1429,29 @@ describe("period lens", () => {
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 });
+
+describe("routes the range does not govern", () => {
+  it.each([
+    ["a single trade", "/app/journal/42"],
+    ["New Trade", "/app/trades/new"],
+    ["Weekly Recap, which keeps its week selector", "/app/reviews/weekly"],
+    ["Daily Debrief, which keeps its day selector", "/app/reviews/daily"],
+    ["Strategy Profile", "/app/strategy"],
+    ["Settings", "/app/settings"],
+  ])("renders nothing on %s", (_name, pathname) => {
+    // Hidden, not inert. A lens shown beside a week selector claims to govern a
+    // page it does not, and the reader has no way to tell which one won.
+    mockPathname.mockReturnValue(pathname);
+    const { container } = render(<PeriodLens />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("comes back on a surface it does govern", () => {
+    mockPathname.mockReturnValue("/app/analytics");
+    render(<PeriodLens />);
+    expect(screen.getByRole("button", { name: /period/i })).toBeInTheDocument();
+  });
+});
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1326,6 +1474,7 @@ import {
   formatPeriod,
   periodFromParams,
   periodToParams,
+  routeUsesPeriod,
 } from "@/lib/app/period";
 
 /**
@@ -1370,6 +1519,12 @@ export function PeriodLens() {
     setOpen(false);
     router.replace(`${pathname}?${params.toString()}`);
   }
+
+  // After the hooks, never before: a conditional return above them would change
+  // the hook order between routes. The lens is absent on routes the range does
+  // not govern rather than disabled, because a control that looks like it
+  // governs a page but does not is worse than no control at all.
+  if (!routeUsesPeriod(pathname)) return null;
 
   return (
     <div className="relative">
@@ -1462,7 +1617,7 @@ export function TopBar() {
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `cd web && npx vitest run __tests__/period-lens-control.test.tsx`
-Expected: PASS (7 tests). The `PartnerLauncher` import does not exist until Task 9.
+Expected: PASS (14 tests). The `PartnerLauncher` import does not exist until Task 9.
 
 - [ ] **Step 6: Commit**
 
@@ -2503,12 +2658,20 @@ Phase 1 is complete. **Do not begin Phase 2.** Overview's data, metrics and char
 
 **Spec coverage.** §7's Phase 1 row lists: unified design tokens (Task 1), six routes (Tasks 5, 11), sidebar (6), top bar (7), Partner drawer shell (9), loading/empty/error primitives (10), mobile bottom nav (8), focus and keyboard model (12). All present. §12's design direction is carried by Tasks 1, 6, 7 and 10. Two additions the spec implies but does not list: routing on `app_surface` (Task 2), without which the shell is unreachable, and the navigation model (Task 3), which prevents three surfaces disagreeing about the app's contents.
 
+**Owner revisions folded in (2026-08-18).** The lens is the *global analysis range*
+for performance-oriented surfaces, not a universal filter of record: Trade Detail,
+New Trade, Weekly Recap, Daily Debrief, Strategy Profile and Settings ignore it and
+keep their own controls, enforced by the `routeUsesPeriod` allowlist in Task 4 and
+the hidden-not-inert rendering in Task 7. `?from=&to=` is never forced onto a route
+that has no use for it. And the cutover is explicitly opt-in: Task 2 pins that no
+existing account moves by default and that no bulk switch exists.
+
 **Deliberate deviations, both recorded above:**
 1. **No FastAPI calls in Phase 1.** §2.2's lifecycle describes Next.js forwarding to the API; a shell with no data has nothing to forward. This keeps the shell testable with no backend and guarantees Phase 1 cannot weaken the Phase 0 boundary.
-2. **The period lens is new** — not named in the spec. It is the phase's signature element and the answer to the audit's finding that the old product showed confident numbers over tiny samples. It carries a real risk of becoming a duplicate filter, which is why the plan makes it the filter of record.
+2. **The period lens is new** — not named in the spec. It is the phase's signature element and the answer to the audit's finding that the old product showed confident numbers over tiny samples. It carries a real risk of colliding with a page's own temporal control, which is why its scope is an explicit allowlist and it renders nowhere else.
 
 **Placeholder scan.** No TBD/TODO. Every step carries real code. Task 11's table is a substitution table for six near-identical files, with the full shape given once — repeating it six times would be noise, not clarity. Task 12's Step 3 lists concrete fixes for the specific failures that assertion set can produce, rather than "fix any issues".
 
-**Type consistency.** `AppDestination` fields (`href`, `label`, `icon`, `phonePriority`) are used identically in Tasks 3, 6, 8 and 11. `Period` (`from`, `to`, `presetId`) is consistent across Tasks 4 and 7. `isActiveDestination(pathname, href)` has one signature everywhere. `EmptyState`'s `action` prop is `{ href, label }` in both its definition (Task 10) and its uses (Task 11). `PartnerLauncher` and `PartnerDrawer` are exported from one module, imported by Task 7's top bar and Task 5's layout.
+**Type consistency.** `AppDestination` fields (`href`, `label`, `icon`, `phonePriority`) are used identically in Tasks 3, 6, 8 and 11. `Period` (`from`, `to`, `presetId`) is consistent across Tasks 4 and 7, and `routeUsesPeriod(pathname)` has one signature in both. `isActiveDestination(pathname, href)` has one signature everywhere. `EmptyState`'s `action` prop is `{ href, label }` in both its definition (Task 10) and its uses (Task 11). `PartnerLauncher` and `PartnerDrawer` are exported from one module, imported by Task 7's top bar and Task 5's layout.
 
 **Ordering.** Tasks 5, 7 and 9 are mutually dependent through the layout's imports, so `npm run build` is deferred to Task 9 and stated as such in Task 5's Step 6. Tests still pass at every task boundary; only the production build has to wait.
