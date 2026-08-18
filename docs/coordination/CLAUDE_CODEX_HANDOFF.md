@@ -4834,3 +4834,108 @@ service widen the blast radius of a backend compromise or a log leak enough to
 justify the extra moving part, and what is the migration cost of changing
 later? The approved architecture stands unless implementation surfaces a
 concrete reason to change it.
+
+## Phase 0 security core — 2026-08-17 (Claude)
+
+**Branch:** `worktree-phase0-foundations`, based on the Codex security remediation
+`c69d84b`. **Not merged, not pushed, not deployed.**
+
+**Scope executed this session:** the security-critical core of Phase 0 only — Tasks 1, 2, 3,
+4, 6, 9 of `docs/superpowers/plans/2026-08-16-nextjs-migration-phase0-foundations.md`.
+Tasks 5, 7, 8, 10–17 (serialization, migrations, R2 storage, image validation, AI jobs,
+codegen, parity harness, deployment) are deliberately deferred to a fresh session. Phase 1
+has not been started.
+
+**Verified state:** 2446 passed, 7 skipped, 0 failed. `ruff check src/ scripts/` and
+`black --check src/ scripts/` clean. Verified by running them directly, not from a report.
+
+### What changed
+
+**Tenant isolation, enforced in the service layer rather than at the route boundary.**
+A guard in a router protects only the paths someone remembered to guard; a service that
+accepts a nullable owner stays a loaded weapon for every future caller. `require_user_id`
+(`services/ownership.py`) is now the single definition of a valid owner — it rejects `bool`
+explicitly, because `isinstance(True, int)` is True and `True > 0`, so a bare int check
+would scope a query to user 1.
+
+Closed as true cross-tenant reads: `get_trades` (its `_UNSCOPED` default applied no owner
+filter at all), `trade_hash_exists` and `find_recent_duplicate` (both skipped the filter on
+`None` — the latter returned another trader's `Trade` object into the duplicate prompt), and
+`weekly.list_weekly_reviews` (no owner parameter whatsoever; deleted).
+
+Closed as fail-closed legacy fallbacks: `get_trade`, `update_trade`, `delete_trade`,
+`weekly.get_weekly_review`, `get_weekly_reviews`, the three `sample_data` functions,
+`csvio.import_trades_csv`, `cost.log_ai_usage`.
+
+**A defect found in `scripts/recompute_metrics.py`:** `recompute(user_id: int)` accepted an
+owner and then called `get_trades()` unscoped, recomputing one user's stored metrics from
+every user's trades. Scoped. Consequently no `*_for_maintenance` helper was created —
+nothing legitimate wanted one — and an import-boundary test forbids one appearing under
+`src/tradelens/api/` later.
+
+**A nullable-owner WRITE path the original enumeration missed:** `weekly.save_weekly_review`
+defaulted `user_id` to `None` and would then filter and stamp `WeeklyReview` rows with
+`user_id IS NULL`. Found by review, not by the plan. Now requires a concrete owner, with a
+signature-guard test.
+
+**Ownerless sessions.** `current_user_id()` returns `None` for the secrets-fallback legacy
+user, and five pages then called `get_trades(user_id=None)`, which now raises. Rather than
+per-page guards, an authenticated-but-ownerless session is refused at the shared
+`require_auth()` gate. The mode is opt-in, fails closed, engages only when the users table is
+empty, and is documented as emergency regression access; site-hosted auth always sets a real
+int. **Consequence worth Codex's attention: the Strategy page's read-only sample-profile
+preview for ownerless sessions is no longer reachable.**
+
+**Correction memory.** `ai_client` injects a past-corrections few-shot block with no user
+argument, learning the owner from a ContextVar. Unset now RAISES rather than resolving to the
+legacy NULL tenant, and `corrections_scope` resets by token in a `finally` so a handler that
+raises cannot leak its owner to the next request on the same threadpool worker.
+`_corrections_block` still swallows errors, so an unscoped AI call degrades to an empty block
+rather than failing — deliberate, and not to be "fixed".
+
+**The FastAPI backend, with two independent locks.** Lock 1 is an HMAC over
+`{timestamp}.{METHOD}.{path}.{sha256(body)}` — binding path and body is what stops a captured
+header being replayed against another endpoint; constant-time compare, 60s replay window,
+dual-secret rotation. Lock 2 resolves the forwarded website session against the database in
+Python rather than trusting Next.js already did. Neither is sufficient alone and both
+single-lock cases are asserted. The user id comes from the session row and nowhere else. No
+CORS middleware (asserted). No schema served in production.
+
+### For Codex to review independently
+
+1. **The `X-TL-Session` forwarding design — the item flagged at design time.** The backend
+   receives the raw, long-lived website session token and re-validates it. Assess against the
+   alternative of a short-lived, audience-bound internal credential minted per request (an
+   internal JWT with `aud`, `sub`, ~60s expiry, signed with the service secret). Does
+   forwarding a 12-hour credential to a second service widen the blast radius of a backend
+   compromise or a log leak enough to justify the extra moving part? What is the migration
+   cost later? The approved architecture stands unless implementation surfaced a concrete
+   reason to change it, and it did not.
+2. Is the HMAC scheme sound — replay window, path/body binding, dual-secret comparison
+   without early exit?
+3. Does any user-facing service still admit a nullable owner? The enumeration missed
+   `save_weekly_review` once already.
+4. Can `corrections_scope` leak across requests under FastAPI's threadpool?
+5. Is the `require_auth()` ownerless gate airtight — can any page body run with a `None`
+   owner? And is removing the Strategy sample-profile preview acceptable, or does it need a
+   separate non-gated entry point?
+6. The `two_users` test fixture mutates global module state and restores it in teardown.
+   Is the restoration complete?
+
+### Risks and open items
+
+- **`a0d2359` is a red commit** ("WIP … INCOMPLETE, SUITE RED"), a forced checkpoint when a
+  session limit killed an implementer. Squash before merge.
+- **Tasks 6, 9 and `2b23572` were written by the controller**, not a separate implementer,
+  after six subagent failures. A review covering them was dispatched; its result is not yet
+  recorded here.
+- **Two load-dependent flaky tests**, both passing in isolation and on re-runs:
+  `test_pages_boot.py::test_analytics_category_names_are_escaped_exactly_once` and
+  `test_account_ui.py::test_reset_is_reachable_when_signup_is_enabled_too`. Both drive
+  Streamlit in a subprocess.
+- **Local Python is 3.9.6** while CI and `Dockerfile.api` target 3.11. `uvicorn` and `httpx`
+  are pinned below their 3.10-only releases so both run identical code.
+- **`.claude/settings.json` remains uncommitted** on `main` — local tooling config, excluded
+  from the security baseline commit per Codex's own constraint.
+- Merge conflicts are expected in `.github/workflows/ci.yml`, `web/package.json` and
+  `.env.example` if the deferred Tasks 14/16 land against other edits to those files.
