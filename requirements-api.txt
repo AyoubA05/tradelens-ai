@@ -5,8 +5,20 @@
 # Pinned to versions that support BOTH Python 3.9 (local development) and 3.11
 # (the container), so tests and production run identical code. uvicorn >=0.40
 # and httpx >=0.29 require Python 3.10 and cannot be used until local moves up.
-fastapi==0.120.4
-uvicorn[standard]==0.39.0
+# Two lines per package, selected by interpreter.
+#
+# The container and CI run Python 3.11 and take the patched versions:
+# FastAPI 0.120.x caps starlette below 0.50, and every starlette release that
+# clears PYSEC-2026-161/248/249/2280/2281 needs 3.10+, so clearing the advisory
+# means moving FastAPI too. Local development is still on 3.9 and keeps the old
+# line; it is the only place that divergence exists, and CI is authoritative.
+fastapi==0.120.4; python_version < "3.10"
+fastapi==0.141.1; python_version >= "3.10"
+# Pinned explicitly rather than left to FastAPI's open range, so the audited
+# version is the deployed version.
+starlette==1.6.0; python_version >= "3.10"
+uvicorn[standard]==0.39.0; python_version < "3.10"
+uvicorn[standard]==0.52.3; python_version >= "3.10"
 # Cloudflare R2 is S3-compatible. Used by the storage adapter.
 boto3==1.42.7
 # Pillow 12.3.0 closes the July 2026 native-code/image-processing advisory set
