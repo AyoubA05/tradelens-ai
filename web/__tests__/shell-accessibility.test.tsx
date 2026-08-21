@@ -73,7 +73,12 @@ describe("keyboard operation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "More" }));
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("link", { name: "Analytics" })).not.toBeInTheDocument();
+    // "Analytics" is not a unique probe here: Sidebar carries its own
+    // permanent Analytics link alongside MoreSheet's, and the two are only
+    // mutually exclusive via a Tailwind breakpoint pair that jsdom does not
+    // evaluate. MoreSheet's backdrop button ("Close menu") is unique to the
+    // sheet, so its absence is what actually proves the sheet closed.
+    expect(screen.queryByRole("button", { name: "Close menu" })).not.toBeInTheDocument();
   });
 
   it("gives every interactive element an accessible name", () => {
