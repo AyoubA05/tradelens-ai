@@ -52,12 +52,32 @@ export function PartnerLauncher() {
 
 export function PartnerDrawer() {
   const open = useDrawerOpen();
+  const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
     closeRef.current?.focus();
+
+    // aria-modal on the panel is a promise that nothing outside it is
+    // reachable. Tab is trapped below, but a screen reader's browse mode
+    // (as opposed to its focus/forms mode) ignores tab order and can still
+    // walk into the page behind the overlay, so the promise needs the DOM
+    // to back it up: every sibling of the overlay is marked inert while the
+    // drawer is open, and released when it closes.
+    const root = rootRef.current;
+    const siblings: HTMLElement[] = [];
+    if (root?.parentElement) {
+      for (const child of Array.from(root.parentElement.children)) {
+        if (child === root || !(child instanceof HTMLElement)) continue;
+        // Set the attribute directly rather than the `.inert` IDL property:
+        // real browsers keep both in sync, but jsdom (as used in tests) does
+        // not yet implement the property, only the attribute.
+        child.setAttribute("inert", "");
+        siblings.push(child);
+      }
+    }
 
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -72,7 +92,15 @@ export function PartnerDrawer() {
       const focusable = panelRef.current.querySelectorAll<HTMLElement>(
         'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
       );
-      if (focusable.length === 0) return;
+      if (focusable.length === 0) {
+        // Unreachable today — the close button is always rendered — but if
+        // the panel is ever emptied out, an unguarded Tab would walk
+        // straight into the page behind the overlay. Keep focus pinned to
+        // the panel itself instead.
+        event.preventDefault();
+        panelRef.current.focus();
+        return;
+      }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (event.shiftKey && document.activeElement === first) {
@@ -85,13 +113,16 @@ export function PartnerDrawer() {
     };
 
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      for (const sibling of siblings) sibling.removeAttribute("inert");
+    };
   }, [open]);
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-40">
+    <div ref={rootRef} className="fixed inset-0 z-40">
       <button
         type="button"
         aria-label="Dismiss AI Partner"
@@ -103,7 +134,8 @@ export function PartnerDrawer() {
         role="dialog"
         aria-modal="true"
         aria-label="AI Partner"
-        className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col border-l border-line bg-surface"
+        tabIndex={-1}
+        className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col border-l border-line bg-surface focus:outline-none"
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <div>
