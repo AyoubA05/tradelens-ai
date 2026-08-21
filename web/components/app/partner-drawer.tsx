@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageSquareText, X } from "lucide-react";
 
+import { useModalTrap } from "@/lib/app/modal-trap";
+
 /**
  * The AI partner drawer — frame only.
  *
@@ -56,68 +58,13 @@ export function PartnerDrawer() {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    closeRef.current?.focus();
-
-    // aria-modal on the panel is a promise that nothing outside it is
-    // reachable. Tab is trapped below, but a screen reader's browse mode
-    // (as opposed to its focus/forms mode) ignores tab order and can still
-    // walk into the page behind the overlay, so the promise needs the DOM
-    // to back it up: every sibling of the overlay is marked inert while the
-    // drawer is open, and released when it closes.
-    const root = rootRef.current;
-    const siblings: HTMLElement[] = [];
-    if (root?.parentElement) {
-      for (const child of Array.from(root.parentElement.children)) {
-        if (child === root || !(child instanceof HTMLElement)) continue;
-        // Set the attribute directly rather than the `.inert` IDL property:
-        // real browsers keep both in sync, but jsdom (as used in tests) does
-        // not yet implement the property, only the attribute.
-        child.setAttribute("inert", "");
-        siblings.push(child);
-      }
-    }
-
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        return;
-      }
-      if (event.key !== "Tab" || !panelRef.current) return;
-
-      // Focus stays inside a modal surface. Without this, Tab walks into the
-      // page behind the overlay, which a sighted user cannot see and a screen
-      // reader user cannot escape from.
-      const focusable = panelRef.current.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
-      );
-      if (focusable.length === 0) {
-        // Unreachable today — the close button is always rendered — but if
-        // the panel is ever emptied out, an unguarded Tab would walk
-        // straight into the page behind the overlay. Keep focus pinned to
-        // the panel itself instead.
-        event.preventDefault();
-        panelRef.current.focus();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      for (const sibling of siblings) sibling.removeAttribute("inert");
-    };
-  }, [open]);
+  useModalTrap({
+    open,
+    onClose: () => setOpen(false),
+    rootRef,
+    panelRef,
+    initialFocusRef: closeRef,
+  });
 
   if (!open) return null;
 

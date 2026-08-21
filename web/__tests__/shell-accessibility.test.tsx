@@ -65,6 +65,13 @@ describe("keyboard operation", () => {
     expect(dialog.contains(document.activeElement)).toBe(true);
   });
 
+  it("moves focus into the More sheet when it opens", () => {
+    renderShell();
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
   it("closes every overlay on Escape", () => {
     renderShell();
     fireEvent.click(screen.getByRole("button", { name: /ask about a trade/i }));
@@ -73,12 +80,11 @@ describe("keyboard operation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "More" }));
     fireEvent.keyDown(document, { key: "Escape" });
-    // "Analytics" is not a unique probe here: Sidebar carries its own
-    // permanent Analytics link alongside MoreSheet's, and the two are only
-    // mutually exclusive via a Tailwind breakpoint pair that jsdom does not
-    // evaluate. MoreSheet's backdrop button ("Close menu") is unique to the
-    // sheet, so its absence is what actually proves the sheet closed.
-    expect(screen.queryByRole("button", { name: "Close menu" })).not.toBeInTheDocument();
+    // MoreSheet is a role="dialog" like the drawer, and the drawer is already
+    // closed at this point in the test, so this is unambiguous proof the
+    // sheet itself closed rather than a coincidence of two overlays sharing
+    // a role.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("gives every interactive element an accessible name", () => {
@@ -191,6 +197,77 @@ describe("focus trap", () => {
       expect(dialog.contains(document.activeElement)).toBe(true);
     }
   });
+
+  // The More sheet's panel already renders several focusable elements (the
+  // close button plus the overflow links), so cycling is observable without
+  // injecting an extra control the way the drawer's single-control panel
+  // needs.
+  function openMoreSheet() {
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    return screen.getByRole("dialog");
+  }
+
+  it("wraps Tab from the last focusable element to the first in the More sheet", () => {
+    renderShell();
+    const dialog = openMoreSheet();
+    const focusables = focusablesIn(dialog);
+    expect(focusables.length).toBeGreaterThan(1);
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+
+    last.focus();
+    expect(document.activeElement).toBe(last);
+
+    fireEvent.keyDown(document, { key: "Tab" });
+
+    expect(document.activeElement).toBe(first);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  it("wraps Shift+Tab from the first focusable element to the last in the More sheet", () => {
+    renderShell();
+    const dialog = openMoreSheet();
+    const focusables = focusablesIn(dialog);
+    expect(focusables.length).toBeGreaterThan(1);
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+
+    first.focus();
+    expect(document.activeElement).toBe(first);
+
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+
+    expect(document.activeElement).toBe(last);
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+});
+
+describe("focus restoration", () => {
+  it("restores focus to the opening control when the drawer closes", () => {
+    renderShell();
+    const opener = screen.getByRole("button", { name: /ask about a trade/i });
+    // Simulate the pre-open state a keyboard or mouse user actually leaves
+    // behind: the control that opened the overlay has focus at click time.
+    opener.focus();
+    fireEvent.click(opener);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("restores focus to the opening control when the More sheet closes", () => {
+    renderShell();
+    const opener = screen.getByRole("button", { name: "More" });
+    opener.focus();
+    fireEvent.click(opener);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(document.activeElement).toBe(opener);
+  });
 });
 
 describe("inert background", () => {
@@ -215,6 +292,42 @@ describe("inert background", () => {
 
     for (const child of Array.from(container.firstElementChild?.children ?? [])) {
       expect(child.hasAttribute("inert")).toBe(false);
+    }
+  });
+
+  // The More sheet's own root div sits one level deeper than the drawer's —
+  // it is mounted inside BottomNav's fragment, a sibling of the phone <nav>,
+  // rather than as a direct child of the shell root — so "outside the sheet"
+  // means the sheet root's actual DOM siblings, not the shell's top-level
+  // children. Walking up from the dialog itself keeps this correct instead of
+  // assuming a particular nesting depth.
+  function siblingsOfDialogRoot(dialog: HTMLElement) {
+    const root = dialog.parentElement;
+    return Array.from(root?.parentElement?.children ?? []).filter((child) => child !== root);
+  }
+
+  it("marks content outside the More sheet inert while it is open", () => {
+    renderShell();
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+
+    const dialog = screen.getByRole("dialog");
+    const siblings = siblingsOfDialogRoot(dialog);
+    expect(siblings.length).toBeGreaterThan(0);
+    for (const sibling of siblings) {
+      expect(sibling.hasAttribute("inert")).toBe(true);
+    }
+  });
+
+  it("removes inert from the background once the More sheet closes", () => {
+    renderShell();
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    const dialog = screen.getByRole("dialog");
+    const siblings = siblingsOfDialogRoot(dialog);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    for (const sibling of siblings) {
+      expect(sibling.hasAttribute("inert")).toBe(false);
     }
   });
 });
