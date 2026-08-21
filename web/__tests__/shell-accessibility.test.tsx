@@ -122,10 +122,31 @@ describe("focus trap", () => {
     );
   }
 
+  // The production panel currently holds exactly one focusable element (the
+  // close button), which makes "wrap to first" and "wrap to last" the same
+  // no-op whether the trap runs or not — jsdom does no native Tab traversal,
+  // so with a single element activeElement never has anywhere else to go.
+  // That makes a one-element fixture non-discriminating: it would pass even
+  // if the wrap-around branching were deleted entirely. To pin the actual
+  // contract (cycling among N elements, not just "focus stayed put"), a
+  // second real focusable element is injected into the live panel here, in
+  // the test only — production stays a single-control panel until a later
+  // phase actually adds a second control.
+  function injectSecondFocusable(dialog: HTMLElement): HTMLButtonElement {
+    const extra = document.createElement("button");
+    extra.type = "button";
+    extra.textContent = "Extra test control";
+    dialog.appendChild(extra);
+    return extra;
+  }
+
   it("wraps Tab from the last focusable element to the first", () => {
     renderShell();
     const dialog = openDrawer();
+    injectSecondFocusable(dialog);
     const focusables = focusablesIn(dialog);
+    expect(focusables.length).toBeGreaterThan(1);
+    const first = focusables[0];
     const last = focusables[focusables.length - 1];
 
     last.focus();
@@ -133,14 +154,16 @@ describe("focus trap", () => {
 
     fireEvent.keyDown(document, { key: "Tab" });
 
-    expect(document.activeElement).toBe(focusables[0]);
+    expect(document.activeElement).toBe(first);
     expect(dialog.contains(document.activeElement)).toBe(true);
   });
 
   it("wraps Shift+Tab from the first focusable element to the last", () => {
     renderShell();
     const dialog = openDrawer();
+    injectSecondFocusable(dialog);
     const focusables = focusablesIn(dialog);
+    expect(focusables.length).toBeGreaterThan(1);
     const first = focusables[0];
     const last = focusables[focusables.length - 1];
 
@@ -156,7 +179,10 @@ describe("focus trap", () => {
   it("never lets focus land outside the panel while the drawer is open", () => {
     renderShell();
     const dialog = openDrawer();
+    injectSecondFocusable(dialog);
     const focusables = focusablesIn(dialog);
+    expect(focusables.length).toBeGreaterThan(1);
+    focusables[0].focus();
 
     // Cycle Tab a few more times than there are focusable elements; focus
     // should never escape the panel.
