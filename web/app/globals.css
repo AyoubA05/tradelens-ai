@@ -30,5 +30,4 @@ body {
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: none;
   box-shadow: var(--tl-focus-ring);
-  border-radius: 6px;
 }

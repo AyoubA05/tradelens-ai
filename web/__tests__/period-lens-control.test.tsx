@@ -25,23 +25,26 @@ describe("period lens", () => {
     expect(screen.getByRole("button", { name: /period/i })).toBeInTheDocument();
   });
 
-  it("keeps the menu closed until asked", () => {
+  it("keeps the preset group closed until asked", () => {
     render(<PeriodLens />);
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /period presets/i })).not.toBeInTheDocument();
   });
 
-  it("opens a menu of the windows a trader reviews in", () => {
+  it("opens a group of the windows a trader reviews in", () => {
+    // Plain buttons in a labelled group, not role="menu": the menu pattern
+    // requires arrow-key navigation, focus moving in on open, and focus
+    // returning to the trigger on Escape, none of which this implements.
     render(<PeriodLens />);
     fireEvent.click(screen.getByRole("button", { name: /period/i }));
-    expect(screen.getByRole("menu")).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Last 7 days" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Year to date" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: /period presets/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Last 7 days" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Year to date" })).toBeInTheDocument();
   });
 
   it("writes the choice to the URL, so the period is linkable and shared", () => {
     render(<PeriodLens />);
     fireEvent.click(screen.getByRole("button", { name: /period/i }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Last 7 days" }));
+    fireEvent.click(screen.getByRole("button", { name: "Last 7 days" }));
     expect(replace).toHaveBeenCalled();
     const target = replace.mock.calls.at(-1)![0] as string;
     expect(target.startsWith("/app/journal?")).toBe(true);
@@ -61,7 +64,7 @@ describe("period lens", () => {
     render(<PeriodLens />);
     fireEvent.click(screen.getByRole("button", { name: /period/i }));
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /period presets/i })).not.toBeInTheDocument();
   });
 });
 

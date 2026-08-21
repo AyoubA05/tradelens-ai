@@ -51,7 +51,15 @@ function shiftDays(from: Date, days: number): Date {
   return out;
 }
 
-function rangeForPreset(presetId: string, today: Date): { from: string; to: string } {
+/**
+ * The date range a preset resolves to, as of `today`.
+ *
+ * Exported so the control that renders the preset list can build the exact
+ * search params the contract expects instead of reimplementing this — the
+ * year-to-date special case and the `PERIOD_PRESETS[1]` fallback only exist
+ * here, once.
+ */
+export function rangeForPreset(presetId: string, today: Date): { from: string; to: string } {
   if (presetId === "ytd") {
     return { from: `${today.getUTCFullYear()}-01-01`, to: toIso(today) };
   }

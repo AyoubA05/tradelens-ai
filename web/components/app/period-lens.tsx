@@ -9,6 +9,7 @@ import {
   formatPeriod,
   periodFromParams,
   periodToParams,
+  rangeForPreset,
   routeUsesPeriod,
 } from "@/lib/app/period";
 
@@ -44,12 +45,12 @@ export function PeriodLens() {
   function choose(presetId: string) {
     const today = new Date();
     const params = new URLSearchParams(searchParams.toString());
-    const next = periodFromParams(
-      // Round-trip through the contract so the control cannot invent a range
-      // shape the readers do not expect.
-      presetRange(presetId, today),
-      today,
-    );
+    // rangeForPreset is the one place the preset-to-range mapping lives —
+    // round-tripping the result through periodFromParams means this control
+    // reads back exactly what a URL carrying that range would produce,
+    // rather than assuming its own idea of the shape matches the contract.
+    const range = rangeForPreset(presetId, today);
+    const next = periodFromParams(new URLSearchParams(range), today);
     for (const [key, value] of periodToParams(next)) params.set(key, value);
     setOpen(false);
     router.replace(`${pathname}?${params.toString()}`);
@@ -66,7 +67,6 @@ export function PeriodLens() {
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        aria-haspopup="menu"
         aria-expanded={open}
         className="flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-left transition-colors duration-150 ease-tl hover:border-line-strong"
       >
@@ -76,9 +76,16 @@ export function PeriodLens() {
         <ChevronDown className="h-3.5 w-3.5 text-muted" aria-hidden="true" />
       </button>
 
+      {/*
+        A plain labelled group of buttons, not role="menu": the menu pattern
+        promises arrow-key navigation, focus moving in on open, and focus
+        returning to the trigger on Escape, and this implements none of the
+        three. Tab already reaches every preset in document order, so the
+        markup claims exactly the behaviour that exists.
+      */}
       {open && (
         <div
-          role="menu"
+          role="group"
           aria-label="Period presets"
           className="absolute right-0 z-30 mt-1.5 w-48 rounded-lg border border-line bg-surface-2 py-1 shadow-xl"
         >
@@ -86,7 +93,6 @@ export function PeriodLens() {
             <button
               key={preset.id}
               type="button"
-              role="menuitem"
               onClick={() => choose(preset.id)}
               className={[
                 "flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors duration-150 ease-tl hover:bg-surface-3",
@@ -100,20 +106,4 @@ export function PeriodLens() {
       )}
     </div>
   );
-}
-
-/** Build the search params a preset corresponds to, for the contract to parse. */
-function presetRange(presetId: string, today: Date): URLSearchParams {
-  const params = new URLSearchParams();
-  if (presetId === "ytd") {
-    params.set("from", `${today.getUTCFullYear()}-01-01`);
-    params.set("to", today.toISOString().slice(0, 10));
-    return params;
-  }
-  const preset = PERIOD_PRESETS.find((p) => p.id === presetId) ?? PERIOD_PRESETS[1];
-  const start = new Date(today);
-  start.setUTCDate(start.getUTCDate() - (preset.days - 1));
-  params.set("from", start.toISOString().slice(0, 10));
-  params.set("to", today.toISOString().slice(0, 10));
-  return params;
 }
