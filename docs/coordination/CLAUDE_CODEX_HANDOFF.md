@@ -5398,3 +5398,90 @@ until server-side finalization. HMAC query canonicalization preserves observable
 order and treats a leading `?` as literal data.
 
 **Phase 1 has not been started and no Phase 1 plan has been written.**
+
+## Phase 1 complete — Shell & Navigation — 2026-08-18 (Claude)
+
+**Branch:** `worktree-phase0-foundations`, on top of the Phase 0 checkpoint and Codex's review
+fixes. **Not merged, not pushed, not deployed.** Phase 2 has not been started.
+
+**The three pre-deployment gates at the top of this file remain OPEN and untouched by Phase 1.**
+Nothing here builds the container, exercises PostgreSQL, or tests job concurrency.
+
+### Verified gates — real numbers, each run directly by the controller
+
+| Gate | Result |
+|---|---|
+| `npx vitest run` (web) | **931 passed, 34 files** |
+| `npx tsc --noEmit` | clean |
+| `npx eslint .` | clean |
+| `npm run build` (Turbopack) | **succeeds**; all seven `/app` routes server-render on demand |
+| `pytest tests/ -q` | **2564 passed, 7 skipped** — unchanged, Phase 1 is web-only |
+| `ruff` / `black` | clean |
+
+### What Phase 1 built
+
+A `/app` route tree with a server-side auth gate, one unified token system, six destinations
+plus a primary action, desktop and phone navigation, the AI Partner drawer shell, loading/empty/
+error primitives, and a keyboard model with tests that discriminate.
+
+**Phase 1 makes no API calls.** A shell with no data has nothing to fetch, so the Phase 0
+security boundary is not touched — the cheapest possible guarantee that it was not weakened.
+The domain-separated session handle, the HMAC boundary, service-layer ownership, the R2
+quarantine model and the OpenAPI contract gates are all exactly as Codex left them.
+
+### Design decisions Phase 2 inherits
+
+1. **The period lens is the global analysis range**, carried in the URL as `?from=&to=`. It
+   governs Overview, Journal, Analytics and AI Reviews. `routeUsesPeriod()` in
+   `web/lib/app/period.ts` is an **exact-match allowlist**; Trade Detail, New Trade, Weekly
+   Recap, Daily Debrief, Strategy Profile and Settings are excluded by design and keep their own
+   temporal controls. **Phase 2 reads this contract — it must not add a second date control to
+   any page the lens governs.** The invariant is that no view shows two controls claiming the
+   same temporal scope.
+2. **The cutover is opt-in.** `users.app_surface` routes the post-login destination per account.
+   Nothing switches automatically, and a test asserts no write to that column exists anywhere
+   under `web/`. A future admin opt-in path must update that test as a visible, reviewed act.
+3. **Marketing tokens are canonical.** `web/tailwind.config.ts` is shared with the live site;
+   the app layer extends it and a test pins every pre-existing value. Streamlit's `#091216` is
+   retired.
+4. **Navigation reproduces the Streamlit IA exactly** — six destinations, unchanged. Moving the
+   visual system and the IA together would make any regression unattributable.
+
+### Implementation discoveries — defects the plan contained
+
+Each was found by executing, not by planning. Listed because the plan alone would mislead.
+
+1. **The `app_surface` redirect bypassed the email and onboarding gates.** It was placed before
+   `handoffEligibility`, so a migrated account with an unverified email would have reached
+   `/app` having cleared neither. Fixed by extracting `continuePageRedirect(user, eligible)`;
+   the ordering is now pinned by a test that fails against the old arrangement.
+2. **The bulk-switch guard was too weak to catch what it claimed** — it missed
+   `SET migrated_at = now(), app_surface = ...`, treated `valid`/`paid`/`ANY($1)` as
+   single-account scoping, and scanned only `web/lib`. Replaced with a blanket no-write
+   assertion over `web/lib`, `web/app` and `web/scripts`.
+3. **`parseIso` accepted calendar-invalid dates.** `new Date("2026-02-30T00:00:00Z")` does not
+   return Invalid Date — it rolls to March 2nd. So `?from=2026-02-30` silently substituted a
+   window the reader never asked for. Now rejected via an ISO round-trip check.
+4. **The drawer's module-level open state leaked between tests.** "Stays closed until asked"
+   passed only because it ran first. Now reset when the last listener unmounts, which is also
+   the better design: open state belongs to a mounted drawer.
+5. **Two controls shared `aria-label="Close AI Partner"`**, so an AT rotor would list two
+   indistinguishable buttons. The backdrop is now "Dismiss AI Partner".
+6. **The focus-trap tests did not exercise the focus trap.** A reviewer mutation-tested it —
+   gutted the wrap-around branching — and all three tests still passed, because the panel holds
+   one focusable element and jsdom performs no native Tab traversal. The tests now inject a
+   second focusable element, and both the failure under mutation and the recovery after restore
+   were observed directly rather than inferred.
+
+### Honest limits
+
+- **`inert` is asserted at the DOM-attribute level only.** jsdom reflects the attribute but does
+  not implement behavioural inertness, so real browse-mode containment is unverified.
+- **Sidebar/bottom-nav mutual exclusivity is a Tailwind breakpoint pair**, correct by inspection
+  but unverifiable in jsdom, which loads no CSS.
+- **The zero-focusable-elements branch of the trap is unreachable today** and therefore untested.
+  It is deliberate insurance against a future change that empties the panel.
+- **No screen reader has been run against any of this.** Every accessibility claim is a
+  markup-level claim.
+- **The shell has not been looked at in a browser** at 1440px or 375px. Its visual quality is
+  unassessed; only its structure is tested.
