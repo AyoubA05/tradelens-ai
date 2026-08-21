@@ -2,7 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { continuePageRedirect, nextDestinationFor, type WebsiteUser } from "@/lib/auth/session";
+import {
+  appLayoutRedirect,
+  continuePageRedirect,
+  nextDestinationFor,
+  type WebsiteUser,
+} from "@/lib/auth/session";
 
 function user(overrides: Partial<WebsiteUser> = {}): WebsiteUser {
   return {
@@ -80,6 +85,33 @@ describe("the cutover is opt-in", () => {
         `${file} appears to write app_surface`,
       ).toBe(false);
     }
+  });
+});
+
+describe("appLayoutRedirect — the /app shell's own gate", () => {
+  // I-1: app_surface previously governed only where /continue sent someone.
+  // A streamlit account that typed /app directly hit no surface check at
+  // all in the layout. These two pin both directions of the gate this
+  // function now backs.
+  it("lets a migrated account reach the shell", () => {
+    expect(appLayoutRedirect(user({ appSurface: "nextjs" }))).toBeNull();
+  });
+
+  it("sends an account never opted into nextjs to /continue, not the shell", () => {
+    expect(appLayoutRedirect(user({ appSurface: "streamlit" }))).toBe("/continue");
+  });
+
+  it("fails closed on an unrecognised surface, matching nextDestinationFor", () => {
+    expect(appLayoutRedirect(user({ appSurface: "something-else" }))).toBe("/continue");
+  });
+
+  it("still gates on email and onboarding before the surface is considered", () => {
+    expect(
+      appLayoutRedirect(user({ appSurface: "nextjs", emailVerifiedAt: null })),
+    ).toBe("/verify-email");
+    expect(
+      appLayoutRedirect(user({ appSurface: "nextjs", onboardingCompleted: false })),
+    ).toBe("/onboarding");
   });
 });
 

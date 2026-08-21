@@ -174,3 +174,26 @@ export function continuePageRedirect(user: WebsiteUser, eligible: boolean): stri
   if (user.appSurface === "nextjs") return "/app";
   return null;
 }
+
+/**
+ * Whether the `/app` shell's layout should let this request through, or
+ * where it should be sent instead.
+ *
+ * `app_surface` otherwise governs only where `/continue` sends someone —
+ * nothing stopped a `streamlit` account that typed `/app` directly from
+ * reaching the shell. This is the same gate `nextDestinationFor` applies,
+ * pulled out as its own function so the layout's authorization is a
+ * plain-function assertion rather than something only exercised by clicking
+ * through the UI.
+ *
+ * Same fail-closed comparison as `nextDestinationFor`: checked against the
+ * one known value, `=== "nextjs"`, not "not streamlit". An unrecognised
+ * surface is sent to `/continue`, same as a `streamlit` account, never let
+ * into a shell that account never opted into.
+ */
+export function appLayoutRedirect(user: WebsiteUser): string | null {
+  if (!emailGatePassed(user)) return "/verify-email";
+  if (!user.onboardingCompleted) return "/onboarding";
+  if (user.appSurface !== "nextjs") return "/continue";
+  return null;
+}

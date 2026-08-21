@@ -8,8 +8,8 @@ import { TopBar } from "@/components/app/top-bar";
 import { BottomNav } from "@/components/app/bottom-nav";
 import { PartnerDrawer } from "@/components/app/partner-drawer";
 import {
+  appLayoutRedirect,
   authenticateSessionToken,
-  emailGatePassed,
   sessionTokenFromCookieHeader,
 } from "@/lib/auth/session";
 
@@ -31,8 +31,11 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   const user = await authenticateSessionToken(sessionTokenFromCookieHeader(cookieHeader));
 
   if (!user) redirect("/login");
-  if (!emailGatePassed(user)) redirect("/verify-email");
-  if (!user.onboardingCompleted) redirect("/onboarding");
+  // Gates email/onboarding, then app_surface itself — a `streamlit` account
+  // is sent to `/continue` even if it types `/app` directly, so app_surface
+  // governs who reaches this shell, not just where `/continue` sends people.
+  const redirectTo = appLayoutRedirect(user);
+  if (redirectTo) redirect(redirectTo);
 
   return (
     <AppShell
