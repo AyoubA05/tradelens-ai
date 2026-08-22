@@ -80,7 +80,9 @@ export function TradingCalendar({
               // pnl >= 0 while the glyph used the three-way outcome field. One
               // source now decides both.
               const label = entry
-                ? `${day} ${MONTHS[calendar.month - 1]} ${calendar.year}, ${DIRECTION[entry.outcome] ?? "flat"} ${money(entry.pnl, { decimals: 0, sign: false })}`
+                ? entry.outcome === "unknown"
+                  ? `${day} ${MONTHS[calendar.month - 1]} ${calendar.year}, P&L not recorded`
+                  : `${day} ${MONTHS[calendar.month - 1]} ${calendar.year}, ${DIRECTION[entry.outcome]} ${money(entry.pnl ?? 0, { decimals: 0, sign: false })}`
                 : outside
                   ? `${day} ${MONTHS[calendar.month - 1]} ${calendar.year}, outside the selected period`
                   : undefined;
@@ -106,6 +108,8 @@ export function TradingCalendar({
                         <circle cx="4" cy="4" r="3" fill="#22c55e" />
                       ) : entry.outcome === "negative" ? (
                         <rect x="1" y="1" width="6" height="6" fill="#f56565" />
+                      ) : entry.outcome === "unknown" ? (
+                        <path d="M4 0.8 7.2 4 4 7.2 0.8 4Z" fill="none" stroke="#9aa4b2" strokeWidth="1.2" />
                       ) : (
                         <line x1="1" y1="4" x2="7" y2="4" stroke="#9aa4b2" strokeWidth="1.5" />
                       )}
@@ -116,7 +120,7 @@ export function TradingCalendar({
             })}
           </div>
           <p className="mt-3 font-mono text-[10px] text-muted">
-            ● winning day · ■ losing day · — flat. Blank days inside {period.from} to {period.to}
+            ● winning day · ■ losing day · — flat · ◇ P&amp;L not recorded. Blank days inside {period.from} to {period.to}
             {" "}had no trade
             {hasOutside ? "; dashed, dimmed days fall outside the selected period." : "."}
           </p>

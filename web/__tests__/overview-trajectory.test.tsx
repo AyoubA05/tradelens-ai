@@ -4,8 +4,9 @@ import { describe, expect, it } from "vitest";
 
 import { Trajectory } from "@/components/app/overview/trajectory";
 import { RecurringEdge } from "@/components/app/overview/recurring-edge";
+import type { OverviewResponse } from "@/lib/app/overview";
 
-const trajectory = {
+const trajectory: OverviewResponse["trajectory"] = {
   equity_curve: [
     { date: "2026-08-10", equity: 480 },
     { date: "2026-08-11", equity: 260 },
@@ -22,6 +23,7 @@ const trajectory = {
 const sample = {
   trades: 5, dated_points: 4, show_summary: true, show_series: true,
   show_dominant_series: true, show_comparisons: true, show_patterns: true,
+  pnl_recorded: 5, pnl_complete: true,
 };
 
 describe("trajectory", () => {
@@ -66,13 +68,13 @@ describe("recurring edge", () => {
     render(
       <RecurringEdge
         edge={{
-          killzones: [{ label: "NY AM", net_pnl: 670, trades: 3 }],
+          killzones: [{ label: "New York AM", net_pnl: 670, trades: 3 }],
           setups: [{ label: "Liquidity Sweep + FVG", net_pnl: 670, trades: 3 }],
         }}
         sample={sample}
       />,
     );
-    expect(screen.getByText("NY AM")).toBeInTheDocument();
+    expect(screen.getByText("New York AM")).toBeInTheDocument();
     expect(screen.getByText("Liquidity Sweep + FVG")).toBeInTheDocument();
     expect(screen.getAllByText(/n=3/).length).toBeGreaterThan(0);
   });
@@ -80,11 +82,21 @@ describe("recurring edge", () => {
   it("withholds comparisons the sample has not earned", () => {
     render(
       <RecurringEdge
-        edge={{ killzones: [{ label: "NY AM", net_pnl: 1, trades: 1 }], setups: [] }}
+        edge={{ killzones: [{ label: "New York AM", net_pnl: 1, trades: 1 }], setups: [] }}
         sample={{ ...sample, show_comparisons: false }}
       />,
     );
-    expect(screen.queryByText("NY AM")).not.toBeInTheDocument();
+    expect(screen.queryByText("New York AM")).not.toBeInTheDocument();
     expect(screen.getByText(/not enough trades to compare/i)).toBeInTheDocument();
+  });
+
+  it("withholds monetary comparisons when P&L is incomplete", () => {
+    render(
+      <RecurringEdge
+        edge={{ killzones: [], setups: [] }}
+        sample={{ ...sample, pnl_complete: false, pnl_recorded: 4 }}
+      />,
+    );
+    expect(screen.getByText(/P&L data is incomplete/i)).toBeInTheDocument();
   });
 });

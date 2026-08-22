@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { NextReviewAction, STEP_COPY } from "@/components/app/overview/next-review-action";
 import { RecentTrades } from "@/components/app/overview/recent-trades";
+import type { OverviewResponse } from "@/lib/app/overview";
 
 describe("next review action", () => {
   // The keys below are the ones services/activation.py actually emits. The
@@ -58,7 +59,7 @@ describe("next review action", () => {
 });
 
 describe("recent trades", () => {
-  const trades = [
+  const trades: OverviewResponse["recent_trades"] = [
     { id: 3, trade_date: "2026-08-15", asset: "NQ", session: "New York Open", setup_type: "Liquidity Sweep + FVG", result: "Win", pnl: 410, rr_realized: 2.7 },
     { id: 2, trade_date: "2026-08-13", asset: "ES", session: "New York Open", setup_type: "Liquidity Sweep + FVG", result: "Loss", pnl: -220, rr_realized: null },
   ];

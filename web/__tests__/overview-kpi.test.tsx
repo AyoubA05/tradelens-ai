@@ -9,7 +9,7 @@ import { CurrentStanding } from "@/components/app/overview/current-standing";
 // win_rate is `Undefinable` ({ value, state }) in the generated schema, not a
 // bare number — the schema is the source of truth, so the fixture follows it.
 const kpi = {
-  net_pnl: 575,
+  net_pnl: { value: 575, state: null },
   win_rate: { value: 0.4, state: null },
   expectancy: 115,
   expectancy_state: null,
@@ -18,12 +18,13 @@ const kpi = {
   trades: 5,
   wins: 2,
   losses: 2,
-  today_pnl: 0,
-  week_pnl: 575,
+  today_pnl: { value: 0, state: null },
+  week_pnl: { value: 575, state: null },
 };
 const sample = {
   trades: 5, dated_points: 5, show_summary: true, show_series: true,
   show_dominant_series: true, show_comparisons: true, show_patterns: true,
+  pnl_recorded: 5, pnl_complete: true,
 };
 
 describe("stat tile", () => {
@@ -59,6 +60,29 @@ describe("kpi row", () => {
     expect(screen.getByText(/no losses yet/i)).toBeInTheDocument();
   });
 
+  it("distinguishes incomplete P&L from a legitimate zero", () => {
+    render(
+      <KpiRow
+        kpi={{ ...kpi, expectancy: null, expectancy_state: "undefined_incomplete_sample" }}
+        sample={sample}
+      />,
+    );
+    expect(screen.getByText(/P&L data is incomplete/i)).toBeInTheDocument();
+  });
+
+  it("does not present missing net P&L as a flat period", () => {
+    render(
+      <KpiRow
+        kpi={{
+          ...kpi,
+          net_pnl: { value: null, state: "undefined_incomplete_sample" },
+        }}
+        sample={{ ...sample, pnl_complete: false, pnl_recorded: 0 }}
+      />,
+    );
+    expect(screen.getByText(/P&L data is incomplete/i)).toBeInTheDocument();
+  });
+
   it("says the sample is too small rather than showing confident figures", () => {
     render(<KpiRow kpi={{ ...kpi, trades: 0 }} sample={{ ...sample, trades: 0, show_summary: false }} />);
     expect(screen.getByText(/no trades in this period/i)).toBeInTheDocument();
@@ -67,7 +91,7 @@ describe("kpi row", () => {
 
 describe("current standing", () => {
   it("shows today and the running week, spec §8's pair", () => {
-    render(<CurrentStanding kpi={{ ...kpi, today_pnl: -120, week_pnl: 575 }} />);
+    render(<CurrentStanding kpi={{ ...kpi, today_pnl: { value: -120, state: null } }} />);
     expect(screen.getByText("Today")).toBeInTheDocument();
     expect(screen.getByText("This week")).toBeInTheDocument();
     expect(screen.getByText("-$120.00")).toBeInTheDocument();
@@ -80,8 +104,21 @@ describe("current standing", () => {
   });
 
   it("carries direction in a word, not only in colour", () => {
-    render(<CurrentStanding kpi={{ ...kpi, today_pnl: -120, week_pnl: 575 }} />);
+    render(<CurrentStanding kpi={{ ...kpi, today_pnl: { value: -120, state: null } }} />);
     expect(screen.getByText("down")).toBeInTheDocument();
     expect(screen.getByText("up")).toBeInTheDocument();
+  });
+
+  it("does not call an unrecorded current P&L flat", () => {
+    render(
+      <CurrentStanding
+        kpi={{
+          ...kpi,
+          today_pnl: { value: null, state: "undefined_incomplete_sample" },
+        }}
+      />,
+    );
+    expect(screen.getByText(/P&L data is incomplete/i)).toBeInTheDocument();
+    expect(screen.queryByText("flat")).not.toBeInTheDocument();
   });
 });

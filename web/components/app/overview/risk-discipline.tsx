@@ -60,9 +60,11 @@ export function RiskDiscipline({
           hint={
             leak.value === null
               ? undefinedReason(leak.state)
-              : `${risk.edge_leak.trades} of ${risk.edge_leak.recorded} recorded`
+              : leak.value > 0
+                ? "Rule-breaking trades were profitable here; that is not repeatable edge."
+                : `${risk.edge_leak.trades} of ${risk.edge_leak.recorded} recorded`
           }
-          tone={leak.value !== null && leak.value < 0 ? "negative" : "neutral"}
+          tone={leak.value !== null && leak.value !== 0 ? "negative" : "neutral"}
         />
         <StatTile
           label="Consistency"

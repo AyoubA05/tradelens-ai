@@ -39,6 +39,7 @@ export function money(
 export function undefinedReason(state: string | null | undefined): string {
   if (state === "undefined_positive_infinity") return "No losses yet";
   if (state === "undefined_negative_infinity") return "No wins yet";
+  if (state === "undefined_incomplete_sample") return "P&L data is incomplete";
   return "Not enough data";
 }
 

@@ -5,6 +5,8 @@ Correctness here is checked against the SAME golden dataset the parity harness
 pins, so the API cannot quietly compute different numbers from the ones the
 services were verified to produce.
 """
+import datetime as dt
+
 import pytest
 
 from src.tradelens.services import overview
@@ -29,10 +31,58 @@ def test_headline_numbers_match_the_golden_dataset(seeded):
     owner, _ = seeded
     data = overview.build_overview(user_id=owner, **PERIOD)
     # 480 - 220 + 410 + 0 - 95
-    assert data["kpi"]["net_pnl"] == 575.0
+    assert data["kpi"]["net_pnl"] == {"value": 575.0, "state": None}
     assert data["kpi"]["trades"] == 5
     assert data["kpi"]["wins"] == 2
     assert data["kpi"]["losses"] == 2
+
+
+def test_overview_field_mapping_matches_the_metric_services(seeded):
+    """Compare the composed payload to independently invoked metric functions.
+
+    This catches a correct-looking response assembled from the wrong service
+    field name—the failure mode that already affected six Phase 2 fields.
+    """
+    from src.tradelens.services import metrics, trade_service
+
+    owner, _ = seeded
+    trades = trade_service.get_trades(
+        user_id=owner,
+        start_date=PERIOD["start"],
+        end_date=PERIOD["end"],
+    )
+    frame = overview._frame(trades)
+    basic = metrics.compute_basic_metrics(frame)
+    expected_streaks = metrics.compute_streaks(frame)
+    expected_equity = metrics.daily_equity_curve(frame)
+    data = overview.build_overview(user_id=owner, **PERIOD)
+
+    assert data["kpi"]["net_pnl"]["value"] == basic["total_pnl"]
+    assert data["kpi"]["win_rate"]["value"] == basic["win_rate"]
+    assert data["kpi"]["expectancy"] == metrics.compute_expectancy(basic)
+    assert data["kpi"]["profit_factor"] == metrics.compute_profit_factor_raw(frame)
+    assert data["risk"]["max_drawdown"]["value"] == metrics.compute_max_drawdown(
+        metrics.compute_equity_curve(frame)
+    )
+    assert (
+        data["risk"]["rule_adherence"]["rate"]
+        == metrics.rule_adherence_rate(frame).rate
+    )
+    assert (
+        data["risk"]["edge_leak"]["amount"]["value"]
+        == metrics.edge_leak_summary(frame).net_pnl
+    )
+    assert data["risk"]["consistency"]["value"] == metrics.consistency_score(frame)
+    assert data["trajectory"]["current_streak"] == expected_streaks["current_streak"]
+    assert data["trajectory"]["streak_type"] == expected_streaks["streak_type"]
+    assert data["trajectory"]["best_streak"] == expected_streaks["max_win_streak"]
+    assert data["trajectory"]["worst_streak"] == expected_streaks["max_loss_streak"]
+    assert data["trajectory"]["average_win"]["value"] == basic["avg_win"]
+    assert data["trajectory"]["average_loss"]["value"] == basic["avg_loss"]
+    assert data["trajectory"]["equity_curve"] == [
+        {"date": str(row["trade_date"]), "equity": float(row["cumulative_pnl"])}
+        for _, row in expected_equity.iterrows()
+    ]
 
 
 def test_sees_only_its_own_owner(seeded):
@@ -40,7 +90,7 @@ def test_sees_only_its_own_owner(seeded):
     _, other = seeded
     data = overview.build_overview(user_id=other, **PERIOD)
     assert data["kpi"]["trades"] == 0
-    assert data["kpi"]["net_pnl"] == 0.0
+    assert data["kpi"]["net_pnl"] == {"value": 0.0, "state": None}
 
 
 def test_undefined_profit_factor_is_named_not_zeroed(two_users):
@@ -89,6 +139,90 @@ def test_all_breakeven_profit_factor_is_undefined_not_zero(two_users):
     assert data["kpi"]["trades"] == 2
     assert data["kpi"]["profit_factor"] is None
     assert data["kpi"]["profit_factor_state"] == "undefined_no_sample"
+
+
+def test_manual_outcome_without_pnl_does_not_invent_money_metrics(two_users):
+    """Manual outcomes are valid before P&L is entered.
+
+    They may count toward win rate, but they cannot supply the dollars needed
+    for expectancy, profit factor, or an average win.  A confident 0.0 for
+    any of those figures says something materially different from "P&L is
+    incomplete".
+    """
+    owner, _ = two_users
+    from src.tradelens.services import trade_service
+
+    trade_service.create_trade(
+        {
+            "trade_date": "2026-08-10",
+            "asset": "NQ",
+            "result": "Win",
+            "followed_rules": 0,
+        },
+        user_id=owner,
+    )
+
+    data = overview.build_overview(user_id=owner, **PERIOD, today=dt.date(2026, 8, 10))
+    assert data["kpi"]["wins"] == 1
+    assert data["kpi"]["win_rate"] == {"value": 1.0, "state": None}
+    assert data["sample"]["pnl_recorded"] == 0
+    assert data["sample"]["pnl_complete"] is False
+    assert data["kpi"]["net_pnl"] == {
+        "value": None,
+        "state": "undefined_incomplete_sample",
+    }
+    assert data["kpi"]["today_pnl"] == {
+        "value": None,
+        "state": "undefined_incomplete_sample",
+    }
+    assert data["kpi"]["week_pnl"] == {
+        "value": None,
+        "state": "undefined_incomplete_sample",
+    }
+    assert data["kpi"]["expectancy"] is None
+    assert data["kpi"]["expectancy_state"] == "undefined_incomplete_sample"
+    assert data["kpi"]["profit_factor"] is None
+    assert data["kpi"]["profit_factor_state"] == "undefined_incomplete_sample"
+    assert data["trajectory"]["average_win"] == {
+        "value": None,
+        "state": "undefined_incomplete_sample",
+    }
+    assert data["risk"]["max_drawdown"] == {
+        "value": None,
+        "state": "undefined_incomplete_sample",
+    }
+    assert data["risk"]["edge_leak"]["amount"] == {
+        "value": None,
+        "state": "undefined_incomplete_sample",
+    }
+    assert data["trajectory"]["equity_curve"] == []
+    assert data["recurring_edge"] == {"killzones": [], "setups": []}
+    assert data["calendar"]["days"] == [
+        {"date": "2026-08-10", "pnl": None, "outcome": "unknown"}
+    ]
+
+
+def test_recorded_zero_remains_a_legitimate_zero(two_users):
+    from src.tradelens.services import trade_service
+
+    owner, _ = two_users
+    trade_service.create_trade(
+        {
+            "trade_date": "2026-08-10",
+            "asset": "NQ",
+            "result": "Breakeven",
+            "pnl": 0.0,
+        },
+        user_id=owner,
+    )
+    data = overview.build_overview(user_id=owner, **PERIOD, today=dt.date(2026, 8, 10))
+    assert data["sample"]["pnl_complete"] is True
+    assert data["kpi"]["net_pnl"] == {"value": 0.0, "state": None}
+    assert data["kpi"]["today_pnl"] == {"value": 0.0, "state": None}
+    assert data["kpi"]["week_pnl"] == {"value": 0.0, "state": None}
+    assert data["calendar"]["days"] == [
+        {"date": "2026-08-10", "pnl": 0.0, "outcome": "flat"}
+    ]
 
 
 def test_consistency_reads_the_grade_trend_the_dashboard_reads(two_users):
@@ -261,6 +395,37 @@ def test_consistency_is_undefined_below_five_trades(two_users):
     }
 
 
+def test_overview_uses_metrics_consistency_threshold_as_single_source(
+    two_users, monkeypatch
+):
+    """A threshold change in metrics must immediately change API semantics.
+
+    This deliberately changes the shared threshold at runtime.  A copied
+    literal in Overview would still expose the flattened metrics value as a
+    legitimate zero at five trades.
+    """
+    from src.tradelens.services import metrics, trade_service
+
+    owner, _ = two_users
+    for i in range(5):
+        trade_service.create_trade(
+            {
+                "trade_date": f"2026-08-1{i}",
+                "asset": "NQ",
+                "result": "Win",
+                "pnl": 100.0,
+            },
+            user_id=owner,
+        )
+    monkeypatch.setattr(metrics, "MIN_TRADES_FOR_CONSISTENCY", 6, raising=False)
+
+    data = overview.build_overview(user_id=owner, **PERIOD)
+    assert data["risk"]["consistency"] == {
+        "value": None,
+        "state": "undefined_no_sample",
+    }
+
+
 def test_average_win_is_undefined_with_no_wins(two_users):
     owner, _ = two_users
     from src.tradelens.services import trade_service
@@ -299,15 +464,79 @@ def test_win_rate_is_undefined_with_zero_trades(seeded):
     assert data["kpi"]["win_rate"] == {"value": None, "state": "undefined_no_sample"}
 
 
-def test_edge_leak_amount_is_undefined_without_evidence(seeded):
+def test_edge_leak_amount_is_undefined_without_evidence(two_users):
     """No followed_rules or mistake_tags evidence means the leak amount is
     unknown, not zero."""
-    owner, _ = seeded
+    owner, _ = two_users
+    from src.tradelens.services import trade_service
+
+    trade_service.create_trade(
+        {"trade_date": "2026-08-10", "asset": "NQ", "result": "Win", "pnl": 10},
+        user_id=owner,
+    )
     data = overview.build_overview(user_id=owner, **PERIOD)
-    # The golden dataset carries followed_rules/mistake_tags evidence, so this
-    # asserts the shape survives round-trip rather than forcing "undefined"
-    # on a dataset that does have evidence.
-    assert set(data["risk"]["edge_leak"]["amount"]) == {"value", "state"}
+    assert data["risk"]["edge_leak"]["amount"] == {
+        "value": None,
+        "state": "undefined_no_sample",
+    }
+
+
+def test_killzone_breakdown_uses_the_product_label(two_users):
+    """The wire payload must not leak an internal enum into presentation."""
+    owner, _ = two_users
+    from src.tradelens.services import trade_service
+
+    trade_service.create_trade(
+        {
+            "trade_date": "2026-08-10",
+            "asset": "NQ",
+            "result": "Win",
+            "pnl": 10,
+            "killzone": "ny_am",
+        },
+        user_id=owner,
+    )
+    rows = overview.build_overview(user_id=owner, **PERIOD)["recurring_edge"][
+        "killzones"
+    ]
+    assert rows == [{"label": "New York AM", "net_pnl": 10.0, "trades": 1}]
+
+
+def test_current_date_is_derived_from_each_owner_s_timezone(two_users):
+    from src.tradelens.services import app_settings
+
+    east_of_dateline, west_of_utc = two_users
+    app_settings.set_timezone(east_of_dateline, "Pacific/Kiritimati")
+    app_settings.set_timezone(west_of_utc, "America/Los_Angeles")
+    instant = dt.datetime(2026, 8, 22, 11, 30, tzinfo=dt.timezone.utc)
+
+    assert overview._today_for_owner(east_of_dateline, now_utc=instant) == dt.date(
+        2026, 8, 23
+    )
+    assert overview._today_for_owner(west_of_utc, now_utc=instant) == dt.date(
+        2026, 8, 22
+    )
+
+
+def test_today_and_week_metrics_use_the_owner_local_date(two_users, monkeypatch):
+    from src.tradelens.services import trade_service
+
+    owner, _ = two_users
+    trade_service.create_trade(
+        {"trade_date": "2026-08-23", "asset": "NQ", "result": "Win", "pnl": 75},
+        user_id=owner,
+    )
+    seen = []
+
+    def owner_today(user_id):
+        seen.append(user_id)
+        return dt.date(2026, 8, 23)
+
+    monkeypatch.setattr(overview, "_today_for_owner", owner_today)
+    data = overview.build_overview(user_id=owner, **PERIOD)
+    assert seen == [owner]
+    assert data["kpi"]["today_pnl"] == {"value": 75.0, "state": None}
+    assert data["kpi"]["week_pnl"] == {"value": 75.0, "state": None}
 
 
 # ---------------------------------------------------------------------------

@@ -96,10 +96,13 @@ export interface components {
         CalendarDay: {
             /** Date */
             date: string;
-            /** Outcome */
-            outcome: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "positive" | "negative" | "flat" | "unknown";
             /** Pnl */
-            pnl: number;
+            pnl: number | null;
         };
         /** EdgeLeak */
         EdgeLeak: {
@@ -124,23 +127,20 @@ export interface components {
         /** Kpi */
         Kpi: {
             /** Expectancy */
-            expectancy?: number | null;
+            expectancy: number | null;
             /** Expectancy State */
-            expectancy_state?: string | null;
+            expectancy_state: ("undefined_nan" | "undefined_positive_infinity" | "undefined_negative_infinity" | "undefined_no_sample" | "undefined_incomplete_sample") | null;
             /** Losses */
             losses: number;
-            /** Net Pnl */
-            net_pnl: number;
+            net_pnl: components["schemas"]["Undefinable"];
             /** Profit Factor */
-            profit_factor?: number | null;
+            profit_factor: number | null;
             /** Profit Factor State */
-            profit_factor_state?: string | null;
-            /** Today Pnl */
-            today_pnl: number;
+            profit_factor_state: ("undefined_nan" | "undefined_positive_infinity" | "undefined_negative_infinity" | "undefined_no_sample" | "undefined_incomplete_sample") | null;
+            today_pnl: components["schemas"]["Undefinable"];
             /** Trades */
             trades: number;
-            /** Week Pnl */
-            week_pnl: number;
+            week_pnl: components["schemas"]["Undefinable"];
             win_rate: components["schemas"]["Undefinable"];
             /** Wins */
             wins: number;
@@ -163,7 +163,7 @@ export interface components {
             /** Is Activated */
             is_activated: boolean;
             /** Next Key */
-            next_key?: ("strategy" | "first_trade" | "weekly_review") | null;
+            next_key: ("strategy" | "first_trade" | "weekly_review") | null;
             /** Total */
             total: number;
             /** Trades Until Review */
@@ -192,21 +192,21 @@ export interface components {
         /** RecentTrade */
         RecentTrade: {
             /** Asset */
-            asset?: string | null;
+            asset: string | null;
             /** Id */
             id: number;
             /** Pnl */
-            pnl?: number | null;
+            pnl: number | null;
             /** Result */
-            result?: string | null;
+            result: ("Win" | "Loss" | "Breakeven") | null;
             /** Rr Realized */
-            rr_realized?: number | null;
+            rr_realized: number | null;
             /** Session */
-            session?: string | null;
+            session: string | null;
             /** Setup Type */
-            setup_type?: string | null;
+            setup_type: string | null;
             /** Trade Date */
-            trade_date?: string | null;
+            trade_date: string | null;
         };
         /** RecurringEdge */
         RecurringEdge: {
@@ -227,7 +227,7 @@ export interface components {
             /** Followed */
             followed: number;
             /** Rate */
-            rate?: number | null;
+            rate: number | null;
             /** Recorded */
             recorded: number;
         };
@@ -235,6 +235,10 @@ export interface components {
         SampleFlags: {
             /** Dated Points */
             dated_points: number;
+            /** Pnl Complete */
+            pnl_complete: boolean;
+            /** Pnl Recorded */
+            pnl_recorded: number;
             /** Show Comparisons */
             show_comparisons: boolean;
             /** Show Dominant Series */
@@ -253,15 +257,18 @@ export interface components {
             average_loss: components["schemas"]["Undefinable"];
             average_win: components["schemas"]["Undefinable"];
             /** Best Streak */
-            best_streak?: number | null;
+            best_streak: number;
             /** Current Streak */
-            current_streak?: number | null;
+            current_streak: number;
             /** Equity Curve */
             equity_curve: components["schemas"]["EquityPoint"][];
-            /** Streak Type */
-            streak_type?: string | null;
+            /**
+             * Streak Type
+             * @enum {string}
+             */
+            streak_type: "win" | "loss" | "none";
             /** Worst Streak */
-            worst_streak?: number | null;
+            worst_streak: number;
         };
         /**
          * Undefinable
@@ -274,7 +281,7 @@ export interface components {
          */
         Undefinable: {
             /** State */
-            state: string | null;
+            state: ("undefined_nan" | "undefined_positive_infinity" | "undefined_negative_infinity" | "undefined_no_sample" | "undefined_incomplete_sample") | null;
             /** Value */
             value: number | null;
         };

@@ -10,7 +10,12 @@ const points = [
   { date: "2026-08-12", equity: 670 },
   { date: "2026-08-14", equity: 575 },
 ];
-const earned = { show_series: true, show_dominant_series: true, dated_points: 4 };
+const earned = {
+  show_series: true,
+  show_dominant_series: true,
+  dated_points: 4,
+  pnl_complete: true,
+};
 
 describe("curve geometry", () => {
   it("maps the first point to the left edge and the last to the right", () => {
@@ -31,13 +36,14 @@ describe("curve geometry", () => {
     expect(area.endsWith("Z")).toBe(true);
   });
 
-  it("survives a flat curve without dividing by zero", () => {
+  it("centres a flat curve instead of pinning it to an extreme", () => {
     const flat = [
       { date: "2026-08-10", equity: 100 },
       { date: "2026-08-11", equity: 100 },
     ];
     const { line } = buildCurvePath(flat, 100, 40);
     expect(line).not.toContain("NaN");
+    expect(line).toBe("M0,20L100,20");
   });
 
   it("survives a single point", () => {
@@ -58,6 +64,12 @@ describe("equity curve", () => {
     );
     expect(screen.getByText(/not enough dated trades/i)).toBeInTheDocument();
     expect(screen.getByText(/2 more trading days/i)).toBeInTheDocument();
+  });
+
+  it("does not draw an equity curve through missing P&L", () => {
+    render(<EquityCurve points={points} sample={{ ...earned, pnl_complete: false }} />);
+    expect(screen.queryByRole("img", { name: /equity/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/P&L data is incomplete/i)).toBeInTheDocument();
   });
 
   it("labels the curve so identity is never colour alone", () => {

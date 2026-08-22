@@ -18,9 +18,11 @@ const data: OverviewResponse = {
     show_dominant_series: true,
     show_comparisons: true,
     show_patterns: true,
+    pnl_recorded: 5,
+    pnl_complete: true,
   },
   kpi: {
-    net_pnl: 575,
+    net_pnl: { value: 575, state: null },
     win_rate: { value: 0.4, state: null },
     expectancy: 115,
     expectancy_state: null,
@@ -29,11 +31,11 @@ const data: OverviewResponse = {
     trades: 5,
     wins: 2,
     losses: 2,
-    today_pnl: 0,
-    week_pnl: 575,
+    today_pnl: { value: 0, state: null },
+    week_pnl: { value: 575, state: null },
   },
   risk: {
-    max_drawdown: { value: -220, state: null },
+    max_drawdown: { value: 220, state: null },
     rule_adherence: { rate: 0.67, followed: 2, recorded: 3 },
     edge_leak: { amount: { value: -220, state: null }, trades: 1, recorded: 3 },
     consistency: { value: null, state: "undefined_nan" },
@@ -53,7 +55,7 @@ const data: OverviewResponse = {
     average_loss: { value: -157.5, state: null },
   },
   recurring_edge: {
-    killzones: [{ label: "NY AM", net_pnl: 670, trades: 3 }],
+    killzones: [{ label: "New York AM", net_pnl: 670, trades: 3 }],
     setups: [{ label: "Liquidity Sweep + FVG", net_pnl: 670, trades: 3 }],
   },
   calendar: {

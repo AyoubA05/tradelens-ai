@@ -35,21 +35,29 @@ from __future__ import annotations
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+UndefinedState = Literal[
+    "undefined_nan",
+    "undefined_positive_infinity",
+    "undefined_negative_infinity",
+    "undefined_no_sample",
+    "undefined_incomplete_sample",
+]
 
 
 class _Strict(BaseModel):
     """Base for every model below: an unexpected key means the service's
     shape moved out from under this contract, not a client sending noise."""
 
-    model_config = {"extra": "forbid"}
+    model_config = ConfigDict(extra="forbid", strict=True)
 
 
 class Period(_Strict):
     from_: str = Field(alias="from")
     to: str
 
-    model_config = {"extra": "forbid", "populate_by_name": True}
+    model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
 
 
 class SampleFlags(_Strict):
@@ -60,6 +68,8 @@ class SampleFlags(_Strict):
     show_dominant_series: bool
     show_comparisons: bool
     show_patterns: bool
+    pnl_recorded: int
+    pnl_complete: bool
 
 
 class Undefinable(_Strict):
@@ -72,25 +82,41 @@ class Undefinable(_Strict):
     """
 
     value: Optional[float]
-    state: Optional[str]
+    state: Optional[UndefinedState]
+
+    @model_validator(mode="after")
+    def value_and_state_are_exclusive(self) -> "Undefinable":
+        if (self.value is None) == (self.state is None):
+            raise ValueError("exactly one of value or state must be present")
+        return self
 
 
 class Kpi(_Strict):
-    net_pnl: float
+    net_pnl: Undefinable
     win_rate: Undefinable
-    expectancy: Optional[float] = None
-    expectancy_state: Optional[str] = None
-    profit_factor: Optional[float] = None
-    profit_factor_state: Optional[str] = None
+    expectancy: Optional[float]
+    expectancy_state: Optional[UndefinedState]
+    profit_factor: Optional[float]
+    profit_factor_state: Optional[UndefinedState]
     trades: int
     wins: int
     losses: int
-    today_pnl: float
-    week_pnl: float
+    today_pnl: Undefinable
+    week_pnl: Undefinable
+
+    @model_validator(mode="after")
+    def undefined_kpis_have_a_reason(self) -> "Kpi":
+        for value, state, name in (
+            (self.expectancy, self.expectancy_state, "expectancy"),
+            (self.profit_factor, self.profit_factor_state, "profit_factor"),
+        ):
+            if (value is None) == (state is None):
+                raise ValueError(f"exactly one of {name} or {name}_state is required")
+        return self
 
 
 class RuleAdherence(_Strict):
-    rate: Optional[float] = None
+    rate: Optional[float]
     followed: int
     recorded: int
 
@@ -115,10 +141,10 @@ class EquityPoint(_Strict):
 
 class Trajectory(_Strict):
     equity_curve: List[EquityPoint]
-    current_streak: Optional[int] = None
-    streak_type: Optional[str] = None
-    best_streak: Optional[int] = None
-    worst_streak: Optional[int] = None
+    current_streak: int
+    streak_type: Literal["win", "loss", "none"]
+    best_streak: int
+    worst_streak: int
     average_win: Undefinable
     average_loss: Undefinable
 
@@ -136,8 +162,21 @@ class RecurringEdge(_Strict):
 
 class CalendarDay(_Strict):
     date: str
-    pnl: float
-    outcome: str
+    pnl: Optional[float]
+    outcome: Literal["positive", "negative", "flat", "unknown"]
+
+    @model_validator(mode="after")
+    def outcome_matches_pnl(self) -> "CalendarDay":
+        if self.pnl is None:
+            if self.outcome != "unknown":
+                raise ValueError("missing P&L requires an unknown outcome")
+            return self
+        expected = (
+            "positive" if self.pnl > 0 else "negative" if self.pnl < 0 else "flat"
+        )
+        if self.outcome != expected:
+            raise ValueError("calendar outcome contradicts P&L")
+        return self
 
 
 class Calendar(_Strict):
@@ -160,20 +199,20 @@ class NextReviewAction(_Strict):
 
     completed: int
     total: int
-    next_key: Optional[Literal["strategy", "first_trade", "weekly_review"]] = None
+    next_key: Optional[Literal["strategy", "first_trade", "weekly_review"]]
     is_activated: bool
     trades_until_review: int
 
 
 class RecentTrade(_Strict):
     id: int
-    trade_date: Optional[str] = None
-    asset: Optional[str] = None
-    session: Optional[str] = None
-    setup_type: Optional[str] = None
-    result: Optional[str] = None
-    pnl: Optional[float] = None
-    rr_realized: Optional[float] = None
+    trade_date: Optional[str]
+    asset: Optional[str]
+    session: Optional[str]
+    setup_type: Optional[str]
+    result: Optional[Literal["Win", "Loss", "Breakeven"]]
+    pnl: Optional[float]
+    rr_realized: Optional[float]
 
 
 class OverviewResponse(_Strict):

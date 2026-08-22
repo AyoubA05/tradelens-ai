@@ -17,13 +17,14 @@ export function buildCurvePath(points: Point[], width: number, height: number) {
   const min = Math.min(...values);
   const max = Math.max(...values);
   // A flat curve has no range; centre it rather than dividing by zero.
+  const isFlat = max === min;
   const span = max - min || 1;
   const stepX = points.length > 1 ? width / (points.length - 1) : 0;
 
   const coords = points.map((p, i) => {
     const x = points.length > 1 ? i * stepX : width / 2;
     // SVG y grows downward, so the largest value gets the smallest y.
-    const y = height - ((p.equity - min) / span) * height;
+    const y = isFlat ? height / 2 : height - ((p.equity - min) / span) * height;
     return `${Number(x.toFixed(2))},${Number(y.toFixed(2))}`;
   });
 
@@ -44,9 +45,22 @@ export function EquityCurve({
   sample,
 }: {
   points: Point[];
-  sample: Pick<OverviewResponse["sample"], "show_dominant_series" | "dated_points">;
+  sample: Pick<
+    OverviewResponse["sample"],
+    "show_dominant_series" | "dated_points" | "pnl_complete"
+  >;
 }) {
   const MIN_POINTS = 4;
+  if (!sample.pnl_complete) {
+    return (
+      <div className="rounded-xl border border-line bg-surface p-6">
+        <p className="text-sm font-medium text-text">P&amp;L data is incomplete</p>
+        <p className="mt-1 max-w-sm text-sm text-muted">
+          Record P&amp;L for every trade in this period before reading its equity path.
+        </p>
+      </div>
+    );
+  }
   if (!sample.show_dominant_series) {
     const needed = MIN_POINTS - sample.dated_points;
     return (

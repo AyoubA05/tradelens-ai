@@ -23,6 +23,9 @@ const MUST_STAY_SERVER_SIDE = [
   "TRADELENS_SMTP_USER",
   "TRADELENS_SMTP_PASSWORD",
   "TRADELENS_SMTP_FROM",
+  "TL_SERVICE_SECRET",
+  "TL_SERVICE_SECRET_PREVIOUS",
+  "TL_API_ORIGIN",
 ];
 
 describe("secrets never reach the browser", () => {
@@ -48,10 +51,22 @@ describe("secrets never reach the browser", () => {
     }
   });
 
+  it("documents the server-to-server API variables where Next.js loads them", () => {
+    const example = readFileSync(path.join(WEB, ".env.example"), "utf8");
+    expect(example).toMatch(/^TL_API_ORIGIN=/m);
+    expect(example).toMatch(/^TL_SERVICE_SECRET=$/m);
+  });
+
   it("guards env and db access with server-only", () => {
     // The import is the enforcement: a client component importing either of
     // these fails the build instead of shipping a database URL.
-    for (const file of ["lib/env.ts", "lib/db/client.ts"]) {
+    for (const file of [
+      "lib/env.ts",
+      "lib/db/client.ts",
+      "lib/api/client.ts",
+      "lib/api/sign.ts",
+      "lib/app/overview.ts",
+    ]) {
       const text = readFileSync(path.join(WEB, file), "utf8");
       expect(text.startsWith('import "server-only"'), file).toBe(true);
     }

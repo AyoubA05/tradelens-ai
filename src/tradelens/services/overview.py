@@ -1,10 +1,9 @@
 # src/tradelens/services/overview.py
 """Compose the Overview payload from the existing metric functions.
 
-This module adds no arithmetic. Every figure comes from `services/metrics`,
-which the parity harness already pins — the job here is to select, name, and
-shape, so that the API and the Streamlit Dashboard cannot drift into two
-different answers to the same question.
+Every computed figure comes from `services/metrics`, which the parity harness
+already pins. This module selects, names, shapes, and gates those figures so
+that missing evidence cannot become a plausible number at the API boundary.
 
 Two rules govern the shaping:
 
@@ -25,26 +24,23 @@ Two rules govern the shaping:
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 
 from src.tradelens.api.serialization import finite_or_state
 from src.tradelens.services import metrics
 from src.tradelens.services.activation import activation_status
+from src.tradelens.services.app_settings import DEFAULT_TIMEZONE, get_timezone
 from src.tradelens.services.ownership import require_user_id
 from src.tradelens.services.sample_policy import sample_state
+from src.tradelens.services.sessions import KILLZONE_LABELS
 from src.tradelens.services.strategy import get_active_strategy
 from src.tradelens.services.trade_service import get_trades
 from src.tradelens.services.weekly import get_weekly_reviews
 
 RECENT_TRADE_LIMIT = 5
-
-# consistency_score's own documented contract (services/metrics.py) treats
-# fewer than 5 trades as insufficient signal and returns a flat 0.0. Not
-# imported from there because it's a private threshold (_MIN_TRADES_FOR_CONSISTENCY);
-# this mirrors the public docstring contract, not an internal constant.
-_MIN_TRADES_FOR_CONSISTENCY = 5
 
 _TRADE_COLUMNS = (
     "id",
@@ -92,10 +88,23 @@ def _frame(trades: List[Any]) -> pd.DataFrame:
 def _pair(value: Any) -> Dict[str, Any]:
     """A possibly-undefined number as {value, state}."""
     number, state = finite_or_state(value)
+    if number is None and state is None:
+        state = "undefined_no_sample"
     return {"value": number, "state": state}
 
 
 _UNDEFINED_NO_SAMPLE = {"value": None, "state": "undefined_no_sample"}
+
+
+def _undefined(state: str) -> Dict[str, Any]:
+    return {"value": None, "state": state}
+
+
+def _money_pair(value: Any, *, complete: bool) -> Dict[str, Any]:
+    """A monetary value that is only meaningful when its rows record P&L."""
+    if not complete:
+        return _undefined("undefined_incomplete_sample")
+    return _pair(value)
 
 
 def _sample_pair(value: Any, insufficient: bool) -> Dict[str, Any]:
@@ -133,6 +142,23 @@ def _need(mapping: Any, key: str) -> Any:
     return mapping[key]
 
 
+def _today_for_owner(owner: int, *, now_utc: Optional[dt.datetime] = None) -> dt.date:
+    """Return the current calendar date in one owner's configured timezone."""
+    zone_name = get_timezone(owner)
+    try:
+        zone = ZoneInfo(zone_name)
+    except (ZoneInfoNotFoundError, KeyError, ValueError, OSError):
+        try:
+            zone = ZoneInfo(DEFAULT_TIMEZONE)
+        except (ZoneInfoNotFoundError, KeyError, ValueError, OSError):
+            zone = dt.timezone.utc
+
+    instant = now_utc or dt.datetime.now(dt.timezone.utc)
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=dt.timezone.utc)
+    return instant.astimezone(zone).date()
+
+
 def build_overview(
     *,
     user_id: int,
@@ -142,7 +168,7 @@ def build_overview(
 ) -> dict:
     """Everything the Overview screen shows, for one owner over one period."""
     owner = require_user_id(user_id)
-    now = today or dt.date.today()
+    now = today or _today_for_owner(owner)
 
     trades = get_trades(user_id=owner, start_date=start, end_date=end)
     df = _frame(trades)
@@ -166,6 +192,12 @@ def build_overview(
     total_trades = int(_need(basic, "total_trades") or 0)
     wins = int(_need(basic, "wins") or 0)
     losses = int(_need(basic, "losses") or 0)
+    pnl = pd.to_numeric(df["pnl"], errors="coerce")
+    pnl_recorded = int(pnl.notna().sum())
+    pnl_complete = bool(pnl.notna().all())
+    win_mask, loss_mask, _ = metrics.outcome_masks(df)
+    win_pnl_complete = wins > 0 and bool(pnl[win_mask].notna().all())
+    loss_pnl_complete = losses > 0 and bool(pnl[loss_mask].notna().all())
 
     # A period with neither a win nor a loss has no ratio to report: no
     # numerator and no denominator. `compute_profit_factor_raw` flattens that
@@ -173,13 +205,20 @@ def build_overview(
     # zero (all-losing period), so an all-breakeven month rendered "0.00x" —
     # the worst possible profit factor — where the truth is "not applicable".
     # Gated on the sample here, like the other pre-flattened figures.
-    if wins == 0 and losses == 0:
+    if total_trades == 0 or (wins == 0 and losses == 0):
         pf_value, pf_state = None, "undefined_no_sample"
+    elif not pnl_complete:
+        pf_value, pf_state = None, "undefined_incomplete_sample"
     else:
         pf_value, pf_state = finite_or_state(metrics.compute_profit_factor_raw(df))
-    expectancy_value, expectancy_state = finite_or_state(
-        metrics.compute_expectancy(basic) if total_trades else float("nan")
-    )
+    if total_trades == 0:
+        expectancy_value, expectancy_state = None, "undefined_no_sample"
+    elif not pnl_complete:
+        expectancy_value, expectancy_state = None, "undefined_incomplete_sample"
+    else:
+        expectancy_value, expectancy_state = finite_or_state(
+            metrics.compute_expectancy(basic)
+        )
 
     end_date = dt.date.fromisoformat(end)
 
@@ -188,15 +227,30 @@ def build_overview(
     # Overview draws needs one point per day, which is what daily_equity_curve
     # gives — collapsed and column-named `cumulative_pnl`, not `equity`.
     #
-    # Not gated on any sample flag here: `sample_policy` governs one rule for
-    # every dated instrument, and the calendar below is already returned
-    # ungated. The service always returns the points it has (naturally `[]`
-    # when there are none); the client decides what a small sample has earned
-    # the right to draw, from the flags already in `sample` below.
-    equity_curve = [
-        {"date": str(r["trade_date"]), "equity": float(r["cumulative_pnl"])}
-        for _, r in metrics.daily_equity_curve(df).iterrows()
-    ]
+    # Missing P&L is not zero movement, so an incomplete period has no curve.
+    # Small complete samples still cross the boundary; sample_policy tells the
+    # client whether they have earned the right to be drawn.
+    equity_curve = (
+        [
+            {"date": str(r["trade_date"]), "equity": float(r["cumulative_pnl"])}
+            for _, r in metrics.daily_equity_curve(df).iterrows()
+        ]
+        if pnl_complete
+        else []
+    )
+
+    lifetime_dates = pd.to_datetime(lifetime_df["trade_date"], errors="coerce").dt.date
+    week_start = now - dt.timedelta(days=now.weekday())
+    week_end = week_start + dt.timedelta(days=6)
+    today_rows = lifetime_dates == now
+    week_rows = (
+        lifetime_dates.notna()
+        & (lifetime_dates >= week_start)
+        & (lifetime_dates <= week_end)
+    )
+    lifetime_pnl = pd.to_numeric(lifetime_df["pnl"], errors="coerce")
+    today_complete = bool(lifetime_pnl[today_rows].notna().all())
+    week_complete = bool(lifetime_pnl[week_rows].notna().all())
 
     return {
         "period": {"from": start, "to": end},
@@ -208,9 +262,13 @@ def build_overview(
             "show_dominant_series": sample.show_dominant_series,
             "show_comparisons": sample.show_comparisons,
             "show_patterns": sample.show_patterns,
+            "pnl_recorded": pnl_recorded,
+            "pnl_complete": pnl_complete,
         },
         "kpi": {
-            "net_pnl": float(_need(basic, "total_pnl") or 0.0),
+            "net_pnl": _money_pair(
+                float(_need(basic, "total_pnl") or 0.0), complete=pnl_complete
+            ),
             "win_rate": _sample_pair(_need(basic, "win_rate"), total_trades == 0),
             "expectancy": expectancy_value,
             "expectancy_state": expectancy_state,
@@ -219,12 +277,19 @@ def build_overview(
             "trades": total_trades,
             "wins": wins,
             "losses": losses,
-            "today_pnl": metrics.today_pnl(lifetime_df, today=now),
-            "week_pnl": metrics.current_week_pnl(lifetime_df, today=now),
+            "today_pnl": _money_pair(
+                metrics.today_pnl(lifetime_df, today=now), complete=today_complete
+            ),
+            "week_pnl": _money_pair(
+                metrics.current_week_pnl(lifetime_df, today=now),
+                complete=week_complete,
+            ),
         },
         "risk": {
-            "max_drawdown": _sample_pair(
-                metrics.compute_max_drawdown(equity), len(equity) < 2
+            "max_drawdown": (
+                _undefined("undefined_incomplete_sample")
+                if not pnl_complete
+                else _sample_pair(metrics.compute_max_drawdown(equity), len(equity) < 2)
             ),
             "rule_adherence": {
                 "rate": adherence.rate,
@@ -237,13 +302,17 @@ def build_overview(
             # mistake_tags evidence to interpret — that is a different fact
             # from "zero leaked", so it goes through `_pair`, not `or 0.0`.
             "edge_leak": {
-                "amount": _pair(leak.net_pnl),
+                "amount": (
+                    _undefined("undefined_incomplete_sample")
+                    if leak.recorded_trades > 0 and not pnl_complete
+                    else _pair(leak.net_pnl)
+                ),
                 "trades": leak.qualifying_trades,
                 "recorded": leak.recorded_trades,
             },
             "consistency": _sample_pair(
                 metrics.consistency_score(df),
-                total_trades < _MIN_TRADES_FOR_CONSISTENCY,
+                total_trades < metrics.MIN_TRADES_FOR_CONSISTENCY,
             ),
         },
         "trajectory": {
@@ -254,12 +323,40 @@ def build_overview(
             "streak_type": _need(streaks, "streak_type"),
             "best_streak": _need(streaks, "max_win_streak"),
             "worst_streak": _need(streaks, "max_loss_streak"),
-            "average_win": _sample_pair(_need(basic, "avg_win"), wins == 0),
-            "average_loss": _sample_pair(_need(basic, "avg_loss"), losses == 0),
+            "average_win": (
+                _undefined("undefined_no_sample")
+                if wins == 0
+                else (
+                    _undefined("undefined_incomplete_sample")
+                    if not win_pnl_complete
+                    else _pair(_need(basic, "avg_win"))
+                )
+            ),
+            "average_loss": (
+                _undefined("undefined_no_sample")
+                if losses == 0
+                else (
+                    _undefined("undefined_incomplete_sample")
+                    if not loss_pnl_complete
+                    else _pair(_need(basic, "avg_loss"))
+                )
+            ),
         },
         "recurring_edge": {
-            "killzones": _breakdown(metrics.killzone_performance(df), "killzone"),
-            "setups": _breakdown(metrics.setup_performance(df), "setup_type"),
+            "killzones": (
+                _breakdown(
+                    metrics.killzone_performance(df),
+                    "killzone",
+                    labels=KILLZONE_LABELS,
+                )
+                if pnl_complete
+                else []
+            ),
+            "setups": (
+                _breakdown(metrics.setup_performance(df), "setup_type")
+                if pnl_complete
+                else []
+            ),
         },
         "calendar": _calendar(df, end_date.year, end_date.month),
         "next_review_action": _next_action(owner, lifetime_trades),
@@ -279,7 +376,12 @@ def build_overview(
     }
 
 
-def _breakdown(frame: pd.DataFrame, label_column: str) -> List[dict]:
+def _breakdown(
+    frame: pd.DataFrame,
+    label_column: str,
+    *,
+    labels: Optional[Mapping[str, str]] = None,
+) -> List[dict]:
     """A grouped metric frame as rows the client can render directly.
 
     Both groupers expose the P&L column as `total_pnl`; the API calls it
@@ -296,9 +398,10 @@ def _breakdown(frame: pd.DataFrame, label_column: str) -> List[dict]:
             raise KeyError(f"breakdown frame is missing column {required!r}")
     rows = []
     for _, r in frame.iterrows():
+        key = str(r[label_column])
         rows.append(
             {
-                "label": str(r[label_column]),
+                "label": labels.get(key, key) if labels is not None else key,
                 "net_pnl": float(r["total_pnl"] or 0.0),
                 "trades": int(r["trades"] or 0),
             }
@@ -313,13 +416,26 @@ def _calendar(df: pd.DataFrame, year: int, month: int) -> dict:
     missing data — so days without trades are simply absent from `days`.
     """
     frame = metrics.calendar_daily_pnl(df, year, month)
+    incomplete_dates = set()
+    if df is not None and not df.empty:
+        dates = pd.to_datetime(df["trade_date"], errors="coerce")
+        pnl = pd.to_numeric(df["pnl"], errors="coerce")
+        incomplete_dates = {
+            value.date().isoformat()
+            for value in dates[pnl.isna() & dates.notna()].tolist()
+            if value.year == year and value.month == month
+        }
     days = []
     if frame is not None and not frame.empty:
         for _, r in frame.iterrows():
+            trade_date = str(_need(r, "trade_date"))
+            if trade_date in incomplete_dates:
+                days.append({"date": trade_date, "pnl": None, "outcome": "unknown"})
+                continue
             pnl = float(_need(r, "net_pnl") or 0.0)
             days.append(
                 {
-                    "date": str(_need(r, "trade_date")),
+                    "date": trade_date,
                     "pnl": pnl,
                     "outcome": (
                         "positive" if pnl > 0 else "negative" if pnl < 0 else "flat"

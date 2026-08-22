@@ -46,7 +46,13 @@ export function RecurringEdge({
       <p className="mt-1 text-sm text-muted">
         Where the account repeats itself, and how large the sample is.
       </p>
-      {!sample.show_comparisons ? (
+      {!sample.pnl_complete ? (
+        <div className="mt-4 rounded-xl border border-line bg-surface p-6">
+          <p className="text-sm text-muted">
+            P&amp;L data is incomplete. Record P&amp;L for every trade before comparing monetary performance.
+          </p>
+        </div>
+      ) : !sample.show_comparisons ? (
         <div className="mt-4 rounded-xl border border-line bg-surface p-6">
           <p className="text-sm text-muted">
             Not enough trades to compare sessions or setups yet. Two trades is the minimum for a

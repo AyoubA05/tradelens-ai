@@ -1,6 +1,11 @@
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
-import { sessionTokenFromCookieHeader } from "@/lib/auth/session";
+import {
+  appLayoutRedirect,
+  authenticateSessionToken,
+  sessionTokenFromCookieHeader,
+} from "@/lib/auth/session";
 import { fetchOverview } from "@/lib/app/overview";
 import { periodFromParams } from "@/lib/app/period";
 import { OverviewSections } from "@/components/app/overview/sections";
@@ -10,9 +15,10 @@ export const dynamic = "force-dynamic";
 /**
  * The Overview.
  *
- * A Server Component: one server-to-server call, rendered once. The layout has
- * already established that this request has a session and that the account is
- * opted in, so the token is read here only to forward it.
+ * A Server Component: one server-to-server call, rendered once. The page
+ * repeats the layout's authorization before fetching because Next.js may
+ * render a child concurrently with its parent layout; layout control flow is
+ * not a safe prerequisite for a data access.
  */
 export default async function OverviewPage({
   searchParams,
@@ -26,7 +32,13 @@ export default async function OverviewPage({
   );
   const period = periodFromParams(params);
   const token = sessionTokenFromCookieHeader((await headers()).get("cookie"));
-  const data = await fetchOverview(token ?? "", period);
+  if (!token) redirect("/login");
+  const user = await authenticateSessionToken(token);
+  if (!user) redirect("/login");
+  const redirectTo = appLayoutRedirect(user);
+  if (redirectTo) redirect(redirectTo);
+
+  const data = await fetchOverview(token, period);
 
   return (
     <div className="mx-auto max-w-6xl">

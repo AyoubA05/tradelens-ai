@@ -67,7 +67,7 @@ def test_returns_the_owner_s_overview(client, website_session_handle):
     r = client.get(f"{PATH}?{QUERY}", headers=_headers(handle))
     assert r.status_code == 200
     body = r.json()
-    assert body["kpi"]["net_pnl"] == 575.0
+    assert body["kpi"]["net_pnl"] == {"value": 575.0, "state": None}
     assert body["kpi"]["trades"] == 5
 
 
@@ -89,6 +89,28 @@ def test_never_returns_another_owner_s_data(client, website_session_handle, two_
 
     body = client.get(f"{PATH}?{QUERY}", headers=_headers(handle)).json()
     assert body["kpi"]["trades"] == 0
+
+
+def test_browser_supplied_owner_aliases_cannot_change_the_tenant(
+    client, website_session_handle, two_users
+):
+    """Exercise the actual signed request, not merely a service call.
+
+    Common owner aliases are included as independently signed query input. If
+    a future handler begins threading any of them into the service, this test
+    exposes the other tenant's seeded data instead of passing vacuously.
+    """
+    user_id, handle = website_session_handle
+    other = next(candidate for candidate in two_users if candidate != user_id)
+    seed_golden_dataset(other)
+    query = (
+        f"{QUERY}&user_id={other}&uid={other}&owner={other}"
+        f"&accountId={other}&account_id={other}"
+    )
+
+    response = client.get(f"{PATH}?{query}", headers=_headers(handle, query=query))
+    assert response.status_code == 200
+    assert response.json()["kpi"]["trades"] == 0
 
 
 def test_a_tampered_period_fails_the_signature(client, website_session_handle):
@@ -188,3 +210,181 @@ def test_a_missing_required_subobject_raises_not_nulls():
 
     with pytest.raises(ValidationError):
         Undefinable(value=1.0)  # "state" omitted entirely
+
+
+@pytest.mark.parametrize(
+    ("model_name", "payload"),
+    [
+        ("Kpi", {"expectancy": "<missing>"}),
+        ("RuleAdherence", {"rate": "<missing>"}),
+        ("Trajectory", {"streak_type": "<missing>"}),
+        ("NextReviewAction", {"next_key": "<missing>"}),
+        ("RecentTrade", {"pnl": "<missing>"}),
+    ],
+)
+def test_nullable_contract_fields_are_still_required(model_name, payload):
+    """Nullable means an explicit JSON null, not an optional wire property."""
+    from pydantic import ValidationError
+
+    from src.tradelens.api.schemas import overview as schemas
+
+    valid = {
+        "Kpi": {
+            "net_pnl": {"value": 0.0, "state": None},
+            "win_rate": {"value": None, "state": "undefined_no_sample"},
+            "expectancy": None,
+            "expectancy_state": "undefined_no_sample",
+            "profit_factor": None,
+            "profit_factor_state": "undefined_no_sample",
+            "trades": 0,
+            "wins": 0,
+            "losses": 0,
+            "today_pnl": {"value": 0.0, "state": None},
+            "week_pnl": {"value": 0.0, "state": None},
+        },
+        "RuleAdherence": {"rate": None, "followed": 0, "recorded": 0},
+        "Trajectory": {
+            "equity_curve": [],
+            "current_streak": 0,
+            "streak_type": "none",
+            "best_streak": 0,
+            "worst_streak": 0,
+            "average_win": {"value": None, "state": "undefined_no_sample"},
+            "average_loss": {"value": None, "state": "undefined_no_sample"},
+        },
+        "NextReviewAction": {
+            "completed": 0,
+            "total": 3,
+            "next_key": None,
+            "is_activated": False,
+            "trades_until_review": 5,
+        },
+        "RecentTrade": {
+            "id": 1,
+            "trade_date": None,
+            "asset": None,
+            "session": None,
+            "setup_type": None,
+            "result": None,
+            "pnl": None,
+            "rr_realized": None,
+        },
+    }[model_name]
+    field = next(key for key, value in payload.items() if value == "<missing>")
+    valid.pop(field)
+
+    with pytest.raises(ValidationError):
+        getattr(schemas, model_name).model_validate(valid)
+
+
+@pytest.mark.parametrize(
+    ("factory", "payload"),
+    [
+        ("CalendarDay", {"date": "2026-08-01", "pnl": 1.0, "outcome": "banana"}),
+        (
+            "Trajectory",
+            {
+                "equity_curve": [],
+                "current_streak": 1,
+                "streak_type": "banana",
+                "best_streak": 1,
+                "worst_streak": 0,
+                "average_win": {"value": 1.0, "state": None},
+                "average_loss": {"value": None, "state": "undefined_no_sample"},
+            },
+        ),
+        (
+            "RecentTrade",
+            {
+                "id": 1,
+                "trade_date": None,
+                "asset": None,
+                "session": None,
+                "setup_type": None,
+                "result": "Maybe",
+                "pnl": None,
+                "rr_realized": None,
+            },
+        ),
+    ],
+)
+def test_enum_like_response_fields_reject_unknown_values(factory, payload):
+    from pydantic import ValidationError
+
+    from src.tradelens.api.schemas import overview as schemas
+
+    with pytest.raises(ValidationError):
+        getattr(schemas, factory).model_validate(payload)
+
+
+def test_undefinable_requires_exactly_one_of_value_or_state():
+    from pydantic import ValidationError
+
+    from src.tradelens.api.schemas.overview import Undefinable
+
+    with pytest.raises(ValidationError):
+        Undefinable(value=None, state=None)
+    with pytest.raises(ValidationError):
+        Undefinable(value=1.0, state="undefined_no_sample")
+
+
+def test_response_models_do_not_coerce_wrong_scalar_types():
+    from pydantic import ValidationError
+
+    from src.tradelens.api.schemas.overview import CalendarDay
+
+    with pytest.raises(ValidationError):
+        CalendarDay(date="2026-08-01", pnl="1.25", outcome="positive")
+
+
+def test_trajectory_fields_that_the_service_always_emits_are_not_nullable():
+    from pydantic import ValidationError
+
+    from src.tradelens.api.schemas.overview import Trajectory
+
+    with pytest.raises(ValidationError):
+        Trajectory(
+            equity_curve=[],
+            current_streak=None,
+            streak_type="none",
+            best_streak=0,
+            worst_streak=0,
+            average_win={"value": None, "state": "undefined_no_sample"},
+            average_loss={"value": None, "state": "undefined_no_sample"},
+        )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"date": "2026-08-01", "pnl": None, "outcome": "flat"},
+        {"date": "2026-08-01", "pnl": 0.0, "outcome": "unknown"},
+        {"date": "2026-08-01", "pnl": -1.0, "outcome": "positive"},
+        {"date": "2026-08-01", "pnl": 1.0, "outcome": "flat"},
+    ],
+)
+def test_calendar_outcome_and_pnl_cannot_contradict_each_other(payload):
+    from pydantic import ValidationError
+
+    from src.tradelens.api.schemas.overview import CalendarDay
+
+    with pytest.raises(ValidationError):
+        CalendarDay.model_validate(payload)
+
+
+def test_openapi_marks_nullable_fields_required_and_keeps_unions_narrow():
+    schemas = create_app().openapi()["components"]["schemas"]
+    assert "expectancy" in schemas["Kpi"]["required"]
+    assert "streak_type" in schemas["Trajectory"]["required"]
+    assert "next_key" in schemas["NextReviewAction"]["required"]
+    assert "pnl" in schemas["RecentTrade"]["required"]
+    assert schemas["CalendarDay"]["properties"]["outcome"]["enum"] == [
+        "positive",
+        "negative",
+        "flat",
+        "unknown",
+    ]
+
+    next_key = schemas["NextReviewAction"]["properties"]["next_key"]
+    member = next(part for part in next_key["anyOf"] if "enum" in part)
+    assert member["enum"] == ["strategy", "first_trade", "weekly_review"]

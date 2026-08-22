@@ -1193,7 +1193,11 @@ _CONSISTENCY_WEIGHTS = {
     "mistake_cleanliness": 0.35,
     "grade_trend": 0.25,
 }
-_MIN_TRADES_FOR_CONSISTENCY = 5
+MIN_TRADES_FOR_CONSISTENCY = 5
+# Compatibility for the existing Streamlit overview band while callers move
+# to the public constant. New code must use MIN_TRADES_FOR_CONSISTENCY so the
+# service and its presentation gate cannot silently copy different literals.
+_MIN_TRADES_FOR_CONSISTENCY = MIN_TRADES_FOR_CONSISTENCY
 _GRADE_TREND_WINDOW = 20
 
 
@@ -1264,7 +1268,7 @@ def consistency_score(trades: pd.DataFrame) -> float:
     Returns 0.0 when there are fewer than 5 trades (too little signal to score).
     Result is rounded to one decimal place.
     """
-    if trades is None or len(trades) < _MIN_TRADES_FOR_CONSISTENCY:
+    if trades is None or len(trades) < MIN_TRADES_FOR_CONSISTENCY:
         return 0.0
 
     total = len(trades)
@@ -1493,8 +1497,8 @@ def period_deltas(current_df: pd.DataFrame, prior_df: pd.DataFrame) -> dict:
         "profit_factor": _safe_delta(cur["profit_factor"], pri["profit_factor"]),
     }
     if (
-        len(current_df) >= _MIN_TRADES_FOR_CONSISTENCY
-        and len(prior_df) >= _MIN_TRADES_FOR_CONSISTENCY
+        len(current_df) >= MIN_TRADES_FOR_CONSISTENCY
+        and len(prior_df) >= MIN_TRADES_FOR_CONSISTENCY
     ):
         out["consistency"] = _safe_delta(
             consistency_score(current_df), consistency_score(prior_df)

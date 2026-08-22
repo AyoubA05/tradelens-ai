@@ -29,9 +29,13 @@ export function KpiRow({
     <div className="grid grid-cols-2 rounded-xl border border-line bg-surface p-4 sm:grid-cols-3 lg:grid-cols-5">
       <StatTile
         label="Net P&L"
-        value={money(kpi.net_pnl)}
-        hint={`${kpi.trades} ${kpi.trades === 1 ? "trade" : "trades"}`}
-        tone={tone(kpi.net_pnl)}
+        value={kpi.net_pnl.value === null ? NO_VALUE : money(kpi.net_pnl.value)}
+        hint={
+          kpi.net_pnl.value === null
+            ? undefinedReason(kpi.net_pnl.state)
+            : `${kpi.trades} ${kpi.trades === 1 ? "trade" : "trades"}`
+        }
+        tone={kpi.net_pnl.value === null ? "neutral" : tone(kpi.net_pnl.value)}
       />
       <StatTile
         label="Win rate"

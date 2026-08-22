@@ -60,12 +60,25 @@
             "type": "string"
           },
           "outcome": {
+            "enum": [
+              "positive",
+              "negative",
+              "flat",
+              "unknown"
+            ],
             "title": "Outcome",
             "type": "string"
           },
           "pnl": {
-            "title": "Pnl",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnl"
           }
         },
         "required": [
@@ -148,6 +161,13 @@
           "expectancy_state": {
             "anyOf": [
               {
+                "enum": [
+                  "undefined_nan",
+                  "undefined_positive_infinity",
+                  "undefined_negative_infinity",
+                  "undefined_no_sample",
+                  "undefined_incomplete_sample"
+                ],
                 "type": "string"
               },
               {
@@ -161,8 +181,7 @@
             "type": "integer"
           },
           "net_pnl": {
-            "title": "Net Pnl",
-            "type": "number"
+            "$ref": "#/components/schemas/Undefinable"
           },
           "profit_factor": {
             "anyOf": [
@@ -178,6 +197,13 @@
           "profit_factor_state": {
             "anyOf": [
               {
+                "enum": [
+                  "undefined_nan",
+                  "undefined_positive_infinity",
+                  "undefined_negative_infinity",
+                  "undefined_no_sample",
+                  "undefined_incomplete_sample"
+                ],
                 "type": "string"
               },
               {
@@ -187,16 +213,14 @@
             "title": "Profit Factor State"
           },
           "today_pnl": {
-            "title": "Today Pnl",
-            "type": "number"
+            "$ref": "#/components/schemas/Undefinable"
           },
           "trades": {
             "title": "Trades",
             "type": "integer"
           },
           "week_pnl": {
-            "title": "Week Pnl",
-            "type": "number"
+            "$ref": "#/components/schemas/Undefinable"
           },
           "win_rate": {
             "$ref": "#/components/schemas/Undefinable"
@@ -209,6 +233,10 @@
         "required": [
           "net_pnl",
           "win_rate",
+          "expectancy",
+          "expectancy_state",
+          "profit_factor",
+          "profit_factor_state",
           "trades",
           "wins",
           "losses",
@@ -258,6 +286,7 @@
         "required": [
           "completed",
           "total",
+          "next_key",
           "is_activated",
           "trades_until_review"
         ],
@@ -364,6 +393,11 @@
           "result": {
             "anyOf": [
               {
+                "enum": [
+                  "Win",
+                  "Loss",
+                  "Breakeven"
+                ],
                 "type": "string"
               },
               {
@@ -418,7 +452,14 @@
           }
         },
         "required": [
-          "id"
+          "id",
+          "trade_date",
+          "asset",
+          "session",
+          "setup_type",
+          "result",
+          "pnl",
+          "rr_realized"
         ],
         "title": "RecentTrade",
         "type": "object"
@@ -497,6 +538,7 @@
           }
         },
         "required": [
+          "rate",
           "followed",
           "recorded"
         ],
@@ -508,6 +550,14 @@
         "properties": {
           "dated_points": {
             "title": "Dated Points",
+            "type": "integer"
+          },
+          "pnl_complete": {
+            "title": "Pnl Complete",
+            "type": "boolean"
+          },
+          "pnl_recorded": {
+            "title": "Pnl Recorded",
             "type": "integer"
           },
           "show_comparisons": {
@@ -542,7 +592,9 @@
           "show_series",
           "show_dominant_series",
           "show_comparisons",
-          "show_patterns"
+          "show_patterns",
+          "pnl_recorded",
+          "pnl_complete"
         ],
         "title": "SampleFlags",
         "type": "object"
@@ -557,26 +609,12 @@
             "$ref": "#/components/schemas/Undefinable"
           },
           "best_streak": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Best Streak"
+            "title": "Best Streak",
+            "type": "integer"
           },
           "current_streak": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Current Streak"
+            "title": "Current Streak",
+            "type": "integer"
           },
           "equity_curve": {
             "items": {
@@ -586,30 +624,25 @@
             "type": "array"
           },
           "streak_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "enum": [
+              "win",
+              "loss",
+              "none"
             ],
-            "title": "Streak Type"
+            "title": "Streak Type",
+            "type": "string"
           },
           "worst_streak": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Worst Streak"
+            "title": "Worst Streak",
+            "type": "integer"
           }
         },
         "required": [
           "equity_curve",
+          "current_streak",
+          "streak_type",
+          "best_streak",
+          "worst_streak",
           "average_win",
           "average_loss"
         ],
@@ -623,6 +656,13 @@
           "state": {
             "anyOf": [
               {
+                "enum": [
+                  "undefined_nan",
+                  "undefined_positive_infinity",
+                  "undefined_negative_infinity",
+                  "undefined_no_sample",
+                  "undefined_incomplete_sample"
+                ],
                 "type": "string"
               },
               {

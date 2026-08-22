@@ -3,8 +3,9 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { TradingCalendar } from "@/components/app/overview/trading-calendar";
+import type { OverviewResponse } from "@/lib/app/overview";
 
-const calendar = {
+const calendar: OverviewResponse["calendar"] = {
   year: 2026,
   month: 8,
   days: [
@@ -19,6 +20,7 @@ const wholeMonth = { from: "2026-08-01", to: "2026-08-31" };
 const sample = {
   trades: 5, dated_points: 4, show_summary: true, show_series: true,
   show_dominant_series: true, show_comparisons: true, show_patterns: true,
+  pnl_recorded: 5, pnl_complete: true,
 };
 
 describe("trading calendar", () => {
@@ -60,6 +62,21 @@ describe("trading calendar", () => {
     );
     expect(screen.getByLabelText(/12 August 2026, flat \$0/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/12 August 2026, up/i)).not.toBeInTheDocument();
+  });
+
+  it("distinguishes a trade with missing P&L from a flat trade", () => {
+    render(
+      <TradingCalendar
+        calendar={{
+          ...calendar,
+          days: [{ date: "2026-08-12", pnl: null, outcome: "unknown" }],
+        }}
+        period={wholeMonth}
+        sample={{ ...sample, pnl_complete: false, pnl_recorded: 4 }}
+      />,
+    );
+    expect(screen.getByLabelText(/12 August 2026, P&L not recorded/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/12 August 2026, flat/i)).not.toBeInTheDocument();
   });
 
   it("separates days outside the period from days inside it with no trade", () => {

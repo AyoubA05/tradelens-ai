@@ -5804,3 +5804,164 @@ winning days, red squares for losing days) renders as designed.
   private constant in `services/metrics.py`. Documented, but it can drift.
 - The strict-JSON test in `tests/test_overview_service.py` is prophylactic: no live path emits
   a non-finite raw float today.
+
+## Independent Codex review — 2026-08-22
+
+Codex independently reviewed Phase 2 at `f993fc6` against `d63007b`, including the complete
+history/diff, Phase 0 boundary, owner-scoped service graph, metric functions, Pydantic/OpenAPI
+contract, generated TypeScript, RSC page, component fixtures, production build, response
+headers, and dependency sets. The review did not begin Phase 3.
+
+### Findings and fixes
+
+No Critical or High vulnerability was found. In particular, no cross-tenant read, browser
+owner override, raw-cookie forwarding, shared-cache response, or client-bundled service secret
+was reproduced.
+
+**Medium — the layout was not an authorization prerequisite for the Overview fetch.**
+`web/app/app/page.tsx` assumed `web/app/app/layout.tsx` had authenticated and authorized the
+request first. A production start with no cookie returned the expected 307 but logged a signed
+FastAPI fetch from the child page, proving Next rendered the page concurrently with the layout.
+An active but email/onboarding/app-surface-ineligible website session could therefore cause
+FastAPI to retrieve its Overview before the layout redirected. The API still revalidated the
+session and remained owner-scoped, so this did not become a cross-tenant bypass, but the
+protected-route transition was not a valid data-access boundary. The page now validates the
+session and `appLayoutRedirect()` itself before `fetchOverview()`. A three-case Vitest proves
+invalid and Streamlit-surface sessions never call FastAPI and a valid Next.js session does.
+Future Phase 3+ pages must repeat this pattern: a parent layout is presentation/redirect
+defence, not a precondition for child data access.
+
+**Medium — valid manual outcomes with blank P&L became confident zero-valued money data.**
+`create_trade` deliberately allows `result=Win|Loss` while `pnl` is blank, but Overview and
+the underlying parity-pinned metrics treated missing P&L as zero in several places. The screen
+could therefore show `$0` net P&L, `$0` expectancy/average, `0.00x` profit factor, zero
+drawdown, a flat calendar day, and a zero-movement equity curve for a trade whose monetary
+result was unknown. The API now carries `pnl_recorded`/`pnl_complete`, emits explicit
+`undefined_incomplete_sample` states for affected monetary figures, suppresses equity and
+grouped monetary output until complete, and marks an affected calendar day `unknown` with
+`pnl: null`. The UI names incomplete P&L in text. A separate breakeven test proves a recorded
+`0.0` remains a legitimate zero. This is a deliberate Overview boundary gate over unchanged,
+parity-pinned metric arithmetic.
+
+**Medium — the response contract accepted drift and contradictory payloads.**
+Several nullable fields had defaults, so removing them from the service still validated and
+generated optional TypeScript properties. Enum-like values such as calendar outcome and streak
+type were arbitrary strings; response scalars were coercive; `{value:null,state:null}` was
+valid; calendar outcome could contradict P&L. The schema is now `strict=True` plus
+`extra="forbid"`, nullable wire fields remain required, undefined states and enum-like values
+are Literals, value/state pairs are exclusive, always-emitted streak fields are non-nullable,
+and calendar P&L/outcome invariants validate together. OpenAPI and `schema.d.ts` were regenerated;
+`next_key` remains the narrow `strategy | first_trade | weekly_review | null` union.
+
+**Medium — Today/This Week used the server calendar instead of the owner calendar.**
+`services/overview.py` defaulted to `date.today()`, so users outside the Render server timezone
+could see the wrong day or ISO week near midnight. It now reads the owner-scoped persisted
+timezone, converts a UTC instant through `zoneinfo`, and safely falls back to the product
+default/UTC for invalid or missing tzdata. Two users on opposite sides of the date boundary
+and the build-to-KPI wiring are covered.
+
+**Low — fixture and production killzone labels disagreed.** The service emitted the internal
+`ny_am` key while frontend fixtures invented `NY AM`; the established product label is
+`New York AM`. Overview now maps through `services.sessions.KILLZONE_LABELS`, and both the
+service test and typed frontend fixtures use the real contract.
+
+**Low — the consistency sample threshold had two sources of truth.** Overview copied the
+private metrics literal `5`. `metrics.MIN_TRADES_FOR_CONSISTENCY` is now public and used by
+both the scorer and Overview gate; the old private name remains a compatibility alias for the
+Streamlit band. A monkeypatched-threshold regression fails if Overview ever copies it again.
+
+**Low — profitable rule-breaking lacked the existing trust warning.** A positive edge-leak
+amount rendered as an ordinary positive dollar figure, unlike Streamlit's warning that this is
+luck rather than repeatable edge. The tile now states that profitable rule-breaking is not
+repeatable edge and uses warning tone; direction still remains explicit in the number/text.
+
+**Low — a flat equity series rendered at the chart floor.** The code comment claimed it was
+centred but `span = 1` placed every flat point at the bottom. Flat series are now centred and
+the exact geometry is pinned.
+
+**Hardening — server-boundary environment documentation/tests were incomplete.**
+`web/.env.example` omitted `TL_API_ORIGIN` and `TL_SERVICE_SECRET`, even though local Next.js
+loads env from `web/`; the server-only denylist also omitted those names and guarded only env/db
+modules. The example now documents both server-only values, the denylist includes current and
+previous service-secret names plus the API origin, and tests enforce `server-only` on the API
+signer/client and Overview fetch module. A production build with canary values confirmed none
+of the database host, API origin, or service secret appeared in `.next/static`.
+
+### Independent verdicts
+
+- **Tenant isolation: CLEAR.** `/v1/overview` gets its owner only from `current_user`; period
+  and lifetime trades, strategy, and weekly review reads all receive that owner. A signed
+  two-user request containing `user_id`, `uid`, `owner`, `accountId`, and `account_id` still
+  returned only the session owner's empty journal while the other owner's seeded positive
+  control contained five trades. The web outbound test inspects the actual `callApi` arguments
+  and permits only `from`/`to` query keys.
+- **Next.js → FastAPI boundary: CLEAR.** The page passes the raw cookie only to the server-only
+  API client; that client forwards only the domain-separated SHA-256 session handle and signs
+  the actual method/path/ordered query/body. No browser owner id is accepted. The page-local
+  gate now runs before the call.
+- **Caching/user isolation: CLEAR with one live-test limitation.** Page and layout are forced
+  dynamic, use request headers, and the server fetch is `cache: "no-store"`; FastAPI responses
+  are `no-store, private`. A production `next start` request to `/app` returned
+  `Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate` and redirected before
+  any API call. No independently minted authenticated Neon session was used in this review, so
+  an authenticated production-response header was not re-smoked; the API header is covered by
+  TestClient and Claude's earlier disposable-Neon smoke remains the live authenticated run.
+- **Metric parity: CLEAR for complete data.** A controlled five-trade dataset compares Overview
+  directly to the metric services for net P&L, win rate, expectancy, profit factor, drawdown,
+  adherence, edge leak, consistency, streaks, averages, and daily equity. The only deliberate
+  differences are semantic boundary gates where legacy metrics flatten insufficient or missing
+  evidence.
+- **Undefined/low-sample semantics: CLEAR.** Zero, one, two/three, four, and five-trade policy
+  boundaries are covered across the shared sample policy and Overview tests. Missing sample,
+  incomplete P&L, NaN, and infinities retain distinct states; a recorded zero remains numeric
+  zero. Calendar `unknown`, `flat`, positive, and negative meanings are text/shape distinguishable.
+- **Period/lifetime: CLEAR.** Direct API tests cover malformed, compact, reversed, and >5-year
+  ranges and HMAC-bound tampering. Selected metrics use period trades; activation and
+  Today/This Week use lifetime owner data; Today/This Week use owner-local current-calendar
+  semantics.
+
+### Verification actually run after fixes
+
+- Python: **2636 passed, 7 skipped** in 205.82s.
+- Web/Vitest: **1006 passed / 44 files**.
+- TypeScript: `tsc --noEmit` clean.
+- ESLint: **0 errors**, two pre-existing `modal-trap.ts` hook warnings.
+- Black: **252 files unchanged**.
+- Ruff: CI scope `src/ scripts/` clean; all review-touched Python files clean. A supplemental
+  `ruff check .` notices the pre-existing unused `json` import in `tests/test_weekly.py`; CI does
+  not lint tests and this review did not modify the weekly/Streamlit-owned file.
+- OpenAPI → TypeScript regeneration: byte-for-byte stable after regeneration.
+- Alembic: **one head**.
+- Production Next.js build: success; all seven `/app` routes dynamic.
+- Production `next start` smoke: `/app` without a session returned 307 `/login`, private
+  no-cache/no-store headers, and—after the fix—made no FastAPI request.
+- Dependency audit: `npm audit` including dev dependencies found **0** vulnerabilities.
+  `pip-audit --disable-pip --no-deps -r requirements-api.txt` found **0** known vulnerabilities
+  in the direct pinned API requirements. Full transitive Python resolution could not be audited
+  locally because the auditor's Python 3.13 environment tried to build the Python-3.9-compatible
+  `psycopg2-binary==2.9.9` without `pg_config`; CI's Python 3.11 full audit remains authoritative.
+- Canary bundle scan: service secret, Neon host, and API origin absent from `.next/static`.
+
+### Remaining limitations and Phase 3 instructions
+
+- Docker is still unavailable here; the carried Phase 0 container build/start/health gate
+  remains open before first Render deployment.
+- No new disposable Neon branch or authenticated browser account was created for this pass.
+  The database-independent owner adversary, production unauthenticated smoke, and Claude's
+  prior disposable-Neon authenticated smoke provide the evidence above.
+- The combined local Python 3.9 development environment contains known advisories in
+  Streamlit/dev-only packages; the API production requirement set selects patched Python 3.11
+  versions. Do not conflate the local combined environment with the Render image, and do not
+  change the Streamlit pins inside a Phase 2 review.
+- Every Phase 3+ data page must authorize in the page/data-access function before fetching;
+  never rely on the parent layout having executed first.
+- Build frontend fixtures from the generated contract and assert critical display labels
+  against real Python service output. The activation and killzone mismatches demonstrate that
+  a fixture copied from a plan can agree with the same UI bug.
+- Reuse `Undefinable`, `UndefinedState`, `sample.pnl_complete`, and
+  `metrics.MIN_TRADES_FOR_CONSISTENCY`; do not reintroduce numeric defaults or copied thresholds.
+- Keep new API callers and signers `server-only`, and extend the env-safety list for every new
+  server credential.
+
+**Phase 2 is cleared for merge after these review changes are included. Stop here; do not begin
+Phase 3.**
