@@ -334,11 +334,62 @@ objects rather than a second copy free to drift."
 
 **Files:**
 - Create: `src/tradelens/services/overview.py`
+- Modify: `src/tradelens/services/metrics.py` (add ONE new public function — see Step 0)
 - Test: `tests/test_overview_service.py`
 
 **Interfaces:**
 - Consumes: `sample_state` (A1); `require_user_id`; the existing metric functions
-- Produces: `build_overview(*, user_id: int, start: str, end: str, today: Optional[date] = None) -> dict`
+- Produces: `build_overview(*, user_id: int, start: str, end: str, today: Optional[date] = None) -> dict`; `metrics.setup_performance(trades: pd.DataFrame) -> pd.DataFrame`
+
+- [ ] **Step 0: Add `setup_performance` to metrics**
+
+`by_setup_type` returns `[setup_type, trades, wins, losses, breakevens]` and carries **no
+P&L column**, so the Overview's setup breakdown cannot be built from it. Add a new public
+function beside `killzone_performance`, using the same private engine, which does yield
+`total_pnl`:
+
+```python
+def setup_performance(trades: pd.DataFrame) -> pd.DataFrame:
+    """Per-setup performance, shaped like `killzone_performance`.
+
+    `by_setup_type` answers a different question — how many trades, won and
+    lost, per setup — and carries no P&L column. The Overview shows setups and
+    killzones side by side, so they must be the same shape or the comparison
+    is not one.
+
+    Returns columns: setup_type, trades, wins, losses, breakevens, win_rate,
+    avg_rr_realized, total_pnl — sorted by total_pnl descending. Empty input
+    gives an empty frame with those columns.
+    """
+    return _group_with_rr(trades, by="setup_type")
+```
+
+Add a test to `tests/test_metrics.py`:
+
+```python
+def test_setup_performance_carries_pnl_and_sample_size():
+    """The Overview puts setups beside killzones, so it needs the same columns."""
+    df = pd.DataFrame({
+        "setup_type": ["FVG", "FVG", "OB"],
+        "result": ["Win", "Loss", "Win"],
+        "pnl": [100.0, -40.0, 25.0],
+        "rr_realized": [2.0, -1.0, 1.0],
+    })
+    out = metrics.setup_performance(df)
+    assert set(["setup_type", "trades", "total_pnl"]).issubset(out.columns)
+    fvg = out[out["setup_type"] == "FVG"].iloc[0]
+    assert fvg["trades"] == 2
+    assert fvg["total_pnl"] == 60.0
+
+
+def test_setup_performance_is_empty_without_setups():
+    out = metrics.setup_performance(pd.DataFrame())
+    assert out.empty
+    assert "total_pnl" in out.columns
+```
+
+This is a **new** public function, so it cannot change any output the parity harness pins.
+Do not modify any existing function in `services/metrics.py`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -518,6 +569,25 @@ def _pair(value: Any) -> Dict[str, Any]:
     return {"value": number, "state": state}
 
 
+def _need(mapping: Any, key: str) -> Any:
+    """Read a required key, loudly.
+
+    Deliberately not `.get(key, 0.0)`. Every figure here comes from
+    `services/metrics`, and if one of those functions is renamed or its output
+    reshaped, a defaulting read turns the mistake into a plausible $0.00 on a
+    trader's dashboard instead of a failure. The pre-flight scan for this phase
+    found six such wrong column names at once, five of which would have rendered
+    as confident zeroes. Fail here instead.
+    """
+    if isinstance(mapping, dict):
+        if key not in mapping:
+            raise KeyError(f"metrics output is missing {key!r}; got {sorted(mapping)}")
+        return mapping[key]
+    if key not in mapping:
+        raise KeyError(f"metrics frame is missing column {key!r}")
+    return mapping[key]
+
+
 def build_overview(
     *,
     user_id: int,
@@ -541,7 +611,7 @@ def build_overview(
 
     pf_value, pf_state = finite_or_state(metrics.compute_profit_factor_raw(df))
     expectancy_value, expectancy_state = finite_or_state(
-        metrics.compute_expectancy(basic) if basic.get("total_trades") else float("nan")
+        metrics.compute_expectancy(basic) if _need(basic, "total_trades") else float("nan")
     )
 
     end_date = dt.date.fromisoformat(end)
@@ -558,15 +628,15 @@ def build_overview(
             "show_patterns": sample.show_patterns,
         },
         "kpi": {
-            "net_pnl": float(basic.get("net_pnl", 0.0) or 0.0),
-            "win_rate": basic.get("win_rate"),
+            "net_pnl": float(_need(basic, "total_pnl") or 0.0),
+            "win_rate": _need(basic, "win_rate"),
             "expectancy": expectancy_value,
             "expectancy_state": expectancy_state,
             "profit_factor": pf_value,
             "profit_factor_state": pf_state,
-            "trades": int(basic.get("total_trades", 0) or 0),
-            "wins": int(basic.get("wins", 0) or 0),
-            "losses": int(basic.get("losses", 0) or 0),
+            "trades": int(_need(basic, "total_trades") or 0),
+            "wins": int(_need(basic, "wins") or 0),
+            "losses": int(_need(basic, "losses") or 0),
             "today_pnl": metrics.today_pnl(df, today=now),
             "week_pnl": metrics.current_week_pnl(df, today=now),
         },
@@ -577,7 +647,13 @@ def build_overview(
                 "followed": adherence.followed,
                 "recorded": adherence.recorded,
             },
-            "edge_leak": {"amount": leak.amount, "trades": leak.trades},
+            # EdgeLeakSummary names these net_pnl / qualifying_trades /
+            # recorded_trades; the API uses plainer words for the same figures.
+            "edge_leak": {
+                "amount": leak.net_pnl or 0.0,
+                "trades": leak.qualifying_trades,
+                "recorded": leak.recorded_trades,
+            },
             "consistency": _pair(metrics.consistency_score(df)),
         },
         "trajectory": {
@@ -585,15 +661,18 @@ def build_overview(
                 {"date": str(r["trade_date"]), "equity": float(r["equity"])}
                 for _, r in metrics.daily_equity_curve(df).iterrows()
             ],
-            "current_streak": streaks.get("current"),
-            "best_streak": streaks.get("best_win"),
-            "worst_streak": streaks.get("best_loss"),
-            "average_win": _pair(basic.get("avg_win")),
-            "average_loss": _pair(basic.get("avg_loss")),
+            # compute_streaks names these current_streak / max_win_streak /
+            # max_loss_streak.
+            "current_streak": _need(streaks, "current_streak"),
+            "streak_type": _need(streaks, "streak_type"),
+            "best_streak": _need(streaks, "max_win_streak"),
+            "worst_streak": _need(streaks, "max_loss_streak"),
+            "average_win": _pair(_need(basic, "avg_win")),
+            "average_loss": _pair(_need(basic, "avg_loss")),
         },
         "recurring_edge": {
             "killzones": _breakdown(metrics.killzone_performance(df), "killzone"),
-            "setups": _breakdown(metrics.by_setup_type(df), "setup_type"),
+            "setups": _breakdown(metrics.setup_performance(df), "setup_type"),
         },
         "calendar": _calendar(df, end_date.year, end_date.month),
         "next_review_action": _next_action(owner, trades),
@@ -614,15 +693,22 @@ def build_overview(
 
 
 def _breakdown(frame: pd.DataFrame, label_column: str) -> List[dict]:
-    """A grouped metric frame as rows the client can render directly."""
+    """A grouped metric frame as rows the client can render directly.
+
+    Both groupers expose the P&L column as `total_pnl`; the API calls it
+    `net_pnl` because that is what it means to a reader.
+    """
     if frame is None or frame.empty or label_column not in frame.columns:
         return []
+    for required in (label_column, "total_pnl", "trades"):
+        if required not in frame.columns:
+            raise KeyError(f"breakdown frame is missing column {required!r}")
     rows = []
     for _, r in frame.iterrows():
         rows.append({
             "label": str(r[label_column]),
-            "net_pnl": float(r.get("net_pnl", 0.0) or 0.0),
-            "trades": int(r.get("trades", 0) or 0),
+            "net_pnl": float(r["total_pnl"] or 0.0),
+            "trades": int(r["trades"] or 0),
         })
     return rows
 
@@ -637,9 +723,9 @@ def _calendar(df: pd.DataFrame, year: int, month: int) -> dict:
     days = []
     if frame is not None and not frame.empty:
         for _, r in frame.iterrows():
-            pnl = float(r.get("pnl", 0.0) or 0.0)
+            pnl = float(_need(r, "net_pnl") or 0.0)
             days.append({
-                "date": str(r["date"]),
+                "date": str(_need(r, "trade_date")),
                 "pnl": pnl,
                 "outcome": "positive" if pnl > 0 else "negative" if pnl < 0 else "flat",
             })
@@ -899,6 +985,7 @@ class RuleAdherence(BaseModel):
 class EdgeLeak(BaseModel):
     amount: float
     trades: int
+    recorded: int
 
 
 class Risk(BaseModel):
@@ -916,6 +1003,7 @@ class EquityPoint(BaseModel):
 class Trajectory(BaseModel):
     equity_curve: List[EquityPoint]
     current_streak: Optional[int] = None
+    streak_type: Optional[str] = None
     best_streak: Optional[int] = None
     worst_streak: Optional[int] = None
     average_win: Undefinable
@@ -1573,7 +1661,7 @@ import { RiskDiscipline } from "@/components/app/overview/risk-discipline";
 const risk = {
   max_drawdown: { value: -220, state: null },
   rule_adherence: { rate: 0.67, followed: 2, recorded: 3 },
-  edge_leak: { amount: -220, trades: 1 },
+  edge_leak: { amount: -220, trades: 1, recorded: 3 },
   consistency: { value: null, state: "undefined_nan" },
 };
 const sample = {
@@ -1661,7 +1749,7 @@ export function RiskDiscipline({
         <StatTile
           label="Edge leak"
           value={money(risk.edge_leak.amount)}
-          hint={`${risk.edge_leak.trades} of ${sample.trades} recorded`}
+          hint={`${risk.edge_leak.trades} of ${risk.edge_leak.recorded} recorded`}
           tone={risk.edge_leak.amount < 0 ? "negative" : "neutral"}
         />
         <StatTile
@@ -1938,6 +2026,7 @@ const trajectory = {
     { date: "2026-08-14", equity: 575 },
   ],
   current_streak: 1,
+  streak_type: "win",
   best_streak: 1,
   worst_streak: 1,
   average_win: { value: 445, state: null },
@@ -2569,8 +2658,8 @@ const data = {
   period: { from_: "2026-08-01", to: "2026-08-31" },
   sample: { trades: 5, dated_points: 4, show_summary: true, show_series: true, show_dominant_series: true, show_comparisons: true, show_patterns: true },
   kpi: { net_pnl: 575, win_rate: 0.4, expectancy: 115, expectancy_state: null, profit_factor: 2.9, profit_factor_state: null, trades: 5, wins: 2, losses: 2, today_pnl: 0, week_pnl: 575 },
-  risk: { max_drawdown: { value: -220, state: null }, rule_adherence: { rate: 0.67, followed: 2, recorded: 3 }, edge_leak: { amount: -220, trades: 1 }, consistency: { value: null, state: "undefined_nan" } },
-  trajectory: { equity_curve: [{ date: "2026-08-10", equity: 480 }, { date: "2026-08-11", equity: 260 }, { date: "2026-08-12", equity: 670 }, { date: "2026-08-14", equity: 575 }], current_streak: 1, best_streak: 1, worst_streak: 1, average_win: { value: 445, state: null }, average_loss: { value: -157.5, state: null } },
+  risk: { max_drawdown: { value: -220, state: null }, rule_adherence: { rate: 0.67, followed: 2, recorded: 3 }, edge_leak: { amount: -220, trades: 1, recorded: 3 }, consistency: { value: null, state: "undefined_nan" } },
+  trajectory: { equity_curve: [{ date: "2026-08-10", equity: 480 }, { date: "2026-08-11", equity: 260 }, { date: "2026-08-12", equity: 670 }, { date: "2026-08-14", equity: 575 }], current_streak: 1, streak_type: "win", best_streak: 1, worst_streak: 1, average_win: { value: 445, state: null }, average_loss: { value: -157.5, state: null } },
   recurring_edge: { killzones: [{ label: "NY AM", net_pnl: 670, trades: 3 }], setups: [{ label: "Liquidity Sweep + FVG", net_pnl: 670, trades: 3 }] },
   calendar: { year: 2026, month: 8, days: [{ date: "2026-08-12", pnl: 480, outcome: "positive" }] },
   next_review_action: { completed: 2, total: 3, next_key: "first_review", is_activated: false, trades_until_review: 2 },
