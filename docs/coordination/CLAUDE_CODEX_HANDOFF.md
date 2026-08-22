@@ -5485,3 +5485,73 @@ Each was found by executing, not by planning. Listed because the plan alone woul
   markup-level claim.
 - **The shell has not been looked at in a browser** at 1440px or 375px. Its visual quality is
   unassessed; only its structure is tested.
+
+### Phase 1 final fix wave and browser smoke pass — 2026-08-18
+
+The final whole-branch review returned **sound to merge, no Critical**. Its two Important and
+five actionable Minor findings were fixed at root, and the re-review then found one **new**
+defect the fix wave itself introduced, which was also fixed.
+
+**Fixed in the wave** (`f60dd18`, `19001bc`, `f4c1d64`, `baf3c86`):
+
+- `/app/*` was reachable by accounts never opted in — the layout gated session, email and
+  onboarding but not `app_surface`. Now gated, fail-closed on unrecognised values, with tests
+  pinning both directions.
+- `presetRange()` duplicated `rangeForPreset()` behind a comment that misdescribed it. The
+  helper is exported and the duplicate deleted.
+- The shared `:focus-visible` rule set `border-radius: 6px`, which tied on specificity with
+  `.rounded-lg`/`.rounded-full` and won on source order — squaring pill controls on the
+  already-shipped auth pages. Removed; the ring is unchanged.
+- `MoreSheet` was a full-screen modal with none of the modal contract. It now has
+  `role="dialog"`, `aria-modal`, an accessible name, initial focus, a focus trap, `inert`
+  background and `aria-current` on its links — via a shared `useModalTrap` hook rather than a
+  fourth hand-rolled copy.
+- Neither overlay restored focus to its opening control on close. Both now do.
+- The period lens popup claimed `role="menu"` without the ARIA menu keyboard model. The roles
+  are dropped rather than the pattern half-built.
+- Overview was the one placeholder with no placeholder. It has one now.
+
+**The defect the fix wave introduced, and why it matters.** `useModalTrap` marked
+`rootRef.parentElement.children` inert. The drawer's root is a direct child of the shell root,
+so that was accidentally correct. The More sheet's root sits inside `BottomNav`'s Fragment
+inside a `lg:hidden` wrapper — and a Fragment produces no DOM node — so opening the sheet
+inerted the phone `<nav>` and nothing else, leaving `<main>` and the sidebar reachable to browse
+mode. The new test recomputed the implementation's own scope, so it passed while proving
+nothing. The hook now walks up to `document.body` marking siblings at every level except the
+ancestor chain, which is depth-independent, and the test asserts the property that matters —
+that `<main>` is inert while either overlay is open. Verified by restoring the old narrow walk
+and watching the new assertion fail for the sheet while the drawer's still passed.
+
+**Verified gates:** web **942 passed / 34 files**; `tsc --noEmit` clean; `eslint` 0 errors
+(2 intentional exhaustive-deps warnings in `modal-trap.ts`); production build compiles with all
+seven `/app` routes server-rendered on demand; Python **2564 passed / 7 skipped**, unchanged.
+
+### Browser smoke pass — what was and was not verified
+
+Run against a dev server started from this worktree on port 3100.
+
+**Verified in a real browser:**
+
+| Item | Result |
+|---|---|
+| `/app` opt-in enforcement, reject path | `/app`, `/app/journal`, `/app/analytics`, `/app/settings` all **307 → `/login`** unauthenticated. `/login` 200. |
+| Auth-page rounded-focus regression (M-3) | Real keyboard Tab focus applies the teal double-ring (`rgb(13,17,23) 0 0 0 2px, rgb(0,229,204) 0 0 0 4px`) with `border-radius` left at the element's own value. A synthetic 9999px pill stays 9999px under focus. Programmatic `.focus()` correctly does **not** trigger the ring. |
+
+**NOT verifiable in this environment — these remain open:**
+
+The authenticated half of the smoke pass could not be run: **the Neon dev branch does not have
+the `app_surface` column**, because the Phase 0 migrations have only ever been applied to local
+SQLite. That is open pre-deployment gate #2. Reaching the shell needs a session, a session needs
+a user row, and a user row needs that column.
+
+Applying migrations to the shared dev branch would partially perform gate #2 without the
+disposable-database discipline that gate calls for, so it was not done. A disposable Neon branch
+would be the clean way to close this, and is the owner's call.
+
+Consequently unverified in a browser, and asserted only at the jsdom/markup level:
+sidebar and mobile navigation, the period lens, the More sheet, the AI Partner drawer, and
+keyboard focus order, trapping and restoration. **No screen reader has been run against any of
+it, and the shell has still never been looked at visually at 1440px or 375px.**
+
+A throwaway session-minting script written for this pass was removed afterwards, and the dev
+database was confirmed to contain **zero** leftover smoke accounts. No schema was altered.
