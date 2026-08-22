@@ -1,9 +1,11 @@
 # Keep trade records structured and consistent so future analysis can filter by fields like session, strategy, emotion, RR, and P&L instead of parsing notes.
 
 import hashlib
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import List, Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
 
 from src.tradelens.db.models import AIAnalysis, Correction, Screenshot, Trade
@@ -208,6 +210,86 @@ def get_trades(
             query = query.filter(Trade.strategy_used.ilike(f"%{strategy}%"))
 
         return query.order_by(Trade.trade_date.desc()).all()
+    finally:
+        db.close()
+
+
+@dataclass
+class TradePage:
+    trades: List[Trade]
+    total: int
+    limit: int
+    offset: int
+
+
+def list_trades(
+    *,
+    user_id: int,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    asset: Optional[str] = None,
+    session: Optional[str] = None,
+    setup_type: Optional[str] = None,
+    result: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> TradePage:
+    """A paginated, filtered view of one user's trades, with a total count.
+
+    New rather than a `get_trades` extension: `get_trades` has no pagination,
+    ends its query in `.all()`, and existing callers depend on that contract
+    unchanged.
+
+    `limit` and `offset` are clamped server-side rather than trusted — a
+    caller must not be able to request the whole table by passing an
+    unbounded `limit`.
+
+    The count query and the page query are built from one shared filtered
+    query object (`_filtered`) rather than two independent constructions. Two
+    separate filter-building code paths are how a total and a page silently
+    drift apart — the total would count one thing while the page shows
+    another, which reads to a trader as a phantom page.
+
+    Ordered `trade_date desc, id desc`. `trade_date` alone is a partial order:
+    trades sharing a date can be returned in either relative order from one
+    call to the next, so a same-day row can appear on two pages, or on
+    neither, as offsets shift. `id` is a total tiebreaker, so the order —
+    and therefore the pagination — is stable.
+    """
+    owner = require_user_id(user_id)
+    limit = max(1, min(int(limit), 100))
+    offset = max(0, int(offset))
+
+    db: Session = SessionLocal()
+    try:
+
+        def _filtered(query):
+            query = query.filter(Trade.user_id == owner)
+            if start_date:
+                query = query.filter(Trade.trade_date >= start_date)
+            if end_date:
+                query = query.filter(Trade.trade_date <= end_date)
+            if asset:
+                query = query.filter(Trade.asset.ilike(f"%{asset}%"))
+            if session:
+                query = query.filter(Trade.session == session)
+            if setup_type:
+                query = query.filter(Trade.setup_type == setup_type)
+            if result:
+                query = query.filter(Trade.result == result)
+            return query
+
+        total = _filtered(db.query(func.count(Trade.id))).scalar() or 0
+
+        trades = (
+            _filtered(db.query(Trade).options(selectinload(Trade.screenshots)))
+            .order_by(Trade.trade_date.desc(), Trade.id.desc())
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
+
+        return TradePage(trades=trades, total=total, limit=limit, offset=offset)
     finally:
         db.close()
 
