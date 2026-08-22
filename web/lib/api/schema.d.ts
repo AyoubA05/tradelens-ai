@@ -174,7 +174,7 @@ export interface components {
         /** Period */
         Period: {
             /** From */
-            from_: string;
+            from: string;
             /** To */
             to: string;
         };
@@ -252,12 +252,20 @@ export interface components {
             /** Worst Streak */
             worst_streak?: number | null;
         };
-        /** Undefinable */
+        /**
+         * Undefinable
+         * @description A possibly-undefined number as {value, state}.
+         *
+         *     Both fields are required (no `= None` default) even though both are
+         *     `Optional` in type: `_pair`/`_sample_pair` on the service side always emit
+         *     both keys together, so a payload with one missing is a shape change to
+         *     catch here, not a plain absence to paper over with a default null.
+         */
         Undefinable: {
             /** State */
-            state?: string | null;
+            state: string | null;
             /** Value */
-            value?: number | null;
+            value: number | null;
         };
         /** ValidationError */
         ValidationError: {

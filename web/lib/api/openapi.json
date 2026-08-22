@@ -2,6 +2,7 @@
   "components": {
     "schemas": {
       "BreakdownRow": {
+        "additionalProperties": false,
         "properties": {
           "label": {
             "title": "Label",
@@ -25,6 +26,7 @@
         "type": "object"
       },
       "Calendar": {
+        "additionalProperties": false,
         "properties": {
           "days": {
             "items": {
@@ -51,6 +53,7 @@
         "type": "object"
       },
       "CalendarDay": {
+        "additionalProperties": false,
         "properties": {
           "date": {
             "title": "Date",
@@ -74,6 +77,7 @@
         "type": "object"
       },
       "EdgeLeak": {
+        "additionalProperties": false,
         "properties": {
           "amount": {
             "$ref": "#/components/schemas/Undefinable"
@@ -96,6 +100,7 @@
         "type": "object"
       },
       "EquityPoint": {
+        "additionalProperties": false,
         "properties": {
           "date": {
             "title": "Date",
@@ -127,6 +132,7 @@
         "type": "object"
       },
       "Kpi": {
+        "additionalProperties": false,
         "properties": {
           "expectancy": {
             "anyOf": [
@@ -213,6 +219,7 @@
         "type": "object"
       },
       "NextReviewAction": {
+        "additionalProperties": false,
         "properties": {
           "completed": {
             "title": "Completed",
@@ -252,6 +259,7 @@
         "type": "object"
       },
       "OverviewResponse": {
+        "additionalProperties": false,
         "properties": {
           "calendar": {
             "$ref": "#/components/schemas/Calendar"
@@ -300,8 +308,9 @@
         "type": "object"
       },
       "Period": {
+        "additionalProperties": false,
         "properties": {
-          "from_": {
+          "from": {
             "title": "From",
             "type": "string"
           },
@@ -311,13 +320,14 @@
           }
         },
         "required": [
-          "from_",
+          "from",
           "to"
         ],
         "title": "Period",
         "type": "object"
       },
       "RecentTrade": {
+        "additionalProperties": false,
         "properties": {
           "asset": {
             "anyOf": [
@@ -408,6 +418,7 @@
         "type": "object"
       },
       "RecurringEdge": {
+        "additionalProperties": false,
         "properties": {
           "killzones": {
             "items": {
@@ -432,6 +443,7 @@
         "type": "object"
       },
       "Risk": {
+        "additionalProperties": false,
         "properties": {
           "consistency": {
             "$ref": "#/components/schemas/Undefinable"
@@ -456,6 +468,7 @@
         "type": "object"
       },
       "RuleAdherence": {
+        "additionalProperties": false,
         "properties": {
           "followed": {
             "title": "Followed",
@@ -485,6 +498,7 @@
         "type": "object"
       },
       "SampleFlags": {
+        "additionalProperties": false,
         "properties": {
           "dated_points": {
             "title": "Dated Points",
@@ -528,6 +542,7 @@
         "type": "object"
       },
       "Trajectory": {
+        "additionalProperties": false,
         "properties": {
           "average_loss": {
             "$ref": "#/components/schemas/Undefinable"
@@ -596,6 +611,8 @@
         "type": "object"
       },
       "Undefinable": {
+        "additionalProperties": false,
+        "description": "A possibly-undefined number as {value, state}.\n\nBoth fields are required (no `= None` default) even though both are\n`Optional` in type: `_pair`/`_sample_pair` on the service side always emit\nboth keys together, so a payload with one missing is a shape change to\ncatch here, not a plain absence to paper over with a default null.",
         "properties": {
           "state": {
             "anyOf": [
@@ -620,6 +637,10 @@
             "title": "Value"
           }
         },
+        "required": [
+          "value",
+          "state"
+        ],
         "title": "Undefinable",
         "type": "object"
       },

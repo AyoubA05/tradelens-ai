@@ -18,23 +18,41 @@ and `risk.edge_leak.amount` (undefined without followed_rules/mistake_tags
 evidence — `services/overview._pair`). Both are `Undefinable` here rather than
 `Optional[float]` + a sibling `*_state` field, matching how the service nests
 them.
+
+Every model is `extra="forbid"`. Pydantic's default (`extra="ignore"`) would
+let `build_overview` grow a field this contract never learns about — silently
+dropped from the response, `openapi.json` never regenerated to mention it, and
+the TypeScript drift gate staying green over a contract that has quietly
+stopped describing reality. `Undefinable.value`/`.state` also drop their
+`= None` defaults: `services/overview._pair`/`_sample_pair` always emit both
+keys together, so a payload missing one of them means the service's shape
+changed underneath this contract. `_need()` in services/overview.py exists to
+make exactly that loud rather than degrading into a plausible-looking null;
+this mirrors that here, at the boundary.
 """
 
 from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
-class Period(BaseModel):
-    from_: str
+class _Strict(BaseModel):
+    """Base for every model below: an unexpected key means the service's
+    shape moved out from under this contract, not a client sending noise."""
+
+    model_config = {"extra": "forbid"}
+
+
+class Period(_Strict):
+    from_: str = Field(alias="from")
     to: str
 
-    model_config = {"populate_by_name": True}
+    model_config = {"extra": "forbid", "populate_by_name": True}
 
 
-class SampleFlags(BaseModel):
+class SampleFlags(_Strict):
     trades: int
     dated_points: int
     show_summary: bool
@@ -44,12 +62,20 @@ class SampleFlags(BaseModel):
     show_patterns: bool
 
 
-class Undefinable(BaseModel):
-    value: Optional[float] = None
-    state: Optional[str] = None
+class Undefinable(_Strict):
+    """A possibly-undefined number as {value, state}.
+
+    Both fields are required (no `= None` default) even though both are
+    `Optional` in type: `_pair`/`_sample_pair` on the service side always emit
+    both keys together, so a payload with one missing is a shape change to
+    catch here, not a plain absence to paper over with a default null.
+    """
+
+    value: Optional[float]
+    state: Optional[str]
 
 
-class Kpi(BaseModel):
+class Kpi(_Strict):
     net_pnl: float
     win_rate: Undefinable
     expectancy: Optional[float] = None
@@ -63,31 +89,31 @@ class Kpi(BaseModel):
     week_pnl: float
 
 
-class RuleAdherence(BaseModel):
+class RuleAdherence(_Strict):
     rate: Optional[float] = None
     followed: int
     recorded: int
 
 
-class EdgeLeak(BaseModel):
+class EdgeLeak(_Strict):
     amount: Undefinable
     trades: int
     recorded: int
 
 
-class Risk(BaseModel):
+class Risk(_Strict):
     max_drawdown: Undefinable
     rule_adherence: RuleAdherence
     edge_leak: EdgeLeak
     consistency: Undefinable
 
 
-class EquityPoint(BaseModel):
+class EquityPoint(_Strict):
     date: str
     equity: float
 
 
-class Trajectory(BaseModel):
+class Trajectory(_Strict):
     equity_curve: List[EquityPoint]
     current_streak: Optional[int] = None
     streak_type: Optional[str] = None
@@ -97,30 +123,30 @@ class Trajectory(BaseModel):
     average_loss: Undefinable
 
 
-class BreakdownRow(BaseModel):
+class BreakdownRow(_Strict):
     label: str
     net_pnl: float
     trades: int
 
 
-class RecurringEdge(BaseModel):
+class RecurringEdge(_Strict):
     killzones: List[BreakdownRow]
     setups: List[BreakdownRow]
 
 
-class CalendarDay(BaseModel):
+class CalendarDay(_Strict):
     date: str
     pnl: float
     outcome: str
 
 
-class Calendar(BaseModel):
+class Calendar(_Strict):
     year: int
     month: int
     days: List[CalendarDay]
 
 
-class NextReviewAction(BaseModel):
+class NextReviewAction(_Strict):
     completed: int
     total: int
     next_key: Optional[str] = None
@@ -128,7 +154,7 @@ class NextReviewAction(BaseModel):
     trades_until_review: int
 
 
-class RecentTrade(BaseModel):
+class RecentTrade(_Strict):
     id: int
     trade_date: Optional[str] = None
     asset: Optional[str] = None
@@ -139,7 +165,7 @@ class RecentTrade(BaseModel):
     rr_realized: Optional[float] = None
 
 
-class OverviewResponse(BaseModel):
+class OverviewResponse(_Strict):
     period: Period
     sample: SampleFlags
     kpi: Kpi

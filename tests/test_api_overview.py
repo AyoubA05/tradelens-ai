@@ -76,6 +76,17 @@ def test_never_returns_another_owner_s_data(client, website_session_handle, two_
     user_id, handle = website_session_handle
     other = [u for u in two_users if u != user_id][0]
     seed_golden_dataset(other)
+
+    # Positive control: prove the golden dataset actually landed on the other
+    # owner before asserting the requesting owner can't see it. Without this,
+    # a future regression that made `seed_golden_dataset` a no-op would leave
+    # both assertions trivially true and this test green for the wrong reason
+    # — on the endpoint that guards tenant isolation, the cardinal property.
+    from src.tradelens.services.overview import build_overview
+
+    other_data = build_overview(user_id=other, start="2026-08-01", end="2026-08-31")
+    assert other_data["kpi"]["trades"] == 5
+
     body = client.get(f"{PATH}?{QUERY}", headers=_headers(handle)).json()
     assert body["kpi"]["trades"] == 0
 
@@ -102,25 +113,78 @@ def test_a_reversed_period_is_rejected(client, website_session_handle):
     assert r.status_code == 422
 
 
+def test_a_span_over_five_years_is_rejected(client, website_session_handle):
+    """A journal's analysis range has no legitimate reason to exceed five years."""
+    _, handle = website_session_handle
+    bad = "from=2015-01-01&to=2026-08-31"
+    r = client.get(f"{PATH}?{bad}", headers=_headers(handle, query=bad))
+    assert r.status_code == 422
+    assert "5 years" in r.json()["detail"]
+
+
+def test_a_runtime_lenient_date_form_is_still_rejected(client, website_session_handle):
+    """`date.fromisoformat` alone accepts more on 3.11 than on 3.9.
+
+    "20260201" parses under Python 3.11 (CI, the container) but not 3.9 (the
+    local floor); without the regex pre-check the two runtimes would disagree
+    about what returns 422 for the exact same request.
+    """
+    _, handle = website_session_handle
+    bad = "from=20260201&to=2026-08-31"
+    r = client.get(f"{PATH}?{bad}", headers=_headers(handle, query=bad))
+    assert r.status_code == 422
+
+
 def test_the_response_is_not_cacheable(client, website_session_handle):
     _, handle = website_session_handle
     r = client.get(f"{PATH}?{QUERY}", headers=_headers(handle))
     assert "no-store" in r.headers.get("cache-control", "")
 
 
-def test_the_schema_is_typed_not_a_bare_dict(client, website_session_handle):
+def test_the_period_s_wire_field_is_from_not_from_(client, website_session_handle):
+    """The request parameter is `from`; the response must echo that name, not
+    the Python-safe `from_` the model uses internally."""
+    _, handle = website_session_handle
+    body = client.get(f"{PATH}?{QUERY}", headers=_headers(handle)).json()
+    assert body["period"]["from"] == "2026-08-01"
+    assert "from_" not in body["period"]
+
+
+def test_the_schema_is_typed_not_a_bare_dict():
     """A dict response generates {[k:string]: unknown} and the drift gate then
     protects nothing.
 
-    `get_type_hints` rather than the raw `__annotations__` dict: the router
-    module carries `from __future__ import annotations` (the Python 3.9 floor
-    this repo targets), which stores every annotation as an unevaluated
-    string — `__annotations__["return"]` would be the literal string
-    "OverviewResponse", not the class, and `.__name__` would fail on it either
-    way.
+    Checked end to end via the generated OpenAPI schema, which proves FastAPI
+    actually wired `OverviewResponse` in as the response model — one step
+    further than asserting the handler's return annotation, which could be
+    correct while FastAPI still serialized through something else.
     """
-    from typing import get_type_hints
+    spec = create_app().openapi()
+    ref = spec["paths"]["/v1/overview"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]["$ref"]
+    assert ref.endswith("/OverviewResponse")
 
-    from src.tradelens.api.routers.overview import get_overview
 
-    assert get_type_hints(get_overview)["return"].__name__ == "OverviewResponse"
+def test_an_unexpected_field_is_rejected_not_silently_dropped():
+    """`extra="forbid"` is what makes the drift gate mean something: a
+    `build_overview` field this contract doesn't know about must fail loudly,
+    not vanish from the response while `openapi.json` stays unchanged."""
+    from pydantic import ValidationError
+
+    from src.tradelens.api.schemas.overview import Undefinable
+
+    with pytest.raises(ValidationError):
+        Undefinable(value=1.0, state=None, unexpected="surprise")
+
+
+def test_a_missing_required_subobject_raises_not_nulls():
+    """A service key renamed or removed underneath this contract must fail
+    validation, not quietly validate as an all-null `{value: null, state:
+    null}` figure with no state string to explain why it vanished."""
+    from pydantic import ValidationError
+
+    from src.tradelens.api.schemas.overview import Undefinable
+
+    with pytest.raises(ValidationError):
+        Undefinable(value=1.0)  # "state" omitted entirely
