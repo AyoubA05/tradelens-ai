@@ -71,7 +71,7 @@ def test_empty_period_reports_zero_trades_rather_than_failing(two_users):
     data = overview.build_overview(user_id=owner, start="2020-01-01", end="2020-01-31")
     assert data["kpi"]["trades"] == 0
     assert data["sample"]["show_summary"] is False
-    assert data["equity_curve"] == []
+    assert data["trajectory"]["equity_curve"] == []
 
 
 def test_sample_flags_come_from_the_shared_policy(seeded):
@@ -109,3 +109,12 @@ def test_calendar_reports_the_month_of_the_period_end(seeded):
     assert cal["year"] == 2026 and cal["month"] == 8
     outcomes = {d["outcome"] for d in cal["days"]}
     assert outcomes <= {"positive", "negative", "flat"}
+
+
+def test_the_equity_curve_lives_under_trajectory(seeded):
+    """The API contract nests it, and three later components read it there."""
+    owner, _ = seeded
+    data = overview.build_overview(user_id=owner, **PERIOD)
+    assert "equity_curve" not in data
+    points = data["trajectory"]["equity_curve"]
+    assert points and set(points[0]) == {"date", "equity"}

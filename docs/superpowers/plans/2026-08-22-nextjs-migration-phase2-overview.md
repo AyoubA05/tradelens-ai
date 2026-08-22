@@ -462,7 +462,7 @@ def test_empty_period_reports_zero_trades_rather_than_failing(two_users):
     data = overview.build_overview(user_id=owner, start="2020-01-01", end="2020-01-31")
     assert data["kpi"]["trades"] == 0
     assert data["sample"]["show_summary"] is False
-    assert data["equity_curve"] == []
+    assert data["trajectory"]["equity_curve"] == []
 
 
 def test_sample_flags_come_from_the_shared_policy(seeded):
@@ -658,7 +658,8 @@ def build_overview(
         },
         "trajectory": {
             "equity_curve": [] if not sample.show_series else [
-                {"date": str(r["trade_date"]), "equity": float(r["equity"])}
+                # daily_equity_curve names the column cumulative_pnl.
+                {"date": str(r["trade_date"]), "equity": float(r["cumulative_pnl"])}
                 for _, r in metrics.daily_equity_curve(df).iterrows()
             ],
             # compute_streaks names these current_streak / max_win_streak /

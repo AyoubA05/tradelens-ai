@@ -177,8 +177,8 @@ def build_overview(
             },
             "consistency": _pair(metrics.consistency_score(df)),
         },
-        "equity_curve": equity_curve,
         "trajectory": {
+            "equity_curve": equity_curve,
             # compute_streaks names these current_streak / max_win_streak /
             # max_loss_streak.
             "current_streak": _need(streaks, "current_streak"),
