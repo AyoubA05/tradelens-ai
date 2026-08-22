@@ -947,6 +947,21 @@ def killzone_performance(trades: pd.DataFrame) -> pd.DataFrame:
     return merged[_KILLZONE_COLS]
 
 
+def setup_performance(trades: pd.DataFrame) -> pd.DataFrame:
+    """Per-setup performance, shaped like `killzone_performance`.
+
+    `by_setup_type` answers a different question — how many trades, won and
+    lost, per setup — and carries no P&L column. The Overview shows setups and
+    killzones side by side, so they must be the same shape or the comparison
+    is not one.
+
+    Returns columns: setup_type, trades, wins, losses, breakevens, win_rate,
+    avg_rr_realized, total_pnl — sorted by total_pnl descending. Empty input
+    gives an empty frame with those columns.
+    """
+    return _group_with_rr(trades, by="setup_type")
+
+
 def confirmation_model_performance(trades: pd.DataFrame) -> pd.DataFrame:
     """
     Performance breakdown by confirmation_model (e.g., "BOS", "FVG Fill").

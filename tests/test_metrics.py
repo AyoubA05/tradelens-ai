@@ -33,6 +33,7 @@ from src.tradelens.services.metrics import (
     mistake_frequency,
     r_multiple_distribution,
     rule_adherence_rate,
+    setup_performance,
 )
 
 
@@ -896,6 +897,29 @@ def test_killzone_performance_excludes_null_killzone():
     )
     res = killzone_performance(df)
     assert list(res["killzone"]) == ["ny_am"]
+
+
+def test_setup_performance_carries_pnl_and_sample_size():
+    """The Overview puts setups beside killzones, so it needs the same columns."""
+    df = pd.DataFrame(
+        {
+            "setup_type": ["FVG", "FVG", "OB"],
+            "result": ["Win", "Loss", "Win"],
+            "pnl": [100.0, -40.0, 25.0],
+            "rr_realized": [2.0, -1.0, 1.0],
+        }
+    )
+    out = setup_performance(df)
+    assert set(["setup_type", "trades", "total_pnl"]).issubset(out.columns)
+    fvg = out[out["setup_type"] == "FVG"].iloc[0]
+    assert fvg["trades"] == 2
+    assert fvg["total_pnl"] == 60.0
+
+
+def test_setup_performance_is_empty_without_setups():
+    out = setup_performance(pd.DataFrame())
+    assert out.empty
+    assert "total_pnl" in out.columns
 
 
 def test_confirmation_model_performance_known_values():
