@@ -138,3 +138,74 @@ def test_list_handler_return_annotation_is_the_typed_model():
         "application/json"
     ]["schema"]["$ref"]
     assert ref.endswith("/TradeListResponse")
+
+
+# ------------------------------------------------------------ GET /v1/trades/{id}
+
+
+def test_detail_returns_the_owner_s_trade(client, website_session_handle):
+    user_id, handle = website_session_handle
+    trade = _create(user_id, trade_date="2026-08-10", killzone="ny_am")
+    path = f"/v1/trades/{trade.id}"
+    r = client.get(path, headers=_headers(handle, query="", path=path))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["id"] == trade.id
+    assert body["killzone"] == "New York AM"
+    assert body["screenshots"] == []
+
+
+def test_detail_another_owner_s_trade_is_404(client, website_session_handle, two_users):
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    trade = _create(other, trade_date="2026-08-10")
+
+    path = f"/v1/trades/{trade.id}"
+    r = client.get(path, headers=_headers(handle, query="", path=path))
+    assert r.status_code == 404
+
+
+def test_detail_missing_trade_is_404_byte_identical_to_cross_owner(
+    client, website_session_handle, two_users
+):
+    """A 403 would confirm the row exists — this endpoint must never emit one."""
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    other_trade = _create(other, trade_date="2026-08-10")
+
+    cross_owner_path = f"/v1/trades/{other_trade.id}"
+    cross_owner = client.get(
+        cross_owner_path, headers=_headers(handle, query="", path=cross_owner_path)
+    )
+
+    missing_path = "/v1/trades/999999"
+    missing = client.get(
+        missing_path, headers=_headers(handle, query="", path=missing_path)
+    )
+
+    assert cross_owner.status_code == 404
+    assert missing.status_code == 404
+    assert cross_owner.content == missing.content
+
+
+def test_detail_no_presigned_url_for_a_trade_the_caller_does_not_own(
+    client, website_session_handle, two_users, monkeypatch
+):
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    trade = _create(other, trade_date="2026-08-10")
+
+    calls = []
+
+    def _spy(owner, screenshot_id):
+        calls.append((owner, screenshot_id))
+        return "https://example.invalid/should-not-be-called"
+
+    from src.tradelens.api import storage as storage_module
+
+    monkeypatch.setattr(storage_module, "presign_download", _spy)
+
+    path = f"/v1/trades/{trade.id}"
+    r = client.get(path, headers=_headers(handle, query="", path=path))
+    assert r.status_code == 404
+    assert calls == []

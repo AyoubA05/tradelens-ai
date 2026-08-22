@@ -599,6 +599,589 @@
         "title": "SampleFlags",
         "type": "object"
       },
+      "ScreenshotDescriptor": {
+        "additionalProperties": false,
+        "description": "A screenshot with a short-lived presigned download URL.\n\n`url` is `None` when `presign_download` returned `None` for this object\n(rare \u2014 `finalize_upload` only ever stores a resolvable key) rather than\nsurfacing an error; the caller simply has no image to render for that\nentry.",
+        "properties": {
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "uploaded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded At"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          }
+        },
+        "required": [
+          "id",
+          "width",
+          "height",
+          "uploaded_at",
+          "url"
+        ],
+        "title": "ScreenshotDescriptor",
+        "type": "object"
+      },
+      "TradeDetail": {
+        "additionalProperties": false,
+        "description": "The full trade record plus its screenshots.\n\nServer-owned and internal fields (`user_id`, `trade_hash`, `is_sample`,\n`strategy_id`) are deliberately absent \u2014 this is a read contract, not the\nORM's column set, and none of those are anything a client should see or\never be able to round-trip back through a future PATCH.",
+        "properties": {
+          "ai_grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Grade"
+          },
+          "asset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset"
+          },
+          "asset_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Class"
+          },
+          "bias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias"
+          },
+          "bos": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bos"
+          },
+          "choch": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Choch"
+          },
+          "confirmation_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation Model"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "day_of_week": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day Of Week"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "emotions_after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emotions After"
+          },
+          "emotions_before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emotions Before"
+          },
+          "emotions_during": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emotions During"
+          },
+          "entry_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Price"
+          },
+          "entry_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Type"
+          },
+          "exit_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Price"
+          },
+          "followed_rules": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Followed Rules"
+          },
+          "fvg_used": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fvg Used"
+          },
+          "htf_bias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Htf Bias"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "killzone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Killzone"
+          },
+          "liquidity_sweep": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Liquidity Sweep"
+          },
+          "mistake_tags": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mistake Tags"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "order_block_used": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Block Used"
+          },
+          "pnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnl"
+          },
+          "position_size": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Size"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Win",
+                  "Loss",
+                  "Breakeven"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "reward_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reward Amount"
+          },
+          "risk_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Amount"
+          },
+          "rr_planned": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rr Planned"
+          },
+          "rr_realized": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rr Realized"
+          },
+          "screenshots": {
+            "items": {
+              "$ref": "#/components/schemas/ScreenshotDescriptor"
+            },
+            "title": "Screenshots",
+            "type": "array"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session"
+          },
+          "setup_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Type"
+          },
+          "stop_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Price"
+          },
+          "strategy_used": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Used"
+          },
+          "timeframe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeframe"
+          },
+          "tp_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tp Price"
+          },
+          "trade_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Date"
+          },
+          "trade_process_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Process Notes"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "user_grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Grade"
+          }
+        },
+        "required": [
+          "id",
+          "trade_date",
+          "day_of_week",
+          "session",
+          "asset",
+          "asset_class",
+          "timeframe",
+          "direction",
+          "bias",
+          "setup_type",
+          "entry_price",
+          "stop_price",
+          "tp_price",
+          "exit_price",
+          "position_size",
+          "risk_amount",
+          "reward_amount",
+          "rr_planned",
+          "rr_realized",
+          "result",
+          "pnl",
+          "strategy_used",
+          "emotions_before",
+          "emotions_during",
+          "emotions_after",
+          "notes",
+          "trade_process_notes",
+          "ai_grade",
+          "user_grade",
+          "htf_bias",
+          "killzone",
+          "liquidity_sweep",
+          "fvg_used",
+          "order_block_used",
+          "bos",
+          "choch",
+          "confirmation_model",
+          "entry_type",
+          "mistake_tags",
+          "followed_rules",
+          "created_at",
+          "updated_at",
+          "screenshots"
+        ],
+        "title": "TradeDetail",
+        "type": "object"
+      },
       "TradeListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -633,7 +1216,7 @@
       },
       "TradeSummary": {
         "additionalProperties": false,
-        "description": "One row of the Trades list \u2014 deliberately narrower than Trade Detail.",
+        "description": "One row of the Trades list \u2014 deliberately narrower than TradeDetail.\n\nThe list view does not need every SMC/ICT annotation field; Trade Detail\n(below) is where the full record lives.",
         "properties": {
           "asset": {
             "anyOf": [
@@ -1126,6 +1709,49 @@
           }
         },
         "summary": "Get Trades List",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
+    "/v1/trades/{trade_id}": {
+      "get": {
+        "description": "One trade, plus presigned URLs for its screenshots.\n\n`get_trade` already filters on `Trade.user_id == owner`, so a trade\nbelonging to another account is indistinguishable from a nonexistent one\nat the ORM layer \u2014 this handler preserves that by raising the identical\n404 either way, never a 403.",
+        "operationId": "get_trade_detail_v1_trades__trade_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trade_id",
+            "required": true,
+            "schema": {
+              "title": "Trade Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Trade Detail",
         "tags": [
           "trades"
         ]

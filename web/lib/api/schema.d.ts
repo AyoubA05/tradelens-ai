@@ -95,6 +95,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/trades/{trade_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trade Detail
+         * @description One trade, plus presigned URLs for its screenshots.
+         *
+         *     `get_trade` already filters on `Trade.user_id == owner`, so a trade
+         *     belonging to another account is indistinguishable from a nonexistent one
+         *     at the ORM layer — this handler preserves that by raising the identical
+         *     404 either way, never a 403.
+         */
+        get: operations["get_trade_detail_v1_trades__trade_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -277,6 +302,124 @@ export interface components {
             /** Trades */
             trades: number;
         };
+        /**
+         * ScreenshotDescriptor
+         * @description A screenshot with a short-lived presigned download URL.
+         *
+         *     `url` is `None` when `presign_download` returned `None` for this object
+         *     (rare — `finalize_upload` only ever stores a resolvable key) rather than
+         *     surfacing an error; the caller simply has no image to render for that
+         *     entry.
+         */
+        ScreenshotDescriptor: {
+            /** Height */
+            height: number | null;
+            /** Id */
+            id: number;
+            /** Uploaded At */
+            uploaded_at: string | null;
+            /** Url */
+            url: string | null;
+            /** Width */
+            width: number | null;
+        };
+        /**
+         * TradeDetail
+         * @description The full trade record plus its screenshots.
+         *
+         *     Server-owned and internal fields (`user_id`, `trade_hash`, `is_sample`,
+         *     `strategy_id`) are deliberately absent — this is a read contract, not the
+         *     ORM's column set, and none of those are anything a client should see or
+         *     ever be able to round-trip back through a future PATCH.
+         */
+        TradeDetail: {
+            /** Ai Grade */
+            ai_grade: string | null;
+            /** Asset */
+            asset: string | null;
+            /** Asset Class */
+            asset_class: string | null;
+            /** Bias */
+            bias: string | null;
+            /** Bos */
+            bos: number | null;
+            /** Choch */
+            choch: number | null;
+            /** Confirmation Model */
+            confirmation_model: string | null;
+            /** Created At */
+            created_at: string | null;
+            /** Day Of Week */
+            day_of_week: string | null;
+            /** Direction */
+            direction: string | null;
+            /** Emotions After */
+            emotions_after: string | null;
+            /** Emotions Before */
+            emotions_before: string | null;
+            /** Emotions During */
+            emotions_during: string | null;
+            /** Entry Price */
+            entry_price: number | null;
+            /** Entry Type */
+            entry_type: string | null;
+            /** Exit Price */
+            exit_price: number | null;
+            /** Followed Rules */
+            followed_rules: number | null;
+            /** Fvg Used */
+            fvg_used: number | null;
+            /** Htf Bias */
+            htf_bias: string | null;
+            /** Id */
+            id: number;
+            /** Killzone */
+            killzone: string | null;
+            /** Liquidity Sweep */
+            liquidity_sweep: number | null;
+            /** Mistake Tags */
+            mistake_tags: string | null;
+            /** Notes */
+            notes: string | null;
+            /** Order Block Used */
+            order_block_used: number | null;
+            /** Pnl */
+            pnl: number | null;
+            /** Position Size */
+            position_size: number | null;
+            /** Result */
+            result: ("Win" | "Loss" | "Breakeven") | null;
+            /** Reward Amount */
+            reward_amount: number | null;
+            /** Risk Amount */
+            risk_amount: number | null;
+            /** Rr Planned */
+            rr_planned: number | null;
+            /** Rr Realized */
+            rr_realized: number | null;
+            /** Screenshots */
+            screenshots: components["schemas"]["ScreenshotDescriptor"][];
+            /** Session */
+            session: string | null;
+            /** Setup Type */
+            setup_type: string | null;
+            /** Stop Price */
+            stop_price: number | null;
+            /** Strategy Used */
+            strategy_used: string | null;
+            /** Timeframe */
+            timeframe: string | null;
+            /** Tp Price */
+            tp_price: number | null;
+            /** Trade Date */
+            trade_date: string | null;
+            /** Trade Process Notes */
+            trade_process_notes: string | null;
+            /** Updated At */
+            updated_at: string | null;
+            /** User Grade */
+            user_grade: string | null;
+        };
         /** TradeListResponse */
         TradeListResponse: {
             /** Limit */
@@ -290,7 +433,10 @@ export interface components {
         };
         /**
          * TradeSummary
-         * @description One row of the Trades list — deliberately narrower than Trade Detail.
+         * @description One row of the Trades list — deliberately narrower than TradeDetail.
+         *
+         *     The list view does not need every SMC/ICT annotation field; Trade Detail
+         *     (below) is where the full record lives.
          */
         TradeSummary: {
             /** Asset */
@@ -467,6 +613,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TradeListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_trade_detail_v1_trades__trade_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeDetail"];
                 };
             };
             /** @description Validation Error */
