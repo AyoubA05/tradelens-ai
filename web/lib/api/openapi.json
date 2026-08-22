@@ -1,6 +1,661 @@
 {
   "components": {
     "schemas": {
+      "BreakdownRow": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "net_pnl": {
+            "title": "Net Pnl",
+            "type": "number"
+          },
+          "trades": {
+            "title": "Trades",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "net_pnl",
+          "trades"
+        ],
+        "title": "BreakdownRow",
+        "type": "object"
+      },
+      "Calendar": {
+        "properties": {
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarDay"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "month": {
+            "title": "Month",
+            "type": "integer"
+          },
+          "year": {
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "year",
+          "month",
+          "days"
+        ],
+        "title": "Calendar",
+        "type": "object"
+      },
+      "CalendarDay": {
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "pnl": {
+            "title": "Pnl",
+            "type": "number"
+          }
+        },
+        "required": [
+          "date",
+          "pnl",
+          "outcome"
+        ],
+        "title": "CalendarDay",
+        "type": "object"
+      },
+      "EdgeLeak": {
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/Undefinable"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "integer"
+          },
+          "trades": {
+            "title": "Trades",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "amount",
+          "trades",
+          "recorded"
+        ],
+        "title": "EdgeLeak",
+        "type": "object"
+      },
+      "EquityPoint": {
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "equity": {
+            "title": "Equity",
+            "type": "number"
+          }
+        },
+        "required": [
+          "date",
+          "equity"
+        ],
+        "title": "EquityPoint",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "Kpi": {
+        "properties": {
+          "expectancy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expectancy"
+          },
+          "expectancy_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expectancy State"
+          },
+          "losses": {
+            "title": "Losses",
+            "type": "integer"
+          },
+          "net_pnl": {
+            "title": "Net Pnl",
+            "type": "number"
+          },
+          "profit_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profit Factor"
+          },
+          "profit_factor_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profit Factor State"
+          },
+          "today_pnl": {
+            "title": "Today Pnl",
+            "type": "number"
+          },
+          "trades": {
+            "title": "Trades",
+            "type": "integer"
+          },
+          "week_pnl": {
+            "title": "Week Pnl",
+            "type": "number"
+          },
+          "win_rate": {
+            "$ref": "#/components/schemas/Undefinable"
+          },
+          "wins": {
+            "title": "Wins",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "net_pnl",
+          "win_rate",
+          "trades",
+          "wins",
+          "losses",
+          "today_pnl",
+          "week_pnl"
+        ],
+        "title": "Kpi",
+        "type": "object"
+      },
+      "NextReviewAction": {
+        "properties": {
+          "completed": {
+            "title": "Completed",
+            "type": "integer"
+          },
+          "is_activated": {
+            "title": "Is Activated",
+            "type": "boolean"
+          },
+          "next_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Key"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "trades_until_review": {
+            "title": "Trades Until Review",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "completed",
+          "total",
+          "is_activated",
+          "trades_until_review"
+        ],
+        "title": "NextReviewAction",
+        "type": "object"
+      },
+      "OverviewResponse": {
+        "properties": {
+          "calendar": {
+            "$ref": "#/components/schemas/Calendar"
+          },
+          "kpi": {
+            "$ref": "#/components/schemas/Kpi"
+          },
+          "next_review_action": {
+            "$ref": "#/components/schemas/NextReviewAction"
+          },
+          "period": {
+            "$ref": "#/components/schemas/Period"
+          },
+          "recent_trades": {
+            "items": {
+              "$ref": "#/components/schemas/RecentTrade"
+            },
+            "title": "Recent Trades",
+            "type": "array"
+          },
+          "recurring_edge": {
+            "$ref": "#/components/schemas/RecurringEdge"
+          },
+          "risk": {
+            "$ref": "#/components/schemas/Risk"
+          },
+          "sample": {
+            "$ref": "#/components/schemas/SampleFlags"
+          },
+          "trajectory": {
+            "$ref": "#/components/schemas/Trajectory"
+          }
+        },
+        "required": [
+          "period",
+          "sample",
+          "kpi",
+          "risk",
+          "trajectory",
+          "recurring_edge",
+          "calendar",
+          "next_review_action",
+          "recent_trades"
+        ],
+        "title": "OverviewResponse",
+        "type": "object"
+      },
+      "Period": {
+        "properties": {
+          "from_": {
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_",
+          "to"
+        ],
+        "title": "Period",
+        "type": "object"
+      },
+      "RecentTrade": {
+        "properties": {
+          "asset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "pnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnl"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "rr_realized": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rr Realized"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session"
+          },
+          "setup_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Type"
+          },
+          "trade_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Date"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "RecentTrade",
+        "type": "object"
+      },
+      "RecurringEdge": {
+        "properties": {
+          "killzones": {
+            "items": {
+              "$ref": "#/components/schemas/BreakdownRow"
+            },
+            "title": "Killzones",
+            "type": "array"
+          },
+          "setups": {
+            "items": {
+              "$ref": "#/components/schemas/BreakdownRow"
+            },
+            "title": "Setups",
+            "type": "array"
+          }
+        },
+        "required": [
+          "killzones",
+          "setups"
+        ],
+        "title": "RecurringEdge",
+        "type": "object"
+      },
+      "Risk": {
+        "properties": {
+          "consistency": {
+            "$ref": "#/components/schemas/Undefinable"
+          },
+          "edge_leak": {
+            "$ref": "#/components/schemas/EdgeLeak"
+          },
+          "max_drawdown": {
+            "$ref": "#/components/schemas/Undefinable"
+          },
+          "rule_adherence": {
+            "$ref": "#/components/schemas/RuleAdherence"
+          }
+        },
+        "required": [
+          "max_drawdown",
+          "rule_adherence",
+          "edge_leak",
+          "consistency"
+        ],
+        "title": "Risk",
+        "type": "object"
+      },
+      "RuleAdherence": {
+        "properties": {
+          "followed": {
+            "title": "Followed",
+            "type": "integer"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "followed",
+          "recorded"
+        ],
+        "title": "RuleAdherence",
+        "type": "object"
+      },
+      "SampleFlags": {
+        "properties": {
+          "dated_points": {
+            "title": "Dated Points",
+            "type": "integer"
+          },
+          "show_comparisons": {
+            "title": "Show Comparisons",
+            "type": "boolean"
+          },
+          "show_dominant_series": {
+            "title": "Show Dominant Series",
+            "type": "boolean"
+          },
+          "show_patterns": {
+            "title": "Show Patterns",
+            "type": "boolean"
+          },
+          "show_series": {
+            "title": "Show Series",
+            "type": "boolean"
+          },
+          "show_summary": {
+            "title": "Show Summary",
+            "type": "boolean"
+          },
+          "trades": {
+            "title": "Trades",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "trades",
+          "dated_points",
+          "show_summary",
+          "show_series",
+          "show_dominant_series",
+          "show_comparisons",
+          "show_patterns"
+        ],
+        "title": "SampleFlags",
+        "type": "object"
+      },
+      "Trajectory": {
+        "properties": {
+          "average_loss": {
+            "$ref": "#/components/schemas/Undefinable"
+          },
+          "average_win": {
+            "$ref": "#/components/schemas/Undefinable"
+          },
+          "best_streak": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Streak"
+          },
+          "current_streak": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Streak"
+          },
+          "equity_curve": {
+            "items": {
+              "$ref": "#/components/schemas/EquityPoint"
+            },
+            "title": "Equity Curve",
+            "type": "array"
+          },
+          "streak_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Streak Type"
+          },
+          "worst_streak": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worst Streak"
+          }
+        },
+        "required": [
+          "equity_curve",
+          "average_win",
+          "average_loss"
+        ],
+        "title": "Trajectory",
+        "type": "object"
+      },
+      "Undefinable": {
+        "properties": {
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "title": "Undefinable",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
       "WhoAmI": {
         "properties": {
           "user_id": {
@@ -37,6 +692,58 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/v1/overview": {
+      "get": {
+        "description": "Everything the Overview screen shows, for the authenticated owner.\n\nThe owner is the session row's. Nothing in the query, the headers, or the\nbody can name a different account.",
+        "operationId": "get_overview_v1_overview_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "title": "To",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Overview",
+        "tags": [
+          "overview"
+        ]
       }
     },
     "/v1/session/whoami": {

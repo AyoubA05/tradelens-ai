@@ -24,6 +24,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Overview
+         * @description Everything the Overview screen shows, for the authenticated owner.
+         *
+         *     The owner is the session row's. Nothing in the query, the headers, or the
+         *     body can name a different account.
+         */
+        get: operations["get_overview_v1_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/session/whoami": {
         parameters: {
             query?: never;
@@ -51,6 +74,200 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** BreakdownRow */
+        BreakdownRow: {
+            /** Label */
+            label: string;
+            /** Net Pnl */
+            net_pnl: number;
+            /** Trades */
+            trades: number;
+        };
+        /** Calendar */
+        Calendar: {
+            /** Days */
+            days: components["schemas"]["CalendarDay"][];
+            /** Month */
+            month: number;
+            /** Year */
+            year: number;
+        };
+        /** CalendarDay */
+        CalendarDay: {
+            /** Date */
+            date: string;
+            /** Outcome */
+            outcome: string;
+            /** Pnl */
+            pnl: number;
+        };
+        /** EdgeLeak */
+        EdgeLeak: {
+            amount: components["schemas"]["Undefinable"];
+            /** Recorded */
+            recorded: number;
+            /** Trades */
+            trades: number;
+        };
+        /** EquityPoint */
+        EquityPoint: {
+            /** Date */
+            date: string;
+            /** Equity */
+            equity: number;
+        };
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
+        };
+        /** Kpi */
+        Kpi: {
+            /** Expectancy */
+            expectancy?: number | null;
+            /** Expectancy State */
+            expectancy_state?: string | null;
+            /** Losses */
+            losses: number;
+            /** Net Pnl */
+            net_pnl: number;
+            /** Profit Factor */
+            profit_factor?: number | null;
+            /** Profit Factor State */
+            profit_factor_state?: string | null;
+            /** Today Pnl */
+            today_pnl: number;
+            /** Trades */
+            trades: number;
+            /** Week Pnl */
+            week_pnl: number;
+            win_rate: components["schemas"]["Undefinable"];
+            /** Wins */
+            wins: number;
+        };
+        /** NextReviewAction */
+        NextReviewAction: {
+            /** Completed */
+            completed: number;
+            /** Is Activated */
+            is_activated: boolean;
+            /** Next Key */
+            next_key?: string | null;
+            /** Total */
+            total: number;
+            /** Trades Until Review */
+            trades_until_review: number;
+        };
+        /** OverviewResponse */
+        OverviewResponse: {
+            calendar: components["schemas"]["Calendar"];
+            kpi: components["schemas"]["Kpi"];
+            next_review_action: components["schemas"]["NextReviewAction"];
+            period: components["schemas"]["Period"];
+            /** Recent Trades */
+            recent_trades: components["schemas"]["RecentTrade"][];
+            recurring_edge: components["schemas"]["RecurringEdge"];
+            risk: components["schemas"]["Risk"];
+            sample: components["schemas"]["SampleFlags"];
+            trajectory: components["schemas"]["Trajectory"];
+        };
+        /** Period */
+        Period: {
+            /** From */
+            from_: string;
+            /** To */
+            to: string;
+        };
+        /** RecentTrade */
+        RecentTrade: {
+            /** Asset */
+            asset?: string | null;
+            /** Id */
+            id: number;
+            /** Pnl */
+            pnl?: number | null;
+            /** Result */
+            result?: string | null;
+            /** Rr Realized */
+            rr_realized?: number | null;
+            /** Session */
+            session?: string | null;
+            /** Setup Type */
+            setup_type?: string | null;
+            /** Trade Date */
+            trade_date?: string | null;
+        };
+        /** RecurringEdge */
+        RecurringEdge: {
+            /** Killzones */
+            killzones: components["schemas"]["BreakdownRow"][];
+            /** Setups */
+            setups: components["schemas"]["BreakdownRow"][];
+        };
+        /** Risk */
+        Risk: {
+            consistency: components["schemas"]["Undefinable"];
+            edge_leak: components["schemas"]["EdgeLeak"];
+            max_drawdown: components["schemas"]["Undefinable"];
+            rule_adherence: components["schemas"]["RuleAdherence"];
+        };
+        /** RuleAdherence */
+        RuleAdherence: {
+            /** Followed */
+            followed: number;
+            /** Rate */
+            rate?: number | null;
+            /** Recorded */
+            recorded: number;
+        };
+        /** SampleFlags */
+        SampleFlags: {
+            /** Dated Points */
+            dated_points: number;
+            /** Show Comparisons */
+            show_comparisons: boolean;
+            /** Show Dominant Series */
+            show_dominant_series: boolean;
+            /** Show Patterns */
+            show_patterns: boolean;
+            /** Show Series */
+            show_series: boolean;
+            /** Show Summary */
+            show_summary: boolean;
+            /** Trades */
+            trades: number;
+        };
+        /** Trajectory */
+        Trajectory: {
+            average_loss: components["schemas"]["Undefinable"];
+            average_win: components["schemas"]["Undefinable"];
+            /** Best Streak */
+            best_streak?: number | null;
+            /** Current Streak */
+            current_streak?: number | null;
+            /** Equity Curve */
+            equity_curve: components["schemas"]["EquityPoint"][];
+            /** Streak Type */
+            streak_type?: string | null;
+            /** Worst Streak */
+            worst_streak?: number | null;
+        };
+        /** Undefinable */
+        Undefinable: {
+            /** State */
+            state?: string | null;
+            /** Value */
+            value?: number | null;
+        };
+        /** ValidationError */
+        ValidationError: {
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
+        };
         /** WhoAmI */
         WhoAmI: {
             /** User Id */
@@ -81,6 +298,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_overview_v1_overview_get: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

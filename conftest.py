@@ -178,3 +178,17 @@ def website_session(two_users):
     finally:
         db.close()
     return user_id, token
+
+
+@pytest.fixture
+def website_session_handle(website_session):
+    """(user_id, session HANDLE) — the sha256 the API actually receives.
+
+    The raw token never crosses into FastAPI; Next.js forwards only this hash.
+    """
+    import hashlib
+
+    from src.tradelens.services.auth_sessions import WEBSITE_DOMAIN
+
+    user_id, token = website_session
+    return user_id, hashlib.sha256((WEBSITE_DOMAIN + token).encode("utf-8")).hexdigest()

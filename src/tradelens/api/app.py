@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from src.tradelens.api.config import is_production, validate_api_runtime
-from src.tradelens.api.routers import session
+from src.tradelens.api.routers import overview, session
 
 
 def create_app() -> FastAPI:
@@ -47,6 +47,7 @@ def create_app() -> FastAPI:
         return JSONResponse({"status": "ok"})
 
     app.include_router(session.router)
+    app.include_router(overview.router)
     return app
 
 
