@@ -5649,3 +5649,117 @@ whole file passes 70/70, and **Phase 1 changed no Python file at all**
 related to this branch.
 
 **Phase 1 is ready to merge.**
+
+---
+
+# Phase 2 — Overview (2026-08-22)
+
+Branch `worktree-phase2-overview`, from `main` @ `d63007b`. Plan:
+`docs/superpowers/plans/2026-08-22-nextjs-migration-phase2-overview.md`.
+
+`/app` is now the real Overview, served through the Phase 0 FastAPI boundary and rendered in
+the Phase 1 shell. Nothing in the Phase 0 security architecture was reopened.
+
+## What shipped
+
+| Task | Commit | Deliverable |
+|---|---|---|
+| A1 | `e991c92` | Low-data policy moved to `services/sample_policy.py`, shared with Streamlit |
+| A2 | `9f48539` | `services/overview.py` — composes the payload; `metrics.setup_performance()` added |
+| A3 | `12fcc9e` | `GET /v1/overview`, Pydantic schemas, contract regenerated |
+| B1 | `9411cf5` | `web/lib/app/overview.ts` — server-side fetch |
+| C1/C2 | `e6ea11c`, `789f2dd` | Stat tile, KPI row, risk & discipline |
+| D1/D3 | `1524b99`, `e50d45d` | Equity curve, trading-days calendar |
+| D2 | `98dd6e4` | Trajectory, recurring edge |
+| E1 | `4f37107` | Next review action, recent trades |
+| E2 | `fa40d50` | `OverviewSections` composition |
+| fix | `2e4a117` | Behavioural owner-leak test; calendar a11y name |
+| B2 | `0b34ca9` | `/app` page wiring, route loading/error boundaries |
+
+## Architecture decisions
+
+**One endpoint, not per-section.** `GET /v1/overview?from=&to=` returns the whole payload.
+The page is a Server Component rendering once; per-section endpoints would be N round trips
+for one screen. When a later phase needs finer granularity it can add endpoints then.
+
+**The low-data policy is now shared infrastructure.** It lived under `ui/`, which Phase 10
+deletes, while its own docstring insisted one answer must hold across surfaces. Streamlit
+re-exports from `services/sample_policy` so both surfaces run on the same objects.
+
+**`metrics.setup_performance()` is new, not modified.** `by_setup_type` carries no P&L column,
+so the setup breakdown could not be built from it. A new public function on the same private
+engine cannot alter any output the parity harness pins.
+
+**Charts are inline SVG.** No new npm dependency. A line and a month grid do not justify a
+charting library, and choosing one now would decide a later phase's question prematurely.
+
+## Defects caught before they shipped
+
+**Six wrong metric field names, found in the pre-flight scan before any code was written.**
+`compute_basic_metrics` returns `total_pnl` not `net_pnl`; `compute_streaks` returns
+`current_streak`/`max_win_streak`/`max_loss_streak`; `EdgeLeakSummary` is
+`net_pnl`/`qualifying_trades`/`recorded_trades`; `killzone_performance` returns `total_pnl`;
+`calendar_daily_pnl` returns `trade_date`/`net_pnl`; `by_setup_type` has no P&L column at all.
+The plan had written every read as `.get(col, 0.0)`, so five of the six would have rendered as
+a confident $0.00 rather than failing. Required reads are now explicit and loud (`_need`).
+
+**Undefined was crossing the boundary as zero.** `metrics` flattens `max_drawdown`,
+`consistency_score`, `avg_win`/`avg_loss` and `win_rate` to `0.0` upstream, and
+`finite_or_state` can only recover a state from NaN/±inf — so a trader with four trades would
+have been shown **0 out of 100 consistency**, when the real meaning is "too little signal to
+score". These now cross as `{"value": null, "state": "undefined_no_sample"}`.
+
+**Activation and today/week P&L were period-scoped.** A trader with 40 lifetime trades who
+selected a quiet month would have been told to "log your first completed trade". Both now read
+lifetime trades via one additional owner-scoped query.
+
+**The typed contract was not gating drift.** Pydantic's default `extra="ignore"` silently drops
+added fields, and `None` defaults meant a removed field validated as `{"value": null,
+"state": null}` — a figure vanishing with no state to explain it. Now `extra="forbid"` with
+defaults dropped. The re-reviewer proved the new tests are non-vacuous by reverting the config
+and confirming they fail.
+
+**A security test that tested nothing.** B1's "never sends a user id" test stringified the
+function source and regex-matched it. It would have missed an id threaded through a helper, any
+other spelling (`ownerId`, `accountId`, `uid` — even `userID`, since the pattern required a
+lowercase `d`), and a value sent without its name. Replaced with an assertion on the outgoing
+call args, and **proved stronger**: threading `owner=1` into the query fails the new test, and
+the old regex test passes that same regression.
+
+**`as const` on a ternary (TS1355).** Invisible during the parallel component batch, because
+each agent was necessarily forbidden from running `tsc` while the graph was incomplete. The
+first full typecheck at E2 caught it immediately.
+
+## Accessibility — a computed finding, not a judgement call
+
+The outcome colour pair was validated rather than eyeballed. Against the dark chart surface:
+
+```
+CVD separation   #f56565 <-> #22c55e   dE 2.3 (deutan)   FAIL
+Normal vision    #f56565 <-> #22c55e   dE 33.2           PASS
+```
+
+To a deuteranope the winning colour and the losing colour are the same colour; to everyone
+else they are obviously different, which is exactly how this ships undetected. So no chart in
+this phase distinguishes anything by hue alone: the calendar encodes a winning day as a filled
+circle and a losing day as a square (with `role="img"` so the label is announced), stat tiles
+carry the sign in text, and the recent-trades table has outcome as a word in its own column.
+
+## Verification
+
+- Python: **2609 passed, 7 skipped**. ruff and black clean.
+- Web: **982 passed / 43 files**. `tsc --noEmit` clean. eslint 0 errors (2 pre-existing
+  `modal-trap.ts` warnings).
+- Production build compiled; **all seven `/app` routes are `f` (dynamic)** — a statically
+  prerendered `/app` would bake one trader's data into a shared page.
+- **Contract drift gate CLEAN**: regenerating `openapi.json` and `schema.d.ts` produces no diff.
+
+## Carried forward
+
+- Docker build/startup/health remains an open pre-deployment gate (see the banner at the top).
+- No browser smoke pass was run for Phase 2. The Overview has only been verified by tests and
+  by the production build; it has not been looked at in a browser against real data.
+- The `_MIN_TRADES_FOR_CONSISTENCY = 5` constant is mirrored in `services/overview.py` from a
+  private constant in `services/metrics.py`. Documented, but it can drift.
+- The strict-JSON test in `tests/test_overview_service.py` is prophylactic: no live path emits
+  a non-finite raw float today.
