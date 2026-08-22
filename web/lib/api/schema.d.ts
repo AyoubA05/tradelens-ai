@@ -70,6 +70,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/trades": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trades List
+         * @description The Trades list for the authenticated owner.
+         *
+         *     The owner is the session row's, never the query. `limit`/`offset` are
+         *     clamped inside `list_trades` itself, so a caller requesting `limit=1000`
+         *     gets 100 back rather than a 422 — the service is the one source of truth
+         *     for the bound, matching `list_trades`'s own contract.
+         */
+        get: operations["get_trades_list_v1_trades_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -252,6 +277,43 @@ export interface components {
             /** Trades */
             trades: number;
         };
+        /** TradeListResponse */
+        TradeListResponse: {
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+            /** Trades */
+            trades: components["schemas"]["TradeSummary"][];
+        };
+        /**
+         * TradeSummary
+         * @description One row of the Trades list — deliberately narrower than Trade Detail.
+         */
+        TradeSummary: {
+            /** Asset */
+            asset: string | null;
+            /** Direction */
+            direction: string | null;
+            /** Id */
+            id: number;
+            /** Killzone */
+            killzone: string | null;
+            /** Pnl */
+            pnl: number | null;
+            /** Result */
+            result: ("Win" | "Loss" | "Breakeven") | null;
+            /** Rr Realized */
+            rr_realized: number | null;
+            /** Session */
+            session: string | null;
+            /** Setup Type */
+            setup_type: string | null;
+            /** Trade Date */
+            trade_date: string | null;
+        };
         /** Trajectory */
         Trajectory: {
             average_loss: components["schemas"]["Undefinable"];
@@ -376,6 +438,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WhoAmI"];
+                };
+            };
+        };
+    };
+    get_trades_list_v1_trades_get: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                asset?: string | null;
+                session?: string | null;
+                setup?: string | null;
+                result?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

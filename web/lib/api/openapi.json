@@ -599,6 +599,166 @@
         "title": "SampleFlags",
         "type": "object"
       },
+      "TradeListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "trades": {
+            "items": {
+              "$ref": "#/components/schemas/TradeSummary"
+            },
+            "title": "Trades",
+            "type": "array"
+          }
+        },
+        "required": [
+          "trades",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "TradeListResponse",
+        "type": "object"
+      },
+      "TradeSummary": {
+        "additionalProperties": false,
+        "description": "One row of the Trades list \u2014 deliberately narrower than Trade Detail.",
+        "properties": {
+          "asset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "killzone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Killzone"
+          },
+          "pnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnl"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Win",
+                  "Loss",
+                  "Breakeven"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "rr_realized": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rr Realized"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session"
+          },
+          "setup_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Type"
+          },
+          "trade_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Date"
+          }
+        },
+        "required": [
+          "id",
+          "trade_date",
+          "asset",
+          "direction",
+          "session",
+          "setup_type",
+          "killzone",
+          "result",
+          "pnl",
+          "rr_realized"
+        ],
+        "title": "TradeSummary",
+        "type": "object"
+      },
       "Trajectory": {
         "additionalProperties": false,
         "properties": {
@@ -832,6 +992,142 @@
         "summary": "Whoami",
         "tags": [
           "session"
+        ]
+      }
+    },
+    "/v1/trades": {
+      "get": {
+        "description": "The Trades list for the authenticated owner.\n\nThe owner is the session row's, never the query. `limit`/`offset` are\nclamped inside `list_trades` itself, so a caller requesting `limit=1000`\ngets 100 back rather than a 422 \u2014 the service is the one source of truth\nfor the bound, matching `list_trades`'s own contract.",
+        "operationId": "get_trades_list_v1_trades_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "title": "To",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset"
+            }
+          },
+          {
+            "in": "query",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session"
+            }
+          },
+          {
+            "in": "query",
+            "name": "setup",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Setup"
+            }
+          },
+          {
+            "in": "query",
+            "name": "result",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Result"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Trades List",
+        "tags": [
+          "trades"
         ]
       }
     }
