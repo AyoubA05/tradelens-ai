@@ -295,39 +295,57 @@ describe("inert background", () => {
     }
   });
 
-  // The More sheet's own root div sits one level deeper than the drawer's —
-  // it is mounted inside BottomNav's fragment, a sibling of the phone <nav>,
-  // rather than as a direct child of the shell root — so "outside the sheet"
-  // means the sheet root's actual DOM siblings, not the shell's top-level
-  // children. Walking up from the dialog itself keeps this correct instead of
-  // assuming a particular nesting depth.
-  function siblingsOfDialogRoot(dialog: HTMLElement) {
-    const root = dialog.parentElement;
-    return Array.from(root?.parentElement?.children ?? []).filter((child) => child !== root);
+  // The property that actually matters, for either overlay: the main
+  // landmark — where the page's real content lives — must be unreachable
+  // while the overlay is open. This is deliberately NOT computed from the
+  // implementation's own idea of "the overlay's siblings" (that check
+  // previously recomputed the hook's own scope-selection logic, so an
+  // implementation bug and the test that was supposed to catch it agreed
+  // with each other and both passed). The More sheet's root is mounted a
+  // level deeper than the drawer's — inside BottomNav's returned fragment,
+  // which produces no DOM node of its own — so a sibling-walk anchored one
+  // level up from the sheet's root only reaches the phone <nav>, leaving
+  // <main> fully reachable to a screen reader's browse mode. Asserting on
+  // <main> directly is invariant to that mounting depth and would have
+  // failed against the old implementation.
+  // `inert` is set on the ancestor that was a top-level sibling of the
+  // overlay at whichever depth it was found, not on <main> itself — real
+  // browsers propagate its effect to every descendant, but jsdom does not
+  // implement that propagation (it only implements the attribute), and
+  // neither does the `.inert` IDL property reflect an ancestor's attribute.
+  // So "is <main> reachable" has to be read the same way a browser would
+  // resolve it: walk from <main> up to <body> and ask whether anything on
+  // that path carries the attribute.
+  function isInert(element: HTMLElement): boolean {
+    let node: HTMLElement | null = element;
+    while (node) {
+      if (node.hasAttribute("inert")) return true;
+      node = node.parentElement;
+    }
+    return false;
   }
 
-  it("marks content outside the More sheet inert while it is open", () => {
+  it("makes the main landmark inert while the drawer is open, and live again once it closes", () => {
     renderShell();
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    const main = screen.getByRole("main");
+    expect(isInert(main)).toBe(false);
 
-    const dialog = screen.getByRole("dialog");
-    const siblings = siblingsOfDialogRoot(dialog);
-    expect(siblings.length).toBeGreaterThan(0);
-    for (const sibling of siblings) {
-      expect(sibling.hasAttribute("inert")).toBe(true);
-    }
-  });
-
-  it("removes inert from the background once the More sheet closes", () => {
-    renderShell();
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
-    const dialog = screen.getByRole("dialog");
-    const siblings = siblingsOfDialogRoot(dialog);
+    fireEvent.click(screen.getByRole("button", { name: /ask about a trade/i }));
+    expect(isInert(main)).toBe(true);
 
     fireEvent.keyDown(document, { key: "Escape" });
+    expect(isInert(main)).toBe(false);
+  });
 
-    for (const sibling of siblings) {
-      expect(sibling.hasAttribute("inert")).toBe(false);
-    }
+  it("makes the main landmark inert while the More sheet is open, and live again once it closes", () => {
+    renderShell();
+    const main = screen.getByRole("main");
+    expect(isInert(main)).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(isInert(main)).toBe(true);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(isInert(main)).toBe(false);
   });
 });
