@@ -1,4 +1,7 @@
 {
+  "enabledMcpjsonServers": [
+    "tradelens-db"
+  ],
   "hooks": {
     "PostToolUse": [
       {
@@ -23,6 +26,10 @@
       }
     ]
   },
+  "enabledPlugins": {
+    "impeccable@impeccable": true,
+    "codex@openai-codex": true
+  },
   "extraKnownMarketplaces": {
     "impeccable": {
       "source": {
@@ -30,11 +37,5 @@
         "repo": "pbakaus/impeccable"
       }
     }
-  },
-  "enabledPlugins": {
-    "impeccable@impeccable": true
-  },
-  "enabledMcpjsonServers": [
-    "tradelens-db"
-  ]
+  }
 }

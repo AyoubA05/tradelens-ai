@@ -38,8 +38,10 @@ Same shape as Phase 2, which worked: **groups**, not per-task review gates.
 | B — mutations (PATCH, DELETE) | **Deepest in the phase.** First write path across the boundary. |
 | C — trades list UI (filters, table, calendar) | Light at the group boundary. |
 | D — trade detail UI (view, edit, delete, screenshot) | Light, **except** the delete-confirmation and edit-conflict interaction, which get real scrutiny. |
-| E — AI summary of a filtered set | **Deep.** First `ai_jobs` consumer; prompt-injection surface. |
+| E — AI summary of a filtered set | **Deferred to Phase 3E.** Deep review when it runs: first `ai_jobs` consumer, prompt-injection surface. |
 | F — verification, browser smoke pass, handoff | Final phase boundary. |
+
+**Phase 3 ships Groups A-D plus F.** Group E is tracked, not executed.
 
 TDD the data contracts, the filter/pagination logic, and every mutation guard. Do not mutation-test routine presentation. **The browser smoke pass is a gate, not a formality** — in Phase 2 it caught a self-contradicting card that 982 passing tests certified.
 
@@ -53,9 +55,13 @@ TDD the data contracts, the filter/pagination logic, and every mutation guard. D
 
 **3. Trade Detail ignores the period lens.** Established in Phase 1: never present two controls claiming the same temporal scope. A single trade has one date; a period selector on that page would mean nothing. `/app/trades/[id]` is not added to `PERIOD_SCOPED_ROUTES`.
 
-**4. The PATCH body is an explicit allowlist, not the service's `**fields`.** `trade_service.update_trade` accepts every column except `id` and `user_id` — which is right for a trusted in-process caller and wrong for an HTTP boundary. Exposing it directly would let a caller write `trade_hash`, `is_sample`, `created_at`, or `strategy_id`. The Pydantic model names the editable fields, and `extra="forbid"` rejects the rest.
+**4. The PATCH body is an explicit allowlist of genuinely user-editable fields.** `trade_service.update_trade` accepts every column except `id` and `user_id` — right for a trusted in-process caller, wrong for an HTTP boundary. The Pydantic model names the editable fields and nothing else, with `extra="forbid"` rejecting the rest.
 
-**5. Edits carry `expected_updated_at`.** Inline editing on a page a trader may have left open invites the lost-update problem: two tabs, both stale, last write wins silently. The PATCH requires the `updated_at` the client last saw, and returns `409` when it no longer matches. This is cheap now and impossible to retrofit once clients exist.
+**Ownership and server-owned metadata are never reachable through HTTP input**, whatever the request says: `user_id`, `trade_id`/`id`, `trade_hash`, `is_sample`, `created_at`, `updated_at`, `strategy_id`, and any future server-managed column. The allowlist is positive — a new column added to the `Trade` model is NOT editable until someone deliberately adds it here, so the safe default survives schema growth. A test asserts the allowlist and the model's editable set agree, so adding a column cannot silently widen the write surface.
+
+**5. Edits carry `expected_updated_at`, enforced atomically in the write predicate.** Inline editing on a page a trader may have left open invites the lost-update problem: two tabs, both stale, last write wins silently. The PATCH requires the `updated_at` the client last saw.
+
+**It must be a single conditional UPDATE, never check-then-update.** The predicate is `id = :trade_id AND user_id = :owner AND updated_at = :expected_updated_at`, and the decision is the rowcount. Reading the row, comparing in Python, then writing leaves a window in which another request commits between the check and the write — which is exactly the lost update the field exists to prevent, reintroduced by the guard itself. This is the same TOCTOU that Phase 0 had to remove from `restore_website_session_handle`, and it is not being reintroduced here. A rowcount of 0 means either the trade is not the caller's or the row moved on; re-read once, owner-scoped, to tell a 404 from a 409.
 
 **6. Screenshots are presigned directly to R2, never proxied.** `presign_download(user_id, screenshot_id)` already resolves ownership through the trade and returns `None` rather than raising, so a missing object and someone else's object are indistinguishable. The URL is short-lived and the browser fetches R2 directly — proxying image bytes through Next.js would put a per-image serverless invocation on every page view.
 
@@ -166,11 +172,17 @@ Tests: own trade returns; another owner's id returns 404; a non-existent id retu
 
 **Task B1 — `PATCH /v1/trades/{id}`.**
 Body model names only the editable fields — `trade_date`, `asset`, `session`, `setup_type`, `timeframe`, `direction`, `result`, `pnl`, `rr_realized`, `risk_amount`, `followed_rules`, `killzone`, `htf_bias`, `notes`, `mistake_tags` — plus a required `expected_updated_at`. `extra="forbid"` rejects everything else, so `trade_hash`, `is_sample`, `created_at`, `strategy_id`, `id` and `user_id` are unreachable. On a stale `expected_updated_at`, return `409` with the current value so the client can show what changed.
-Tests: each editable field round-trips; `user_id` in the body is rejected by `extra="forbid"`; `trade_hash` likewise; another owner's trade returns 404 and is not modified (assert the row afterwards); a stale `expected_updated_at` returns 409 and leaves the row untouched; editing `pnl` re-derives `result` through `canonical_outcome`; an unsigned or body-tampered request fails Lock 1 (the HMAC covers `sha256(body)`).
+Tests: each editable field round-trips; `user_id`, `trade_hash`, `is_sample`, `created_at` and `strategy_id` in the body are each rejected by `extra="forbid"`; the allowlist and the model's editable columns are asserted to agree, so a new column cannot silently widen the surface; another owner's trade returns 404 and is not modified (assert the row afterwards); a stale `expected_updated_at` returns 409 and leaves the row untouched; **the update is a single conditional statement — a test asserts the write predicate carries all three of trade id, owner and expected timestamp, and that a rowcount of 0 is what produces the 409**; editing `pnl` re-derives `result` through `canonical_outcome`; an unsigned or body-tampered request fails Lock 1 (the HMAC covers `sha256(body)`).
 
 **Task B2 — `DELETE /v1/trades/{id}`.**
-Removes stored R2 objects **before** the row, via a new `storage.delete_trade_objects(user_id, trade_id)`, then calls `delete_trade`. Deleting an already-deleted trade returns 404, not 500.
-Tests: own trade is removed and returns 204; another owner's trade returns 404 and the row survives (assert it afterwards); screenshots' R2 objects are deleted, proven with a stubbed client that records calls; the DB rows cascade; a second delete returns 404; an unsigned request fails Lock 1.
+Removes stored R2 objects **before** the row, via a new `storage.delete_trade_objects(user_id, trade_id)`, then calls `delete_trade`.
+
+`delete_trade_objects` must be all three of:
+- **Owner-scoped.** It resolves the objects through `trade_id -> trades.user_id` and refuses to touch anything else. `Screenshot` carries no `user_id`, so this join is the only ownership signal that exists; a call that enumerated by screenshot id alone would be a cross-tenant delete.
+- **Idempotent.** A missing object is success, not an error. Retries and double-clicks must converge, and a half-finished earlier attempt must be completable.
+- **Failure-aware.** It returns what it deleted and what it could not. **The endpoint must never report a completed deletion when asset cleanup failed** — a trader told their screenshots are gone, while private images remain in R2, has been given a false privacy assurance. On partial failure the row is left in place, the response is a 5xx naming the failure, and the state stays retryable rather than becoming an orphan nobody can find.
+
+Tests: own trade removed, returns 204, and its objects are gone; another owner's trade returns 404, the row survives, and **no delete call is issued to storage at all** (assert on the stub, not just the row); a missing object still yields success (idempotence); an object-store failure yields a 5xx AND leaves the row intact, so a retry can finish the job; a second delete of a fully-deleted trade returns 404; the DB rows cascade; an unsigned request fails Lock 1.
 
 ### GROUP C — Trades list UI *(light review)*
 
@@ -187,7 +199,14 @@ Tests: own trade is removed and returns 204; another owner's trade returns 404 a
 **Task D4 — delete with confirmation.** A modal reusing Phase 1's `useModalTrap` (focus trap, `inert` background, focus restoration). Requires an explicit confirm; states plainly that the trade and its screenshots are removed permanently. This gets real review.
 **Task D5 — screenshot view.** Presigned URL, `loading="lazy"`, meaningful `alt`, and a graceful state when the object is missing or the URL has expired.
 
-### GROUP E — AI summary of a filtered set *(deep review)*
+### GROUP E — AI summary of a filtered set — **DEFERRED TO PHASE 3E**
+
+**Not executed in this phase.** Owner's direction: Groups A-D deliver the core journal
+experience and must not wait on AI work. Group E begins only after A-D are green and reviewed,
+as a clean follow-up. It is written out here rather than removed so the §8 parity item stays
+explicitly tracked and cannot be silently dropped.
+
+*(Phase 3E scope, deep review when it runs:)*
 
 **Task E1 — `services/trade_summary.py`.** Builds the summary from a filtered `TradePage`, calling `ai_client.chat()`. `DEMO_MODE=true` returns cached output so tests spend nothing. The prompt frames trader-authored text as quoted data and forbids trade ideas, predictions and market opinions. Refuses to summarise a sample too small to support one.
 **Task E2 — enqueue and poll endpoints.** `POST /v1/trades/summary` enqueues via `api.jobs.enqueue` with an idempotency key derived from owner plus the canonical filter set, so a double-click does not buy two AI calls; `GET /v1/trades/summary/{job_id}` returns status or result, and **404s a job belonging to another owner**. Register the handler in the worker.
@@ -195,7 +214,7 @@ Tests: own trade is removed and returns 204; another owner's trade returns 404 a
 
 ### GROUP F — Verification and handoff
 
-**Task F1.** Full gates from a committed HEAD: Python suite, ruff, black, vitest, tsc, eslint, production build with every `/app` route confirmed `ƒ` dynamic, and the OpenAPI/TypeScript drift gate producing no diff. Then a **real browser smoke pass on a disposable Neon branch** (forked from dev, never production; deleted afterwards) covering: filtering by each field and by combinations; pagination boundaries; open-from-day; opening a trade; editing a field; the 409 conflict path with two stale tabs; deleting with confirmation; a screenshot rendering; the AI summary completing; and a second account proving isolation on both the list and the detail route. Record what was seen, update the handoff, and stop.
+**Task F1.** Full gates from a committed HEAD: Python suite, ruff, black, vitest, tsc, eslint, production build with every `/app` route confirmed `ƒ` dynamic, and the OpenAPI/TypeScript drift gate producing no diff. Then a **real browser smoke pass on a disposable Neon branch** (forked from dev, never production; deleted afterwards) covering: filtering by each field and by combinations; pagination boundaries; open-from-day; opening a trade; editing a field; the 409 conflict path with two stale tabs; deleting with confirmation; a screenshot rendering; and a second account proving isolation on both the list and the detail route. Record what was seen, update the handoff, and stop.
 
 ---
 
@@ -207,4 +226,4 @@ Tests: own trade is removed and returns 204; another owner's trade returns 404 a
 
 **Type consistency.** `TradePage{trades,total,limit,offset}` is produced in A1 and consumed by A2. `list_trades` keyword names match the query parameters in A2 (`setup_type` maps to the `setup` query parameter — noted explicitly so the two are not confused). `expected_updated_at` is named identically in B1 and D3. `KILLZONE_LABELS` is the single label source in A2 and C2. `presign_download(user_id, screenshot_id)` is used as-is in A3 and D5.
 
-**Known scope risk.** This is a larger phase than Phase 2 — five endpoints, two of them mutating, plus the first async AI consumer. If a smaller merge is wanted, **Group E is the clean cut**: Groups A–D deliver a complete, usable Trades and Trade Detail experience on their own, and the AI summary can follow as Phase 3b without reopening anything.
+**Scope, as approved.** Group E is deferred to **Phase 3E** and is not executed here — Groups A-D deliver a complete, usable Trades and Trade Detail experience on their own, and the AI summary follows once they are green and reviewed. The §8 parity item stays tracked in this document and must be carried into the handoff as outstanding, alongside screenshot upload (Phase 4), so neither is silently dropped.
