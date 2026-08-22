@@ -2,9 +2,7 @@ name: TradeLens AI — CI
 
 on:
   push:
-    # The Phase 0 branch is listed so the full network-enabled workflow can run
-    # against it before it is merged. Remove the entry once Phase 0 lands.
-    branches: [main, worktree-phase0-foundations]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
