@@ -10,7 +10,13 @@ Two rules govern the shaping:
 
 * **Undefined is not zero.** Profit factor with no losses, expectancy with no
   trades, a drawdown over an empty period — each crosses the boundary as a
-  value plus a state, never as a plausible-looking number.
+  value plus a state, never as a plausible-looking number. This includes
+  figures `metrics` itself has already flattened to a finite 0.0 for lack of
+  sample (max_drawdown below two points, consistency below five trades, an
+  average with no members, a win rate over zero trades) — `finite_or_state`
+  cannot recover those from NaN/inf because they were never non-finite, so
+  this module gates them on the sample directly and reports
+  `state: "undefined_no_sample"`.
 * **A sample decides what it has earned.** The flags come from
   `services/sample_policy`, so the client renders a low-data state rather than
   inventing one per component.
@@ -34,10 +40,15 @@ from src.tradelens.services.weekly import get_weekly_reviews
 
 RECENT_TRADE_LIMIT = 5
 
+# consistency_score's own documented contract (services/metrics.py) treats
+# fewer than 5 trades as insufficient signal and returns a flat 0.0. Not
+# imported from there because it's a private threshold (_MIN_TRADES_FOR_CONSISTENCY);
+# this mirrors the public docstring contract, not an internal constant.
+_MIN_TRADES_FOR_CONSISTENCY = 5
+
 _TRADE_COLUMNS = (
     "id",
     "trade_date",
-    "entry_time",
     "asset",
     "session",
     "setup_type",
@@ -50,7 +61,6 @@ _TRADE_COLUMNS = (
     "mistake_tags",
     "strategy_used",
     "htf_bias",
-    "ltf_bias",
     "killzone",
     "day_of_week",
 )
@@ -59,20 +69,40 @@ _TRADE_COLUMNS = (
 def _frame(trades: List[Any]) -> pd.DataFrame:
     """The metric functions take a DataFrame with these exact columns.
 
-    Built explicitly rather than from `__dict__` so a schema change surfaces
-    here as a missing column instead of silently changing a metric.
+    Built explicitly, and read with a bare `getattr` (no default), so a
+    renamed or removed ORM attribute raises `AttributeError` here instead of
+    silently producing an all-`None` column that every downstream metric then
+    degrades against quietly — a renamed `pnl` rendering $0.00 across the
+    dashboard is exactly the failure this module exists to prevent.
     """
     if not trades:
         return pd.DataFrame(columns=list(_TRADE_COLUMNS))
-    return pd.DataFrame(
-        [{c: getattr(t, c, None) for c in _TRADE_COLUMNS} for t in trades]
-    )
+    return pd.DataFrame([{c: getattr(t, c) for c in _TRADE_COLUMNS} for t in trades])
 
 
 def _pair(value: Any) -> Dict[str, Any]:
     """A possibly-undefined number as {value, state}."""
     number, state = finite_or_state(value)
     return {"value": number, "state": state}
+
+
+_UNDEFINED_NO_SAMPLE = {"value": None, "state": "undefined_no_sample"}
+
+
+def _sample_pair(value: Any, insufficient: bool) -> Dict[str, Any]:
+    """A number gated by sample size, not merely by non-finiteness.
+
+    `finite_or_state` only recovers a state from NaN/±inf. Several metrics
+    flatten "not enough data" to an ordinary finite 0.0 instead of a
+    non-finite sentinel — max_drawdown below two points, consistency_score
+    below five trades, an average over zero members, a win rate over zero
+    trades — so `_pair` alone is a no-op on all of them and 0.0 would read as
+    a real answer. `insufficient` is computed by the caller from the sample
+    counts already in hand (`basic`), not from the metric's return value.
+    """
+    if insufficient:
+        return dict(_UNDEFINED_NO_SAMPLE)
+    return _pair(value)
 
 
 def _need(mapping: Any, key: str) -> Any:
@@ -109,17 +139,28 @@ def build_overview(
     df = _frame(trades)
     sample = sample_state(df)
 
+    # Activation and "today"/"this week" are lifetime concepts, not a function
+    # of whatever analysis period the trader happens to have selected. A
+    # trader with 40 lifetime trades who picks a quiet month must not be told
+    # to log their first trade, and today's P&L must not vanish because
+    # `start`/`end` don't happen to include today. One extra unfiltered read
+    # covers both.
+    lifetime_trades = get_trades(user_id=owner)
+    lifetime_df = _frame(lifetime_trades)
+
     basic = metrics.compute_basic_metrics(df)
     equity = metrics.compute_equity_curve(df)
     streaks = metrics.compute_streaks(df)
     adherence = metrics.rule_adherence_rate(df)
     leak = metrics.edge_leak_summary(df)
 
+    total_trades = int(_need(basic, "total_trades") or 0)
+    wins = int(_need(basic, "wins") or 0)
+    losses = int(_need(basic, "losses") or 0)
+
     pf_value, pf_state = finite_or_state(metrics.compute_profit_factor_raw(df))
     expectancy_value, expectancy_state = finite_or_state(
-        metrics.compute_expectancy(basic)
-        if _need(basic, "total_trades")
-        else float("nan")
+        metrics.compute_expectancy(basic) if total_trades else float("nan")
     )
 
     end_date = dt.date.fromisoformat(end)
@@ -128,14 +169,16 @@ def build_overview(
     # per trade, matching how drawdown is computed elsewhere); the chart the
     # Overview draws needs one point per day, which is what daily_equity_curve
     # gives — collapsed and column-named `cumulative_pnl`, not `equity`.
-    equity_curve = (
-        []
-        if not sample.show_series
-        else [
-            {"date": str(r["trade_date"]), "equity": float(r["cumulative_pnl"])}
-            for _, r in metrics.daily_equity_curve(df).iterrows()
-        ]
-    )
+    #
+    # Not gated on any sample flag here: `sample_policy` governs one rule for
+    # every dated instrument, and the calendar below is already returned
+    # ungated. The service always returns the points it has (naturally `[]`
+    # when there are none); the client decides what a small sample has earned
+    # the right to draw, from the flags already in `sample` below.
+    equity_curve = [
+        {"date": str(r["trade_date"]), "equity": float(r["cumulative_pnl"])}
+        for _, r in metrics.daily_equity_curve(df).iterrows()
+    ]
 
     return {
         "period": {"from": start, "to": end},
@@ -150,32 +193,40 @@ def build_overview(
         },
         "kpi": {
             "net_pnl": float(_need(basic, "total_pnl") or 0.0),
-            "win_rate": _need(basic, "win_rate"),
+            "win_rate": _sample_pair(_need(basic, "win_rate"), total_trades == 0),
             "expectancy": expectancy_value,
             "expectancy_state": expectancy_state,
             "profit_factor": pf_value,
             "profit_factor_state": pf_state,
-            "trades": int(_need(basic, "total_trades") or 0),
-            "wins": int(_need(basic, "wins") or 0),
-            "losses": int(_need(basic, "losses") or 0),
-            "today_pnl": metrics.today_pnl(df, today=now),
-            "week_pnl": metrics.current_week_pnl(df, today=now),
+            "trades": total_trades,
+            "wins": wins,
+            "losses": losses,
+            "today_pnl": metrics.today_pnl(lifetime_df, today=now),
+            "week_pnl": metrics.current_week_pnl(lifetime_df, today=now),
         },
         "risk": {
-            "max_drawdown": _pair(metrics.compute_max_drawdown(equity)),
+            "max_drawdown": _sample_pair(
+                metrics.compute_max_drawdown(equity), len(equity) < 2
+            ),
             "rule_adherence": {
                 "rate": adherence.rate,
                 "followed": adherence.followed,
                 "recorded": adherence.recorded,
             },
             # EdgeLeakSummary names these net_pnl / qualifying_trades /
-            # recorded_trades; the API uses plainer words for the same figures.
+            # recorded_trades; the API uses plainer words for the same
+            # figures. `net_pnl` is None when there is no followed_rules or
+            # mistake_tags evidence to interpret — that is a different fact
+            # from "zero leaked", so it goes through `_pair`, not `or 0.0`.
             "edge_leak": {
-                "amount": leak.net_pnl or 0.0,
+                "amount": _pair(leak.net_pnl),
                 "trades": leak.qualifying_trades,
                 "recorded": leak.recorded_trades,
             },
-            "consistency": _pair(metrics.consistency_score(df)),
+            "consistency": _sample_pair(
+                metrics.consistency_score(df),
+                total_trades < _MIN_TRADES_FOR_CONSISTENCY,
+            ),
         },
         "trajectory": {
             "equity_curve": equity_curve,
@@ -185,15 +236,15 @@ def build_overview(
             "streak_type": _need(streaks, "streak_type"),
             "best_streak": _need(streaks, "max_win_streak"),
             "worst_streak": _need(streaks, "max_loss_streak"),
-            "average_win": _pair(_need(basic, "avg_win")),
-            "average_loss": _pair(_need(basic, "avg_loss")),
+            "average_win": _sample_pair(_need(basic, "avg_win"), wins == 0),
+            "average_loss": _sample_pair(_need(basic, "avg_loss"), losses == 0),
         },
         "recurring_edge": {
             "killzones": _breakdown(metrics.killzone_performance(df), "killzone"),
             "setups": _breakdown(metrics.setup_performance(df), "setup_type"),
         },
         "calendar": _calendar(df, end_date.year, end_date.month),
-        "next_review_action": _next_action(owner, trades),
+        "next_review_action": _next_action(owner, lifetime_trades),
         "recent_trades": [
             {
                 "id": t.id,
@@ -214,9 +265,13 @@ def _breakdown(frame: pd.DataFrame, label_column: str) -> List[dict]:
     """A grouped metric frame as rows the client can render directly.
 
     Both groupers expose the P&L column as `total_pnl`; the API calls it
-    `net_pnl` because that is what it means to a reader.
+    `net_pnl` because that is what it means to a reader. An empty/None frame
+    is a legitimate "nothing to show"; a frame that lacks `label_column`,
+    `total_pnl`, or `trades` is not — that means the grouper's shape changed,
+    and the previous silent `return []` for a missing label column would have
+    hidden that behind an empty panel instead.
     """
-    if frame is None or frame.empty or label_column not in frame.columns:
+    if frame is None or frame.empty:
         return []
     for required in (label_column, "total_pnl", "trades"):
         if required not in frame.columns:
@@ -257,7 +312,12 @@ def _calendar(df: pd.DataFrame, year: int, month: int) -> dict:
 
 
 def _next_action(owner: int, trades: List[Any]) -> dict:
-    """Where the trader stands on the activation path."""
+    """Where the trader stands on the activation path.
+
+    `trades` here must be the trader's lifetime trades, not a period-filtered
+    slice — activation is a lifetime concept, and a narrow analysis window
+    must not reset it.
+    """
     status = activation_status(
         strategy=get_active_strategy(owner),
         trades=trades,

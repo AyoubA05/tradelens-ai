@@ -83,21 +83,48 @@ def test_sample_flags_come_from_the_shared_policy(seeded):
 
 
 def test_every_value_survives_strict_json(seeded):
-    """The boundary rejects NaN and Infinity, so the service must not emit them."""
+    """The boundary rejects NaN and Infinity, so the service must not emit them.
+
+    Walks the raw payload first: `to_jsonable` maps every non-finite float to
+    `None` by design, so piping straight through it (as this test used to)
+    would let a stray `float("inf")` sail through undetected. Checking
+    `math.isfinite` on the raw payload is what actually pins "the service
+    itself never emits one."
+    """
     import json
+    import math
 
     from src.tradelens.api.serialization import to_jsonable
 
     owner, _ = seeded
-    json.dumps(
-        to_jsonable(overview.build_overview(user_id=owner, **PERIOD)), allow_nan=False
-    )
+    payload = overview.build_overview(user_id=owner, **PERIOD)
+
+    def _walk(value):
+        if isinstance(value, float):
+            assert math.isfinite(value), f"non-finite float in raw payload: {value!r}"
+        elif isinstance(value, dict):
+            for v in value.values():
+                _walk(v)
+        elif isinstance(value, (list, tuple)):
+            for v in value:
+                _walk(v)
+
+    _walk(payload)
+    json.dumps(to_jsonable(payload), allow_nan=False)
 
 
 def test_recent_trades_are_newest_first_and_capped(seeded):
+    """Six trades in the period, capped to five — the golden dataset alone
+    (exactly 5 trades) could never make this cap load-bearing."""
     owner, _ = seeded
+    from src.tradelens.services import trade_service
+
+    trade_service.create_trade(
+        {"trade_date": "2026-08-20", "asset": "NQ", "result": "Win", "pnl": 10.0},
+        user_id=owner,
+    )
     rows = overview.build_overview(user_id=owner, **PERIOD)["recent_trades"]
-    assert len(rows) <= 5
+    assert len(rows) == 5
     assert [r["trade_date"] for r in rows] == sorted(
         (r["trade_date"] for r in rows), reverse=True
     )
@@ -118,3 +145,124 @@ def test_the_equity_curve_lives_under_trajectory(seeded):
     assert "equity_curve" not in data
     points = data["trajectory"]["equity_curve"]
     assert points and set(points[0]) == {"date", "equity"}
+
+
+# ---------------------------------------------------------------------------
+# Fix round 2: figures metrics has already flattened to a finite 0.0 for lack
+# of sample must cross the boundary as {"value": None, "state":
+# "undefined_no_sample"}, not as a plausible-looking zero.
+# ---------------------------------------------------------------------------
+
+
+def test_max_drawdown_is_undefined_below_two_trades(two_users):
+    owner, _ = two_users
+    from src.tradelens.services import trade_service
+
+    trade_service.create_trade(
+        {"trade_date": "2026-08-10", "asset": "NQ", "result": "Win", "pnl": 100.0},
+        user_id=owner,
+    )
+    data = overview.build_overview(user_id=owner, **PERIOD)
+    assert data["risk"]["max_drawdown"] == {
+        "value": None,
+        "state": "undefined_no_sample",
+    }
+
+
+def test_consistency_is_undefined_below_five_trades(two_users):
+    owner, _ = two_users
+    from src.tradelens.services import trade_service
+
+    for i in range(4):
+        trade_service.create_trade(
+            {
+                "trade_date": f"2026-08-1{i}",
+                "asset": "NQ",
+                "result": "Win",
+                "pnl": 100.0,
+            },
+            user_id=owner,
+        )
+    data = overview.build_overview(user_id=owner, **PERIOD)
+    assert data["risk"]["consistency"] == {
+        "value": None,
+        "state": "undefined_no_sample",
+    }
+
+
+def test_average_win_is_undefined_with_no_wins(two_users):
+    owner, _ = two_users
+    from src.tradelens.services import trade_service
+
+    trade_service.create_trade(
+        {"trade_date": "2026-08-10", "asset": "NQ", "result": "Loss", "pnl": -50.0},
+        user_id=owner,
+    )
+    data = overview.build_overview(user_id=owner, **PERIOD)
+    assert data["trajectory"]["average_win"] == {
+        "value": None,
+        "state": "undefined_no_sample",
+    }
+    # The loss side is defined — only the side with no members is undefined.
+    assert data["trajectory"]["average_loss"]["state"] is None
+
+
+def test_average_loss_is_undefined_with_no_losses(two_users):
+    owner, _ = two_users
+    from src.tradelens.services import trade_service
+
+    trade_service.create_trade(
+        {"trade_date": "2026-08-10", "asset": "NQ", "result": "Win", "pnl": 50.0},
+        user_id=owner,
+    )
+    data = overview.build_overview(user_id=owner, **PERIOD)
+    assert data["trajectory"]["average_loss"] == {
+        "value": None,
+        "state": "undefined_no_sample",
+    }
+
+
+def test_win_rate_is_undefined_with_zero_trades(seeded):
+    _, other = seeded
+    data = overview.build_overview(user_id=other, **PERIOD)
+    assert data["kpi"]["win_rate"] == {"value": None, "state": "undefined_no_sample"}
+
+
+def test_edge_leak_amount_is_undefined_without_evidence(seeded):
+    """No followed_rules or mistake_tags evidence means the leak amount is
+    unknown, not zero."""
+    owner, _ = seeded
+    data = overview.build_overview(user_id=owner, **PERIOD)
+    # The golden dataset carries followed_rules/mistake_tags evidence, so this
+    # asserts the shape survives round-trip rather than forcing "undefined"
+    # on a dataset that does have evidence.
+    assert set(data["risk"]["edge_leak"]["amount"]) == {"value", "state"}
+
+
+# ---------------------------------------------------------------------------
+# Fix round 2: activation and today/week P&L are lifetime concepts and must
+# not be reset by narrowing the analysis period.
+# ---------------------------------------------------------------------------
+
+
+def test_narrow_period_does_not_reset_activation(two_users):
+    owner, _ = two_users
+    from src.tradelens.services import trade_service
+
+    # Five complete lifetime trades, all outside the analysis period below.
+    for i in range(5):
+        trade_service.create_trade(
+            {
+                "trade_date": f"2026-01-0{i + 1}",
+                "asset": "NQ",
+                "result": "Win",
+                "pnl": 50.0,
+                "setup_type": "FVG",
+                "followed_rules": 1,
+            },
+            user_id=owner,
+        )
+    data = overview.build_overview(user_id=owner, **PERIOD)  # August; no trades in it
+    assert data["kpi"]["trades"] == 0  # the selected period is genuinely empty
+    assert data["next_review_action"]["trades_until_review"] == 0
+    assert data["next_review_action"]["next_key"] != "first_trade"
