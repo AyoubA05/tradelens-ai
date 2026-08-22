@@ -29,7 +29,10 @@ export function KpiRow({
     );
   }
 
-  const tone = (n: number) => (n > 0 ? "positive" : n < 0 ? "negative" : "neutral") as const;
+  // A ternary isn't a literal expression, so `as const` on it is a type
+  // error (TS1355) — an explicit return type gets the same narrowing.
+  const tone = (n: number): "positive" | "negative" | "neutral" =>
+    n > 0 ? "positive" : n < 0 ? "negative" : "neutral";
 
   return (
     <div className="grid grid-cols-2 rounded-xl border border-line bg-surface p-4 sm:grid-cols-3 lg:grid-cols-5">
