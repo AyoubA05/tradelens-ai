@@ -5555,3 +5555,97 @@ it, and the shell has still never been looked at visually at 1440px or 375px.**
 
 A throwaway session-minting script written for this pass was removed afterwards, and the dev
 database was confirmed to contain **zero** leftover smoke accounts. No schema was altered.
+
+## Disposable-branch verification — 2026-08-22 (Claude)
+
+Owner-approved. Two of the three open pre-deployment gates are now **CLOSED**, verified against
+real PostgreSQL on a disposable branch and then destroyed.
+
+**Neon branch used:** `phase1-verify-disposable`, id `br-billowing-voice-au8txf1p`, project
+`round-poetry-98534743` (`tradelens-prod`), forked from `dev-auth-migration`
+(`br-sweet-flower-aurudgt4`) at its current LSN, created with a 2026-08-22T18:00Z auto-expiry
+as a safety net. **Deleted at the end of verification**; the project is back to its six
+pre-existing branches. Neither `production` nor `dev-auth-migration` was written to — the fork
+reads the parent's LSN and does not modify it. Alembic used the direct/unpooled endpoint and the
+app used the pooled one, per the deployment guide.
+
+### Gate 2 — PostgreSQL migrations: CLOSED
+
+The branch started at `w3x4y5z6a7b8`, three migrations behind head.
+
+| Step | Result |
+|---|---|
+| `alembic upgrade head` | applied `x4y5z6a7b8c9`, `y5z6a7b8c9d0`, `z6a7b8c9d0e1` cleanly |
+| `users.app_surface` | `character varying`, `NOT NULL`, default `'streamlit'` |
+| `ai_jobs` | all 12 columns present; `uq_ai_jobs_user_key` unique constraint present |
+| Downgrade round-trip | `downgrade -1` twice to `x4y5z6a7b8c9`, then `upgrade head` — both directions clean |
+
+**The opt-in invariant was verified against real rows, not just tests:** the two pre-existing
+user rows on the forked branch came through the migration as `app_surface = 'streamlit'`. The
+migration moved nobody.
+
+### Gate 3 — PostgreSQL job concurrency: CLOSED
+
+12 threads released simultaneously by a `threading.Barrier`, so the database decided the winner.
+
+| Assertion | Result |
+|---|---|
+| Concurrent enqueue, one owner + one key | exactly **one** row; every caller got the same job id; exactly **one** caller saw `created=True` |
+| Concurrent claim | exactly **one** worker won; winner marked `running` |
+| Cross-user, same key | two distinct jobs, one row each — no dedupe across owners |
+| Concurrent enqueue, two owners, same key | one row per owner |
+
+No thread raised. Test users and their jobs were deleted afterwards.
+
+### Phase 1 browser smoke pass — complete
+
+Two accounts on the disposable branch: one `app_surface='nextjs'`, one left `'streamlit'`.
+
+| Item | Result |
+|---|---|
+| `nextjs` account reaches `/app` | **200** on `/app`, `/app/journal`, `/app/analytics`, `/app/settings` |
+| `streamlit` account refused | **307 → `/continue`** on `/app` and `/app/journal`; reaches `/continue` (its existing journal path) with 200 |
+| Sidebar navigation | click → route change, `aria-current="page"` follows |
+| Mobile navigation | phone bar click → route change, `aria-current` follows |
+| Period lens | opens; selecting "Last 7 days" rewrites the URL to `?from=2026-08-16&to=2026-08-22` and the mono readout matches; popup is `role="group"`, not a menu |
+| Lens route scoping | present on `/app`, `/app/journal`, `/app/analytics`, `/app/reviews`; **absent** on `/app/strategy`, `/app/settings`, `/app/trades/new` — verified against real SSR HTML |
+| More sheet | `role="dialog"`, `aria-modal`, name "More"; focus moves to "Close menu"; `<main>` inside an inert subtree; holds Analytics, Strategy Profile and the primary action |
+| AI Partner drawer | `role="dialog"`, `aria-modal`, name "AI Partner"; focus moves to "Close AI Partner"; four Tab presses stayed inside the panel |
+| Escape and focus restoration | both overlays close on Escape, **all** `inert` released (0 elements remaining), focus restored to the exact control that opened them |
+| Skip link | first tab stop, targets `#main-content` |
+| Focus styling | teal double-ring on real keyboard focus with `border-radius` untouched; a synthetic 9999px pill stays 9999px |
+| Empty states | render on every placeholder route |
+
+**The `inert` fix was confirmed live.** Opening either overlay marks the `lg:grid` wrapper
+(sidebar + `<main>`) and the `lg:hidden` wrapper (phone bar) inert, while the dialog itself is
+not. Before the fix, opening the More sheet left `<main>` reachable.
+
+### Observations and limitations
+
+- **The period lens wraps to two lines at 375px.** Readable, not clipped, but the top bar is
+  cramped on a phone. A polish item for a later phase, not a defect.
+- **Loading and error primitives were not exercised** — they still have no production callers
+  and there is no `error.tsx`/`loading.tsx` under `/app`. Only the empty state is wired up.
+- **No screen reader was run.** Every accessibility claim remains a markup-level claim;
+  `inert` was confirmed as attribute-and-ancestor state, not as observed browse-mode behaviour.
+- The Next.js dev-tools badge overlaps the bottom-left nav item in dev. Dev-only, not shipped.
+
+### Gate 1 — Docker build and health smoke: STILL OPEN
+
+Docker remains unavailable in this environment. `Dockerfile.api` has never been built or
+started. Per the owner, this does not block the Phase 1 merge, but it must run before the first
+Render deployment.
+
+### Final Phase 1 gates
+
+web **942 passed / 34 files**; `tsc --noEmit` clean; `eslint` 0 errors (2 intentional
+exhaustive-deps warnings); production build exit 0 with all **7** `/app` routes dynamic;
+`ruff` and `black` clean; Python **2563 passed, 7 skipped, 1 failed**.
+
+That one failure is `test_pages_boot.py::test_page_boots_seed_db[6_Insights.py]` — a third
+member of the known load-dependent Streamlit `AppTest` family. It passes alone in 1.54s and its
+whole file passes 70/70, and **Phase 1 changed no Python file at all**
+(`git diff --name-only 74c73ea..HEAD -- src/tradelens tests alembic` is empty), so it cannot be
+related to this branch.
+
+**Phase 1 is ready to merge.**
