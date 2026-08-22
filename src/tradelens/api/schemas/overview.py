@@ -33,7 +33,7 @@ this mirrors that here, at the boundary.
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -147,9 +147,20 @@ class Calendar(_Strict):
 
 
 class NextReviewAction(_Strict):
+    """The trader's position on the activation path.
+
+    `next_key` is a closed set rather than a free string, so the generated
+    TypeScript is a union the client can key its copy off exhaustively. It was
+    a bare `str`, and the web card was written against three invented spellings
+    — two of which no service ever emits, so the card fell through to "the
+    activation path is complete" while it displayed "1 of 3 done". A union
+    makes that a compile error instead of a contradiction on screen.
+    `tests/test_activation.py` pins these members to `activation.STEP_KEYS`.
+    """
+
     completed: int
     total: int
-    next_key: Optional[str] = None
+    next_key: Optional[Literal["strategy", "first_trade", "weekly_review"]] = None
     is_activated: bool
     trades_until_review: int
 

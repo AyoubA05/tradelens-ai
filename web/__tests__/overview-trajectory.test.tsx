@@ -31,6 +31,34 @@ describe("trajectory", () => {
     expect(screen.getByText("Average win")).toBeInTheDocument();
     expect(screen.getByText("Average loss")).toBeInTheDocument();
   });
+
+  it("says which way a streak runs, in a word", () => {
+    render(<Trajectory trajectory={{ ...trajectory, current_streak: -3, streak_type: "loss" }} sample={sample} />);
+    const value = screen.getByText("3 losses");
+    expect(value).toBeInTheDocument();
+    expect(value).toHaveClass("text-negative");
+  });
+
+  it("does not leave a win streak to be told apart by colour", () => {
+    render(<Trajectory trajectory={{ ...trajectory, current_streak: 2, streak_type: "win" }} sample={sample} />);
+    expect(screen.getByText("2 wins")).toBeInTheDocument();
+  });
+
+  it("names an absent streak rather than printing a zero", () => {
+    render(<Trajectory trajectory={{ ...trajectory, current_streak: 0, streak_type: "none" }} sample={sample} />);
+    expect(screen.getByText("No run")).toBeInTheDocument();
+  });
+
+  it("explains an empty average instead of leaving a bare dash", () => {
+    render(
+      <Trajectory
+        trajectory={{ ...trajectory, average_win: { value: null, state: "undefined_no_sample" } }}
+        sample={sample}
+      />,
+    );
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByText(/not enough data/i)).toBeInTheDocument();
+  });
 });
 
 describe("recurring edge", () => {

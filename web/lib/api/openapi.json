@@ -220,6 +220,7 @@
       },
       "NextReviewAction": {
         "additionalProperties": false,
+        "description": "The trader's position on the activation path.\n\n`next_key` is a closed set rather than a free string, so the generated\nTypeScript is a union the client can key its copy off exhaustively. It was\na bare `str`, and the web card was written against three invented spellings\n\u2014 two of which no service ever emits, so the card fell through to \"the\nactivation path is complete\" while it displayed \"1 of 3 done\". A union\nmakes that a compile error instead of a contradiction on screen.\n`tests/test_activation.py` pins these members to `activation.STEP_KEYS`.",
         "properties": {
           "completed": {
             "title": "Completed",
@@ -232,6 +233,11 @@
           "next_key": {
             "anyOf": [
               {
+                "enum": [
+                  "strategy",
+                  "first_trade",
+                  "weekly_review"
+                ],
                 "type": "string"
               },
               {

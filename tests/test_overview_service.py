@@ -66,6 +66,77 @@ def test_undefined_profit_factor_is_named_not_zeroed(two_users):
     assert data["kpi"]["profit_factor_state"] == "undefined_positive_infinity"
 
 
+def test_all_breakeven_profit_factor_is_undefined_not_zero(two_users):
+    """No wins and no losses is "no ratio", not "the worst possible ratio".
+
+    `compute_profit_factor_raw` flattens that case to a finite 0.0, which
+    `finite_or_state` cannot recover a state from — so it rendered `0.00x`.
+    """
+    owner, _ = two_users
+    from src.tradelens.services import trade_service
+
+    for day in ("10", "11"):
+        trade_service.create_trade(
+            {
+                "trade_date": f"2026-08-{day}",
+                "asset": "NQ",
+                "result": "Breakeven",
+                "pnl": 0.0,
+            },
+            user_id=owner,
+        )
+    data = overview.build_overview(user_id=owner, **PERIOD)
+    assert data["kpi"]["trades"] == 2
+    assert data["kpi"]["profit_factor"] is None
+    assert data["kpi"]["profit_factor_state"] == "undefined_no_sample"
+
+
+def test_consistency_reads_the_grade_trend_the_dashboard_reads(two_users):
+    """The API and the Streamlit Dashboard must score the same trader alike.
+
+    `consistency_score` weights a grade-trend term at 25% and looks for the
+    `user_grade`/`ai_grade` columns by name. pandas reports a missing column as
+    absent rather than raising, so a frame without them scored a neutral 0.5
+    trend unconditionally — up to 12.5 points away from the Dashboard, whose
+    frame carries both. Asserting equality against a frame built from the same
+    columns also pins the 5-trade threshold mirrored in this module.
+    """
+    import pandas as pd
+
+    from src.tradelens.services import metrics, trade_service
+
+    owner, _ = two_users
+    grades = ["D", "C", "C", "B", "A"]  # an improving trend, so the term bites
+    for i, grade in enumerate(grades):
+        trade_service.create_trade(
+            {
+                "trade_date": f"2026-08-1{i}",
+                "asset": "NQ",
+                "result": "Win",
+                "pnl": 100.0,
+                "setup_type": "FVG",
+                "followed_rules": 1,
+                "user_grade": grade,
+            },
+            user_id=owner,
+        )
+
+    rows = trade_service.get_trades(
+        user_id=owner, **{"start_date": PERIOD["start"], "end_date": PERIOD["end"]}
+    )
+    graded = pd.DataFrame(
+        [{c: getattr(t, c) for c in overview._TRADE_COLUMNS} for t in rows]
+    )
+    ungraded = graded.drop(columns=["user_grade", "ai_grade"])
+
+    # Guard the guard: if the grade term stopped mattering, the equality below
+    # would pass for the wrong reason.
+    assert metrics.consistency_score(graded) != metrics.consistency_score(ungraded)
+
+    data = overview.build_overview(user_id=owner, **PERIOD)
+    assert data["risk"]["consistency"]["value"] == metrics.consistency_score(graded)
+
+
 def test_empty_period_reports_zero_trades_rather_than_failing(two_users):
     owner, _ = two_users
     data = overview.build_overview(user_id=owner, start="2020-01-01", end="2020-01-31")

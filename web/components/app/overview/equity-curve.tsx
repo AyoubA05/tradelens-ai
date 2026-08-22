@@ -1,3 +1,4 @@
+import { money } from "@/lib/app/format";
 import type { OverviewResponse } from "@/lib/app/overview";
 
 type Point = { date: string; equity: number };
@@ -30,9 +31,6 @@ export function buildCurvePath(points: Point[], width: number, height: number) {
   const area = `${line}L${Number((points.length > 1 ? width : width / 2).toFixed(2))},${height}L${points.length > 1 ? 0 : Number((width / 2).toFixed(2))},${height}Z`;
   return { line, area };
 }
-
-const money = (n: number) =>
-  `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
 /**
  * The account's path through the period.
@@ -76,12 +74,12 @@ export function EquityCurve({
           Equity curve
         </span>
         <span className={`font-mono text-sm ${up ? "text-positive" : "text-negative"}`}>
-          {money(last)}
+          {money(last, { decimals: 0 })}
         </span>
       </figcaption>
       <svg
         role="img"
-        aria-label={`Equity curve over ${points.length} trading days, ending at ${money(last)}`}
+        aria-label={`Equity curve over ${points.length} trading days, ending at ${money(last, { decimals: 0 })}`}
         viewBox={`0 0 ${W} ${H}`}
         className="mt-3 h-44 w-full"
         preserveAspectRatio="none"
@@ -89,9 +87,12 @@ export function EquityCurve({
         <path d={area} fill={stroke} fillOpacity="0.08" />
         <path d={line} fill="none" stroke={stroke} strokeWidth="2" vectorEffect="non-scaling-stroke" />
       </svg>
+      {/* No "5 needed" clause here: 5 is the pattern threshold in TRADES
+          (services/sample_policy), and this axis counts trading DAYS — the
+          two are not the same count, and the sample gate above already
+          withholds the curve until it has earned one. */}
       <p className="mt-2 font-mono text-[11px] text-muted">
-        n={points.length} trading days
-        {points.length < 5 ? " · small sample, 5 needed to read a pattern" : ""}
+        n={points.length} trading {points.length === 1 ? "day" : "days"}
       </p>
     </figure>
   );

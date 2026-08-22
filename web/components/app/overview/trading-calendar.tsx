@@ -1,9 +1,10 @@
+import { money } from "@/lib/app/format";
 import type { OverviewResponse } from "@/lib/app/overview";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
 
-const money = (n: number) => `$${Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+const DIRECTION: Record<string, string> = { positive: "up", negative: "down", flat: "flat" };
 
 /**
  * The month's trading days.
@@ -15,15 +16,21 @@ const money = (n: number) => `$${Math.abs(n).toLocaleString("en-US", { maximumFr
  * like this ships unreadable. A winning day is a filled circle; a losing day
  * is a square.
  *
- * A day with no trade is left blank rather than greyed: an untraded day is
- * information, not missing data, and a sparse month is a truthful picture of a
- * sparse month.
+ * **Two kinds of empty, drawn differently.** The month comes from the period's
+ * end date but the days come from the period-filtered frame, so a period of
+ * 24 Jul → 22 Aug renders a full August grid in which 24–31 Aug are outside
+ * the window entirely. Drawn like ordinary untraded days under the caption
+ * "Blank days had no trade", those cells asserted something false about days
+ * the trader was never asked about. Out-of-window cells are dimmed and
+ * dash-outlined, and the caption names both states.
  */
 export function TradingCalendar({
   calendar,
+  period,
   sample,
 }: {
   calendar: OverviewResponse["calendar"];
+  period: OverviewResponse["period"];
   sample: OverviewResponse["sample"];
 }) {
   if (!sample.show_summary) return null;
@@ -37,6 +44,15 @@ export function TradingCalendar({
     ...Array(leading).fill(null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ];
+
+  const month = String(calendar.month).padStart(2, "0");
+  // ISO dates sort lexicographically, so no Date parsing (and no timezone) is
+  // needed to decide whether a day falls inside the analysed window.
+  const inWindow = (day: number) => {
+    const iso = `${calendar.year}-${month}-${String(day).padStart(2, "0")}`;
+    return iso >= period.from && iso <= period.to;
+  };
+  const hasOutside = cells.some((d) => d !== null && !inWindow(d));
 
   return (
     <section className="mt-10">
@@ -59,9 +75,15 @@ export function TradingCalendar({
             {cells.map((day, i) => {
               if (day === null) return <div key={`pad-${i}`} />;
               const entry = byDay.get(day);
+              const outside = !inWindow(day);
+              // "up $0" was announced for a flat day, because the label tested
+              // pnl >= 0 while the glyph used the three-way outcome field. One
+              // source now decides both.
               const label = entry
-                ? `${day} ${MONTHS[calendar.month - 1]} ${calendar.year}, ${entry.pnl >= 0 ? "up" : "down"} ${money(entry.pnl)}`
-                : undefined;
+                ? `${day} ${MONTHS[calendar.month - 1]} ${calendar.year}, ${DIRECTION[entry.outcome] ?? "flat"} ${money(entry.pnl, { decimals: 0, sign: false })}`
+                : outside
+                  ? `${day} ${MONTHS[calendar.month - 1]} ${calendar.year}, outside the selected period`
+                  : undefined;
               return (
                 <div
                   key={day}
@@ -72,7 +94,10 @@ export function TradingCalendar({
                   role={label ? "img" : undefined}
                   aria-label={label}
                   data-outcome={entry?.outcome}
-                  className="flex h-9 flex-col items-center justify-center rounded"
+                  data-window={outside ? "outside" : "inside"}
+                  className={`flex h-9 flex-col items-center justify-center rounded ${
+                    outside ? "border border-dashed border-line/70 opacity-40" : ""
+                  }`}
                 >
                   <span className="font-mono text-[11px] text-muted">{day}</span>
                   {entry && (
@@ -91,7 +116,9 @@ export function TradingCalendar({
             })}
           </div>
           <p className="mt-3 font-mono text-[10px] text-muted">
-            ● winning day · ■ losing day · — flat. Blank days had no trade.
+            ● winning day · ■ losing day · — flat. Blank days inside {period.from} to {period.to}
+            {" "}had no trade
+            {hasOutside ? "; dashed, dimmed days fall outside the selected period." : "."}
           </p>
         </div>
       )}

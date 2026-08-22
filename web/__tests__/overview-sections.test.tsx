@@ -64,7 +64,7 @@ const data: OverviewResponse = {
   next_review_action: {
     completed: 2,
     total: 3,
-    next_key: "first_review",
+    next_key: "weekly_review",
     is_activated: false,
     trades_until_review: 2,
   },

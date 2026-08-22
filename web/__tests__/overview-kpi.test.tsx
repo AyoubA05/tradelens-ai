@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { StatTile } from "@/components/app/overview/stat-tile";
 import { KpiRow } from "@/components/app/overview/kpi-row";
+import { CurrentStanding } from "@/components/app/overview/current-standing";
 
 // win_rate is `Undefinable` ({ value, state }) in the generated schema, not a
 // bare number — the schema is the source of truth, so the fixture follows it.
@@ -61,5 +62,26 @@ describe("kpi row", () => {
   it("says the sample is too small rather than showing confident figures", () => {
     render(<KpiRow kpi={{ ...kpi, trades: 0 }} sample={{ ...sample, trades: 0, show_summary: false }} />);
     expect(screen.getByText(/no trades in this period/i)).toBeInTheDocument();
+  });
+});
+
+describe("current standing", () => {
+  it("shows today and the running week, spec §8's pair", () => {
+    render(<CurrentStanding kpi={{ ...kpi, today_pnl: -120, week_pnl: 575 }} />);
+    expect(screen.getByText("Today")).toBeInTheDocument();
+    expect(screen.getByText("This week")).toBeInTheDocument();
+    expect(screen.getByText("-$120.00")).toBeInTheDocument();
+    expect(screen.getByText("$575.00")).toBeInTheDocument();
+  });
+
+  it("says these two are not scoped to the selected period", () => {
+    render(<CurrentStanding kpi={kpi} />);
+    expect(screen.getByText(/not the period selected below/i)).toBeInTheDocument();
+  });
+
+  it("carries direction in a word, not only in colour", () => {
+    render(<CurrentStanding kpi={{ ...kpi, today_pnl: -120, week_pnl: 575 }} />);
+    expect(screen.getByText("down")).toBeInTheDocument();
+    expect(screen.getByText("up")).toBeInTheDocument();
   });
 });

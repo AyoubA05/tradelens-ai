@@ -63,6 +63,15 @@ _TRADE_COLUMNS = (
     "htf_bias",
     "killzone",
     "day_of_week",
+    # The grade columns are not displayed by the Overview, but
+    # `consistency_score` weights a grade-trend term at 25% and looks for
+    # exactly these two names. pandas reports a missing column as absent
+    # rather than raising, so omitting them silently returned the neutral 0.5
+    # trend and put the API up to 12.5 points away from the Streamlit
+    # Dashboard, whose frame carries both. Divergence between the two surfaces
+    # is the failure this module exists to prevent.
+    "user_grade",
+    "ai_grade",
 )
 
 
@@ -158,7 +167,16 @@ def build_overview(
     wins = int(_need(basic, "wins") or 0)
     losses = int(_need(basic, "losses") or 0)
 
-    pf_value, pf_state = finite_or_state(metrics.compute_profit_factor_raw(df))
+    # A period with neither a win nor a loss has no ratio to report: no
+    # numerator and no denominator. `compute_profit_factor_raw` flattens that
+    # to a finite 0.0, which `finite_or_state` cannot tell apart from a genuine
+    # zero (all-losing period), so an all-breakeven month rendered "0.00x" —
+    # the worst possible profit factor — where the truth is "not applicable".
+    # Gated on the sample here, like the other pre-flattened figures.
+    if wins == 0 and losses == 0:
+        pf_value, pf_state = None, "undefined_no_sample"
+    else:
+        pf_value, pf_state = finite_or_state(metrics.compute_profit_factor_raw(df))
     expectancy_value, expectancy_state = finite_or_state(
         metrics.compute_expectancy(basic) if total_trades else float("nan")
     )

@@ -29,6 +29,16 @@ _REQUIRED_TRADE_FIELDS = (
 )
 
 
+# The only values `next_key` can ever take, in path order.
+#
+# Named here because the API contract (api/schemas/overview.py) pins `next_key`
+# to this exact set, and the web client keys its copy off the generated union.
+# A client that invents a fourth spelling silently falls through to "nothing to
+# do" — which is what happened: the Overview card told traders the activation
+# path was complete while showing "1 of 3 done".
+STEP_KEYS = ("strategy", "first_trade", "weekly_review")
+
+
 @dataclass(frozen=True)
 class ActivationStatus:
     completed: int
@@ -54,13 +64,15 @@ def activation_status(
     """Return the trader's position on the three-step activation path."""
     complete_trades = sum(1 for trade in trades if is_complete_trade(trade))
 
-    checks = (
-        ("strategy", bool(strategy and strategy.get("name"))),
-        ("first_trade", complete_trades >= 1),
-        (
-            "weekly_review",
-            complete_trades >= TRADES_FOR_REVIEW and weekly_review is not None,
-        ),
+    checks = tuple(
+        zip(
+            STEP_KEYS,
+            (
+                bool(strategy and strategy.get("name")),
+                complete_trades >= 1,
+                complete_trades >= TRADES_FOR_REVIEW and weekly_review is not None,
+            ),
+        )
     )
 
     completed = sum(1 for _, done in checks if done)

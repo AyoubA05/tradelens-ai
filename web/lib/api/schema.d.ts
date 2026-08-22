@@ -145,14 +145,25 @@ export interface components {
             /** Wins */
             wins: number;
         };
-        /** NextReviewAction */
+        /**
+         * NextReviewAction
+         * @description The trader's position on the activation path.
+         *
+         *     `next_key` is a closed set rather than a free string, so the generated
+         *     TypeScript is a union the client can key its copy off exhaustively. It was
+         *     a bare `str`, and the web card was written against three invented spellings
+         *     — two of which no service ever emits, so the card fell through to "the
+         *     activation path is complete" while it displayed "1 of 3 done". A union
+         *     makes that a compile error instead of a contradiction on screen.
+         *     `tests/test_activation.py` pins these members to `activation.STEP_KEYS`.
+         */
         NextReviewAction: {
             /** Completed */
             completed: number;
             /** Is Activated */
             is_activated: boolean;
             /** Next Key */
-            next_key?: string | null;
+            next_key?: ("strategy" | "first_trade" | "weekly_review") | null;
             /** Total */
             total: number;
             /** Trades Until Review */

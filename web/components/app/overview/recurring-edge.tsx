@@ -1,7 +1,5 @@
+import { money } from "@/lib/app/format";
 import type { OverviewResponse } from "@/lib/app/overview";
-
-const money = (n: number) =>
-  `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function Breakdown({ title, rows }: { title: string; rows: OverviewResponse["recurring_edge"]["killzones"] }) {
   return (

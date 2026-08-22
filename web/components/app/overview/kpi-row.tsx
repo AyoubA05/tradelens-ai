@@ -1,16 +1,7 @@
 import { StatTile } from "@/components/app/overview/stat-tile";
 import { EmptyState } from "@/components/app/states/empty-state";
+import { money, undefinedReason, NO_VALUE } from "@/lib/app/format";
 import type { OverviewResponse } from "@/lib/app/overview";
-
-const money = (n: number) =>
-  `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-/** Why a figure has no number, in words a trader can act on. */
-function undefinedReason(state: string | null | undefined): string {
-  if (state === "undefined_positive_infinity") return "No losses yet";
-  if (state === "undefined_negative_infinity") return "No wins yet";
-  return "Not enough data";
-}
 
 export function KpiRow({
   kpi,
@@ -44,18 +35,18 @@ export function KpiRow({
       />
       <StatTile
         label="Win rate"
-        value={kpi.win_rate.value === null ? "—" : `${(kpi.win_rate.value * 100).toFixed(1)}%`}
+        value={kpi.win_rate.value === null ? NO_VALUE : `${(kpi.win_rate.value * 100).toFixed(1)}%`}
         hint={kpi.win_rate.value === null ? undefinedReason(kpi.win_rate.state) : `${kpi.wins} of ${kpi.trades}`}
       />
       <StatTile
         label="Expectancy"
-        value={kpi.expectancy == null ? "—" : money(kpi.expectancy)}
+        value={kpi.expectancy == null ? NO_VALUE : money(kpi.expectancy)}
         hint={kpi.expectancy == null ? undefinedReason(kpi.expectancy_state) : "per trade"}
         tone={kpi.expectancy == null ? "neutral" : tone(kpi.expectancy)}
       />
       <StatTile
         label="Profit factor"
-        value={kpi.profit_factor == null ? "—" : `${kpi.profit_factor.toFixed(2)}x`}
+        value={kpi.profit_factor == null ? NO_VALUE : `${kpi.profit_factor.toFixed(2)}x`}
         hint={kpi.profit_factor == null ? undefinedReason(kpi.profit_factor_state) : undefined}
       />
       <StatTile label="Trades" value={String(kpi.trades)} hint={`${kpi.losses} losing`} />

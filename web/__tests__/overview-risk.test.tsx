@@ -6,10 +6,13 @@ import { RiskDiscipline } from "@/components/app/overview/risk-discipline";
 
 // edge_leak.amount is `Undefinable` ({ value, state }) in the generated
 // schema, not a bare number — the schema is the source of truth.
+// max_drawdown is a POSITIVE magnitude from metrics.compute_max_drawdown —
+// the fixture used to carry -220, which no service ever emits, and that hid
+// the fact that the component's `value < 0` tone test could never fire.
 const risk = {
-  max_drawdown: { value: -220, state: null },
+  max_drawdown: { value: 220, state: null },
   rule_adherence: { rate: 0.67, followed: 2, recorded: 3 },
-  edge_leak: { amount: { value: -220, state: null }, trades: 1, recorded: 3 },
+  edge_leak: { amount: { value: -95, state: null }, trades: 1, recorded: 3 },
   consistency: { value: null, state: "undefined_nan" },
 };
 const sample = {
@@ -34,7 +37,22 @@ describe("risk and discipline", () => {
 
   it("says a consistency score is not yet earned rather than showing zero", () => {
     render(<RiskDiscipline risk={risk} sample={sample} />);
-    expect(screen.getByText(/not yet/i)).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByText(/not enough data/i)).toBeInTheDocument();
+  });
+
+  it("writes a drawdown as the loss it is, in text and not only in colour", () => {
+    render(<RiskDiscipline risk={risk} sample={sample} />);
+    const value = screen.getByText("-$220.00");
+    expect(value).toBeInTheDocument();
+    expect(value).toHaveClass("text-negative");
+    expect(screen.getByText(/deepest fall from a peak/i)).toBeInTheDocument();
+  });
+
+  it("leaves a drawdown of nothing unsigned and untoned", () => {
+    render(<RiskDiscipline risk={{ ...risk, max_drawdown: { value: 0, state: null } }} sample={sample} />);
+    const value = screen.getByText("$0.00");
+    expect(value).toHaveClass("text-text");
   });
 
   it("renders nothing measurable when the sample has not earned it", () => {

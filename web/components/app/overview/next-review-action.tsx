@@ -2,18 +2,33 @@ import Link from "next/link";
 
 import type { OverviewResponse } from "@/lib/app/overview";
 
-const STEP_COPY: Record<string, { title: string; body: string }> = {
-  strategy_profile: {
+/**
+ * Every step the activation path can be waiting on.
+ *
+ * Keyed off the generated union rather than free strings: `Record<StepKey, …>`
+ * makes a missing or misspelled key a compile error. It was a bare
+ * `Record<string, …>` against three invented names, only one of which the
+ * service emits — so two of the three states fell through to the "nothing
+ * waiting" branch and a trader with one step done read "1 of 3 done. Nothing
+ * waiting — the activation path is complete."
+ *
+ * Exported so a test can walk it. Every entry names something to re-read or
+ * write down; none of them names a trade to take.
+ */
+export type StepKey = NonNullable<OverviewResponse["next_review_action"]["next_key"]>;
+
+export const STEP_COPY: Record<StepKey, { title: string; body: string }> = {
+  strategy: {
     title: "Write down your strategy",
-    body: "Reviews are read against your own rules, so they need the rules first.",
+    body: "Reviews are read against your own rules, so the rules have to exist in writing first.",
   },
   first_trade: {
     title: "Log your first completed trade",
-    body: "The journal starts with one trade you have already closed.",
+    body: "The journal starts with one trade you have already closed and can describe.",
   },
-  first_review: {
-    title: "Review your first useful sample",
-    body: "A few more completed trades and the weekly review has something true to say.",
+  weekly_review: {
+    title: "Read your first weekly review",
+    body: "A few more completed trades and the weekly review has a real sample to read back to you.",
   },
 };
 
@@ -33,7 +48,7 @@ export function NextReviewAction({ action }: { action: OverviewResponse["next_re
           <>
             <p className="mt-2 font-medium text-text">{step.title}</p>
             <p className="mt-1 text-sm text-muted">
-              {action.next_key === "first_review" && action.trades_until_review > 0
+              {action.next_key === "weekly_review" && action.trades_until_review > 0
                 ? `${action.trades_until_review} more completed trades to unlock it.`
                 : step.body}
             </p>

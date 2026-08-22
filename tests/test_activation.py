@@ -185,3 +185,23 @@ def test_insights_does_not_auto_generate_below_the_threshold():
     gate = gate[: gate.index("_auto_run_weekly(monday, uid)")]
     assert "render_empty_state(" in gate
     assert "return" in gate, "the gate must stop before the AI call"
+
+
+def test_the_api_contract_pins_the_same_step_keys_the_service_emits():
+    """One spelling of each step, everywhere.
+
+    The Overview card keyed its copy off three invented names; two of them no
+    service ever emits, so those states fell through to "the activation path is
+    complete" while the card showed "1 of 3 done". The contract now declares a
+    closed union, and this pins that union to the keys `activation_status`
+    actually produces — including the copy table this module ships for them.
+    """
+    from typing import get_args
+
+    from src.tradelens.api.schemas.overview import NextReviewAction
+    from src.tradelens.services.activation import NEXT_STEP_COPY, STEP_KEYS
+
+    # Optional[Literal[...]] → (Literal[...], NoneType)
+    literal = get_args(NextReviewAction.model_fields["next_key"].annotation)[0]
+    assert get_args(literal) == STEP_KEYS
+    assert tuple(NEXT_STEP_COPY) == STEP_KEYS
