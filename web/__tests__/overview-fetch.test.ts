@@ -19,11 +19,18 @@ describe("fetchOverview", () => {
     expect(init.query).toContain("to=2026-08-31");
   });
 
-  it("sends the session token, never a user id", () => {
-    // The API derives the owner from the session row. A caller that could name
-    // an account would defeat the whole boundary.
-    const source = String(fetchOverview);
-    expect(source).not.toMatch(/user_?[Ii]d/);
+  it("sends only the session token and the period — never an account identifier", async () => {
+    // The API derives the owner from the session row. Asserting on what actually
+    // crosses the boundary catches an id threaded in indirectly through a helper,
+    // which stringifying this function's own source never could.
+    callApi.mockResolvedValue({});
+    await fetchOverview("tok", { from: "2026-08-01", to: "2026-08-31", presetId: "custom" });
+    const call = callApi.mock.calls[0];
+    const [, , init] = call;
+    expect(call).toHaveLength(3);
+    expect([...new URLSearchParams(init.query).keys()].sort()).toEqual(["from", "to"]);
+    expect(init.body).toBeUndefined();
+    expect(JSON.stringify(call)).not.toMatch(/user|owner|account|uid/i);
   });
 
   it("passes the payload through untouched", async () => {

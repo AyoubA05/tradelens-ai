@@ -65,6 +65,11 @@ export function TradingCalendar({
               return (
                 <div
                   key={day}
+                  // aria-label is only reliably exposed on elements whose role
+                  // supports naming; a bare div is role "generic" and some
+                  // screen readers will not announce the label. role="img"
+                  // only goes on cells that actually carry a label.
+                  role={label ? "img" : undefined}
                   aria-label={label}
                   data-outcome={entry?.outcome}
                   className="flex h-9 flex-col items-center justify-center rounded"

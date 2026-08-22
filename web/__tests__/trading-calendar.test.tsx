@@ -32,6 +32,11 @@ describe("trading calendar", () => {
     expect(screen.queryByLabelText(/14 August 2026, up/i)).not.toBeInTheDocument();
   });
 
+  it("exposes labelled days by role, since aria-label alone is not reliably announced on a bare div", () => {
+    render(<TradingCalendar calendar={calendar} sample={sample} />);
+    expect(screen.getByRole("img", { name: /12 August 2026, up \$480/i })).toBeInTheDocument();
+  });
+
   it("distinguishes outcome by SHAPE, not only by colour", () => {
     // The positive and negative tokens are ΔE 2.3 apart under deuteranopia.
     // Colour alone would make this calendar unreadable for those readers.
