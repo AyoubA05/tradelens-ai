@@ -5754,11 +5754,52 @@ carry the sign in text, and the recent-trades table has outcome as a word in its
   prerendered `/app` would bake one trader's data into a shared page.
 - **Contract drift gate CLEAN**: regenerating `openapi.json` and `schema.d.ts` produces no diff.
 
+## Final review, fix wave, and browser smoke pass
+
+The final whole-branch review returned **BLOCKED** with two Critical findings. A browser smoke
+pass on a disposable Neon branch (`br-royal-haze-auoijqff`, forked from dev-auth-migration, NOT
+production; migrated to head; seeded one isolated account) confirmed two of them on screen and
+found nothing further. All were fixed in `fd8a08d` and re-verified live.
+
+**C1 — the activation card contradicted itself.** `STEP_COPY` was keyed on
+`strategy_profile`/`first_trade`/`first_review`; `activation.py` emits
+`strategy`/`first_trade`/`weekly_review`. Only the middle key matched, so two of three states
+fell through to the "you are done" branch. Rendered live as **"1 OF 3 DONE"** directly above
+**"Nothing waiting — the activation path is complete."** The unit test passed because its
+fixture was written from the plan and shared the component's own mistaken assumption.
+Fixed structurally, not cosmetically: `next_key` is now a Python `Literal` that reaches the
+generated TypeScript as a union, and `STEP_COPY` is typed off it — a fourth spelling is now a
+tsc error rather than a silent fallthrough.
+
+**C2 — the Overview's consistency score diverged from Streamlit's.** `_TRADE_COLUMNS` omitted
+`user_grade`/`ai_grade`, so `consistency_score`'s 25%-weighted grade-trend term silently
+returned a neutral 0.5 — up to ±12.5 points of divergence between the two surfaces, which is
+exactly what `overview.py`'s docstring says the module exists to prevent. Invisible to `_need()`
+because pandas reports a missing column as absent rather than raising.
+
+**I1** today/week P&L were computed but rendered nowhere (spec §8 requires them) — now rendered
+above the KPI row and labelled as not period-scoped. **I2** the calendar captioned out-of-window
+days as "had no trade" — confirmed on screen, now distinguished by a dashed dimmed cue with an
+honest caption. **I3** max drawdown rendered unsigned and neutral-toned beside a green profit —
+confirmed on screen, now signed and toned. **I4** `streak_type` was never rendered. Plus seven
+duplicate `money` helpers with three different behaviours, reduced to one shared helper.
+
+**The smoke pass is a gate for this phase, not a formality.** It found in seconds what 982 web
+tests, a full typecheck, a production build and three task reviews all missed.
+
+Also verified live: an unsigned `GET /v1/overview` against the running server returns **401**,
+confirming Lock 1 outside the test suite; and the calendar's shape encoding (green circles for
+winning days, red squares for losing days) renders as designed.
+
 ## Carried forward
 
 - Docker build/startup/health remains an open pre-deployment gate (see the banner at the top).
-- No browser smoke pass was run for Phase 2. The Overview has only been verified by tests and
-  by the production build; it has not been looked at in a browser against real data.
+- A row with **blank pnl** and a manual `result` label is counted in `wins`/`losses` by
+  `compute_basic_metrics` (result-text fallback) but contributes nothing to
+  `compute_profit_factor_raw`'s pnl sum, so the all-breakeven gate could miss that edge case and
+  render `0.00x`. Pre-existing, unrelated to this branch, and unreachable through `create_trade`.
+- `today_pnl`/`week_pnl` use the server's local date, not the trader's timezone. Now that they
+  render, this is real rather than moot.
 - The `_MIN_TRADES_FOR_CONSISTENCY = 5` constant is mirrored in `services/overview.py` from a
   private constant in `services/metrics.py`. Documented, but it can drift.
 - The strict-JSON test in `tests/test_overview_service.py` is prophylactic: no live path emits
