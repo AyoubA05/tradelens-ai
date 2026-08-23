@@ -119,8 +119,21 @@ export function EditTradeForm({
       return;
     }
 
+    // No stamp, no save. `expected_updated_at` is the whole conflict guard;
+    // substituting `""` for a missing one would send a request that is
+    // guaranteed to 409 while looking, at this layer, like an ordinary save.
+    // Post-backfill this is unreachable — but a silent fallback is exactly
+    // the shape that hid the un-editable-sample-trade bug, so the absence is
+    // reported instead of papered over.
+    if (!trade.updated_at) {
+      setSaveError(
+        "This trade cannot be edited until it is reloaded — it is missing the timestamp we use to make sure your edit does not overwrite a newer version. Reload the page and try again.",
+      );
+      return;
+    }
+
     const body: TradeUpdate = {
-      expected_updated_at: trade.updated_at ?? "",
+      expected_updated_at: trade.updated_at,
       trade_date: emptyToNull(draft.trade_date),
       asset: emptyToNull(draft.asset),
       direction: emptyToNull(draft.direction),

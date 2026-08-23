@@ -19,8 +19,40 @@ import { requireEnv } from "@/lib/env";
  * independent database check.
  */
 export class ApiError extends Error {
-  constructor(readonly status: number) {
+  /**
+   * `status` is the backend's own status, never a substitute — the whole
+   * error chain reads it: 404 becomes `notFound()` (the existence
+   * non-disclosure property), 409 becomes the conflict view, 503 becomes
+   * "nothing was deleted." `api-client.test.ts` pins that it is the real
+   * status; downstream tests construct `ApiError` by hand and so can only
+   * prove how a caller reacts to a status, never that the status is real.
+   *
+   * `body` is the parsed error payload when there was one. It is optional
+   * and advisory: callers branch on `status`, and read `body` only where
+   * the backend deliberately says more than the status can (the delete
+   * 503's retryable/unresolvable split).
+   */
+  constructor(
+    readonly status: number,
+    readonly body?: unknown,
+  ) {
     super(`api request failed with status ${status}`);
+  }
+}
+
+/**
+ * Read an error response's JSON body, or nothing.
+ *
+ * A missing or unparseable body is not itself a failure — the status is
+ * what callers branch on — so this never throws over one and never lets a
+ * parse error masquerade as the original fault.
+ */
+async function readErrorBody(response: Response): Promise<unknown> {
+  if (typeof response.json !== "function") return undefined;
+  try {
+    return await response.json();
+  } catch {
+    return undefined;
   }
 }
 
@@ -55,7 +87,7 @@ export async function callApi<T>(
     cache: "no-store",
   });
 
-  if (!response.ok) throw new ApiError(response.status);
+  if (!response.ok) throw new ApiError(response.status, await readErrorBody(response));
   // 204 (the trade-delete endpoint's success response) carries no body, and
   // `.json()` on an empty stream throws rather than returning anything a
   // caller could await — this is the first caller in the codebase that hits

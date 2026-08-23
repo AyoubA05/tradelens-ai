@@ -9,12 +9,13 @@ import type { components } from "@/lib/api/schema";
  * The Trades list page, typed from the generated OpenAPI schema so the shape
  * cannot drift from what `GET /v1/trades` actually returns.
  *
- * `TradeSummary` — the row shape — deliberately does not carry `ai_grade`,
- * `user_grade`, or a screenshot count; `TradeDetail` is the only contract
- * that does. A list-page grade or screenshot column would have to be
- * fabricated client-side or fetched per row, which is exactly the kind of
- * fixture-encodes-the-plan's-wording mistake Phase 2 shipped once already —
- * so the table renders only the fields this response actually carries.
+ * `TradeSummary` — the row shape — carries `ai_grade`, `user_grade` and
+ * `screenshot_count` alongside the trade's own fields, because spec §8 asks
+ * the list for a grade and a screenshot indicator and the response was
+ * widened to supply them. That widening is the point: the alternative was a
+ * column fabricated client-side or fetched per row, which is exactly the
+ * fixture-encodes-the-plan's-wording mistake Phase 2 shipped once already.
+ * Anything the list renders must be a field this response actually returns.
  */
 export type TradeListResponse = components["schemas"]["TradeListResponse"];
 export type TradeSummary = components["schemas"]["TradeSummary"];

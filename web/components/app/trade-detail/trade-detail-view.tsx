@@ -84,7 +84,18 @@ export function TradeDetailView({ trade }: { trade: TradeDetail }) {
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}
         onDeleted={() => router.push("/app/journal")}
-        deleteTrade={() => fetch(`/api/trades/${trade.id}`, { method: "DELETE" })}
+        deleteTrade={async () => {
+          const response = await fetch(`/api/trades/${trade.id}`, { method: "DELETE" });
+          // Only the 503 body says anything the status cannot: whether the
+          // cleanup failure is one a retry can ever clear. An unreadable
+          // body falls back to retryable — the weaker claim — and nothing
+          // here ever reports a failure as a deletion.
+          if (response.status !== 503) return { status: response.status };
+          const body = (await response.json().catch(() => null)) as {
+            unresolvable?: boolean;
+          } | null;
+          return { status: 503, unresolvable: Boolean(body?.unresolvable) };
+        }}
       />
     </div>
   );

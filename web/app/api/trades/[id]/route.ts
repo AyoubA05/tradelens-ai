@@ -27,14 +27,52 @@ export const dynamic = "force-dynamic";
 
 const NO_STORE = { "Cache-Control": "no-store, private" };
 
+/**
+ * A trade id, or null.
+ *
+ * A strict digit test, not bare `Number()`: `Number` also accepts the other
+ * JavaScript numeric literal forms — `"1e3"` → 1000, `"0x10"` → 16,
+ * `"0b11"` → 3, `" 1"` → 1 — so several different URLs would alias one row.
+ * Worse, `"999999999999999999999"` parses to `1e21`, which satisfies
+ * `Number.isInteger`, and `String(1e21)` then puts the literal `"1e+21"`
+ * into both the upstream request path and the HMAC-signed canonical path.
+ * Ownership is enforced backend-side either way, so neither is exploitable
+ * — they are simply wrong. 16 digits keeps every accepted value inside the
+ * range where a JS number represents an integer exactly.
+ */
 function parseTradeId(raw: string): number | null {
-  const id = Number(raw);
-  return Number.isInteger(id) && id > 0 ? id : null;
+  if (!/^[1-9]\d{0,15}$/.test(raw)) return null;
+  return Number(raw);
+}
+
+/**
+ * True when the backend's 503 says at least one screenshot can never be
+ * cleaned up by this owner.
+ *
+ * The backend reports `remaining` (an object-store fault a retry clears)
+ * separately from `unresolvable` (a screenshot row naming a path this owner
+ * is not entitled to delete) precisely so a caller does not tell a trader to
+ * keep retrying something that cannot succeed. Collapsing the two back into
+ * one opaque signal here would throw away the reason that split exists.
+ *
+ * An unreadable body is treated as retryable — the weaker of the two claims.
+ * Nothing was deleted in either case, and neither branch may imply otherwise.
+ */
+function cleanupIsUnresolvable(body: unknown): boolean {
+  const detail = (body as { detail?: { unresolvable?: unknown } } | null | undefined)?.detail;
+  return typeof detail?.unresolvable === "number" && detail.unresolvable > 0;
 }
 
 async function authorize(request: Request): Promise<{ token: string } | NextResponse> {
   const siteOrigin = optionalEnv("SITE_ORIGIN");
-  if (siteOrigin && !isSameOriginRequest(request.headers, siteOrigin)) {
+  // Fail shut, deliberately diverging from the nine `app/api/auth/*` routes.
+  // Those guard with `if (siteOrigin && ...)`, so an unset SITE_ORIGIN skips
+  // their CSRF check entirely. This relay is the first of that family to
+  // guard trade data rather than an auth flow, so a missing origin refuses
+  // the request instead of waving it through. The auth routes are tracked as
+  // a separate hardening pass — do not "restore consistency" by loosening
+  // this one to match them.
+  if (!siteOrigin || !isSameOriginRequest(request.headers, siteOrigin)) {
     return NextResponse.json({ ok: false }, { status: 403, headers: NO_STORE });
   }
   const token = sessionTokenFrom(request);
@@ -89,10 +127,15 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     if (err instanceof ApiError) {
       // A 503 here means cleanup failed and the row is still there (design
       // decision #6 / the Risks section) — never reshaped into anything that
-      // could read as "partly done."
+      // could read as "partly done." `unresolvable` rides along so the
+      // dialog can tell a trader whether trying again can ever work; without
+      // it, the backend's deliberate split would die at this boundary.
       const payload =
         err.status === 503
-          ? { error: "screenshot_cleanup_failed" as const }
+          ? {
+              error: "screenshot_cleanup_failed" as const,
+              unresolvable: cleanupIsUnresolvable(err.body),
+            }
           : { ok: false as const };
       return NextResponse.json(payload, { status: err.status, headers: NO_STORE });
     }

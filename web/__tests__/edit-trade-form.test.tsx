@@ -207,3 +207,94 @@ describe("EditTradeForm", () => {
     });
   });
 });
+
+describe("EditTradeForm — a missing conflict stamp", () => {
+  /**
+   * `expected_updated_at` is the entire conflict guard. Substituting `""`
+   * for a missing `updated_at` failed safe — the backend would 409 — but it
+   * did so silently, which is the exact shape that hid the un-editable
+   * sample-trade bug. Post-backfill this is unreachable; the point is that
+   * if it ever becomes reachable again, the trader is told, not left staring
+   * at an unexplained failure.
+   */
+  const stampless = { ...TRADE, updated_at: null } satisfies TradeDetail;
+
+  it("does not attempt the save at all", async () => {
+    const fetchMock = fetchOkOnce({});
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <EditTradeForm
+        trade={stampless}
+        onCancel={vi.fn()}
+        onSaved={vi.fn()}
+        onConflictReload={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await screen.findByRole("alert");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("says the trade cannot be edited until it is reloaded", async () => {
+    vi.stubGlobal("fetch", fetchOkOnce({}));
+
+    render(
+      <EditTradeForm
+        trade={stampless}
+        onCancel={vi.fn()}
+        onSaved={vi.fn()}
+        onConflictReload={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/cannot be edited until it is reloaded/i);
+    expect(alert).toHaveTextContent(/reload/i);
+  });
+
+  it("never sends an empty string in place of the stamp", async () => {
+    const fetchMock = fetchOkOnce({});
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <EditTradeForm
+        trade={stampless}
+        onCancel={vi.fn()}
+        onSaved={vi.fn()}
+        onConflictReload={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+    await screen.findByRole("alert");
+
+    for (const call of fetchMock.mock.calls) {
+      expect(JSON.parse((call[1] as RequestInit).body as string)).not.toMatchObject({
+        expected_updated_at: "",
+      });
+    }
+  });
+
+  it("still saves normally when the stamp is present", async () => {
+    // The guard must not have made every save conditional on something else.
+    const fetchMock = fetchOkOnce({ ...TRADE, updated_at: "2026-08-02T00:00:00Z" });
+    vi.stubGlobal("fetch", fetchMock);
+    const onSaved = vi.fn();
+
+    render(
+      <EditTradeForm
+        trade={TRADE}
+        onCancel={vi.fn()}
+        onSaved={onSaved}
+        onConflictReload={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.expected_updated_at).toBe("2026-08-01T12:00:00Z");
+  });
+});

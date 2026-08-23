@@ -43,6 +43,18 @@ describe("DeleteTradeDialog", () => {
     expect(deleteTrade).not.toHaveBeenCalled();
   });
 
+  it("puts initial focus on Cancel, not on the destructive confirm", () => {
+    // Deliberate: a destructive action should not be one accidental Enter
+    // key away from firing. The behaviour was designed in from the start but
+    // nothing asserted it, so a refactor of the focus trap could have moved
+    // it silently.
+    render(
+      <DeleteTradeDialog open onClose={vi.fn()} onDeleted={vi.fn()} deleteTrade={vi.fn()} />,
+    );
+    expect(screen.getByRole("button", { name: /cancel/i })).toHaveFocus();
+    expect(screen.getByRole("button", { name: /^delete trade$/i })).not.toHaveFocus();
+  });
+
   it("calls onDeleted on a 204", async () => {
     const onDeleted = vi.fn();
     const deleteTrade = vi.fn().mockResolvedValue({ status: 204 });
@@ -90,6 +102,99 @@ describe("DeleteTradeDialog", () => {
       fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
       await waitFor(() => expect(onDeleted).toHaveBeenCalled());
       expect(deleteTrade).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("503 — a cleanup failure a retry can never clear", () => {
+    // The backend reports `unresolvable` separately from `remaining`
+    // precisely so nobody tells a trader to keep retrying something that
+    // cannot succeed. Same truth as the retryable branch — nothing was
+    // deleted — but the advice has to be different, or the split was pointless.
+    const unresolvable = () => vi.fn().mockResolvedValue({ status: 503, unresolvable: true });
+
+    it("says nothing was deleted and that retrying will not help", async () => {
+      const onDeleted = vi.fn();
+      render(
+        <DeleteTradeDialog
+          open
+          onClose={vi.fn()}
+          onDeleted={onDeleted}
+          deleteTrade={unresolvable()}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent(/nothing was deleted/i);
+      expect(alert).toHaveTextContent(/trying again will not/i);
+      expect(alert).toHaveTextContent(/support/i);
+      expect(onDeleted).not.toHaveBeenCalled();
+    });
+
+    it("does not offer the retry the retryable branch offers", async () => {
+      render(
+        <DeleteTradeDialog
+          open
+          onClose={vi.fn()}
+          onDeleted={vi.fn()}
+          deleteTrade={unresolvable()}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent ?? "").not.toMatch(/you can try again/i);
+      // The confirm button is disabled too: leaving it live would contradict
+      // the sentence directly above it.
+      expect(screen.getByRole("button", { name: /^delete trade$/i })).toBeDisabled();
+    });
+
+    it("never implies anything was deleted", async () => {
+      render(
+        <DeleteTradeDialog
+          open
+          onClose={vi.fn()}
+          onDeleted={vi.fn()}
+          deleteTrade={unresolvable()}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
+
+      const alert = await screen.findByRole("alert");
+      const text = alert.textContent ?? "";
+      expect(text).not.toMatch(/trade (was |is )?(removed|deleted)\b/i);
+      expect(text).not.toMatch(/partly|partially/i);
+    });
+
+    it("reads differently from the retryable 503, not as the same message", async () => {
+      const { unmount } = render(
+        <DeleteTradeDialog
+          open
+          onClose={vi.fn()}
+          onDeleted={vi.fn()}
+          deleteTrade={unresolvable()}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
+      const unresolvableText = (await screen.findByRole("alert")).textContent ?? "";
+      unmount();
+
+      render(
+        <DeleteTradeDialog
+          open
+          onClose={vi.fn()}
+          onDeleted={vi.fn()}
+          deleteTrade={vi.fn().mockResolvedValue({ status: 503, unresolvable: false })}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
+      const retryableText = (await screen.findByRole("alert")).textContent ?? "";
+
+      expect(retryableText).toMatch(/you can try again/i);
+      expect(unresolvableText).not.toBe(retryableText);
+      // Both still make the one guarantee that must never vary.
+      expect(retryableText).toMatch(/nothing was deleted/i);
+      expect(unresolvableText).toMatch(/nothing was deleted/i);
     });
   });
 

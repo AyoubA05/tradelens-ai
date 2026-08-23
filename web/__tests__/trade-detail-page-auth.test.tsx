@@ -96,3 +96,45 @@ describe("Trade Detail page authorization", () => {
     expect(notFound).not.toHaveBeenCalled();
   });
 });
+
+describe("Trade Detail page id parsing", () => {
+  beforeEach(() => {
+    authenticate.mockResolvedValue({ userId: 7, appSurface: "nextjs" });
+    appRedirect.mockReturnValue(null);
+  });
+
+  /**
+   * The page uses the same strict digit test as the relay's `parseTradeId`.
+   * Bare `Number()` accepts JavaScript's other numeric literal forms, so
+   * "1e3", "0x10", "0b11" and " 1" would each render a different trade under
+   * a URL that does not name it, and "999999999999999999999" would survive
+   * `Number.isInteger` only to be sent upstream as the literal "1e+21".
+   * Ownership is enforced backend-side, so none of this is exploitable — it
+   * is simply several URLs aliasing one row, and one malformed request.
+   */
+  it.each([
+    "1e3",
+    "0x10",
+    "0b11",
+    "0o17",
+    " 1",
+    "1 ",
+    "+1",
+    "1.0",
+    "01",
+    "999999999999999999999",
+    "0",
+    "-1",
+    "",
+    "Infinity",
+  ])("renders not-found for %j without calling FastAPI", async (id) => {
+    await expect(TradeDetailPage({ params: Promise.resolve({ id }) })).rejects.toThrow("notFound");
+    expect(fetchTradeDetail).not.toHaveBeenCalled();
+  });
+
+  it("accepts a plain positive integer and forwards it as a number", async () => {
+    fetchTradeDetail.mockResolvedValue({ id: 1234567890123456, screenshots: [] });
+    await TradeDetailPage({ params: Promise.resolve({ id: "1234567890123456" }) });
+    expect(fetchTradeDetail).toHaveBeenCalledWith("browser-token", 1234567890123456);
+  });
+});

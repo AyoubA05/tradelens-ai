@@ -148,3 +148,175 @@ describe("DELETE /api/trades/[id]", () => {
     expect(deleteTrade).not.toHaveBeenCalled();
   });
 });
+
+describe("relay hardening", () => {
+  describe("CSRF fails shut", () => {
+    it("refuses rather than allows when SITE_ORIGIN is unset", async () => {
+      // The nine `app/api/auth/*` routes guard with `if (siteOrigin && ...)`,
+      // so an unset SITE_ORIGIN skips their origin check entirely. This relay
+      // deliberately diverges: it is the first of that family to guard trade
+      // data rather than an auth flow, so a missing origin refuses. If this
+      // test ever fails because the guard was "made consistent" with the auth
+      // routes, that is the regression, not the test.
+      delete process.env.SITE_ORIGIN;
+      const patch = await callPatch(req("PATCH", "42", { expected_updated_at: "x" }), "42");
+      expect(patch.status).toBe(403);
+      expect(patchTrade).not.toHaveBeenCalled();
+
+      const del = await callDelete(req("DELETE", "42"), "42");
+      expect(del.status).toBe(403);
+      expect(deleteTrade).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("parseTradeId rejects every non-plain-integer id", () => {
+    // Bare `Number()` accepts JavaScript's other numeric literal forms, so
+    // "1e3", "0x10", "0b11" and " 1" would each alias a different trade's
+    // row, and "999999999999999999999" would survive `Number.isInteger` only
+    // to be re-serialised as "1e+21" into the upstream path AND the
+    // HMAC-signed canonical path.
+    const rejected: Array<[string, string]> = [
+      ["1e3", "exponent notation would alias trade 1000"],
+      ["0x10", "hex would alias trade 16"],
+      ["0b11", "binary would alias trade 3"],
+      ["0o17", "octal would alias trade 15"],
+      [" 1", "leading whitespace would alias trade 1"],
+      ["1 ", "trailing whitespace would alias trade 1"],
+      ["+1", "a signed literal would alias trade 1"],
+      ["1.0", "a decimal literal would alias trade 1"],
+      ["01", "a leading zero would alias trade 1"],
+      ["999999999999999999999", "beyond exact-integer range; serialises as 1e+21"],
+      ["0", "there is no trade 0"],
+      ["-1", "negative ids do not exist"],
+      ["", "an empty id is not a trade"],
+      ["abc", "not a number at all"],
+      ["Infinity", "Number('Infinity') is not an id"],
+    ];
+
+    it.each(rejected)("404s %j without calling the backend (%s)", async (id) => {
+      const patch = await callPatch(req("PATCH", id, { expected_updated_at: "x" }), id);
+      expect(patch.status).toBe(404);
+      expect(patchTrade).not.toHaveBeenCalled();
+
+      const del = await callDelete(req("DELETE", id), id);
+      expect(del.status).toBe(404);
+      expect(deleteTrade).not.toHaveBeenCalled();
+    });
+
+    it("accepts a plain positive integer and forwards it as a number", async () => {
+      deleteTrade.mockResolvedValue(undefined);
+      const response = await callDelete(req("DELETE", "1234567890123456"), "1234567890123456");
+      expect(response.status).toBe(204);
+      expect(deleteTrade).toHaveBeenCalledWith("browser-token", 1234567890123456);
+    });
+  });
+
+  describe("backend status passthrough", () => {
+    // A relay that collapsed a backend status into its own 502 would break
+    // the chain each status drives: 404 becomes notFound() (the existence
+    // non-disclosure property), 401/403 mean the session or ownership check
+    // said no. Only a non-ApiError fault is this relay's own 502.
+    it.each([404, 401, 403, 422, 500])("forwards a backend %i as itself", async (status) => {
+      const { ApiError } = await import("@/lib/api/client");
+      patchTrade.mockRejectedValue(new ApiError(status));
+      const patch = await callPatch(req("PATCH", "42", { expected_updated_at: "x" }), "42");
+      expect(patch.status).toBe(status);
+
+      deleteTrade.mockRejectedValue(new ApiError(status));
+      const del = await callDelete(req("DELETE", "42"), "42");
+      expect(del.status).toBe(status);
+    });
+
+    it("uses 502 only for a fault that is not the backend's own status", async () => {
+      patchTrade.mockRejectedValue(new TypeError("fetch failed"));
+      const response = await callPatch(req("PATCH", "42", { expected_updated_at: "x" }), "42");
+      expect(response.status).toBe(502);
+    });
+  });
+
+  describe("no-store on every response", () => {
+    // A trade cached by an intermediary is another account's data one shared
+    // proxy away. The header has to be on the failure paths too, not just the
+    // happy one.
+    it("sets Cache-Control: no-store on success, 403, 401, 404, 409 and 503", async () => {
+      const { ApiError } = await import("@/lib/api/client");
+      const responses: Response[] = [];
+
+      patchTrade.mockResolvedValue({ id: 42, updated_at: "2026-08-02T00:00:00Z" });
+      responses.push(await callPatch(req("PATCH", "42", { expected_updated_at: "x" }), "42"));
+
+      responses.push(
+        await callPatch(
+          req("PATCH", "42", { expected_updated_at: "x" }, { origin: "https://evil.test" }),
+          "42",
+        ),
+      );
+
+      responses.push(await callPatch(req("PATCH", "abc", { expected_updated_at: "x" }), "abc"));
+
+      patchTrade.mockRejectedValue(new ApiError(409));
+      responses.push(await callPatch(req("PATCH", "42", { expected_updated_at: "x" }), "42"));
+
+      deleteTrade.mockRejectedValue(new ApiError(503));
+      responses.push(await callDelete(req("DELETE", "42"), "42"));
+
+      deleteTrade.mockResolvedValue(undefined);
+      responses.push(await callDelete(req("DELETE", "42"), "42"));
+
+      authenticateSessionToken.mockResolvedValue(null);
+      responses.push(await callDelete(req("DELETE", "42"), "42"));
+
+      expect(responses).toHaveLength(7);
+      for (const response of responses) {
+        expect(response.headers.get("cache-control")).toContain("no-store");
+      }
+    });
+  });
+
+  describe("the 503 cleanup split reaches the caller", () => {
+    // The backend reports `remaining` (an object-store fault a retry clears)
+    // separately from `unresolvable` (a screenshot row a retry can never
+    // clear) so that nobody tells a trader to keep retrying something that
+    // cannot succeed. If the relay flattened them, that split would die here.
+    async function delete503(detail: unknown) {
+      const { ApiError } = await import("@/lib/api/client");
+      deleteTrade.mockRejectedValue(new ApiError(503, detail));
+      const response = await callDelete(req("DELETE", "42"), "42");
+      expect(response.status).toBe(503);
+      return response.json();
+    }
+
+    it("marks a retryable cleanup failure as resolvable", async () => {
+      const body = await delete503({
+        detail: { error: "screenshot_cleanup_failed", remaining: 2, unresolvable: 0 },
+      });
+      expect(body).toEqual({ error: "screenshot_cleanup_failed", unresolvable: false });
+    });
+
+    it("forwards unresolvable when a retry can never clear the failure", async () => {
+      const body = await delete503({
+        detail: { error: "screenshot_cleanup_failed", remaining: 0, unresolvable: 1 },
+      });
+      expect(body).toEqual({ error: "screenshot_cleanup_failed", unresolvable: true });
+    });
+
+    it("treats an unreadable body as retryable — the weaker claim", async () => {
+      expect(await delete503(undefined)).toEqual({
+        error: "screenshot_cleanup_failed",
+        unresolvable: false,
+      });
+      expect(await delete503({ detail: "not an object" })).toEqual({
+        error: "screenshot_cleanup_failed",
+        unresolvable: false,
+      });
+    });
+
+    it("never reshapes a 503 into anything that could read as deleted", async () => {
+      const body = await delete503({
+        detail: { error: "screenshot_cleanup_failed", remaining: 0, unresolvable: 3 },
+      });
+      expect(body).not.toHaveProperty("ok", true);
+      expect(JSON.stringify(body)).not.toMatch(/deleted|removed/i);
+    });
+  });
+});

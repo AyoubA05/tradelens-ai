@@ -36,7 +36,12 @@ export default async function TradeDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const tradeId = Number(id);
+  // A strict digit test rather than bare `Number()`, matching the relay's
+  // `parseTradeId`: `Number` also accepts `"1e3"` (1000), `"0x10"` (16),
+  // `"0b11"` (3) and `" 1"`, so several distinct URLs would resolve to one
+  // trade, and a 21-digit id would be re-serialised into the upstream path
+  // as `"1e+21"`. 16 digits stays inside the exact-integer range.
+  const tradeId = /^[1-9]\d{0,15}$/.test(id) ? Number(id) : null;
 
   const token = sessionTokenFromCookieHeader((await headers()).get("cookie"));
   if (!token) redirect("/login");
@@ -45,10 +50,10 @@ export default async function TradeDetailPage({
   const redirectTo = appLayoutRedirect(user);
   if (redirectTo) redirect(redirectTo);
 
-  // A non-numeric or non-positive id can never be a trade — treated exactly
-  // like a 404 from the API rather than reaching the API at all, and
-  // rendering the same not-found page either way.
-  if (!Number.isInteger(tradeId) || tradeId <= 0) notFound();
+  // An id that is not a plain positive integer can never be a trade —
+  // treated exactly like a 404 from the API rather than reaching the API at
+  // all, and rendering the same not-found page either way.
+  if (tradeId === null) notFound();
 
   let trade;
   try {

@@ -18,9 +18,19 @@ import { useModalTrap } from "@/lib/app/modal-trap";
  * #6, and the Risks section: "a trader told their screenshots are gone
  * while private images remain in the bucket has been given a false privacy
  * assurance"). This dialog's job is to keep that guarantee visible: on any
- * failure the copy says plainly that nothing was deleted and the trader can
- * try again. It never says "trade removed," never reads as partial success,
- * and never auto-retries — retrying is the trader's decision.
+ * failure the copy says plainly that nothing was deleted. It never says
+ * "trade removed," never reads as partial success, and never auto-retries —
+ * retrying is the trader's decision.
+ *
+ * The 503 has two shapes and they get different copy. A retryable cleanup
+ * fault says "you can try again," because a retry genuinely can clear it.
+ * An *unresolvable* one — a screenshot row naming a path this owner is not
+ * entitled to delete — says the opposite: retrying will not help and this
+ * trade needs attention before it can be removed. Offering "try again" for
+ * a failure that can never succeed is exactly what the backend's
+ * remaining/unresolvable split was written to prevent, so the confirm
+ * button is disabled in that branch rather than inviting a retry the
+ * copy has just said cannot work.
  *
  * Initial focus lands on Cancel, not Confirm — a destructive action should
  * not be one accidental Enter key away from firing.
@@ -34,14 +44,19 @@ export function DeleteTradeDialog({
   open: boolean;
   onClose: () => void;
   onDeleted: () => void;
-  /** Injected so tests can exercise every response without a real fetch. */
-  deleteTrade: () => Promise<{ status: number }>;
+  /**
+   * Injected so tests can exercise every response without a real fetch.
+   * `unresolvable` is meaningful only on a 503; absent means retryable.
+   */
+  deleteTrade: () => Promise<{ status: number; unresolvable?: boolean }>;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState<null | "cleanup_failed" | "generic">(null);
+  const [error, setError] = useState<
+    null | "cleanup_failed" | "cleanup_unresolvable" | "generic"
+  >(null);
 
   const close = () => {
     if (deleting) return;
@@ -62,7 +77,11 @@ export function DeleteTradeDialog({
         onDeleted();
         return;
       }
-      setError(response.status === 503 ? "cleanup_failed" : "generic");
+      if (response.status !== 503) {
+        setError("generic");
+        return;
+      }
+      setError(response.unresolvable ? "cleanup_unresolvable" : "cleanup_failed");
     } catch {
       setError("generic");
     } finally {
@@ -98,9 +117,11 @@ export function DeleteTradeDialog({
           >
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-negative" aria-hidden="true" />
             <p className="text-sm text-text">
-              {error === "cleanup_failed"
-                ? "Nothing was deleted. We could not finish removing the stored screenshots, so the trade and its images are still here, untouched. You can try again."
-                : "Nothing was deleted. Something went wrong. You can try again."}
+              {error === "cleanup_unresolvable"
+                ? "Nothing was deleted. One of the stored screenshots cannot be removed from here, and trying again will not change that. Everything is still here, untouched — this one needs our support team to look at it before it can be cleared."
+                : error === "cleanup_failed"
+                  ? "Nothing was deleted. We could not finish removing the stored screenshots, so the trade and its images are still here, untouched. You can try again."
+                  : "Nothing was deleted. Something went wrong. You can try again."}
             </p>
           </div>
         )}
@@ -109,7 +130,10 @@ export function DeleteTradeDialog({
           <button
             type="button"
             onClick={handleConfirm}
-            disabled={deleting}
+            // Disabled once the failure is known to be unresolvable: the copy
+            // has just said a retry cannot work, and leaving the button live
+            // would contradict it.
+            disabled={deleting || error === "cleanup_unresolvable"}
             className="rounded-lg bg-negative px-4 py-2 text-sm font-semibold text-bg transition-colors duration-150 ease-tl hover:bg-negative/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {deleting ? "Deleting…" : "Delete trade"}
