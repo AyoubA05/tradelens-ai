@@ -95,6 +95,15 @@ def get_trades_list(
             result=trade.result,
             pnl=trade.pnl,
             rr_realized=trade.rr_realized,
+            ai_grade=trade.ai_grade,
+            user_grade=trade.user_grade,
+            # `list_trades` eager-loads `screenshots`, so this is a length,
+            # not a query — the list stays one SELECT plus one for the
+            # collection however many rows a page holds. No presigned URLs
+            # here: the list shows an indicator, and minting a signed URL per
+            # row would be a hundred pointless round trips to R2 for images
+            # nothing on this page renders.
+            screenshot_count=len(trade.screenshots),
         )
         for trade in page.trades
     ]
@@ -258,10 +267,12 @@ def delete_trade_endpoint(
     or deleting it anyway after a failed cleanup, would strand private images
     in the bucket with nothing left pointing at them.
 
-    So a failed cleanup returns 503 with the row intact. That is deliberately
-    the less tidy outcome: telling a trader their screenshots are gone while
-    they remain in the bucket is a false privacy assurance, and a retryable
-    delete is recoverable where a silent orphan is not.
+    So an INCOMPLETE cleanup returns 503 with the row intact — incomplete
+    meaning anything left behind, whether it failed or was skipped as a key
+    this owner may not delete. That is deliberately the less tidy outcome:
+    telling a trader their screenshots are gone while they remain in the
+    bucket is a false privacy assurance, and a blocked delete is recoverable
+    where a silent orphan is not.
     """
     if get_trade(trade_id, user_id) is None:
         # Checked before anything is removed, so a trade we do not own reaches
@@ -275,6 +286,12 @@ def delete_trade_endpoint(
             detail={
                 "error": "screenshot_cleanup_failed",
                 "remaining": len(cleanup.failed),
+                # Reported separately from `remaining`: a skipped key is a row
+                # naming a path this owner may not delete, so retrying will
+                # never shrink it. Collapsing the two into one number would
+                # tell the caller to keep retrying something that cannot
+                # succeed.
+                "unresolvable": len(cleanup.skipped),
             },
         )
 

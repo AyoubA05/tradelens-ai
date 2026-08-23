@@ -17,6 +17,13 @@ function trade(overrides: Partial<TradeSummary> = {}): TradeSummary {
     session: "New York",
     setup_type: "FVG",
     trade_date: "2026-08-12",
+    // Spec §8 requires a grade and a screenshot indicator in the table, so
+    // `TradeSummary` now carries them. Present here because the fixture is
+    // typed as the full row: a `Partial` fixture would let a column silently
+    // drop out of the contract without a single test noticing.
+    ai_grade: "B+",
+    user_grade: null,
+    screenshot_count: 0,
     ...overrides,
   };
 }

@@ -50,6 +50,33 @@ def test_list_trades_filters_by_asset(in_memory_db):
     assert page.total == 1
 
 
+def test_list_trades_asset_filter_is_exact_not_a_substring_match(in_memory_db):
+    """`NQ` must not also return MNQ.
+
+    A substring filter narrows to something other than what its name says,
+    and it does so in the total as well as the rows — so a trader reviewing
+    NQ sees micros folded into their count. Every other filter here is
+    exact; this one has to be too.
+    """
+    _create({"asset": "NQ", "trade_date": "2026-01-01"})
+    _create({"asset": "MNQ", "trade_date": "2026-01-02"})
+    _create({"asset": "NQZ5", "trade_date": "2026-01-03"})
+
+    page = trade_service.list_trades(user_id=1, asset="NQ")
+    assert [t.asset for t in page.trades] == ["NQ"]
+    assert page.total == 1
+
+
+def test_list_trades_asset_filter_treats_a_wildcard_as_a_literal(in_memory_db):
+    """Under `ilike('%..%')` an asset of `%` matched the entire journal."""
+    _create({"asset": "NQ", "trade_date": "2026-01-01"})
+    _create({"asset": "ES", "trade_date": "2026-01-02"})
+
+    page = trade_service.list_trades(user_id=1, asset="%")
+    assert page.trades == []
+    assert page.total == 0
+
+
 def test_list_trades_filters_by_session(in_memory_db):
     _create({"asset": "NQ", "trade_date": "2026-01-01", "session": "ny_am"})
     _create({"asset": "NQ", "trade_date": "2026-01-02", "session": "london_open"})
@@ -190,14 +217,74 @@ def test_list_trades_clamps_negative_offset_to_zero(in_memory_db):
     assert page.offset == 0
 
 
+def test_list_trades_clamp_bounds_the_ROWS_not_only_the_reported_limit(in_memory_db):
+    """The clamp is a security property, so assert what came back.
+
+    Asserting `page.limit` alone tests a number the service reports about
+    itself. An implementation that reported the clamped value while querying
+    with the raw one would pass that — and a caller asking for `limit=100000`
+    would get the whole table, which is exactly what the clamp exists to
+    prevent. The row count is the only assertion that can tell those apart.
+    """
+    for i in range(105):
+        _create({"asset": "NQ", "trade_date": "2026-01-01", "pnl": float(i)})
+
+    page = trade_service.list_trades(user_id=1, limit=100000)
+
+    assert page.limit == 100
+    assert len(page.trades) == 100, "a caller must not be able to request everything"
+    assert page.total == 105, "the total still describes the whole filtered set"
+
+
+def test_list_trades_offset_actually_skips_rows(in_memory_db):
+    """`offset` must move the window, not merely be echoed back."""
+    ids = [
+        _create({"asset": "NQ", "trade_date": "2026-01-01", "pnl": float(i)}).id
+        for i in range(5)
+    ]
+    newest_first = sorted(ids, reverse=True)
+
+    page = trade_service.list_trades(user_id=1, limit=2, offset=2)
+
+    assert page.offset == 2
+    assert [t.id for t in page.trades] == newest_first[2:4]
+
+
 def test_list_trades_stable_order_across_same_day_ties(in_memory_db):
     """Ordering by trade_date alone is a partial order: three same-day trades
-    could land on two pages or none. `id` breaks the tie so paging is total."""
-    ids = [_create({"asset": "NQ", "trade_date": "2026-01-01"}).id for _ in range(3)]
+    could land on two pages or none. `id` breaks the tie so paging is total.
+
+    The assertion is the SEQUENCE, not the set. Set-equality plus a
+    no-duplicates check survives dropping the `id` tiebreaker entirely,
+    because SQLite happens to hand back rowid order when the ORDER BY does
+    not decide — so the test would pass while the ordering is genuinely
+    partial and another engine (or another plan) reorders the ties.
+    """
+    ids = [
+        _create({"asset": "NQ", "trade_date": "2026-01-01", "pnl": float(i)}).id
+        for i in range(3)
+    ]
+    newest_first = sorted(ids, reverse=True)
 
     page1 = trade_service.list_trades(user_id=1, limit=2, offset=0)
     page2 = trade_service.list_trades(user_id=1, limit=2, offset=2)
 
-    seen = [t.id for t in page1.trades] + [t.id for t in page2.trades]
-    assert sorted(seen) == sorted(ids)
-    assert len(seen) == len(set(seen))
+    assert [t.id for t in page1.trades] == newest_first[:2]
+    assert [t.id for t in page2.trades] == newest_first[2:]
+
+
+def test_list_trades_orders_by_date_first_then_id(in_memory_db):
+    """`trade_date desc` is the primary key of the order; `id desc` only
+    breaks ties within a date. Asserting `id desc` alone would pass an
+    implementation that had dropped the date ordering."""
+    older = _create({"asset": "NQ", "trade_date": "2026-01-01"}).id
+    newer_a = _create({"asset": "NQ", "trade_date": "2026-01-09"}).id
+    newer_b = _create({"asset": "NQ", "trade_date": "2026-01-09", "pnl": 1.0}).id
+
+    page = trade_service.list_trades(user_id=1)
+
+    assert [t.id for t in page.trades] == [
+        max(newer_a, newer_b),
+        min(newer_a, newer_b),
+        older,
+    ]

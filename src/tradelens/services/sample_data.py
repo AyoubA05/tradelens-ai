@@ -83,6 +83,14 @@ def _build_sample_trades(user_id) -> list:
     dated over the most recent weekdays so it always appears on the dashboard."""
     rows = []
     weekdays = _recent_weekdays(SAMPLE_COUNT)
+    # Stamped exactly as `create_trade` stamps a real trade. Not decoration:
+    # `PATCH /v1/trades/{id}` guards edits with a single conditional UPDATE on
+    # `updated_at == expected_updated_at`, and in SQL `NULL = 'anything'` is
+    # never true — so a row left with a NULL `updated_at` is readable, is
+    # listed, and is permanently un-editable, with no value a client could
+    # send to match. Sample trades are the first thing a new trader clicks
+    # into, so that made the demo data look broken on the first edit.
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
     for i in range(SAMPLE_COUNT):
         bucket = i % 10
         result = "Win" if bucket < 6 else ("Loss" if bucket < 9 else "Breakeven")
@@ -120,6 +128,8 @@ def _build_sample_trades(user_id) -> list:
                 notes="Sample trade for the demo." if i % 3 == 0 else None,
                 is_sample=1,
                 user_id=user_id,
+                created_at=now,
+                updated_at=now,
             )
         )
     return rows

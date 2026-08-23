@@ -421,7 +421,29 @@ def test_delete_trade_objects_skips_a_row_pointing_outside_the_owners_prefix(
     assert sorted(cleanup.skipped) == sorted(
         [foreign, "data/screenshots/legacy-local-file.png"]
     )
-    assert cleanup.complete is True
+    # NOT complete. A skip means an object may still exist that this cleanup
+    # did not remove, so reporting completion would let the caller tell a
+    # trader their screenshots are gone over a bucket that still holds them
+    # — the same false privacy assurance a failure causes, arriving through
+    # a different list. `complete` must not depend on which list it is.
+    assert cleanup.complete is False
+
+
+def test_cleanup_is_complete_only_when_both_failed_and_skipped_are_empty():
+    """The completeness rule, stated directly.
+
+    A mutation making `complete` ignore `skipped` is invisible to the
+    end-to-end tests whenever every key happens to be a well-formed current
+    key — which is every test that does not deliberately construct a legacy
+    row. Pinning the rule itself is what survives that.
+    """
+    key = "u/1/t/2/00000000-0000-0000-0000-000000000000.png"
+    assert storage.ObjectCleanup(deleted=[key], failed=[], skipped=[]).complete is True
+    assert storage.ObjectCleanup(deleted=[], failed=[key], skipped=[]).complete is False
+    assert storage.ObjectCleanup(deleted=[], failed=[], skipped=[key]).complete is False
+    assert (
+        storage.ObjectCleanup(deleted=[], failed=[key], skipped=[key]).complete is False
+    )
 
 
 def test_delete_trade_objects_needs_no_object_store_when_there_is_nothing_to_do(

@@ -416,3 +416,62 @@ def test_trade_process_notes_migration_round_trip(tmp_path):
         mig.upgrade()  # idempotent re-run
         mig.downgrade()
         assert "trade_process_notes" not in _columns(conn)
+
+
+def test_updated_at_backfill_makes_every_row_editable_again(tmp_path):
+    """A NULL `updated_at` is an un-editable row, not a cosmetic gap.
+
+    `PATCH /v1/trades/{id}` guards edits with one conditional UPDATE whose
+    predicate includes `updated_at = :expected_updated_at`, and `NULL = x` is
+    never true in SQL — so a row with no stamp can never match, whatever the
+    client sends. The backfill's whole job is that every row carries a
+    non-NULL value a client can read back and echo.
+    """
+    engine = create_engine(f"sqlite:///{tmp_path / 'backfill.db'}")
+    mig = _load_mig("a7b8c9d0e1f2_backfill_trade_updated_at.py")
+    with engine.connect() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE trades ("
+            "id INTEGER PRIMARY KEY, asset VARCHAR, "
+            "created_at VARCHAR, updated_at VARCHAR)"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO trades (asset, created_at, updated_at) VALUES "
+            "('NQ', '2026-01-01T00:00:00+00:00', NULL),"  # sample-data shape
+            "('ES', NULL, NULL),"  # nothing to fall back on
+            "('GC', '2026-01-03T00:00:00+00:00', 'ALREADY-SET')"
+        )
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()
+        rows = dict(
+            conn.exec_driver_sql("SELECT asset, updated_at FROM trades").fetchall()
+        )
+
+        assert all(value for value in rows.values()), f"a NULL survived: {rows}"
+        # `created_at` is the truest stamp for a row never updated.
+        assert rows["NQ"] == "2026-01-01T00:00:00+00:00"
+        # No `created_at` to borrow — any stable non-NULL value will do.
+        assert rows["ES"]
+        # An existing stamp is never overwritten: doing so would invalidate
+        # every `expected_updated_at` a client is currently holding.
+        assert rows["GC"] == "ALREADY-SET"
+
+        mig.upgrade()  # idempotent re-run
+        assert (
+            dict(
+                conn.exec_driver_sql("SELECT asset, updated_at FROM trades").fetchall()
+            )
+            == rows
+        )
+
+        # Deliberately a no-op: re-NULLing would recreate the defect this
+        # fixed and destroy real timestamps written since.
+        mig.downgrade()
+        assert (
+            dict(
+                conn.exec_driver_sql("SELECT asset, updated_at FROM trades").fetchall()
+            )
+            == rows
+        )

@@ -46,6 +46,22 @@ class TradeSummary(_Strict):
     pnl: Optional[float]
     rr_realized: Optional[float]
 
+    # Spec §8 requires the trades table to show a grade and whether the row
+    # has a screenshot. Those lived only on TradeDetail, so the list page had
+    # to either omit two required columns or fabricate them from data the
+    # endpoint does not return — and a fabricated column on a trader's
+    # journal is wrong data, not a cosmetic gap.
+    ai_grade: Optional[str]
+    user_grade: Optional[str]
+
+    # A count rather than a bool: the table renders an indicator either way,
+    # and "3 screenshots" is strictly more useful than "yes" for deciding
+    # which trade to open. It is also what justifies the
+    # `selectinload(Trade.screenshots)` in `list_trades` — that eager load
+    # reads as a wasted SELECT only while the summary has no screenshot
+    # field, and without it this count would issue one query per row.
+    screenshot_count: int
+
 
 class TradeListResponse(_Strict):
     trades: List[TradeSummary]
@@ -187,6 +203,15 @@ class TradeUpdate(_Strict):
         'ny_am', quietly breaking every session filter for the edited row.
         The storage key is also accepted so an already-normalised client is
         not punished for being correct.
+
+        **An unrecognised value passes through unchanged**, because the read
+        contract emits unrecognised values unchanged: `_killzone_label` is
+        `KILLZONE_LABELS.get(raw, raw)`, so a legacy row storing
+        'legacy_zone' renders as 'legacy_zone'. Raising here made that trade
+        readable and un-writable — and un-writable in ALL its fields, since
+        an edit form posts the whole record, so a trader could not fix their
+        notes on a row they never chose to annotate that way. The write must
+        accept what the read emitted; the round trip is the contract.
         """
         if value is None:
             return None
@@ -195,7 +220,7 @@ class TradeUpdate(_Strict):
         for key, label in KILLZONE_LABELS.items():
             if value == label:
                 return key
-        raise ValueError(f"unknown killzone: {value!r}")
+        return value
 
 
 # The write surface, derived from the model itself so the two cannot drift.
@@ -260,10 +285,18 @@ class ScreenshotCleanupFailedDetail(_Strict):
     """A delete that could not finish. The trade row is deliberately still
     there: a trader told their screenshots are gone while private images
     remain in the bucket has been given a false privacy assurance, so the
-    state stays retryable rather than becoming an orphan nobody can find."""
+    state stays retryable rather than becoming an orphan nobody can find.
+
+    `remaining` and `unresolvable` are separate numbers because they need
+    different handling: `remaining` is an object-store fault that a retry
+    will clear, while `unresolvable` counts screenshot rows naming a path
+    this owner is not entitled to delete — a retry will never clear those,
+    and the caller must be able to tell "try again" from "this needs an
+    operator" rather than seeing one opaque total."""
 
     error: Literal["screenshot_cleanup_failed"]
     remaining: int
+    unresolvable: int
 
 
 class ScreenshotCleanupFailedResponse(_Strict):

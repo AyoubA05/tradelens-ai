@@ -270,7 +270,18 @@ def list_trades(
             if end_date:
                 query = query.filter(Trade.trade_date <= end_date)
             if asset:
-                query = query.filter(Trade.asset.ilike(f"%{asset}%"))
+                # Exact, like every other filter here — NOT `ilike('%..%')`.
+                # A substring match makes `asset=NQ` also return MNQ, in both
+                # the rows AND the total, and `asset=%` match the whole
+                # journal. The filter is parameterised either way, so this is
+                # not injection; it is a control that does not narrow the way
+                # its name says it does, which puts wrong numbers in front of
+                # a trader reviewing one instrument.
+                #
+                # `get_trades` keeps its substring behaviour deliberately:
+                # that is the Streamlit search box, where "type a fragment"
+                # is the contract callers already rely on.
+                query = query.filter(Trade.asset == asset)
             if session:
                 query = query.filter(Trade.session == session)
             if setup_type:

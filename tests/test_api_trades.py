@@ -134,6 +134,76 @@ def test_list_killzone_renders_the_label_not_the_raw_key(
     assert r.json()["trades"][0]["killzone"] == "New York AM"
 
 
+def test_list_carries_the_grade_and_screenshot_columns_the_spec_requires(
+    client, website_session_handle
+):
+    """Spec §8: the trades table shows a grade and a screenshot indicator.
+
+    Both lived only on TradeDetail, so the list page had to omit two required
+    columns or invent them from data this endpoint does not return. A
+    fabricated column on a trading journal is wrong data, not a cosmetic gap.
+    """
+    user_id, handle = website_session_handle
+    trade = _create(user_id, trade_date="2026-08-10", ai_grade="B+", user_grade="A")
+    from src.tradelens.api import storage as storage_module
+
+    _add_screenshot(
+        trade.id, storage_module.build_object_key(user_id, trade.id, "image/png")
+    )
+    _add_screenshot(
+        trade.id, storage_module.build_object_key(user_id, trade.id, "image/png")
+    )
+
+    r = client.get(f"{LIST_PATH}?{QUERY}", headers=_headers(handle))
+
+    assert r.status_code == 200
+    row = r.json()["trades"][0]
+    assert row["ai_grade"] == "B+"
+    assert row["user_grade"] == "A"
+    assert row["screenshot_count"] == 2
+
+
+def test_list_reports_zero_screenshots_rather_than_omitting_the_field(
+    client, website_session_handle
+):
+    """The indicator is always present, so the table renders one shape."""
+    user_id, handle = website_session_handle
+    _create(user_id, trade_date="2026-08-10")
+
+    r = client.get(f"{LIST_PATH}?{QUERY}", headers=_headers(handle))
+
+    row = r.json()["trades"][0]
+    assert row["screenshot_count"] == 0
+    assert row["ai_grade"] is None
+    assert row["user_grade"] is None
+
+
+def test_list_mints_no_presigned_urls(client, website_session_handle, monkeypatch):
+    """The list shows an indicator, not images. Signing a URL per row would
+    be a hundred round trips to R2 for pictures nothing on the page renders,
+    and would hand out download links the trader never asked for."""
+    user_id, handle = website_session_handle
+    trade = _create(user_id, trade_date="2026-08-10")
+    from src.tradelens.api import storage as storage_module
+
+    _add_screenshot(
+        trade.id, storage_module.build_object_key(user_id, trade.id, "image/png")
+    )
+
+    calls = []
+    monkeypatch.setattr(
+        storage_module,
+        "presign_download",
+        lambda owner, shot_id: calls.append((owner, shot_id)),
+    )
+
+    r = client.get(f"{LIST_PATH}?{QUERY}", headers=_headers(handle))
+
+    assert r.status_code == 200
+    assert r.json()["trades"][0]["screenshot_count"] == 1
+    assert calls == []
+
+
 def test_list_handler_return_annotation_is_the_typed_model():
     spec = create_app().openapi()
     ref = spec["paths"]["/v1/trades"]["get"]["responses"]["200"]["content"][
@@ -193,9 +263,24 @@ def test_detail_missing_trade_is_404_byte_identical_to_cross_owner(
 def test_detail_no_presigned_url_for_a_trade_the_caller_does_not_own(
     client, website_session_handle, two_users, monkeypatch
 ):
+    """The other owner's trade HAS a screenshot, deliberately.
+
+    Built without one, `assert calls == []` was vacuous — there was nothing
+    to presign, so the assertion held for any implementation and the test
+    rested entirely on the 404. Attaching a real screenshot is what makes the
+    spy load-bearing: a handler that shaped the response before checking
+    ownership would now mint a download URL for another trader's image, and
+    this fails.
+    """
     user_id, handle = website_session_handle
     other = next(u for u in two_users if u != user_id)
     trade = _create(other, trade_date="2026-08-10")
+
+    from src.tradelens.api import storage as storage_module
+
+    _add_screenshot(
+        trade.id, storage_module.build_object_key(other, trade.id, "image/png")
+    )
 
     calls = []
 
@@ -203,14 +288,72 @@ def test_detail_no_presigned_url_for_a_trade_the_caller_does_not_own(
         calls.append((owner, screenshot_id))
         return "https://example.invalid/should-not-be-called"
 
-    from src.tradelens.api import storage as storage_module
-
     monkeypatch.setattr(storage_module, "presign_download", _spy)
 
     path = f"/v1/trades/{trade.id}"
     r = client.get(path, headers=_headers(handle, query="", path=path))
     assert r.status_code == 404
-    assert calls == []
+    assert calls == [], "no URL may be minted for a trade we do not own"
+    assert "should-not-be-called" not in r.text
+
+
+def test_detail_presigns_an_owned_screenshot_and_returns_the_typed_descriptor(
+    client, website_session_handle, monkeypatch
+):
+    """The positive half: an owned screenshot DOES get a URL.
+
+    Without this, the cross-owner test could be satisfied by a handler that
+    never presigns anything at all. The response also has to survive
+    `TradeDetail`'s `strict=True` / `extra="forbid"` — a descriptor field
+    that does not typecheck would 500 rather than quietly vanish.
+    """
+    user_id, handle = website_session_handle
+    trade = _create(user_id, trade_date="2026-08-10")
+
+    from src.tradelens.api import storage as storage_module
+
+    key = storage_module.build_object_key(user_id, trade.id, "image/png")
+    shot_id = _add_screenshot(trade.id, key)
+
+    calls = []
+
+    def _spy(owner, screenshot_id):
+        calls.append((owner, screenshot_id))
+        return f"https://example.invalid/signed/{screenshot_id}"
+
+    monkeypatch.setattr(storage_module, "presign_download", _spy)
+
+    path = f"/v1/trades/{trade.id}"
+    r = client.get(path, headers=_headers(handle, query="", path=path))
+
+    assert r.status_code == 200, r.text
+    assert calls == [(user_id, shot_id)], "presigned once, for this owner"
+    (descriptor,) = r.json()["screenshots"]
+    assert descriptor["id"] == shot_id
+    assert descriptor["url"] == f"https://example.invalid/signed/{shot_id}"
+
+
+def test_detail_survives_a_screenshot_that_cannot_be_presigned(
+    client, website_session_handle, monkeypatch
+):
+    """`presign_download` returning None is a missing image, not an error —
+    the rest of the trade is still owed to the trader."""
+    user_id, handle = website_session_handle
+    trade = _create(user_id, trade_date="2026-08-10")
+
+    from src.tradelens.api import storage as storage_module
+
+    key = storage_module.build_object_key(user_id, trade.id, "image/png")
+    shot_id = _add_screenshot(trade.id, key)
+    monkeypatch.setattr(storage_module, "presign_download", lambda *_: None)
+
+    path = f"/v1/trades/{trade.id}"
+    r = client.get(path, headers=_headers(handle, query="", path=path))
+
+    assert r.status_code == 200, r.text
+    (descriptor,) = r.json()["screenshots"]
+    assert descriptor["id"] == shot_id
+    assert descriptor["url"] is None
 
 
 # ------------------------------------------------------------ PATCH /v1/trades/{id}
@@ -277,6 +420,27 @@ def _trade_updates(seen):
         for stmt, params in seen
         if stmt.lstrip().upper().startswith("UPDATE TRADES")
     ]
+
+
+def _updated_at_reads(seen):
+    """The SELECTs that project `trades.updated_at` and nothing else.
+
+    That is the 404-vs-409 disambiguation re-read: after a rowcount of 0 the
+    service reads the row back to decide which refusal the caller gets. The
+    outcome-derivation SELECT above it projects `result, pnl`, so this
+    matcher picks out exactly the statement under test.
+    """
+    matched = []
+    for stmt, params in seen:
+        # SQLAlchemy line-wraps its SQL, so collapse whitespace before
+        # matching on clause boundaries.
+        upper = " ".join(stmt.split()).upper()
+        if not upper.startswith("SELECT") or " FROM TRADES" not in upper:
+            continue
+        projection = upper.split(" FROM TRADES", 1)[0]
+        if "UPDATED_AT" in projection:
+            matched.append((stmt, params))
+    return matched
 
 
 def test_patch_unsigned_request_is_refused(client, website_session_handle):
@@ -559,6 +723,41 @@ def test_the_409_comes_from_a_single_conditional_updates_rowcount(
     assert "1999-01-01T00:00:00+00:00" in bound
 
 
+def test_the_409_re_read_is_owner_scoped_too(client, website_session_handle):
+    """The disambiguation re-read carries `user_id`, not just the trade id.
+
+    Removing `Trade.user_id == owner` from that SELECT passed the entire
+    suite: today the owner-scoped derivation SELECT above it returns
+    `not_found` first, so the unscoped re-read is unreachable. That masking
+    is precisely how a guard rots — relax or move the derivation SELECT and
+    this becomes a cross-tenant existence oracle whose 409 body hands the
+    caller ANOTHER OWNER'S `updated_at`. So the predicate is pinned here in
+    the same way the UPDATE's predicate is pinned above, rather than left
+    resting on a neighbour's behaviour.
+    """
+    user_id, handle = website_session_handle
+    trade = _create(user_id, notes="original")
+
+    with _captured_sql() as seen:
+        r = _patch(
+            client,
+            handle,
+            trade.id,
+            {"notes": "clobbered", "expected_updated_at": "1999-01-01T00:00:00+00:00"},
+        )
+
+    assert r.status_code == 409
+    reads = _updated_at_reads(seen)
+    assert len(reads) == 1, "the stale case must re-read exactly once"
+    statement, params = reads[0]
+    where = statement.upper().split("WHERE", 1)[1]
+    for column in ("ID", "USER_ID"):
+        assert column in where, f"the re-read predicate must carry {column}"
+    bound = list(params.values()) if isinstance(params, dict) else list(params)
+    assert trade.id in bound
+    assert user_id in bound
+
+
 def test_a_fresh_expected_updated_at_from_the_previous_patch_succeeds(
     client, website_session_handle
 ):
@@ -605,6 +804,117 @@ def test_patch_an_omitted_field_is_untouched_but_an_explicit_null_clears_it(
     row = _read_row(trade.id)
     assert row["notes"] == "keep me"
     assert row["htf_bias"] is None
+
+
+def test_an_unrecognised_killzone_survives_a_full_read_modify_write(
+    client, website_session_handle
+):
+    """What the read emits, the write must accept.
+
+    `_killzone_label` deliberately falls back to the raw value for a killzone
+    the engine does not know — legacy rows predating the killzone engine are
+    still owed a fully-typed response. The write validator used to raise on
+    the same value, so that trade was readable and then 422'd on save. And it
+    failed the WHOLE save, including fields the trader did edit, because an
+    edit form posts the entire record: a legacy row could never have its
+    notes fixed. Round-tripping the exact payload the GET returned is the
+    contract, so that is what this asserts.
+    """
+    user_id, handle = website_session_handle
+    trade = _create(user_id, killzone="legacy_zone", notes="original")
+
+    path = f"/v1/trades/{trade.id}"
+    read = client.get(path, headers=_headers(handle, query="", path=path))
+    assert read.status_code == 200
+    body = read.json()
+    assert body["killzone"] == "legacy_zone", "the read emits the raw value"
+
+    # Post back exactly what was read, plus the one field actually edited —
+    # which is what an edit form does.
+    written = _patch(
+        client,
+        handle,
+        trade.id,
+        {
+            "killzone": body["killzone"],
+            "notes": "edited",
+            "expected_updated_at": body["updated_at"],
+        },
+    )
+    assert written.status_code == 200, written.text
+    assert written.json()["killzone"] == "legacy_zone"
+    assert written.json()["notes"] == "edited"
+
+    row = _read_row(trade.id)
+    assert row["killzone"] == "legacy_zone", "stored verbatim, not mangled"
+    assert row["notes"] == "edited"
+
+
+def test_a_known_killzone_label_still_normalises_to_its_storage_key(
+    client, website_session_handle
+):
+    """Accepting unknown values verbatim must not weaken the known ones: a
+    label the engine DOES recognise still has to be stored as its key, or
+    every session filter breaks for the edited row."""
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+
+    r = _patch(
+        client,
+        handle,
+        trade.id,
+        {"killzone": "New York AM", "expected_updated_at": trade.updated_at},
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json()["killzone"] == "New York AM"
+    assert _read_row(trade.id)["killzone"] == "ny_am"
+
+
+def test_a_sample_trade_can_be_read_and_then_edited(client, website_session_handle):
+    """Demo data must not be permanently un-editable.
+
+    `load_sample_trades` built its rows without `updated_at`, and the PATCH
+    guard is `updated_at = :expected_updated_at`. `NULL = x` is never true in
+    SQL, so those rows listed and read fine and then refused every edit —
+    with NO value a client could send: `null` failed validation and the
+    empty string came back 409 carrying `current_updated_at: null`. Sample
+    trades are the first thing a new trader clicks into, so this was the
+    first edit anyone would ever try.
+    """
+    user_id, handle = website_session_handle
+    from src.tradelens.services.sample_data import load_sample_trades
+
+    assert load_sample_trades(user_id) > 0
+
+    from src.tradelens.db.models import Trade
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        sample_id = (
+            db.query(Trade.id)
+            .filter(Trade.user_id == user_id, Trade.is_sample == 1)
+            .order_by(Trade.id.asc())
+            .first()[0]
+        )
+    finally:
+        db.close()
+
+    path = f"/v1/trades/{sample_id}"
+    read = client.get(path, headers=_headers(handle, query="", path=path))
+    assert read.status_code == 200
+    stamp = read.json()["updated_at"]
+    assert stamp is not None, "a sample trade must carry a concurrency stamp"
+
+    written = _patch(
+        client,
+        handle,
+        sample_id,
+        {"notes": "reflected on this one", "expected_updated_at": stamp},
+    )
+    assert written.status_code == 200, written.text
+    assert _read_row(sample_id)["notes"] == "reflected on this one"
 
 
 def test_patch_response_is_the_typed_trade_detail_model():
@@ -811,6 +1121,81 @@ def test_delete_reports_5xx_and_keeps_the_row_when_cleanup_fails(
     assert r.json()["detail"]["error"] == "screenshot_cleanup_failed"
     assert _read_row(trade.id) is not None, "the row must survive a failed cleanup"
     assert _screenshot_rows(trade.id) == [shot_id]
+
+
+def test_delete_refuses_when_a_key_was_skipped_rather_than_deleted(
+    client, website_session_handle, monkeypatch
+):
+    """A SKIP must never earn a 204 either.
+
+    `complete` used to be `not self.failed`, so a key the cleanup declined to
+    touch still produced "your screenshots are gone". The skip path is not
+    hypothetical: `_is_final_key` requires a `<uuid>.png` filename, so the
+    day `finalize_upload` emits a second output format every existing key of
+    that format becomes a skip — and a false privacy assurance. The
+    guarantee must not depend on which list the leftover landed in.
+    """
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    # A legacy local path: a real stored `file_path` that names no object
+    # this owner is entitled to delete, so cleanup skips it.
+    shot_id = _add_screenshot(trade.id, "data/screenshots/legacy-local-file.png")
+
+    from src.tradelens.api import storage as storage_module
+
+    touched = []
+
+    class _Fake:
+        def delete_object(self, Bucket=None, Key=None):
+            touched.append(Key)
+
+    monkeypatch.setattr(storage_module, "_client", lambda: _Fake())
+
+    r = _delete(client, handle, trade.id)
+
+    assert r.status_code == 503
+    assert touched == [], "a skipped key must never reach the object store"
+    assert _read_row(trade.id) is not None, "the row must survive"
+    assert _screenshot_rows(trade.id) == [shot_id]
+
+
+def test_delete_failure_body_separates_retryable_from_unresolvable(
+    client, website_session_handle, monkeypatch
+):
+    """The caller has to tell "try again" from "this needs an operator".
+
+    A failed key clears on retry; a skipped one never will. One opaque total
+    would tell a client to keep retrying something that cannot succeed.
+    """
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    from src.tradelens.api import storage as storage_module
+
+    _add_screenshot(trade.id, "data/screenshots/legacy-local-file.png")
+
+    from botocore.exceptions import ClientError
+
+    class _Down:
+        def delete_object(self, Bucket=None, Key=None):
+            raise ClientError(
+                {
+                    "Error": {"Code": "InternalError"},
+                    "ResponseMetadata": {"HTTPStatusCode": 500},
+                },
+                "DeleteObject",
+            )
+
+    key = storage_module.build_object_key(user_id, trade.id, "image/png")
+    _add_screenshot(trade.id, key)
+    monkeypatch.setattr(storage_module, "_client", lambda: _Down())
+
+    r = _delete(client, handle, trade.id)
+
+    assert r.status_code == 503
+    detail = r.json()["detail"]
+    assert detail["error"] == "screenshot_cleanup_failed"
+    assert detail["remaining"] == 1, "the object-store fault, retryable"
+    assert detail["unresolvable"] == 1, "the skipped key, which a retry cannot fix"
 
 
 def test_delete_after_a_failed_cleanup_can_be_retried_to_completion(

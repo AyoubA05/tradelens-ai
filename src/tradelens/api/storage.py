@@ -269,8 +269,27 @@ class ObjectCleanup:
 
     @property
     def complete(self) -> bool:
-        """True only when nothing was left behind unintentionally."""
-        return not self.failed
+        """True only when NOTHING was left behind — failed or skipped.
+
+        `skipped` counts too, deliberately. A skipped key is a stored
+        `file_path` this owner is not entitled to delete: a corrupted row
+        pointing at another tenant's object, a legacy local path, or — the
+        case that makes this load-bearing — a key `_is_final_key` refuses
+        because its filename is not `<uuid>.png`. That gate hardcodes one
+        output format, so the day `finalize_upload` learns to emit a second
+        (WebP, AVIF), every existing key of that format silently becomes a
+        skip. Under `not self.failed` alone the caller would answer 204 —
+        "your screenshots are gone" — over a bucket that still holds them.
+        That is the false privacy assurance the whole three-list design
+        exists to prevent, so it must not turn on which list the leftover
+        landed in.
+
+        The cost is accepted knowingly: a trade whose screenshot rows carry
+        unresolvable paths can no longer be deleted through the API until
+        those rows are repaired. A blocked, visible delete is recoverable;
+        a silent orphan with nothing left pointing at it is not.
+        """
+        return not self.failed and not self.skipped
 
 
 # R2 and S3 both answer a delete of an absent key with success, but a proxy or
