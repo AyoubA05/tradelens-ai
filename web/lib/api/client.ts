@@ -56,5 +56,10 @@ export async function callApi<T>(
   });
 
   if (!response.ok) throw new ApiError(response.status);
+  // 204 (the trade-delete endpoint's success response) carries no body, and
+  // `.json()` on an empty stream throws rather than returning anything a
+  // caller could await — this is the first caller in the codebase that hits
+  // a 204, so nothing exercised the gap until now.
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }

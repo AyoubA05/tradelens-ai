@@ -30,4 +30,18 @@ describe("FastAPI client credential boundary", () => {
     expect(headers).not.toHaveProperty("X-TL-Session");
     expect(JSON.stringify(init)).not.toContain(raw);
   });
+
+  it("resolves a 204 without calling .json() on the empty body", async () => {
+    // The trade-delete endpoint's success response carries no body; `.json()`
+    // on an empty stream throws rather than resolving, so a 204 has to be
+    // special-cased rather than parsed like every other response here.
+    vi.stubEnv("TL_API_ORIGIN", "https://api.example.test");
+    vi.stubEnv("TL_SERVICE_SECRET", "service-secret");
+    const json = vi.fn().mockRejectedValue(new SyntaxError("Unexpected end of JSON input"));
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204, json });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(callApi("/v1/trades/1", "tok", { method: "DELETE" })).resolves.toBeUndefined();
+    expect(json).not.toHaveBeenCalled();
+  });
 });
