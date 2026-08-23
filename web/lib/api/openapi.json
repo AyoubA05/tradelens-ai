@@ -599,6 +599,40 @@
         "title": "SampleFlags",
         "type": "object"
       },
+      "ScreenshotCleanupFailedDetail": {
+        "additionalProperties": false,
+        "description": "A delete that could not finish. The trade row is deliberately still\nthere: a trader told their screenshots are gone while private images\nremain in the bucket has been given a false privacy assurance, so the\nstate stays retryable rather than becoming an orphan nobody can find.",
+        "properties": {
+          "error": {
+            "const": "screenshot_cleanup_failed",
+            "title": "Error",
+            "type": "string"
+          },
+          "remaining": {
+            "title": "Remaining",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "error",
+          "remaining"
+        ],
+        "title": "ScreenshotCleanupFailedDetail",
+        "type": "object"
+      },
+      "ScreenshotCleanupFailedResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ScreenshotCleanupFailedDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ScreenshotCleanupFailedResponse",
+        "type": "object"
+      },
       "ScreenshotDescriptor": {
         "additionalProperties": false,
         "description": "A screenshot with a short-lived presigned download URL.\n\n`url` is `None` when `presign_download` returned `None` for this object\n(rare \u2014 `finalize_upload` only ever stores a resolvable key) rather than\nsurfacing an error; the caller simply has no image to render for that\nentry.",
@@ -660,6 +694,48 @@
           "url"
         ],
         "title": "ScreenshotDescriptor",
+        "type": "object"
+      },
+      "TradeConflictDetail": {
+        "additionalProperties": false,
+        "description": "What the client needs to show a trader whose edit lost a race.",
+        "properties": {
+          "current_updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Updated At"
+          },
+          "error": {
+            "const": "stale_trade",
+            "title": "Error",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "current_updated_at"
+        ],
+        "title": "TradeConflictDetail",
+        "type": "object"
+      },
+      "TradeConflictResponse": {
+        "additionalProperties": false,
+        "description": "The 409 body. Shaped to match FastAPI's `{\"detail\": ...}` envelope so\nthe generated TypeScript describes what actually arrives.",
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/TradeConflictDetail"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "TradeConflictResponse",
         "type": "object"
       },
       "TradeDetail": {
@@ -1342,6 +1418,191 @@
         "title": "TradeSummary",
         "type": "object"
       },
+      "TradeUpdate": {
+        "additionalProperties": false,
+        "description": "The PATCH body \u2014 a POSITIVE allowlist of genuinely user-editable fields.\n\n`trade_service.update_trade` accepts every column except `id` and\n`user_id`. That is right for a trusted in-process caller and wrong at an\nHTTP edge, so this model names the editable fields and nothing else;\n`extra=\"forbid\"` refuses the rest. Ownership and server-owned metadata \u2014\n`user_id`, `id`, `trade_hash`, `is_sample`, `created_at`, `updated_at`,\n`strategy_id` \u2014 are therefore unreachable through HTTP input whatever the\nrequest says.\n\nBecause the allowlist is positive, a new column on the `Trade` model is\nNOT editable until someone deliberately adds it here. The safe default\nsurvives schema growth, and `SERVER_OWNED_TRADE_COLUMNS` below makes that\ngrowth visible: a column in neither set fails the contract test.\n\nEvery field defaults to unset, and the handler dumps with\n`exclude_unset=True`, so an omitted field is left alone while an explicit\n`null` clears the column. Those two are different intentions and the wire\nformat can express both.\n\n`expected_updated_at` is required, not optional. Inline editing on a page\na trader may have left open invites the lost-update problem, and a guard\na client can skip by omitting a field is not a guard.",
+        "properties": {
+          "asset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "expected_updated_at": {
+            "title": "Expected Updated At",
+            "type": "string"
+          },
+          "followed_rules": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Followed Rules"
+          },
+          "htf_bias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Htf Bias"
+          },
+          "killzone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Killzone"
+          },
+          "mistake_tags": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mistake Tags"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "pnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnl"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Win",
+                  "Loss",
+                  "Breakeven"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "risk_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Amount"
+          },
+          "rr_realized": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rr Realized"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session"
+          },
+          "setup_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Type"
+          },
+          "timeframe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeframe"
+          },
+          "trade_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Date"
+          }
+        },
+        "required": [
+          "expected_updated_at"
+        ],
+        "title": "TradeUpdate",
+        "type": "object"
+      },
       "Trajectory": {
         "additionalProperties": false,
         "properties": {
@@ -1715,6 +1976,50 @@
       }
     },
     "/v1/trades/{trade_id}": {
+      "delete": {
+        "description": "Delete one trade, its screenshot rows, and its stored images.\n\n**Objects go before the row, and only a complete cleanup earns the row's\nremoval.** `screenshots.trade_id` is `ondelete=\"CASCADE\"`, so dropping the\ntrade drops the screenshot ROW while leaving the R2 OBJECT behind \u2014 and\nthe row was the only record of that object's key. Deleting the row first,\nor deleting it anyway after a failed cleanup, would strand private images\nin the bucket with nothing left pointing at them.\n\nSo a failed cleanup returns 503 with the row intact. That is deliberately\nthe less tidy outcome: telling a trader their screenshots are gone while\nthey remain in the bucket is a false privacy assurance, and a retryable\ndelete is recoverable where a silent orphan is not.",
+        "operationId": "delete_trade_endpoint_v1_trades__trade_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trade_id",
+            "required": true,
+            "schema": {
+              "title": "Trade Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenshotCleanupFailedResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Delete Trade Endpoint",
+        "tags": [
+          "trades"
+        ]
+      },
       "get": {
         "description": "One trade, plus presigned URLs for its screenshots.\n\n`get_trade` already filters on `Trade.user_id == owner`, so a trade\nbelonging to another account is indistinguishable from a nonexistent one\nat the ORM layer \u2014 this handler preserves that by raising the identical\n404 either way, never a 403.",
         "operationId": "get_trade_detail_v1_trades__trade_id__get",
@@ -1752,6 +2057,67 @@
           }
         },
         "summary": "Get Trade Detail",
+        "tags": [
+          "trades"
+        ]
+      },
+      "patch": {
+        "description": "Edit the user-editable fields of one trade.\n\nThe body is a positive allowlist (`schemas.trades.TradeUpdate`), so\nownership and server-owned metadata are unreachable no matter what is\nsent. `exclude_unset=True` is what separates \"leave this alone\" from\n\"clear this\": both are legitimate intentions and both are expressible.\n\n`expected_updated_at` is enforced inside a single conditional UPDATE in\nthe service \u2014 see `update_trade_if_unchanged`. A stale value returns 409\ncarrying the current timestamp so the client can show what changed rather\nthan silently discarding the trader's typing.",
+        "operationId": "patch_trade_v1_trades__trade_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trade_id",
+            "required": true,
+            "schema": {
+              "title": "Trade Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeConflictResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Trade",
         "tags": [
           "trades"
         ]

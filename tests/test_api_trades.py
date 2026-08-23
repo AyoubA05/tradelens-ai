@@ -616,3 +616,276 @@ def test_patch_response_is_the_typed_trade_detail_model():
         "$ref"
     ]
     assert conflict.endswith("/TradeConflictResponse")
+
+
+# ----------------------------------------------------------- DELETE /v1/trades/{id}
+
+
+def _delete(client, handle, trade_id):
+    path = f"/v1/trades/{trade_id}"
+    return client.delete(path, headers=_write_headers(handle, "DELETE", path, b""))
+
+
+def _add_screenshot(trade_id, file_path):
+    from src.tradelens.db.models import Screenshot
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        shot = Screenshot(trade_id=trade_id, file_path=file_path)
+        db.add(shot)
+        db.commit()
+        return shot.id
+    finally:
+        db.close()
+
+
+def _screenshot_rows(trade_id):
+    from src.tradelens.db.models import Screenshot
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return [
+            row[0]
+            for row in db.query(Screenshot.id)
+            .filter(Screenshot.trade_id == trade_id)
+            .all()
+        ]
+    finally:
+        db.close()
+
+
+class _CleanupSpy:
+    """Stands in for `storage.delete_trade_objects` so a test can assert on the
+    calls that were made, not merely on the row that survived."""
+
+    def __init__(self, failed=()):
+        self.calls = []
+        self._failed = list(failed)
+
+    def __call__(self, user_id, trade_id):
+        from src.tradelens.api.storage import ObjectCleanup
+
+        self.calls.append((user_id, trade_id))
+        return ObjectCleanup(deleted=[], failed=list(self._failed), skipped=[])
+
+
+def test_delete_unsigned_request_is_refused(client, website_session_handle):
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    r = client.delete(f"/v1/trades/{trade.id}", headers={"X-TL-Session-Handle": handle})
+    assert r.status_code == 401
+    assert _read_row(trade.id) is not None
+
+
+def test_delete_removes_the_trade_its_objects_and_its_rows(
+    client, website_session_handle, monkeypatch
+):
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    from src.tradelens.api import storage as storage_module
+
+    key = storage_module.build_object_key(user_id, trade.id, "image/png")
+    _add_screenshot(trade.id, key)
+
+    deleted_keys = []
+
+    class _Fake:
+        def delete_object(self, Bucket=None, Key=None):
+            deleted_keys.append(Key)
+
+    monkeypatch.setattr(storage_module, "_client", lambda: _Fake())
+
+    r = _delete(client, handle, trade.id)
+
+    assert r.status_code == 204
+    assert r.content == b""
+    assert deleted_keys == [key], "the R2 object must be removed, not just the row"
+    assert _read_row(trade.id) is None
+    assert _screenshot_rows(trade.id) == []
+
+
+def test_delete_another_owners_trade_makes_no_storage_call_at_all(
+    client, website_session_handle, two_users, monkeypatch
+):
+    """A cross-owner delete must not reach the object store even to try.
+
+    Asserting only that the row survived would pass an implementation that
+    happily deleted the other trader's images first.
+    """
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    trade = _create(other)
+    before = _read_row(trade.id)
+
+    from src.tradelens.api.routers import trades as router_module
+
+    spy = _CleanupSpy()
+    monkeypatch.setattr(router_module.storage, "delete_trade_objects", spy)
+
+    r = _delete(client, handle, trade.id)
+
+    assert r.status_code == 404
+    assert spy.calls == [], "no cleanup may be issued for a trade we do not own"
+    assert _read_row(trade.id) == before
+
+
+def test_delete_cross_owner_404_is_byte_identical_to_a_missing_trade(
+    client, website_session_handle, two_users
+):
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    theirs = _create(other)
+
+    cross = _delete(client, handle, theirs.id)
+    missing = _delete(client, handle, 999999)
+
+    assert cross.status_code == missing.status_code == 404
+    assert cross.content == missing.content
+
+
+def test_delete_succeeds_when_the_object_is_already_gone(
+    client, website_session_handle, monkeypatch
+):
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    from src.tradelens.api import storage as storage_module
+
+    key = storage_module.build_object_key(user_id, trade.id, "image/png")
+    _add_screenshot(trade.id, key)
+
+    from botocore.exceptions import ClientError
+
+    class _Gone:
+        def delete_object(self, Bucket=None, Key=None):
+            raise ClientError(
+                {
+                    "Error": {"Code": "NoSuchKey"},
+                    "ResponseMetadata": {"HTTPStatusCode": 404},
+                },
+                "DeleteObject",
+            )
+
+    monkeypatch.setattr(storage_module, "_client", lambda: _Gone())
+
+    r = _delete(client, handle, trade.id)
+
+    assert r.status_code == 204
+    assert _read_row(trade.id) is None
+
+
+def test_delete_reports_5xx_and_keeps_the_row_when_cleanup_fails(
+    client, website_session_handle, monkeypatch
+):
+    """Never report a completed deletion when R2 cleanup failed.
+
+    A trader told their screenshots are gone while private images remain in
+    the bucket has been given a false privacy assurance. The row stays so the
+    delete is retryable rather than an orphan nobody can find.
+    """
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    from src.tradelens.api import storage as storage_module
+
+    key = storage_module.build_object_key(user_id, trade.id, "image/png")
+    shot_id = _add_screenshot(trade.id, key)
+
+    from botocore.exceptions import ClientError
+
+    class _Down:
+        def delete_object(self, Bucket=None, Key=None):
+            raise ClientError(
+                {
+                    "Error": {"Code": "InternalError"},
+                    "ResponseMetadata": {"HTTPStatusCode": 500},
+                },
+                "DeleteObject",
+            )
+
+    monkeypatch.setattr(storage_module, "_client", lambda: _Down())
+
+    r = _delete(client, handle, trade.id)
+
+    assert 500 <= r.status_code < 600
+    assert r.json()["detail"]["error"] == "screenshot_cleanup_failed"
+    assert _read_row(trade.id) is not None, "the row must survive a failed cleanup"
+    assert _screenshot_rows(trade.id) == [shot_id]
+
+
+def test_delete_after_a_failed_cleanup_can_be_retried_to_completion(
+    client, website_session_handle, monkeypatch
+):
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    from src.tradelens.api import storage as storage_module
+
+    key = storage_module.build_object_key(user_id, trade.id, "image/png")
+    _add_screenshot(trade.id, key)
+
+    from botocore.exceptions import ClientError
+
+    class _Down:
+        def delete_object(self, Bucket=None, Key=None):
+            raise ClientError(
+                {
+                    "Error": {"Code": "InternalError"},
+                    "ResponseMetadata": {"HTTPStatusCode": 500},
+                },
+                "DeleteObject",
+            )
+
+    deleted_keys = []
+
+    class _Up:
+        def delete_object(self, Bucket=None, Key=None):
+            deleted_keys.append(Key)
+
+    monkeypatch.setattr(storage_module, "_client", lambda: _Down())
+    assert _delete(client, handle, trade.id).status_code >= 500
+    assert _read_row(trade.id) is not None
+
+    monkeypatch.setattr(storage_module, "_client", lambda: _Up())
+    assert _delete(client, handle, trade.id).status_code == 204
+    assert deleted_keys == [key]
+    assert _read_row(trade.id) is None
+
+
+def test_a_second_delete_of_a_deleted_trade_is_404(client, website_session_handle):
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+
+    assert _delete(client, handle, trade.id).status_code == 204
+    assert _delete(client, handle, trade.id).status_code == 404
+
+
+def test_delete_cleans_objects_before_dropping_the_row(
+    client, website_session_handle, monkeypatch
+):
+    """Ordering is load-bearing: the FK cascade drops the screenshot ROW, so
+    a row deleted first would take the only record of the R2 key with it."""
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    from src.tradelens.api import storage as storage_module
+
+    key = storage_module.build_object_key(user_id, trade.id, "image/png")
+    _add_screenshot(trade.id, key)
+
+    order = []
+
+    class _Fake:
+        def delete_object(self, Bucket=None, Key=None):
+            order.append(("cleanup", _read_row(trade.id) is not None))
+
+    monkeypatch.setattr(storage_module, "_client", lambda: _Fake())
+
+    assert _delete(client, handle, trade.id).status_code == 204
+    assert order == [("cleanup", True)], "objects must go while the row still exists"
+
+
+def test_delete_openapi_declares_204_and_the_cleanup_failure_shape():
+    spec = create_app().openapi()
+    operation = spec["paths"]["/v1/trades/{trade_id}"]["delete"]
+    assert "204" in operation["responses"]
+    ref = operation["responses"]["503"]["content"]["application/json"]["schema"]["$ref"]
+    assert ref.endswith("/ScreenshotCleanupFailedResponse")

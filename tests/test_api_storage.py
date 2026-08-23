@@ -260,3 +260,178 @@ class _FakeS3:
 
     def delete_object(self, Bucket=None, Key=None):
         self.deleted.append(Key)
+
+
+# ------------------------------------------------- delete_trade_objects (B2)
+
+
+def _screenshot(trade_id, file_path):
+    from src.tradelens.db.models import Screenshot
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        shot = Screenshot(trade_id=trade_id, file_path=file_path)
+        db.add(shot)
+        db.commit()
+        return shot.id
+    finally:
+        db.close()
+
+
+def _client_error(code, status=400):
+    from botocore.exceptions import ClientError
+
+    return ClientError(
+        {"Error": {"Code": code}, "ResponseMetadata": {"HTTPStatusCode": status}},
+        "DeleteObject",
+    )
+
+
+class _ExplodingS3(_FakeS3):
+    """An object store that refuses to delete. Models R2 being down mid-delete."""
+
+    def __init__(self, error=None):
+        super().__init__()
+        self.attempted = []
+        self._error = error or _client_error("InternalError", 500)
+
+    def delete_object(self, Bucket=None, Key=None):
+        self.attempted.append(Key)
+        raise self._error
+
+
+def test_delete_trade_objects_removes_the_owners_objects(two_users, monkeypatch):
+    a, _ = two_users
+    mine = _create({"user_id": a, "trade_date": "2026-08-12", "asset": "NQ"})
+    key = storage.build_object_key(a, mine.id, "image/png")
+    _screenshot(mine.id, key)
+
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    cleanup = storage.delete_trade_objects(a, mine.id)
+
+    assert fake.deleted == [key]
+    assert cleanup.deleted == [key]
+    assert cleanup.failed == []
+    assert cleanup.complete is True
+
+
+def test_delete_trade_objects_issues_no_call_for_another_owners_trade(
+    two_users, monkeypatch
+):
+    """`Screenshot` has no `user_id`: ownership exists only as
+    `trade_id -> trades.user_id`. Enumerating by screenshot id would be a
+    cross-tenant delete, so the join is the whole guard — and a call that
+    fails it must reach the object store not at all."""
+    a, b = two_users
+    theirs = _create({"user_id": b, "trade_date": "2026-08-12", "asset": "NQ"})
+    key = storage.build_object_key(b, theirs.id, "image/png")
+    _screenshot(theirs.id, key)
+
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    cleanup = storage.delete_trade_objects(a, theirs.id)
+
+    assert fake.deleted == [], "a cross-owner cleanup must delete nothing"
+    # Every list empty, not merely `deleted`: the key must never be RESOLVED.
+    # Asserting only on `deleted` would pass an implementation that dropped
+    # the ownership join and was saved by the per-key prefix check further
+    # down — leaving the one guard that `Screenshot` has no substitute for
+    # untested.
+    assert cleanup.deleted == []
+    assert cleanup.failed == []
+    assert cleanup.skipped == []
+
+
+def test_delete_trade_objects_is_idempotent_for_a_missing_object(
+    two_users, monkeypatch
+):
+    """A missing object is success. Retries and double-clicks converge, and a
+    half-finished earlier attempt stays completable."""
+    a, _ = two_users
+    mine = _create({"user_id": a, "trade_date": "2026-08-12", "asset": "NQ"})
+    key = storage.build_object_key(a, mine.id, "image/png")
+    _screenshot(mine.id, key)
+
+    monkeypatch.setattr(
+        storage, "_client", lambda: _ExplodingS3(_client_error("NoSuchKey", 404))
+    )
+
+    cleanup = storage.delete_trade_objects(a, mine.id)
+
+    assert cleanup.failed == []
+    assert cleanup.deleted == [key]
+    assert cleanup.complete is True
+
+
+def test_delete_trade_objects_reports_a_real_failure(two_users, monkeypatch):
+    a, _ = two_users
+    mine = _create({"user_id": a, "trade_date": "2026-08-12", "asset": "NQ"})
+    key = storage.build_object_key(a, mine.id, "image/png")
+    _screenshot(mine.id, key)
+
+    monkeypatch.setattr(storage, "_client", lambda: _ExplodingS3())
+
+    cleanup = storage.delete_trade_objects(a, mine.id)
+
+    assert cleanup.failed == [key]
+    assert cleanup.deleted == []
+    assert cleanup.complete is False
+
+
+def test_delete_trade_objects_repeats_cleanly_after_a_partial_failure(
+    two_users, monkeypatch
+):
+    """The retryable state is the point: a failed cleanup must be finishable."""
+    a, _ = two_users
+    mine = _create({"user_id": a, "trade_date": "2026-08-12", "asset": "NQ"})
+    key = storage.build_object_key(a, mine.id, "image/png")
+    _screenshot(mine.id, key)
+
+    monkeypatch.setattr(storage, "_client", lambda: _ExplodingS3())
+    assert storage.delete_trade_objects(a, mine.id).complete is False
+
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+    assert storage.delete_trade_objects(a, mine.id).complete is True
+    assert fake.deleted == [key]
+
+
+def test_delete_trade_objects_skips_a_row_pointing_outside_the_owners_prefix(
+    two_users, monkeypatch
+):
+    """A file_path that is not this owner's normalized key names no object we
+    are entitled to delete — skipped, never handed to the object store."""
+    a, b = two_users
+    mine = _create({"user_id": a, "trade_date": "2026-08-12", "asset": "NQ"})
+    foreign = f"u/{b}/t/999/{'0' * 8}-0000-0000-0000-000000000000.png"
+    _screenshot(mine.id, foreign)
+    _screenshot(mine.id, "data/screenshots/legacy-local-file.png")
+
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    cleanup = storage.delete_trade_objects(a, mine.id)
+
+    assert fake.deleted == []
+    assert cleanup.failed == []
+    assert sorted(cleanup.skipped) == sorted(
+        [foreign, "data/screenshots/legacy-local-file.png"]
+    )
+    assert cleanup.complete is True
+
+
+def test_delete_trade_objects_needs_no_object_store_when_there_is_nothing_to_do(
+    two_users, monkeypatch
+):
+    a, _ = two_users
+    mine = _create({"user_id": a, "trade_date": "2026-08-12", "asset": "NQ"})
+
+    def _explode():
+        raise AssertionError("no client should be built for a trade with no objects")
+
+    monkeypatch.setattr(storage, "_client", _explode)
+    assert storage.delete_trade_objects(a, mine.id).complete is True

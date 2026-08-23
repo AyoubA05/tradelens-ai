@@ -114,10 +114,40 @@ export interface paths {
         get: operations["get_trade_detail_v1_trades__trade_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Trade Endpoint
+         * @description Delete one trade, its screenshot rows, and its stored images.
+         *
+         *     **Objects go before the row, and only a complete cleanup earns the row's
+         *     removal.** `screenshots.trade_id` is `ondelete="CASCADE"`, so dropping the
+         *     trade drops the screenshot ROW while leaving the R2 OBJECT behind — and
+         *     the row was the only record of that object's key. Deleting the row first,
+         *     or deleting it anyway after a failed cleanup, would strand private images
+         *     in the bucket with nothing left pointing at them.
+         *
+         *     So a failed cleanup returns 503 with the row intact. That is deliberately
+         *     the less tidy outcome: telling a trader their screenshots are gone while
+         *     they remain in the bucket is a false privacy assurance, and a retryable
+         *     delete is recoverable where a silent orphan is not.
+         */
+        delete: operations["delete_trade_endpoint_v1_trades__trade_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Patch Trade
+         * @description Edit the user-editable fields of one trade.
+         *
+         *     The body is a positive allowlist (`schemas.trades.TradeUpdate`), so
+         *     ownership and server-owned metadata are unreachable no matter what is
+         *     sent. `exclude_unset=True` is what separates "leave this alone" from
+         *     "clear this": both are legitimate intentions and both are expressible.
+         *
+         *     `expected_updated_at` is enforced inside a single conditional UPDATE in
+         *     the service — see `update_trade_if_unchanged`. A stale value returns 409
+         *     carrying the current timestamp so the client can show what changed rather
+         *     than silently discarding the trader's typing.
+         */
+        patch: operations["patch_trade_v1_trades__trade_id__patch"];
         trace?: never;
     };
 }
@@ -303,6 +333,26 @@ export interface components {
             trades: number;
         };
         /**
+         * ScreenshotCleanupFailedDetail
+         * @description A delete that could not finish. The trade row is deliberately still
+         *     there: a trader told their screenshots are gone while private images
+         *     remain in the bucket has been given a false privacy assurance, so the
+         *     state stays retryable rather than becoming an orphan nobody can find.
+         */
+        ScreenshotCleanupFailedDetail: {
+            /**
+             * Error
+             * @constant
+             */
+            error: "screenshot_cleanup_failed";
+            /** Remaining */
+            remaining: number;
+        };
+        /** ScreenshotCleanupFailedResponse */
+        ScreenshotCleanupFailedResponse: {
+            detail: components["schemas"]["ScreenshotCleanupFailedDetail"];
+        };
+        /**
          * ScreenshotDescriptor
          * @description A screenshot with a short-lived presigned download URL.
          *
@@ -322,6 +372,27 @@ export interface components {
             url: string | null;
             /** Width */
             width: number | null;
+        };
+        /**
+         * TradeConflictDetail
+         * @description What the client needs to show a trader whose edit lost a race.
+         */
+        TradeConflictDetail: {
+            /** Current Updated At */
+            current_updated_at: string | null;
+            /**
+             * Error
+             * @constant
+             */
+            error: "stale_trade";
+        };
+        /**
+         * TradeConflictResponse
+         * @description The 409 body. Shaped to match FastAPI's `{"detail": ...}` envelope so
+         *     the generated TypeScript describes what actually arrives.
+         */
+        TradeConflictResponse: {
+            detail: components["schemas"]["TradeConflictDetail"];
         };
         /**
          * TradeDetail
@@ -459,6 +530,66 @@ export interface components {
             setup_type: string | null;
             /** Trade Date */
             trade_date: string | null;
+        };
+        /**
+         * TradeUpdate
+         * @description The PATCH body — a POSITIVE allowlist of genuinely user-editable fields.
+         *
+         *     `trade_service.update_trade` accepts every column except `id` and
+         *     `user_id`. That is right for a trusted in-process caller and wrong at an
+         *     HTTP edge, so this model names the editable fields and nothing else;
+         *     `extra="forbid"` refuses the rest. Ownership and server-owned metadata —
+         *     `user_id`, `id`, `trade_hash`, `is_sample`, `created_at`, `updated_at`,
+         *     `strategy_id` — are therefore unreachable through HTTP input whatever the
+         *     request says.
+         *
+         *     Because the allowlist is positive, a new column on the `Trade` model is
+         *     NOT editable until someone deliberately adds it here. The safe default
+         *     survives schema growth, and `SERVER_OWNED_TRADE_COLUMNS` below makes that
+         *     growth visible: a column in neither set fails the contract test.
+         *
+         *     Every field defaults to unset, and the handler dumps with
+         *     `exclude_unset=True`, so an omitted field is left alone while an explicit
+         *     `null` clears the column. Those two are different intentions and the wire
+         *     format can express both.
+         *
+         *     `expected_updated_at` is required, not optional. Inline editing on a page
+         *     a trader may have left open invites the lost-update problem, and a guard
+         *     a client can skip by omitting a field is not a guard.
+         */
+        TradeUpdate: {
+            /** Asset */
+            asset?: string | null;
+            /** Direction */
+            direction?: string | null;
+            /** Expected Updated At */
+            expected_updated_at: string;
+            /** Followed Rules */
+            followed_rules?: number | null;
+            /** Htf Bias */
+            htf_bias?: string | null;
+            /** Killzone */
+            killzone?: string | null;
+            /** Mistake Tags */
+            mistake_tags?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Pnl */
+            pnl?: number | null;
+            /** Result */
+            result?: ("Win" | "Loss" | "Breakeven") | null;
+            /** Risk Amount */
+            risk_amount?: number | null;
+            /** Rr Realized */
+            rr_realized?: number | null;
+            /** Session */
+            session?: string | null;
+            /** Setup Type */
+            setup_type?: string | null;
+            /** Timeframe */
+            timeframe?: string | null;
+            /** Trade Date */
+            trade_date?: string | null;
         };
         /** Trajectory */
         Trajectory: {
@@ -644,6 +775,88 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TradeDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_trade_endpoint_v1_trades__trade_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotCleanupFailedResponse"];
+                };
+            };
+        };
+    };
+    patch_trade_v1_trades__trade_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeDetail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeConflictResponse"];
                 };
             };
             /** @description Validation Error */

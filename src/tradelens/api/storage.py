@@ -20,7 +20,8 @@ from __future__ import annotations
 
 import uuid
 import logging
-from typing import Optional
+from dataclasses import dataclass
+from typing import List, Optional
 
 import boto3
 from botocore.config import Config
@@ -249,3 +250,118 @@ def delete_owned_object(user_id: int, trade_id: int, key: str) -> bool:
         return False
     _client().delete_object(Bucket=r2_config()["bucket"], Key=key)
     return True
+
+
+@dataclass
+class ObjectCleanup:
+    """What a trade's object cleanup actually managed to do.
+
+    Three lists rather than a bool because the caller has to tell three
+    different situations apart: objects removed, objects that could not be
+    removed, and rows naming no object this owner is entitled to delete.
+    A bare `True` would let a caller report "your screenshots are gone" over
+    a bucket that still holds them.
+    """
+
+    deleted: List[str]
+    failed: List[str]
+    skipped: List[str]
+
+    @property
+    def complete(self) -> bool:
+        """True only when nothing was left behind unintentionally."""
+        return not self.failed
+
+
+# R2 and S3 both answer a delete of an absent key with success, but a proxy or
+# a partially-applied earlier attempt can still surface one of these. A missing
+# object IS the desired end state, so it counts as deleted rather than failed —
+# that is what makes a retry able to finish a half-done cleanup.
+_ALREADY_GONE_CODES = frozenset({"NoSuchKey", "NotFound", "404"})
+
+
+def _owned_object_keys(user_id: int, trade_id: int) -> List[str]:
+    """The stored keys for one trade, resolved through its owner.
+
+    `Screenshot` carries no `user_id`, so `trade_id -> trades.user_id` is the
+    only ownership signal that exists. Querying screenshots by id alone would
+    be a cross-tenant delete, so the join is not an optimisation — it is the
+    entire guard, and it stays in the WHERE clause where it cannot be skipped.
+    """
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(Screenshot.file_path)
+            .join(Trade, Trade.id == Screenshot.trade_id)
+            .filter(Screenshot.trade_id == trade_id, Trade.user_id == user_id)
+            .all()
+        )
+    finally:
+        db.close()
+    return [row[0] for row in rows]
+
+
+def delete_trade_objects(user_id: int, trade_id: int) -> ObjectCleanup:
+    """Remove every R2 object belonging to one of this user's trades.
+
+    Owner-scoped, idempotent and failure-aware, because the caller deletes a
+    trade on the strength of it:
+
+    * **Owner-scoped** — keys come from `_owned_object_keys`, and each is
+      re-checked against this owner's prefix, so a row whose `file_path` was
+      corrupted to point at another tenant's object is skipped rather than
+      deleted on their behalf.
+    * **Idempotent** — an object that is already gone is success, so a retry
+      after a partial failure converges instead of erroring forever.
+    * **Failure-aware** — what could not be removed comes back in `failed`.
+      Deleting the `screenshots` row is what erases the only record of the
+      key (the FK cascades), so a caller that dropped the row after a failed
+      cleanup would strand the object permanently.
+
+    Never raises for an object-store fault: the caller needs the partial
+    result to decide what to tell the trader, and an exception would throw it
+    away.
+    """
+    owner = require_user_id(user_id)
+    deleted: List[str] = []
+    failed: List[str] = []
+    skipped: List[str] = []
+
+    keys = _owned_object_keys(owner, trade_id)
+    if not keys:
+        # Nothing owned here — either no screenshots, or not this user's trade.
+        # Deliberately before `_client()`: a cross-owner call must not so much
+        # as construct a connection to the object store.
+        return ObjectCleanup(deleted=deleted, failed=failed, skipped=skipped)
+
+    bucket = r2_config()["bucket"]
+    client = _client()
+    for key in keys:
+        if not _is_final_key(key, owner, trade_id):
+            # A legacy local path, or a row pointing outside this owner's
+            # prefix. Neither names an object we may delete.
+            skipped.append(key)
+            continue
+        try:
+            client.delete_object(Bucket=bucket, Key=key)
+            deleted.append(key)
+        except Exception as exc:  # noqa: BLE001 — partial results beat raising
+            if _is_already_gone(exc):
+                deleted.append(key)
+                continue
+            _log.warning(
+                "Could not remove a stored screenshot for trade %s", int(trade_id)
+            )
+            failed.append(key)
+
+    return ObjectCleanup(deleted=deleted, failed=failed, skipped=skipped)
+
+
+def _is_already_gone(exc: Exception) -> bool:
+    """Whether this failure means the object is absent, which is the goal."""
+    response = getattr(exc, "response", None)
+    if not isinstance(response, dict):
+        return False
+    code = str(response.get("Error", {}).get("Code", ""))
+    status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+    return code in _ALREADY_GONE_CODES or status == 404

@@ -12,12 +12,13 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from src.tradelens.api import storage
 from src.tradelens.api.deps import current_user
 from src.tradelens.api.routers.overview import _validated_period
 from src.tradelens.api.schemas.trades import (
+    ScreenshotCleanupFailedResponse,
     ScreenshotDescriptor,
     TradeConflictResponse,
     TradeDetail,
@@ -27,6 +28,7 @@ from src.tradelens.api.schemas.trades import (
 )
 from src.tradelens.services.sessions import KILLZONE_LABELS
 from src.tradelens.services.trade_service import (
+    delete_trade,
     get_trade,
     list_trades,
     update_trade_if_unchanged,
@@ -236,3 +238,49 @@ def patch_trade(
             },
         )
     return _detail(outcome.trade, user_id)
+
+
+@router.delete(
+    "/trades/{trade_id}",
+    status_code=204,
+    responses={503: {"model": ScreenshotCleanupFailedResponse}},
+)
+def delete_trade_endpoint(
+    trade_id: int,
+    user_id: int = Depends(current_user),
+) -> Response:
+    """Delete one trade, its screenshot rows, and its stored images.
+
+    **Objects go before the row, and only a complete cleanup earns the row's
+    removal.** `screenshots.trade_id` is `ondelete="CASCADE"`, so dropping the
+    trade drops the screenshot ROW while leaving the R2 OBJECT behind — and
+    the row was the only record of that object's key. Deleting the row first,
+    or deleting it anyway after a failed cleanup, would strand private images
+    in the bucket with nothing left pointing at them.
+
+    So a failed cleanup returns 503 with the row intact. That is deliberately
+    the less tidy outcome: telling a trader their screenshots are gone while
+    they remain in the bucket is a false privacy assurance, and a retryable
+    delete is recoverable where a silent orphan is not.
+    """
+    if get_trade(trade_id, user_id) is None:
+        # Checked before anything is removed, so a trade we do not own reaches
+        # neither the object store nor `delete_trade`. 404, never 403.
+        raise _not_found()
+
+    cleanup = storage.delete_trade_objects(user_id, trade_id)
+    if not cleanup.complete:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "screenshot_cleanup_failed",
+                "remaining": len(cleanup.failed),
+            },
+        )
+
+    if not delete_trade(trade_id, user_id):
+        # Removed by a concurrent request between the check and here. The
+        # caller's intent is satisfied either way, but the resource is gone.
+        raise _not_found()
+
+    return Response(status_code=204)
