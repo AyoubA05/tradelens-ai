@@ -65,10 +65,51 @@ describe("TradesTable", () => {
     expect(screen.getByText("Loss")).toBeInTheDocument();
   });
 
-  it("does not render an ai-grade or screenshot column — TradeSummary carries neither", () => {
-    render(<TradesTable trades={[trade()]} />);
-    expect(screen.queryByText(/grade/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/screenshot/i)).not.toBeInTheDocument();
+});
+
+// Spec §8 asks the table for a grade and a screenshot indicator, and
+// `TradeSummary` was widened to supply both. These replace an earlier test
+// that asserted the two columns were ABSENT — it was written before the
+// contract carried them, and left in place it defended the missing feature.
+describe("TradesTable — grade", () => {
+  it("shows the AI grade when that is the only one recorded", () => {
+    render(<TradesTable trades={[trade({ ai_grade: "B+", user_grade: null })]} />);
+    expect(screen.getByText("B+")).toBeInTheDocument();
+    expect(screen.getByText("AI")).toBeInTheDocument();
+  });
+
+  it("prefers the trader's own grade over the AI one, and says whose it is", () => {
+    render(<TradesTable trades={[trade({ ai_grade: "B+", user_grade: "A" })]} />);
+    expect(screen.getByText("A")).toBeInTheDocument();
+    expect(screen.getByText("yours")).toBeInTheDocument();
+    // The AI's second opinion must not overrule the trader in their own journal.
+    expect(screen.queryByText("B+")).not.toBeInTheDocument();
+    expect(screen.queryByText("AI")).not.toBeInTheDocument();
+  });
+
+  it("reads an ungraded trade as not recorded, never as a grade", () => {
+    render(<TradesTable trades={[trade({ ai_grade: null, user_grade: null })]} />);
+    expect(screen.queryByText("yours")).not.toBeInTheDocument();
+    expect(screen.queryByText("AI")).not.toBeInTheDocument();
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+});
+
+describe("TradesTable — screenshot indicator", () => {
+  it("does not claim a screenshot exists when the count is zero", () => {
+    render(<TradesTable trades={[trade({ screenshot_count: 0 })]} />);
+    expect(screen.queryByText(/\bscreenshots?\b/i, { selector: "span" })).not.toBeInTheDocument();
+  });
+
+  it("carries the count as text, not as colour alone", () => {
+    render(<TradesTable trades={[trade({ screenshot_count: 3 })]} />);
+    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByText("3 screenshots")).toBeInTheDocument();
+  });
+
+  it("counts a single screenshot in the singular", () => {
+    render(<TradesTable trades={[trade({ screenshot_count: 1 })]} />);
+    expect(screen.getByText("1 screenshot")).toBeInTheDocument();
   });
 });
 

@@ -269,6 +269,9 @@ describe("relay hardening", () => {
       expect(responses).toHaveLength(7);
       for (const response of responses) {
         expect(response.headers.get("cache-control")).toContain("no-store");
+        // Same header set as the nine `app/api/auth/*` routes — this relay's
+        // only intended divergence from them is the fail-shut CSRF check.
+        expect(response.headers.get("referrer-policy")).toBe("no-referrer");
       }
     });
   });

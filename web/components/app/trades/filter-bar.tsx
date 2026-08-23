@@ -18,6 +18,12 @@ const RESULT_OPTIONS = ["Win", "Loss", "Breakeven"] as const;
  * back from `searchParams`, never from a client cache of "what the filters
  * currently are".
  *
+ * Each placeholder is a value that actually matches. The three text filters
+ * are exact matches, not substrings, so `e.g. FVG` — written when Setup was
+ * a substring match — sent a trader following it to an empty journal and
+ * made the filter read as broken; real stored setups are whole phrases like
+ * "FVG + OB".
+ *
  * Changing a filter resets `offset` to 0: page 3 of an unfiltered list is not
  * page 3 of a filtered one, and carrying the old offset forward would either
  * strand the reader past the end of the new, smaller result set or silently
@@ -92,7 +98,7 @@ export function FilterBar() {
           value={setup}
           onChange={(event) => setSetup(event.target.value)}
           onBlur={() => apply({ ...filters, setup: setup.trim() })}
-          placeholder="e.g. FVG"
+          placeholder="e.g. FVG + OB"
           className="w-32 rounded-md border border-line bg-chart px-2 py-1.5 text-sm text-text outline-none focus:border-accent"
         />
       </label>

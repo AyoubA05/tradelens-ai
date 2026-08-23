@@ -52,6 +52,37 @@ describe("Pagination", () => {
     expect(params.get("asset")).toBe("NQ");
   });
 
+  it("offers a route back when the offset is past the end of the result set", () => {
+    // Narrowing a filter while on ?offset=100 can leave the offset beyond the
+    // new, smaller total. Hiding the pager there strands the trader: the empty
+    // table's only action is "Log completed trade".
+    currentParams = "offset=100&asset=NQ";
+    render(<Pagination total={12} limit={25} offset={100} />);
+    fireEvent.click(screen.getByRole("button", { name: /back to first page/i }));
+    const url = replace.mock.calls[0][0] as string;
+    const params = new URLSearchParams(url.split("?")[1]);
+    expect(params.has("offset")).toBe(false);
+    expect(params.get("asset")).toBe("NQ");
+  });
+
+  it("still offers the way back when the filtered result set is empty", () => {
+    currentParams = "offset=100";
+    render(<Pagination total={0} limit={25} offset={100} />);
+    expect(screen.getByRole("button", { name: /back to first page/i })).toBeInTheDocument();
+  });
+
+  it("keeps the way back on a multi-page list whose offset overshot the end", () => {
+    currentParams = "offset=200";
+    render(<Pagination total={60} limit={25} offset={200} />);
+    // Previous alone would need four clicks to get back into range.
+    expect(screen.getByRole("button", { name: /back to first page/i })).toBeInTheDocument();
+  });
+
+  it("still renders nothing on a single page the trader is actually on", () => {
+    const { container } = render(<Pagination total={10} limit={25} offset={0} />);
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it("drops the offset param entirely when going back to page 1", () => {
     currentParams = "offset=25";
     render(<Pagination total={60} limit={25} offset={25} />);

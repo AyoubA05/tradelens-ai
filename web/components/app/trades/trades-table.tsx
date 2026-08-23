@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Image as ImageIcon } from "lucide-react";
 
 import { EmptyState } from "@/components/app/states/empty-state";
 import { money, NO_VALUE } from "@/lib/app/format";
@@ -7,6 +8,26 @@ import type { TradeSummary } from "@/lib/app/trades";
 /** A P&L a trade may never have recorded. Absent is not zero. */
 const optionalMoney = (n: number | null | undefined) =>
   n === null || n === undefined ? NO_VALUE : money(n);
+
+/**
+ * Which grade a row shows, and whose it is.
+ *
+ * The trader's own grade wins when both exist: this is a reflection journal,
+ * so the judgement the trader made about their own execution is the one the
+ * list is for — the AI grade is a second opinion, and showing it over the
+ * trader's would quietly overrule them in their own journal. The source is
+ * always labelled, because "B+" means different things depending on who
+ * said it.
+ *
+ * An empty string counts as no grade, and an ungraded trade renders as
+ * `NO_VALUE` — never as a blank cell that could read as a grade of nothing,
+ * and never as some default letter. Undefined is not zero, for grades too.
+ */
+function gradeOf(t: TradeSummary): { value: string; source: "yours" | "AI" } | null {
+  if (t.user_grade) return { value: t.user_grade, source: "yours" };
+  if (t.ai_grade) return { value: t.ai_grade, source: "AI" };
+  return null;
+}
 
 /**
  * The accessible name of a row's link.
@@ -23,16 +44,51 @@ function tradeLinkLabel(t: TradeSummary): string {
   return parts.length > 0 ? parts.join(", ") : `Trade ${t.id}`;
 }
 
+/** The Grade cell: the letter plus whose judgement it is, or nothing recorded. */
+function gradeCell(t: TradeSummary) {
+  const grade = gradeOf(t);
+  if (grade === null) return NO_VALUE;
+  return (
+    <span className="inline-flex items-baseline gap-1.5">
+      <span className="font-mono text-xs">{grade.value}</span>
+      <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+        {grade.source}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The Screenshots cell: how many images this trade has, if any.
+ *
+ * The count is text, and the icon only decorates it — an indicator carried
+ * by a tint or a glyph alone says nothing to a reader who cannot see it, the
+ * same reason `money` writes the minus sign rather than colouring it. Zero
+ * renders as `NO_VALUE`, so the cell never suggests an image is waiting
+ * behind a row that has none.
+ */
+function screenshotCell(count: number) {
+  if (count <= 0) return <span className="text-muted">{NO_VALUE}</span>;
+  return (
+    <span className="inline-flex items-center gap-1.5 font-mono text-xs text-muted">
+      <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />
+      <span aria-hidden="true">{count}</span>
+      <span className="sr-only">{count === 1 ? "1 screenshot" : `${count} screenshots`}</span>
+    </span>
+  );
+}
+
 /**
  * The Trades table.
  *
- * Columns: date, asset, session, setup, result, P&L, R — every one of them a
- * field `GET /v1/trades` actually returns. `TradeSummary` also carries
- * `ai_grade`, `user_grade` and `screenshot_count`; those are available to
- * render but are not columns here yet. The rule the other way round is the
- * load-bearing one: nothing may appear in this table that the contract does
- * not supply, because the alternative is a column invented client-side or
- * fetched per row, which defeats the point of a list endpoint.
+ * Columns: date, asset, session, setup, result, P&L, R, grade, screenshot —
+ * spec §8's set, and every one of them a field `GET /v1/trades` actually
+ * returns. `TradeSummary` was widened with `ai_grade`, `user_grade` and
+ * `screenshot_count` precisely so the last two columns could exist. The rule
+ * the other way round is the load-bearing one: nothing may appear in this
+ * table that the contract does not supply, because the alternative is a
+ * column invented client-side or fetched per row, which defeats the point of
+ * a list endpoint.
  *
  * Each row's date cell is a link into `/app/trades/[id]` — opening a trade
  * from the list is spec §8 behaviour.
@@ -56,7 +112,7 @@ export function TradesTable({ trades }: { trades: TradeSummary[] }) {
 
   return (
     <div className="mt-4 overflow-x-auto rounded-xl border border-line bg-surface">
-      <table className="w-full min-w-[44rem] text-sm">
+      <table className="w-full min-w-[52rem] text-sm">
         <thead>
           <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
             <th scope="col" className="px-4 py-3">Date</th>
@@ -66,6 +122,8 @@ export function TradesTable({ trades }: { trades: TradeSummary[] }) {
             <th scope="col" className="px-4 py-3">Result</th>
             <th scope="col" className="px-4 py-3 text-right">P&amp;L</th>
             <th scope="col" className="px-4 py-3 text-right">R</th>
+            <th scope="col" className="px-4 py-3">Grade</th>
+            <th scope="col" className="px-4 py-3 text-right">Screenshots</th>
           </tr>
         </thead>
         <tbody>
@@ -104,6 +162,8 @@ export function TradesTable({ trades }: { trades: TradeSummary[] }) {
                   ? NO_VALUE
                   : `${t.rr_realized.toFixed(2)}R`}
               </td>
+              <td className="px-4 py-3">{gradeCell(t)}</td>
+              <td className="px-4 py-3 text-right">{screenshotCell(t.screenshot_count)}</td>
             </tr>
           ))}
         </tbody>

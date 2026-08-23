@@ -138,6 +138,94 @@ describe("TradeDetailView", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/trades/42", { method: "DELETE" }));
   });
 
+  // The delete closure is the only place the relay's real HTTP status becomes
+  // the dialog's `{status, unresolvable}`. `delete-trade-dialog.test.tsx`
+  // injects its own stub for every failure case, so without these three the
+  // backend's 503, the relay's unresolvable split and the dialog's "Nothing
+  // was deleted" copy are each tested while the wire between them is not —
+  // and a hardcoded `return { status: 204 }` after the fetch stays green.
+  it("shows the retryable cleanup failure when the relay answers 503", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        status: 503,
+        json: async () => ({ error: "screenshot_cleanup_failed", unresolvable: false }),
+      }),
+    );
+    render(<TradeDetailView trade={TRADE} />);
+    fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/nothing was deleted/i);
+    expect(alert).toHaveTextContent(/you can try again/i);
+    expect(push).not.toHaveBeenCalled();
+    // Retryable, so the confirm button stays live.
+    expect(screen.getByRole("button", { name: /^delete trade$/i })).toBeEnabled();
+  });
+
+  it("carries the relay's unresolvable flag through to the copy that says a retry cannot work", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        status: 503,
+        json: async () => ({ error: "screenshot_cleanup_failed", unresolvable: true }),
+      }),
+    );
+    render(<TradeDetailView trade={TRADE} />);
+    fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/nothing was deleted/i);
+    expect(alert).toHaveTextContent(/trying again will not change that/i);
+    expect(alert).not.toHaveTextContent(/you can try again/i);
+    expect(push).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /^delete trade$/i })).toBeDisabled();
+  });
+
+  it("falls back to the retryable branch when a 503 body cannot be read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        status: 503,
+        json: async () => {
+          throw new Error("not json");
+        },
+      }),
+    );
+    render(<TradeDetailView trade={TRADE} />);
+    fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/nothing was deleted/i);
+    expect(alert).toHaveTextContent(/you can try again/i);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("reports a non-503 failure as a failure, never as a deletion", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 502 }));
+    render(<TradeDetailView trade={TRADE} />);
+    fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/nothing was deleted/i);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("treats only a real 204 from the relay as a deletion", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ status: 204 });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<TradeDetailView trade={TRADE} />);
+    fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/app/journal"));
+    expect(fetchMock).toHaveBeenCalledWith("/api/trades/42", { method: "DELETE" });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("links back to the journal", () => {
     render(<TradeDetailView trade={TRADE} />);
     expect(screen.getByRole("link", { name: /back to journal/i })).toHaveAttribute(

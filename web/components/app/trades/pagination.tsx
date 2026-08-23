@@ -26,13 +26,6 @@ export function Pagination({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  if (total <= limit) return null;
-
-  const page = Math.floor(offset / limit) + 1;
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-  const hasPrev = offset > 0;
-  const hasNext = offset + limit < total;
-
   function goTo(nextOffset: number) {
     const params = new URLSearchParams(searchParams.toString());
     const clamped = Math.max(0, nextOffset);
@@ -40,6 +33,44 @@ export function Pagination({
     else params.set("offset", String(clamped));
     router.replace(`${pathname}?${params.toString()}`);
   }
+
+  // Land on `?offset=100`, then narrow a filter, and the result set can end
+  // before the offset begins. The table is empty and its empty state offers
+  // only "Log completed trade", so hiding the pager here — the one control
+  // that can move the offset — strands the trader on a page that cannot
+  // exist, with no route back short of hand-editing the URL. This branch is
+  // checked before the single-page one because a stranded offset is possible
+  // at any total, including 0.
+  const strandedPastEnd = offset > 0 && offset >= total;
+
+  if (strandedPastEnd) {
+    return (
+      <nav
+        aria-label="Trades pages"
+        className="mt-4 flex items-center justify-between rounded-xl border border-line bg-surface px-4 py-3"
+      >
+        <span className="font-mono text-xs text-muted">
+          {total === 0
+            ? "No trades match this view"
+            : `This page is past the end · ${total} trades`}
+        </span>
+        <button
+          type="button"
+          onClick={() => goTo(0)}
+          className="rounded-md border border-line-strong px-3 py-1.5 text-sm text-text transition-colors duration-150 ease-tl hover:bg-surface-2"
+        >
+          Back to first page
+        </button>
+      </nav>
+    );
+  }
+
+  if (total <= limit) return null;
+
+  const page = Math.floor(offset / limit) + 1;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const hasPrev = offset > 0;
+  const hasNext = offset + limit < total;
 
   return (
     <nav

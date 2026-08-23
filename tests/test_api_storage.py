@@ -1,5 +1,6 @@
 import re
 import io
+import uuid
 
 import pytest
 from PIL import Image
@@ -85,6 +86,19 @@ def test_presign_upload_bounds_the_policy(two_users, monkeypatch):
 
 
 def test_presign_download_refuses_another_users_screenshot(two_users, monkeypatch):
+    """The ownership join, on its own, with every later gate satisfied.
+
+    `Screenshot` has no `user_id`, so `Trade.user_id == owner` in the query's
+    join is the ONLY ownership signal this function has. `_is_final_key` then
+    happens to re-encode the caller's id in the expected prefix, which means
+    a malformed or foreign-looking key is refused whoever asks — and a test
+    built on one such key passes with the join deleted, defending nothing.
+
+    So the key here is deliberately well-formed *for the caller*:
+    `u/{caller}/t/{trade_id}/{uuid}.png` clears `_is_final_key` completely,
+    leaving the join as the only thing that can refuse it. Remove
+    `Trade.user_id == owner` and this test fails, which is the point.
+    """
     a, b = two_users
     from src.tradelens.db.models import Screenshot
     from src.tradelens.db.session import SessionLocal
@@ -100,7 +114,10 @@ def test_presign_download_refuses_another_users_screenshot(two_users, monkeypatc
     )
     db = SessionLocal()
     try:
-        shot = Screenshot(trade_id=theirs.id, file_path="u/2/t/1/x.png")
+        shot = Screenshot(
+            trade_id=theirs.id,
+            file_path=f"u/{a}/t/{theirs.id}/{uuid.uuid4()}.png",
+        )
         db.add(shot)
         db.commit()
         shot_id = shot.id
@@ -131,7 +148,10 @@ def test_presign_download_refuses_a_database_row_pointing_at_another_owners_key(
     try:
         shot = Screenshot(
             trade_id=mine.id,
-            file_path=f"u/{b}/t/{mine.id}/foreign.png",
+            # Well-formed but for the WRONG owner prefix: this is the
+            # `_is_final_key` gate's own case, distinct from the ownership
+            # join above — the trade really is this caller's.
+            file_path=f"u/{b}/t/{mine.id}/{uuid.uuid4()}.png",
         )
         db.add(shot)
         db.commit()

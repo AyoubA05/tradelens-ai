@@ -25,7 +25,15 @@ import { deleteTrade, patchTrade, type TradeUpdate } from "@/lib/app/trades";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const NO_STORE = { "Cache-Control": "no-store, private" };
+// Matches the nine `app/api/auth/*` routes exactly. The referrer policy is
+// negligible on a JSON response, but this file already diverges from that
+// family once on purpose (the fail-shut CSRF check below), and an
+// undocumented second divergence reads as one more deliberate decision to
+// work out.
+const NO_STORE = {
+  "Cache-Control": "no-store, private",
+  "Referrer-Policy": "no-referrer",
+};
 
 /**
  * A trade id, or null.
