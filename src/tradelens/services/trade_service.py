@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session, selectinload
 
 from src.tradelens.db.models import AIAnalysis, Correction, Screenshot, Trade
@@ -438,3 +438,110 @@ def get_primary_screenshot(trade_id: int, *, user_id: int) -> Optional[str]:
         return shot.file_path if shot else None
     finally:
         db.close()
+
+
+@dataclass
+class TradeUpdateOutcome:
+    """The result of an optimistic-concurrency edit.
+
+    `status` is one of "updated", "not_found" or "conflict". `trade` is set
+    only for "updated"; `current_updated_at` only for "conflict", so the
+    caller can tell a trader what the row looks like now.
+    """
+
+    status: str
+    trade: Optional[Trade] = None
+    current_updated_at: Optional[str] = None
+
+
+def update_trade_if_unchanged(
+    trade_id: int,
+    user_id: int,
+    expected_updated_at: str,
+    updates: dict,
+) -> TradeUpdateOutcome:
+    """Edit one trade, but only while it still looks the way the client saw it.
+
+    **The guard is a single conditional UPDATE, never a check-then-update.**
+    The predicate carries all three of the trade id, the authenticated owner
+    and `expected_updated_at`, and the decision is the rowcount. Reading the
+    row, comparing `updated_at` in Python and then writing would leave a
+    window in which another request commits in between — which is precisely
+    the lost update this parameter exists to prevent, reintroduced by the
+    guard itself. That is the same TOCTOU Phase 0 had to remove from
+    `restore_website_session_handle`, and it is not coming back here.
+
+    The SELECT above the write is for OUTCOME DERIVATION only, never for the
+    concurrency decision: re-deriving `result` needs whichever half of the
+    outcome pair the caller did not send. It is safe precisely because the
+    UPDATE below refuses to land if the row moved after that read.
+
+    A rowcount of 0 means either the trade is not the caller's or the row
+    moved on, so it is re-read once, owner-scoped, to tell a 404 from a 409.
+
+    Unlike `update_trade`, unknown keys are rejected rather than filtered:
+    a caller passing a field this function silently drops has a bug, and at
+    an HTTP edge a silently dropped field is an edit a trader believes they
+    made.
+    """
+    owner = require_user_id(user_id)
+    editable = {c.key for c in Trade.__table__.columns} - {"id", "user_id"}
+    unknown = set(updates) - editable
+    if unknown:
+        raise ValueError(f"not editable: {sorted(unknown)}")
+
+    values = dict(updates)
+    db: Session = SessionLocal()
+    try:
+        # A tuple query, not an entity query: nothing enters the identity map,
+        # so the Core UPDATE below cannot be shadowed by a stale ORM object.
+        current = (
+            db.query(Trade.result, Trade.pnl)
+            .filter(Trade.id == trade_id, Trade.user_id == owner)
+            .first()
+        )
+        if current is None:
+            return TradeUpdateOutcome(status="not_found")
+
+        # Editing either half of the outcome pair re-validates the whole pair,
+        # so a partial edit can't leave the row contradicting itself. A new
+        # P&L is canonical; a label edit alone is checked against the stored
+        # P&L. Mirrors `update_trade` deliberately — one rule, two callers.
+        if "pnl" in values:
+            stale_label = current.result if is_blank(values["pnl"]) else None
+            values["result"] = canonical_outcome(
+                values.get("result", stale_label), values["pnl"]
+            )
+        elif "result" in values:
+            values["result"] = canonical_outcome(values["result"], current.pnl)
+
+        values["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        written = db.execute(
+            update(Trade)
+            .where(
+                Trade.id == trade_id,
+                Trade.user_id == owner,
+                Trade.updated_at == expected_updated_at,
+            )
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        if written.rowcount != 1:
+            db.rollback()
+            row = (
+                db.query(Trade.updated_at)
+                .filter(Trade.id == trade_id, Trade.user_id == owner)
+                .first()
+            )
+            if row is None:
+                return TradeUpdateOutcome(status="not_found")
+            return TradeUpdateOutcome(status="conflict", current_updated_at=row[0])
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+    return TradeUpdateOutcome(status="updated", trade=get_trade(trade_id, owner))

@@ -8,6 +8,8 @@ must 404, byte-identical to a genuinely missing one, never 403.
 
 from __future__ import annotations
 
+import contextlib
+import json
 import time
 
 import pytest
@@ -209,3 +211,408 @@ def test_detail_no_presigned_url_for_a_trade_the_caller_does_not_own(
     r = client.get(path, headers=_headers(handle, query="", path=path))
     assert r.status_code == 404
     assert calls == []
+
+
+# ------------------------------------------------------------ PATCH /v1/trades/{id}
+
+
+def _write_headers(handle, method, path, body: bytes):
+    """Sign a mutating request. The HMAC covers sha256(body), so the payload
+    is as tamper-evident as the path and query."""
+    ts = str(int(time.time()))
+    sig = sign_request(SECRET, ts, method, path, "", body)
+    return {
+        "X-TL-Signature": f"v1={ts}:{sig}",
+        "X-TL-Session-Handle": handle,
+        "Content-Type": "application/json",
+    }
+
+
+def _patch(client, handle, trade_id, payload):
+    path = f"/v1/trades/{trade_id}"
+    body = json.dumps(payload).encode()
+    return client.patch(
+        path, content=body, headers=_write_headers(handle, "PATCH", path, body)
+    )
+
+
+def _read_row(trade_id):
+    """Read a row straight from the database, bypassing every service."""
+    from src.tradelens.db.models import Trade
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        row = db.query(Trade).filter(Trade.id == trade_id).first()
+        if row is None:
+            return None
+        return {c.key: getattr(row, c.key) for c in Trade.__table__.columns}
+    finally:
+        db.close()
+
+
+@contextlib.contextmanager
+def _captured_sql():
+    """Every statement the engine executes, so a test can assert on the
+    *shape* of the write rather than only on its observable effect."""
+    from sqlalchemy import event
+
+    from src.tradelens.db import session as db_session
+
+    seen = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):
+        seen.append((statement, parameters))
+
+    event.listen(db_session.engine, "before_cursor_execute", _record)
+    try:
+        yield seen
+    finally:
+        event.remove(db_session.engine, "before_cursor_execute", _record)
+
+
+def _trade_updates(seen):
+    return [
+        (stmt, params)
+        for stmt, params in seen
+        if stmt.lstrip().upper().startswith("UPDATE TRADES")
+    ]
+
+
+def test_patch_unsigned_request_is_refused(client, website_session_handle):
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    path = f"/v1/trades/{trade.id}"
+    body = json.dumps({"notes": "x", "expected_updated_at": trade.updated_at}).encode()
+    r = client.patch(path, content=body, headers={"X-TL-Session-Handle": handle})
+    assert r.status_code == 401
+    assert _read_row(trade.id)["notes"] is None
+
+
+def test_patch_a_tampered_body_fails_the_signature(client, website_session_handle):
+    """The HMAC covers sha256(body): swapping the payload after signing must
+    fail Lock 1, not merely be rejected by validation."""
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    path = f"/v1/trades/{trade.id}"
+    signed = json.dumps(
+        {"notes": "a", "expected_updated_at": trade.updated_at}
+    ).encode()
+    sent = json.dumps(
+        {"notes": "tampered", "expected_updated_at": trade.updated_at}
+    ).encode()
+    r = client.patch(
+        path, content=sent, headers=_write_headers(handle, "PATCH", path, signed)
+    )
+    assert r.status_code == 401
+    assert _read_row(trade.id)["notes"] is None
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("trade_date", "2026-08-20"),
+        ("asset", "ES"),
+        ("session", "London"),
+        ("setup_type", "Turtle Soup"),
+        ("timeframe", "M5"),
+        ("direction", "Short"),
+        ("rr_realized", 2.5),
+        ("risk_amount", 120.0),
+        ("followed_rules", 1),
+        ("killzone", "London Open"),
+        ("htf_bias", "Bearish"),
+        ("notes", "Chased the entry."),
+        ("mistake_tags", "fomo,late-entry"),
+    ],
+)
+def test_patch_every_editable_field_round_trips(
+    client, website_session_handle, field, value
+):
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    r = _patch(
+        client,
+        handle,
+        trade.id,
+        {field: value, "expected_updated_at": trade.updated_at},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()[field] == value
+
+
+def test_patch_result_and_pnl_round_trip_together(client, website_session_handle):
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    r = _patch(
+        client,
+        handle,
+        trade.id,
+        {"pnl": 250.0, "result": "Win", "expected_updated_at": trade.updated_at},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["pnl"] == 250.0
+    assert r.json()["result"] == "Win"
+
+
+def test_patch_editing_pnl_rederives_result(client, website_session_handle):
+    """P&L is the fact; the label describes it. A row may never contradict
+    itself, so a new P&L re-derives the outcome rather than being vetoed by
+    the label that described the old value."""
+    user_id, handle = website_session_handle
+    trade = _create(user_id, pnl=100.0, result="Win")
+    r = _patch(
+        client,
+        handle,
+        trade.id,
+        {"pnl": -40.0, "expected_updated_at": trade.updated_at},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["result"] == "Loss"
+    assert _read_row(trade.id)["result"] == "Loss"
+
+
+def test_patch_a_label_contradicting_the_stored_pnl_is_rejected(
+    client, website_session_handle
+):
+    user_id, handle = website_session_handle
+    trade = _create(user_id, pnl=100.0, result="Win")
+    r = _patch(
+        client,
+        handle,
+        trade.id,
+        {"result": "Loss", "expected_updated_at": trade.updated_at},
+    )
+    assert r.status_code == 422
+    assert _read_row(trade.id)["result"] == "Win"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("user_id", 999),
+        ("trade_hash", "deadbeef"),
+        ("is_sample", 1),
+        ("created_at", "1999-01-01T00:00:00+00:00"),
+        ("strategy_id", 7),
+        ("id", 4242),
+        ("trade_id", 4242),
+        ("updated_at", "1999-01-01T00:00:00+00:00"),
+        ("day_of_week", "Monday"),
+        ("entry_price", 1.0),
+        ("ai_grade", "A+"),
+    ],
+)
+def test_patch_rejects_fields_outside_the_allowlist(
+    client, website_session_handle, field, value
+):
+    """`extra="forbid"` on a POSITIVE allowlist: ownership and server-owned
+    metadata are unreachable through HTTP input whatever the request says."""
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    before = _read_row(trade.id)
+    r = _patch(
+        client,
+        handle,
+        trade.id,
+        {field: value, "expected_updated_at": trade.updated_at},
+    )
+    assert r.status_code == 422, r.text
+    assert _read_row(trade.id) == before
+
+
+def test_patch_requires_expected_updated_at(client, website_session_handle):
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    r = _patch(client, handle, trade.id, {"notes": "x"})
+    assert r.status_code == 422
+    assert _read_row(trade.id)["notes"] is None
+
+
+def test_the_allowlist_and_the_models_editable_columns_agree():
+    """The write surface is pinned in both directions.
+
+    Adding a column to `Trade` must not silently widen what HTTP can write:
+    a new column lands in neither set, so this test fails until someone
+    deliberately files it as editable or as server-owned.
+    """
+    from src.tradelens.api.schemas.trades import (
+        EDITABLE_TRADE_FIELDS,
+        SERVER_OWNED_TRADE_COLUMNS,
+    )
+    from src.tradelens.db.models import Trade
+
+    columns = {c.key for c in Trade.__table__.columns}
+    assert (
+        EDITABLE_TRADE_FIELDS <= columns
+    ), "allowlist names a column that does not exist"
+    assert EDITABLE_TRADE_FIELDS.isdisjoint(SERVER_OWNED_TRADE_COLUMNS)
+    assert EDITABLE_TRADE_FIELDS | SERVER_OWNED_TRADE_COLUMNS == columns
+
+    # The fields that must never be writable, named explicitly rather than
+    # inferred, so a refactor of either set still trips this.
+    for forbidden in (
+        "user_id",
+        "id",
+        "trade_hash",
+        "is_sample",
+        "created_at",
+        "updated_at",
+        "strategy_id",
+    ):
+        assert forbidden in SERVER_OWNED_TRADE_COLUMNS
+        assert forbidden not in EDITABLE_TRADE_FIELDS
+
+
+def test_patch_another_owners_trade_is_404_and_leaves_it_untouched(
+    client, website_session_handle, two_users
+):
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    trade = _create(other, notes="theirs")
+    before = _read_row(trade.id)
+
+    with _captured_sql() as seen:
+        r = _patch(
+            client,
+            handle,
+            trade.id,
+            {"notes": "mine now", "expected_updated_at": trade.updated_at},
+        )
+
+    assert r.status_code == 404
+    assert _read_row(trade.id) == before
+    assert _trade_updates(seen) == [], "no write may be attempted for another owner"
+
+
+def test_patch_cross_owner_404_is_byte_identical_to_a_missing_trade(
+    client, website_session_handle, two_users
+):
+    """A 403 would confirm the row exists for someone else."""
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    theirs = _create(other)
+    stamp = theirs.updated_at
+
+    cross = _patch(
+        client, handle, theirs.id, {"notes": "x", "expected_updated_at": stamp}
+    )
+    missing = _patch(
+        client, handle, 999999, {"notes": "x", "expected_updated_at": stamp}
+    )
+
+    assert cross.status_code == missing.status_code == 404
+    assert cross.content == missing.content
+
+
+def test_patch_with_a_stale_expected_updated_at_is_409_and_changes_nothing(
+    client, website_session_handle
+):
+    user_id, handle = website_session_handle
+    trade = _create(user_id, notes="original")
+    before = _read_row(trade.id)
+
+    r = _patch(
+        client,
+        handle,
+        trade.id,
+        {"notes": "clobbered", "expected_updated_at": "1999-01-01T00:00:00+00:00"},
+    )
+
+    assert r.status_code == 409
+    assert r.json()["detail"]["current_updated_at"] == before["updated_at"]
+    assert _read_row(trade.id) == before
+
+
+def test_the_409_comes_from_a_single_conditional_updates_rowcount(
+    client, website_session_handle
+):
+    """The concurrency decision is the rowcount of ONE conditional UPDATE.
+
+    Reading the row, comparing `updated_at` in Python, then writing leaves a
+    window in which another request commits in between — reintroducing the
+    exact lost update the field exists to prevent. So the stale case must
+    still ISSUE the write, and its predicate must carry all three of trade
+    id, owner and expected timestamp.
+    """
+    user_id, handle = website_session_handle
+    trade = _create(user_id, notes="original")
+
+    with _captured_sql() as seen:
+        r = _patch(
+            client,
+            handle,
+            trade.id,
+            {"notes": "clobbered", "expected_updated_at": "1999-01-01T00:00:00+00:00"},
+        )
+
+    assert r.status_code == 409
+    updates = _trade_updates(seen)
+    assert len(updates) == 1, "the write must be a single conditional statement"
+    statement, params = updates[0]
+    where = statement.upper().split("WHERE", 1)[1]
+    for column in ("ID", "USER_ID", "UPDATED_AT"):
+        assert column in where, f"the write predicate must carry {column}"
+    bound = list(params.values()) if isinstance(params, dict) else list(params)
+    assert trade.id in bound
+    assert user_id in bound
+    assert "1999-01-01T00:00:00+00:00" in bound
+
+
+def test_a_fresh_expected_updated_at_from_the_previous_patch_succeeds(
+    client, website_session_handle
+):
+    """Two sequential edits: the second must use the stamp the first returned."""
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+
+    first = _patch(
+        client,
+        handle,
+        trade.id,
+        {"notes": "a", "expected_updated_at": trade.updated_at},
+    )
+    assert first.status_code == 200
+    stamp = first.json()["updated_at"]
+    assert stamp != trade.updated_at
+
+    second = _patch(
+        client, handle, trade.id, {"notes": "b", "expected_updated_at": stamp}
+    )
+    assert second.status_code == 200
+    assert _read_row(trade.id)["notes"] == "b"
+
+    replay = _patch(
+        client, handle, trade.id, {"notes": "c", "expected_updated_at": stamp}
+    )
+    assert replay.status_code == 409
+    assert _read_row(trade.id)["notes"] == "b"
+
+
+def test_patch_an_omitted_field_is_untouched_but_an_explicit_null_clears_it(
+    client, website_session_handle
+):
+    user_id, handle = website_session_handle
+    trade = _create(user_id, notes="keep me", htf_bias="Bullish")
+
+    r = _patch(
+        client,
+        handle,
+        trade.id,
+        {"htf_bias": None, "expected_updated_at": trade.updated_at},
+    )
+    assert r.status_code == 200
+    row = _read_row(trade.id)
+    assert row["notes"] == "keep me"
+    assert row["htf_bias"] is None
+
+
+def test_patch_response_is_the_typed_trade_detail_model():
+    spec = create_app().openapi()
+    operation = spec["paths"]["/v1/trades/{trade_id}"]["patch"]
+    ok = operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
+    assert ok.endswith("/TradeDetail")
+    conflict = operation["responses"]["409"]["content"]["application/json"]["schema"][
+        "$ref"
+    ]
+    assert conflict.endswith("/TradeConflictResponse")

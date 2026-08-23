@@ -19,12 +19,19 @@ from src.tradelens.api.deps import current_user
 from src.tradelens.api.routers.overview import _validated_period
 from src.tradelens.api.schemas.trades import (
     ScreenshotDescriptor,
+    TradeConflictResponse,
     TradeDetail,
     TradeListResponse,
     TradeSummary,
+    TradeUpdate,
 )
 from src.tradelens.services.sessions import KILLZONE_LABELS
-from src.tradelens.services.trade_service import get_trade, list_trades
+from src.tradelens.services.trade_service import (
+    get_trade,
+    list_trades,
+    update_trade_if_unchanged,
+)
+from src.tradelens.services.trade_validation import OutcomeMismatch
 
 router = APIRouter(prefix="/v1", tags=["trades"])
 
@@ -104,22 +111,13 @@ def _not_found() -> HTTPException:
     return HTTPException(status_code=404, detail="trade not found")
 
 
-@router.get("/trades/{trade_id}")
-def get_trade_detail(
-    trade_id: int,
-    user_id: int = Depends(current_user),
-) -> TradeDetail:
-    """One trade, plus presigned URLs for its screenshots.
+def _detail(trade, user_id: int) -> TradeDetail:
+    """Shape one trade for the wire, screenshots and all.
 
-    `get_trade` already filters on `Trade.user_id == owner`, so a trade
-    belonging to another account is indistinguishable from a nonexistent one
-    at the ORM layer — this handler preserves that by raising the identical
-    404 either way, never a 403.
+    Shared by GET and PATCH so an edited trade comes back through exactly the
+    contract the client already renders — a second hand-built projection is
+    how a field ends up present on read and missing after a save.
     """
-    trade = get_trade(trade_id, user_id)
-    if trade is None:
-        raise _not_found()
-
     screenshots = [
         ScreenshotDescriptor(
             id=shot.id,
@@ -176,3 +174,65 @@ def get_trade_detail(
         updated_at=trade.updated_at,
         screenshots=screenshots,
     )
+
+
+@router.get("/trades/{trade_id}")
+def get_trade_detail(
+    trade_id: int,
+    user_id: int = Depends(current_user),
+) -> TradeDetail:
+    """One trade, plus presigned URLs for its screenshots.
+
+    `get_trade` already filters on `Trade.user_id == owner`, so a trade
+    belonging to another account is indistinguishable from a nonexistent one
+    at the ORM layer — this handler preserves that by raising the identical
+    404 either way, never a 403.
+    """
+    trade = get_trade(trade_id, user_id)
+    if trade is None:
+        raise _not_found()
+    return _detail(trade, user_id)
+
+
+@router.patch(
+    "/trades/{trade_id}",
+    responses={409: {"model": TradeConflictResponse}},
+)
+def patch_trade(
+    trade_id: int,
+    payload: TradeUpdate,
+    user_id: int = Depends(current_user),
+) -> TradeDetail:
+    """Edit the user-editable fields of one trade.
+
+    The body is a positive allowlist (`schemas.trades.TradeUpdate`), so
+    ownership and server-owned metadata are unreachable no matter what is
+    sent. `exclude_unset=True` is what separates "leave this alone" from
+    "clear this": both are legitimate intentions and both are expressible.
+
+    `expected_updated_at` is enforced inside a single conditional UPDATE in
+    the service — see `update_trade_if_unchanged`. A stale value returns 409
+    carrying the current timestamp so the client can show what changed rather
+    than silently discarding the trader's typing.
+    """
+    fields = payload.model_dump(exclude_unset=True)
+    expected = fields.pop("expected_updated_at")
+
+    try:
+        outcome = update_trade_if_unchanged(trade_id, user_id, expected, fields)
+    except (OutcomeMismatch, ValueError) as exc:
+        # A label contradicting the stored P&L is a bad request, not a server
+        # fault: the row would otherwise say "Win" about a loss.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if outcome.status == "not_found":
+        raise _not_found()
+    if outcome.status == "conflict":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "stale_trade",
+                "current_updated_at": outcome.current_updated_at,
+            },
+        )
+    return _detail(outcome.trade, user_id)
