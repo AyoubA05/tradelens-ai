@@ -601,7 +601,7 @@
       },
       "ScreenshotCleanupFailedDetail": {
         "additionalProperties": false,
-        "description": "A delete that could not finish. The trade row is deliberately still\nthere: a trader told their screenshots are gone while private images\nremain in the bucket has been given a false privacy assurance, so the\nstate stays retryable rather than becoming an orphan nobody can find.",
+        "description": "A delete that could not finish. The trade row is deliberately still\nthere: a trader told their screenshots are gone while private images\nremain in the bucket has been given a false privacy assurance, so the\nstate stays retryable rather than becoming an orphan nobody can find.\n\n`remaining` and `unresolvable` are separate numbers because they need\ndifferent handling: `remaining` is an object-store fault that a retry\nwill clear, while `unresolvable` counts screenshot rows naming a path\nthis owner is not entitled to delete \u2014 a retry will never clear those,\nand the caller must be able to tell \"try again\" from \"this needs an\noperator\" rather than seeing one opaque total.",
         "properties": {
           "error": {
             "const": "screenshot_cleanup_failed",
@@ -611,11 +611,16 @@
           "remaining": {
             "title": "Remaining",
             "type": "integer"
+          },
+          "unresolvable": {
+            "title": "Unresolvable",
+            "type": "integer"
           }
         },
         "required": [
           "error",
-          "remaining"
+          "remaining",
+          "unresolvable"
         ],
         "title": "ScreenshotCleanupFailedDetail",
         "type": "object"
@@ -1294,6 +1299,17 @@
         "additionalProperties": false,
         "description": "One row of the Trades list \u2014 deliberately narrower than TradeDetail.\n\nThe list view does not need every SMC/ICT annotation field; Trade Detail\n(below) is where the full record lives.",
         "properties": {
+          "ai_grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Grade"
+          },
           "asset": {
             "anyOf": [
               {
@@ -1369,6 +1385,10 @@
             ],
             "title": "Rr Realized"
           },
+          "screenshot_count": {
+            "title": "Screenshot Count",
+            "type": "integer"
+          },
           "session": {
             "anyOf": [
               {
@@ -1401,6 +1421,17 @@
               }
             ],
             "title": "Trade Date"
+          },
+          "user_grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Grade"
           }
         },
         "required": [
@@ -1413,7 +1444,10 @@
           "killzone",
           "result",
           "pnl",
-          "rr_realized"
+          "rr_realized",
+          "ai_grade",
+          "user_grade",
+          "screenshot_count"
         ],
         "title": "TradeSummary",
         "type": "object"
@@ -1977,7 +2011,7 @@
     },
     "/v1/trades/{trade_id}": {
       "delete": {
-        "description": "Delete one trade, its screenshot rows, and its stored images.\n\n**Objects go before the row, and only a complete cleanup earns the row's\nremoval.** `screenshots.trade_id` is `ondelete=\"CASCADE\"`, so dropping the\ntrade drops the screenshot ROW while leaving the R2 OBJECT behind \u2014 and\nthe row was the only record of that object's key. Deleting the row first,\nor deleting it anyway after a failed cleanup, would strand private images\nin the bucket with nothing left pointing at them.\n\nSo a failed cleanup returns 503 with the row intact. That is deliberately\nthe less tidy outcome: telling a trader their screenshots are gone while\nthey remain in the bucket is a false privacy assurance, and a retryable\ndelete is recoverable where a silent orphan is not.",
+        "description": "Delete one trade, its screenshot rows, and its stored images.\n\n**Objects go before the row, and only a complete cleanup earns the row's\nremoval.** `screenshots.trade_id` is `ondelete=\"CASCADE\"`, so dropping the\ntrade drops the screenshot ROW while leaving the R2 OBJECT behind \u2014 and\nthe row was the only record of that object's key. Deleting the row first,\nor deleting it anyway after a failed cleanup, would strand private images\nin the bucket with nothing left pointing at them.\n\nSo an INCOMPLETE cleanup returns 503 with the row intact \u2014 incomplete\nmeaning anything left behind, whether it failed or was skipped as a key\nthis owner may not delete. That is deliberately the less tidy outcome:\ntelling a trader their screenshots are gone while they remain in the\nbucket is a false privacy assurance, and a blocked delete is recoverable\nwhere a silent orphan is not.",
         "operationId": "delete_trade_endpoint_v1_trades__trade_id__delete",
         "parameters": [
           {

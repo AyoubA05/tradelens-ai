@@ -125,10 +125,12 @@ export interface paths {
          *     or deleting it anyway after a failed cleanup, would strand private images
          *     in the bucket with nothing left pointing at them.
          *
-         *     So a failed cleanup returns 503 with the row intact. That is deliberately
-         *     the less tidy outcome: telling a trader their screenshots are gone while
-         *     they remain in the bucket is a false privacy assurance, and a retryable
-         *     delete is recoverable where a silent orphan is not.
+         *     So an INCOMPLETE cleanup returns 503 with the row intact — incomplete
+         *     meaning anything left behind, whether it failed or was skipped as a key
+         *     this owner may not delete. That is deliberately the less tidy outcome:
+         *     telling a trader their screenshots are gone while they remain in the
+         *     bucket is a false privacy assurance, and a blocked delete is recoverable
+         *     where a silent orphan is not.
          */
         delete: operations["delete_trade_endpoint_v1_trades__trade_id__delete"];
         options?: never;
@@ -338,6 +340,13 @@ export interface components {
          *     there: a trader told their screenshots are gone while private images
          *     remain in the bucket has been given a false privacy assurance, so the
          *     state stays retryable rather than becoming an orphan nobody can find.
+         *
+         *     `remaining` and `unresolvable` are separate numbers because they need
+         *     different handling: `remaining` is an object-store fault that a retry
+         *     will clear, while `unresolvable` counts screenshot rows naming a path
+         *     this owner is not entitled to delete — a retry will never clear those,
+         *     and the caller must be able to tell "try again" from "this needs an
+         *     operator" rather than seeing one opaque total.
          */
         ScreenshotCleanupFailedDetail: {
             /**
@@ -347,6 +356,8 @@ export interface components {
             error: "screenshot_cleanup_failed";
             /** Remaining */
             remaining: number;
+            /** Unresolvable */
+            unresolvable: number;
         };
         /** ScreenshotCleanupFailedResponse */
         ScreenshotCleanupFailedResponse: {
@@ -510,6 +521,8 @@ export interface components {
          *     (below) is where the full record lives.
          */
         TradeSummary: {
+            /** Ai Grade */
+            ai_grade: string | null;
             /** Asset */
             asset: string | null;
             /** Direction */
@@ -524,12 +537,16 @@ export interface components {
             result: ("Win" | "Loss" | "Breakeven") | null;
             /** Rr Realized */
             rr_realized: number | null;
+            /** Screenshot Count */
+            screenshot_count: number;
             /** Session */
             session: string | null;
             /** Setup Type */
             setup_type: string | null;
             /** Trade Date */
             trade_date: string | null;
+            /** User Grade */
+            user_grade: string | null;
         };
         /**
          * TradeUpdate
