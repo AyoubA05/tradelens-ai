@@ -6006,7 +6006,8 @@ model, so a **new column is unwritable until someone deliberately files it**.
 screenshot row and leaves the object. `delete_trade_objects` is owner-scoped (`Screenshot` has no
 `user_id`, so the trade join is its only ownership signal), idempotent, and failure-aware:
 `complete` requires both `failed` and `skipped` empty, and a failure returns 503 with the row
-intact and nothing deleted. The UI says exactly that.
+intact. Object cleanup is sequential, so prior removals cannot be rolled back; the independent
+review corrected the UI to state that partial screenshot cleanup may already have happened.
 
 **404 never 403, byte-identical.** On every per-id route. A 403 confirms the row exists.
 
@@ -6083,3 +6084,196 @@ actively asserted their absence.
   no R2 credentials in the smoke environment.
 - The journal calendar shows the **unfiltered** period aggregate beside a **filtered** table.
   No number is wrong, but nothing labels the scope difference. Needs a labelling decision.
+
+---
+
+# Phase 3 Core — Independent Codex Review (2026-08-24)
+
+Reviewed published range `0830e5b..ccb9224` on `main`. Phase 3E and Phase 4 were not started.
+The implementation, fixtures and reported green gates were treated as untrusted; the review
+traced the actual Next.js → HMAC/FastAPI → service/SQL → R2 path and used two-owner adversaries
+plus deliberate broken-code mutations.
+
+Fix-forward implementation commit: `d443a71` (`fix(trades): close Phase 3 independent review
+findings`).
+
+## Findings and fixes
+
+### Critical
+
+None found.
+
+### High
+
+None found.
+
+### Medium
+
+**Mutation relay admitted app-ineligible website sessions.**
+`web/app/api/trades/[id]/route.ts` authenticated the cookie but did not apply the same
+email/onboarding/`app_surface` eligibility gate as the protected pages. A valid Streamlit-only,
+unverified, or not-onboarded website session could call the same-origin relay directly and make
+it sign a PATCH/DELETE to FastAPI even though the UI redirected that account away. The relay now
+calls `appLayoutRedirect(user)` before any backend helper. Three account-state regressions prove
+both methods return 403 and make no FastAPI call; the original implementation returned the
+mocked backend failure, proving the requests crossed the boundary.
+
+**The timestamp backfill did not make editability a durable invariant.**
+`a7b8c9d0e1f2_backfill_trade_updated_at.py` repaired rows once, but `Trade.updated_at` remained
+nullable with no database default. Any later raw SQL, importer, or direct ORM insert could create
+another permanently uneditable row because `NULL = expected_updated_at` can never match. New
+revision `b8c9d0e1f2g3` backfills remaining NULLs, makes the column `NOT NULL`, and installs a
+database default; the model has matching Python/server defaults. The default explicitly casts
+`CURRENT_TIMESTAMP` to VARCHAR so PostgreSQL does not receive a temporal default for the legacy
+string column. Upgrade, future omitted insert, explicit-NULL refusal, downgrade, model metadata,
+and PostgreSQL DDL compilation are covered. Known lowercase legacy outcomes are normalized in
+the same data repair; unknown values are preserved rather than guessed.
+
+**PATCH changed source facts while leaving server-owned derived facts stale.**
+`update_trade_if_unchanged` allowed edits to `trade_date`, `asset`, `direction`, and `pnl` but did
+not refresh `day_of_week`, `asset_class`, or `trade_hash`. A date edit could still say the old
+weekday; an NQ→EURUSD edit could remain Futures; duplicate detection retained the old fingerprint.
+All derived values now join the same atomic conditional UPDATE. Known asset classes are repaired
+on a full form round trip; an unchanged custom symbol keeps its owner-selected legacy class.
+Hard-coded expected hashes make tests discriminate rather than repeat the implementation.
+
+**The PATCH boundary accepted invalid values and could turn a safe validation refusal into 500.**
+Explicit `asset: null` reached a DB constraint error; blanks and impossible dates were stored;
+`followed_rules` accepted arbitrary integers; a JSON number `1e400` became infinity and produced
+a 500. `TradeUpdate` now rejects null/blank asset, invalid calendar dates, non-finite numerics,
+and flags outside `0|1`. The global request-validation handler strictly scrubs non-finite values
+from Pydantic's diagnostic record so the rejection itself serializes as 422. Each case asserts
+the row is byte-for-byte unchanged. The edit form blocks blank asset before sending.
+
+**Legacy values could make a trade permanently unreadable/uneditable.**
+Git history confirmed the historical seed path stored lowercase `win/loss/breakeven`; strict
+Phase 3 Literals returned 500 and the exact result filter omitted those rows. The response
+contract and filter now canonicalize known case variants, with the migration repairing stored
+known spellings. Historical NaN/Infinity numeric cells now cross the strict JSON boundary as
+`null` (undefined), allowing the edit form to repair them; new non-finite writes are refused.
+List, detail, filter and read→PATCH regressions use direct legacy-shaped DB rows.
+
+**OpenAPI and fixtures contradicted runtime/database nullability.**
+`asset` and `updated_at` are database-required after the repair, but Pydantic/OpenAPI/TypeScript
+advertised them as nullable, and frontend fixtures encoded those impossible values. `TradeUpdate`
+also advertised explicit `asset: null` although runtime rejected it. Response and conflict types
+are now non-null, `asset` is omittable-but-not-null in PATCH OpenAPI, `followed_rules` generates
+the narrow `0 | 1 | null` union, generated artifacts were refreshed, and fixtures now satisfy the
+real contract. A deliberately malformed stampless component test remains only through an explicit
+`unknown as TradeDetail` cast, making its out-of-contract nature visible.
+
+**The delete dialog made a false atomicity promise.** R2 cleanup is sequential: with two
+screenshots, the first object can be deleted before the second fails and produces a 503. The
+trade row survives, but the old dialog said “Nothing was deleted” and that every image was
+“untouched.” A generic/network failure was even less knowable because the response can be lost
+after a successful commit. The dialog now states the precise 503 guarantee (the trade was not
+deleted; some screenshots may already be gone) and treats generic transport failures as unknown
+outcomes that require refresh. Regressions reject the old absolute claim on retryable,
+unresolvable, 500 and network paths.
+
+### Low
+
+**Filtered table and unfiltered calendar had an unlabeled scope split.** When any journal filter
+is active, the calendar now states that its totals cover all period trades while filters apply to
+the table and day links. This preserves the approved aggregate and prevents a correct number from
+being read as the filtered number beside it.
+
+**Market quotations were rendered as dollar amounts.** Entry, stop, target and exit prices used
+the P&L currency formatter, so an NQ quotation appeared as `$19,500.25` and non-USD instruments
+were implicitly labelled dollars. Prices/position size now use neutral numeric formatting; only
+risk, reward and P&L retain currency semantics.
+
+**One auth test depended on an ignored developer database.** The final invalid-token parameter
+reached SQL without the `two_users` fixture and failed when the local ignored `tradelens.db` had
+an old `auth_sessions` schema. It now uses the isolated migrated database like the other session
+tests. This changes no production auth behavior and made the full suite deterministic.
+
+### Hardening / no-finding areas
+
+- **Tenant isolation: clear.** Owner identity is derived only by `current_user` from the
+  domain-separated session handle. Two-user ID substitution and every common owner query alias
+  returned only the authenticated owner's data. List/detail/PATCH/DELETE and both screenshot
+  helpers retain service/query-layer owner predicates.
+- **Atomic concurrency: clear.** A deterministic writer commits after the derivation read and
+  before the request UPDATE; the request returns 409 and preserves the newer writer. Removing
+  `Trade.updated_at == expected_updated_at` makes that test return 200 and clobber it. Removing
+  the owner predicate from the 409 re-read fails its SQL-shape regression.
+- **PATCH allowlist: clear after fixes.** `extra="forbid"` is load-bearing: mutating it to ignore
+  extras made a `user_id` request return 200 and failed the test. IDs, ownership, hashes, sample
+  state, timestamps, strategy, derived fields, grades/internal metadata and arbitrary extras are
+  not writable through HTTP.
+- **Deletion/R2: clear for the implemented Phase 3 path after truthful partial-failure copy.** A syntactically valid foreign-owned
+  final key is refused. Removing the ownership join mints a URL and fails the test. Ignoring an
+  R2 cleanup failure produces 204 and fails the backend regression; fabricating 204 in the Next
+  relay fails the browser-visible relay test. Missing R2 objects converge successfully; failed
+  or skipped keys retain the DB row and return 503 through the dialog.
+- **Filtering/pagination: clear.** Asset matching is exact (`NQ` excludes `MNQ` and `%` is literal),
+  totals and rows share predicates, row limits are enforced on returned data, and
+  `trade_date DESC, id DESC` gives deterministic tied-date page boundaries.
+- **Next/FastAPI and cache boundary: clear.** The raw browser bearer never crosses into FastAPI;
+  only its domain-separated handle does. Service secret/API origin modules are server-only, the
+  signed method/path/query/body are the actual outgoing values, fetch uses `cache: "no-store"`,
+  API responses are `no-store, private`, pages/relay are dynamic, and both protected pages gate
+  eligibility before fetching.
+
+## Mutation proof actually run
+
+The review deliberately broke and restored each of these controls:
+
+1. removed the list owner predicate → the two-user list test returned the foreign row;
+2. removed the conditional timestamp predicate → the interleaving returned 200 and lost the
+   newer writer;
+3. removed the owner predicate from the 409 re-read → the SQL-shape ownership test failed;
+4. removed `Trade.user_id == owner` from screenshot download signing → a foreign signed URL was
+   issued and the valid-key adversary failed;
+5. changed Pydantic extras from `forbid` to `ignore` → `user_id` was accepted with 200;
+6. ignored backend cleanup failure → DELETE falsely returned 204 and the row-retention test failed;
+7. reshaped relay 503 to 204 → the observable route-response test failed.
+
+Every mutation was restored before the final gates.
+
+## Verification after fixes
+
+- Python full suite: **2,760 passed / 7 skipped** in 308.35s.
+- Phase 3 service/API/migration focus: **183 passed**; Phase 3 web focus: **198 passed**.
+- Web/Vitest full suite: **1,204 passed / 61 files**.
+- TypeScript: clean. ESLint: **0 errors**; two pre-existing `modal-trap.ts` hook warnings.
+- Ruff project gate (`src scripts`): clean. Black (`src scripts tests`): **277 unchanged**.
+  A deliberately broader Ruff run notes the pre-existing unused `json` import in the
+  Streamlit-owned `tests/test_weekly.py`; it was not modified.
+- Production Next.js 16.3.0 build: successful. `/app/journal`, `/app/trades/[id]`, and
+  `/api/trades/[id]` are all `ƒ` dynamic (as are all `/app` routes).
+- OpenAPI → TypeScript regeneration: byte-for-byte stable on a second run; SHA-256
+  `793c833f...` (`openapi.json`) and `16ad703c...` (`schema.d.ts`).
+- Alembic: one head, `b8c9d0e1f2g3`. SQLite upgrade/downgrade and PostgreSQL DDL compilation pass.
+- `npm audit`: **0 vulnerabilities**. `git diff --check`: clean.
+- Docker, `psql`, a Postgres/Neon test URL and `pip-audit` are unavailable in this environment.
+  No real container, live Postgres migration/concurrency, R2 browser, or Python dependency audit
+  is claimed by this review.
+
+## Deferred-item triage for Claude
+
+- **Safe to defer to Phase 3E:** the filtered-set AI summary. Nothing in core depends on it.
+- **Safe to defer to Phase 4, but required before upload deployment:** screenshot upload UI and
+  the quarantine reconciler/lifecycle rule. Phase 3 download/delete remains fail-closed.
+- **Must fix before deployment, does not block Phase 3E:** the nine `app/api/auth/*` routes that
+  skip CSRF when `SITE_ORIGIN` is unset. Tighten them to fail shut; never loosen the trade relay.
+- **Safe while normalized output is PNG-only:** `_is_final_key`'s `.png` restriction. Update the
+  validator, download and cleanup tests atomically before any other final format is emitted.
+- **Fixed in this review:** the journal calendar now labels its unfiltered scope.
+- **Before production:** repeat Alembic upgrade/downgrade and a real simultaneous PATCH on a
+  disposable Neon branch; build/start/health-smoke `Dockerfile.api`; exercise screenshot render
+  and cleanup failure with disposable R2 credentials; run the Python dependency audit in CI.
+- **Future duplicate-work caution:** `trade_hash` historically includes hash-only `entry_time`,
+  which is not persisted. A later edit can only recompute from stored fields. Do not add more
+  non-persisted fingerprint inputs; if exact preservation becomes product-critical, persist and
+  migrate the input rather than guessing it.
+- **Cross-system delete caveat:** R2 object deletion and the DB commit cannot be one transaction.
+  A DB failure after successful object removal leaves a screenshot row whose image is gone (safe
+  for privacy, degraded for availability). A future upload/delete worker should add reconciliation.
+
+## Verdict
+
+**Phase 3 core is cleared to proceed to Phase 3E once these fix-forward commits are included.**
+This is not deployment clearance: the pre-deployment items above remain mandatory. Stop here;
+do not begin Phase 3E or Phase 4 in this review.
