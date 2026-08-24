@@ -6277,3 +6277,90 @@ Every mutation was restored before the final gates.
 **Phase 3 core is complete.** Fix-forward commits `d443a71` and `0ec5f87` are included on
 `origin/main`, and Phase 3E may now begin. This is not deployment clearance: the pre-deployment
 items above remain mandatory. Phase 4 has not started.
+
+---
+
+# Phase 3E — Filtered-Trade AI Summary (2026-08-24, Codex)
+
+Implemented on `codex/phase3e-ai-summary` from `main` at `cdee4fa`. Phase 4 has not started.
+
+## What shipped
+
+- `POST /v1/trades/summary` validates the period and filters, snapshots only the authenticated
+  owner's matching trades, refuses samples below two trades, and enqueues `trade_summary` work.
+- `GET /v1/trades/summary/{job_id}` returns an owner-scoped job status/result. Foreign and
+  missing job IDs are byte-identical 404s; a corrupted pointer to another owner's result fails
+  closed without returning the prose.
+- The worker registers the first real `ai_jobs` consumer. Generated Markdown persists in the new
+  owner-scoped `trade_summary_results` table; `ai_jobs.result_ref` remains a pointer, not a prose
+  store. Alembic revision `c9d0e1f2g3h4` creates the table, composite uniqueness rule, owner FK,
+  and index with a downgrade.
+- `/api/trades/summary` and `/api/trades/summary/[jobId]` are dynamic, same-origin, app-eligible,
+  no-store relays. They keep the raw browser session and service secret server-side; `callApi`
+  forwards only the existing domain-separated session handle to FastAPI.
+- The Journal renders a client-island summary panel without blocking the table or calendar. It
+  polls immediately and then with bounded backoff for a little over three minutes, renders a
+  small safe Markdown subset as React nodes (never raw HTML), and cancels stale work when the URL
+  selection changes.
+
+## Security and correctness decisions
+
+**The job payload is an immutable snapshot, not only a filter recipe.** The enqueue request uses
+the service-layer `list_trades(user_id=authenticated_owner, ...)` path and stores at most the
+newest 40 matching rows. The worker therefore reviews the rows the trader selected at click time,
+not whatever those filters happen to match minutes later. The idempotency key covers the owner,
+canonical filters, and snapshot. An unchanged double-submit returns one job; editing a prompt-
+relevant trade creates a new key instead of serving stale prose.
+
+**Tenant isolation is enforced twice.** Job reads filter by `(job_id, user_id)`, and result reads
+filter independently by `(result_id, user_id)`. Browser bodies cannot name `user_id`, `uid`,
+`owner`, or `accountId`; strict Pydantic extras reject each spelling, and the owner comes only
+from the restored session handle.
+
+**Trader-authored text remains data.** Notes, process notes and mistake tags are bounded before
+storage in the job payload. The prompt labels the JSON as untrusted quoted evidence and orders
+the model not to follow instructions inside fields. `<`, `>` and `&` are JSON-escaped so a note
+cannot spell the structural closing delimiter. Provider output must contain exactly the five
+approved sections, in order, or the job fails. The browser renderer escapes HTML and supports
+only headings supplied by the service plus paragraphs, lists and bold text.
+
+**Failed paid jobs remain terminal.** Re-enqueueing the same failed snapshot returns that failed
+job rather than automatically running Anthropic again. This preserves Phase 0's accepted safety
+boundary: a failure can occur after the provider returns but before durable completion, and there
+is no provider idempotency token that proves a retry would not duplicate spend. The UI states
+that the exact selection is not rerun automatically and asks the trader to change the selection.
+
+## Verification
+
+- Python full suite: **2,779 passed / 7 skipped** in 281.35s from the final code tree.
+- Phase 3E service/API tests: **18 passed**; relevant queue/trades/migration focus: **165 passed**
+  before the final full run.
+- Web/Vitest full suite: **1,215 passed / 64 files**. The Phase 3E boundary/panel and Journal
+  wiring add 11 discriminating tests.
+- TypeScript: clean. ESLint: **0 errors**; the same two pre-existing `modal-trap.ts` warnings.
+- Ruff (`src scripts`): clean. Black (`src scripts tests`): **280 unchanged**.
+- Production Next.js 16.3.0 build: successful. `/app/journal`, `/api/trades/summary`, and
+  `/api/trades/summary/[jobId]` are all `ƒ` dynamic.
+- OpenAPI -> TypeScript regeneration is deterministic: SHA-256 `d27c1195...` for
+  `openapi.json` and `0c79206b...` for `schema.d.ts`. Alembic has one head,
+  `c9d0e1f2g3h4`; the fresh-chain migration test passes. `npm audit --omit=dev` reports zero.
+
+## Remaining limitations / next handoff
+
+- No live Anthropic call was made. Tests use a provider fake or the existing zero-spend demo
+  response; the Render worker plus real provider latency still needs a disposable-environment
+  smoke pass.
+- A worker crash leaves a job `running`, as already accepted in Phase 0. Do not add a reaper that
+  reruns paid work until provider idempotency or durable result recovery and an attempt/claim token
+  exist. The panel eventually stops polling and never claims the job failed server-side.
+- Docker and `pip-audit` are unavailable here. The existing container/startup and Python
+  dependency-audit deployment gates remain open.
+- No live browser/Neon/R2 smoke was run for Phase 3E. R2 is not used by this feature, and Phase 4
+  screenshot upload remains untouched.
+- The nine pre-existing `app/api/auth/*` routes that fail open when `SITE_ORIGIN` is absent remain
+  a before-deployment item. Both new Phase 3E relays fail shut and must not be loosened.
+
+## Verdict
+
+**Phase 3E implementation is complete on its feature branch and ready for independent review.**
+Do not begin Phase 4 until this branch is reviewed and integrated.
