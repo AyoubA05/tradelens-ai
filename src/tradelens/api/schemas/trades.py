@@ -19,7 +19,7 @@ import math
 from datetime import datetime
 from typing import List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
 
 from src.tradelens.services.sessions import KILLZONE_LABELS
@@ -85,6 +85,35 @@ class TradeListResponse(_Strict):
     total: int
     limit: int
     offset: int
+
+
+class TradeSummaryJobRequest(_Strict):
+    """The filtered journal selection to summarize; ownership is never input."""
+
+    from_: str = Field(alias="from")
+    to: str
+    asset: Optional[str] = None
+    session: Optional[str] = None
+    setup: Optional[str] = None
+    result: Optional[str] = None
+
+
+class TradeSummaryJobAccepted(_Strict):
+    job_id: int
+    status: Literal["queued", "running", "succeeded", "failed"]
+    created: bool
+
+
+class TradeSummaryResult(_Strict):
+    content_md: str
+    reviewed_trades: int
+
+
+class TradeSummaryJobStatus(_Strict):
+    job_id: int
+    status: Literal["queued", "running", "succeeded", "failed"]
+    result: Optional[TradeSummaryResult]
+    error: Optional[str]
 
 
 class ScreenshotDescriptor(_Strict):

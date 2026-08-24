@@ -14,6 +14,7 @@ import { FilterBar } from "@/components/app/trades/filter-bar";
 import { JournalCalendar } from "@/components/app/trades/journal-calendar";
 import { TradesTable } from "@/components/app/trades/trades-table";
 import { Pagination } from "@/components/app/trades/pagination";
+import { TradeSummaryPanel } from "@/components/app/trades/summary-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +77,12 @@ export default async function JournalPage({
         period={overview.period}
         sample={overview.sample}
         filters={filters}
+      />
+
+      <TradeSummaryPanel
+        period={period}
+        filters={filters}
+        tradeCount={tradesPage.total}
       />
 
       <section className="mt-10">

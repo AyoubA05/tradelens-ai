@@ -1424,6 +1424,167 @@
         "title": "TradeSummary",
         "type": "object"
       },
+      "TradeSummaryJobAccepted": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "created"
+        ],
+        "title": "TradeSummaryJobAccepted",
+        "type": "object"
+      },
+      "TradeSummaryJobRequest": {
+        "additionalProperties": false,
+        "description": "The filtered journal selection to summarize; ownership is never input.",
+        "properties": {
+          "asset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset"
+          },
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session"
+          },
+          "setup": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "title": "TradeSummaryJobRequest",
+        "type": "object"
+      },
+      "TradeSummaryJobStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TradeSummaryResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "result",
+          "error"
+        ],
+        "title": "TradeSummaryJobStatus",
+        "type": "object"
+      },
+      "TradeSummaryResult": {
+        "additionalProperties": false,
+        "properties": {
+          "content_md": {
+            "title": "Content Md",
+            "type": "string"
+          },
+          "reviewed_trades": {
+            "title": "Reviewed Trades",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "content_md",
+          "reviewed_trades"
+        ],
+        "title": "TradeSummaryResult",
+        "type": "object"
+      },
       "TradeUpdate": {
         "additionalProperties": false,
         "description": "The PATCH body \u2014 a POSITIVE allowlist of genuinely user-editable fields.\n\n`trade_service.update_trade` accepts every column except `id` and\n`user_id`. That is right for a trusted in-process caller and wrong at an\nHTTP edge, so this model names the editable fields and nothing else;\n`extra=\"forbid\"` refuses the rest. Ownership and server-owned metadata \u2014\n`user_id`, `id`, `trade_hash`, `is_sample`, `created_at`, `updated_at`,\n`strategy_id` \u2014 are therefore unreachable through HTTP input whatever the\nrequest says.\n\nBecause the allowlist is positive, a new column on the `Trade` model is\nNOT editable until someone deliberately adds it here. The safe default\nsurvives schema growth, and `SERVER_OWNED_TRADE_COLUMNS` below makes that\ngrowth visible: a column in neither set fails the contract test.\n\nEvery field defaults to unset, and the handler dumps with\n`exclude_unset=True`, so an omitted field is left alone while an explicit\n`null` clears a nullable column. Those two are different intentions and the\nwire format can express both. `asset` is the exception because its database\ncolumn is NOT NULL: it may be omitted, but it may not be sent as null.\n\n`expected_updated_at` is required, not optional. Inline editing on a page\na trader may have left open invites the lost-update problem, and a guard\na client can skip by omitting a field is not a guard.",
@@ -1973,6 +2134,91 @@
           }
         },
         "summary": "Get Trades List",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
+    "/v1/trades/summary": {
+      "post": {
+        "description": "Snapshot and enqueue one authenticated owner's filtered selection.",
+        "operationId": "enqueue_trade_summary_v1_trades_summary_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeSummaryJobRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeSummaryJobAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enqueue Trade Summary",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
+    "/v1/trades/summary/{job_id}": {
+      "get": {
+        "description": "Return status for one owner-scoped job; foreign and missing are identical.",
+        "operationId": "get_trade_summary_job_v1_trades_summary__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeSummaryJobStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Trade Summary Job",
         "tags": [
           "trades"
         ]

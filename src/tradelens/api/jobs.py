@@ -70,6 +70,18 @@ def enqueue(
         db.close()
 
 
+def get_owned_job(job_id: int, user_id: int) -> Optional[AIJob]:
+    """Return one job only when it belongs to the authenticated owner."""
+    owner = require_user_id(user_id)
+    db = SessionLocal()
+    try:
+        return (
+            db.query(AIJob).filter(AIJob.id == job_id, AIJob.user_id == owner).first()
+        )
+    finally:
+        db.close()
+
+
 def claim_next() -> Optional[AIJob]:
     """Atomically take the oldest queued job, or return None.
 

@@ -95,6 +95,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/trades/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enqueue Trade Summary
+         * @description Snapshot and enqueue one authenticated owner's filtered selection.
+         */
+        post: operations["enqueue_trade_summary_v1_trades_summary_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/trades/summary/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trade Summary Job
+         * @description Return status for one owner-scoped job; foreign and missing are identical.
+         */
+        get: operations["get_trade_summary_job_v1_trades_summary__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/trades/{trade_id}": {
         parameters: {
             query?: never;
@@ -548,6 +588,56 @@ export interface components {
             /** User Grade */
             user_grade: string | null;
         };
+        /** TradeSummaryJobAccepted */
+        TradeSummaryJobAccepted: {
+            /** Created */
+            created: boolean;
+            /** Job Id */
+            job_id: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed";
+        };
+        /**
+         * TradeSummaryJobRequest
+         * @description The filtered journal selection to summarize; ownership is never input.
+         */
+        TradeSummaryJobRequest: {
+            /** Asset */
+            asset?: string | null;
+            /** From */
+            from: string;
+            /** Result */
+            result?: string | null;
+            /** Session */
+            session?: string | null;
+            /** Setup */
+            setup?: string | null;
+            /** To */
+            to: string;
+        };
+        /** TradeSummaryJobStatus */
+        TradeSummaryJobStatus: {
+            /** Error */
+            error: string | null;
+            /** Job Id */
+            job_id: number;
+            result: components["schemas"]["TradeSummaryResult"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed";
+        };
+        /** TradeSummaryResult */
+        TradeSummaryResult: {
+            /** Content Md */
+            content_md: string;
+            /** Reviewed Trades */
+            reviewed_trades: number;
+        };
         /**
          * TradeUpdate
          * @description The PATCH body — a POSITIVE allowlist of genuinely user-editable fields.
@@ -762,6 +852,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TradeListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enqueue_trade_summary_v1_trades_summary_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeSummaryJobRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeSummaryJobAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_trade_summary_job_v1_trades_summary__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeSummaryJobStatus"];
                 };
             };
             /** @description Validation Error */

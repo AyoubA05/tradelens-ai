@@ -209,6 +209,32 @@ def test_blank_sqlite_chain_uses_database_url_and_round_trips_task_one(tmp_path)
         )
 
 
+def test_phase3e_result_table_is_in_the_alembic_chain(tmp_path):
+    """Omitting the migration would work in metadata tests and fail in production."""
+    database_url = f"sqlite:///{tmp_path / 'phase3e-chain.db'}"
+    result = _run_alembic(["upgrade", "head"], database_url)
+    assert result.returncode == 0, result.stderr
+
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        inspector = inspect(conn)
+        assert "trade_summary_results" in _tables(conn)
+        assert {
+            "id",
+            "user_id",
+            "summary_key",
+            "filters_json",
+            "content_md",
+            "reviewed_trades",
+            "created_at",
+        } <= _columns_of(conn, "trade_summary_results")
+        unique_names = {
+            constraint["name"]
+            for constraint in inspector.get_unique_constraints("trade_summary_results")
+        }
+        assert "uq_trade_summary_results_user_key" in unique_names
+
+
 def test_full_trade_schema_migration_creates_missing_historical_base_tables(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'historical-base.db'}")
     mig = _load_mig("8383cf3ef6e7_add_full_trade_schema.py")

@@ -1,9 +1,14 @@
+import { render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const authenticate = vi.fn();
 const appRedirect = vi.fn();
 const fetchTrades = vi.fn();
 const fetchOverview = vi.fn();
+const summaryPanel = vi.fn((props: unknown) => {
+  void props;
+  return null;
+});
 const redirect = vi.fn((path: string) => {
   throw new Error(`redirect:${path}`);
 });
@@ -28,6 +33,9 @@ vi.mock("@/components/app/trades/filter-bar", () => ({ FilterBar: () => null }))
 vi.mock("@/components/app/trades/journal-calendar", () => ({ JournalCalendar: () => null }));
 vi.mock("@/components/app/trades/trades-table", () => ({ TradesTable: () => null }));
 vi.mock("@/components/app/trades/pagination", () => ({ Pagination: () => null }));
+vi.mock("@/components/app/trades/summary-panel", () => ({
+  TradeSummaryPanel: (props: unknown) => summaryPanel(props),
+}));
 
 import JournalPage from "@/app/app/journal/page";
 
@@ -41,6 +49,7 @@ beforeEach(() => {
   appRedirect.mockReset();
   fetchTrades.mockReset();
   fetchOverview.mockReset();
+  summaryPanel.mockClear();
   redirect.mockClear();
 });
 
@@ -98,5 +107,30 @@ describe("Journal page authorization", () => {
     const [, args] = fetchTrades.mock.calls[0];
     expect(args.filters).toEqual({ asset: "NQ" });
     expect(args.offset).toBe(25);
+  });
+
+  it("gives the AI panel the same period, filters, and filtered total as the table", async () => {
+    const user = { userId: 7, appSurface: "nextjs" };
+    authenticate.mockResolvedValue(user);
+    appRedirect.mockReturnValue(null);
+    fetchTrades.mockResolvedValue({ trades: [{ id: 1 }], total: 7, limit: 25, offset: 0 });
+    fetchOverview.mockResolvedValue({ calendar: {}, period: {}, sample: { show_summary: true } });
+
+    render(
+      await JournalPage({
+        searchParams: Promise.resolve({
+          from: "2026-08-01",
+          to: "2026-08-31",
+          asset: "NQ",
+          result: "Win",
+        }),
+      }),
+    );
+
+    expect(summaryPanel).toHaveBeenCalledWith({
+      period: expect.objectContaining({ from: "2026-08-01", to: "2026-08-31" }),
+      filters: { asset: "NQ", result: "Win" },
+      tradeCount: 7,
+    });
   });
 });

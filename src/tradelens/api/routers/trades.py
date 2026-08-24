@@ -10,12 +10,14 @@ imported as a module, not the bare function, so tests can patch it).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from src.tradelens.api import storage
+from src.tradelens.api import jobs, storage
 from src.tradelens.api.deps import current_user
 from src.tradelens.api.routers.overview import _validated_period
 from src.tradelens.api.schemas.trades import (
@@ -25,6 +27,9 @@ from src.tradelens.api.schemas.trades import (
     TradeDetail,
     TradeListResponse,
     TradeSummary,
+    TradeSummaryJobAccepted,
+    TradeSummaryJobRequest,
+    TradeSummaryJobStatus,
     TradeUpdate,
 )
 from src.tradelens.services.sessions import KILLZONE_LABELS
@@ -33,6 +38,11 @@ from src.tradelens.services.trade_service import (
     get_trade,
     list_trades,
     update_trade_if_unchanged,
+)
+from src.tradelens.services.trade_summary import (
+    MIN_SUMMARY_TRADES,
+    build_trade_snapshot,
+    get_trade_summary_result,
 )
 from src.tradelens.services.trade_validation import OutcomeMismatch
 
@@ -118,6 +128,97 @@ def get_trades_list(
     ]
     return TradeListResponse(
         trades=trades, total=page.total, limit=page.limit, offset=page.offset
+    )
+
+
+@router.post(
+    "/trades/summary",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def enqueue_trade_summary(
+    payload: TradeSummaryJobRequest,
+    user_id: int = Depends(current_user),
+) -> TradeSummaryJobAccepted:
+    """Snapshot and enqueue one authenticated owner's filtered selection."""
+    start, end = _validated_period(payload.from_, payload.to)
+    page = list_trades(
+        user_id=user_id,
+        start_date=start,
+        end_date=end,
+        asset=payload.asset,
+        session=payload.session,
+        setup_type=payload.setup,
+        result=payload.result,
+        limit=100,
+        offset=0,
+    )
+    snapshot = build_trade_snapshot(page)
+    if len(snapshot) < MIN_SUMMARY_TRADES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"select at least {MIN_SUMMARY_TRADES} trades",
+        )
+
+    filters = {
+        "from": start,
+        "to": end,
+        "asset": payload.asset,
+        "session": payload.session,
+        "setup": payload.setup,
+        "result": payload.result,
+    }
+    job_payload = {
+        "filters": filters,
+        "period_label": f"{start} to {end}",
+        "trades": snapshot,
+    }
+    canonical = json.dumps(
+        {"owner": user_id, **job_payload},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    snapshot_key = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    job_payload["summary_key"] = snapshot_key
+    key = "trade_summary:" + snapshot_key
+    job_id, created = jobs.enqueue(user_id, "trade_summary", key, job_payload)
+    job = jobs.get_owned_job(job_id, user_id)
+    if job is None:  # Defensive: enqueue committed this exact owner-scoped row.
+        raise HTTPException(status_code=500, detail="summary job unavailable")
+    return TradeSummaryJobAccepted(job_id=job_id, status=job.status, created=created)
+
+
+@router.get("/trades/summary/{job_id}")
+def get_trade_summary_job(
+    job_id: int,
+    user_id: int = Depends(current_user),
+) -> TradeSummaryJobStatus:
+    """Return status for one owner-scoped job; foreign and missing are identical."""
+    job = jobs.get_owned_job(job_id, user_id)
+    if job is None or job.kind != "trade_summary":
+        raise HTTPException(status_code=404, detail="summary job not found")
+    result = None
+    if job.status == "succeeded":
+        if not job.result_ref:
+            raise HTTPException(status_code=500, detail="summary result unavailable")
+        prefix = "trade_summary:"
+        if not job.result_ref.startswith(prefix):
+            raise HTTPException(status_code=500, detail="summary result unavailable")
+        try:
+            result_id = int(job.result_ref[len(prefix) :])
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=500, detail="summary result unavailable"
+            ) from exc
+        result = get_trade_summary_result(result_id, user_id)
+        if result is None:
+            raise HTTPException(status_code=500, detail="summary result unavailable")
+    return TradeSummaryJobStatus(
+        job_id=job.id,
+        status=job.status,
+        result=result,
+        error=job.error,
     )
 
 

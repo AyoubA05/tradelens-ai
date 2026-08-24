@@ -36,6 +36,9 @@ export type ScreenshotDescriptor = components["schemas"]["ScreenshotDescriptor"]
  * error here rather than a 422 discovered at runtime.
  */
 export type TradeUpdate = components["schemas"]["TradeUpdate"];
+export type TradeSummaryJobRequest = components["schemas"]["TradeSummaryJobRequest"];
+export type TradeSummaryJobAccepted = components["schemas"]["TradeSummaryJobAccepted"];
+export type TradeSummaryJobStatus = components["schemas"]["TradeSummaryJobStatus"];
 
 /** The page size the Trades list requests when the URL does not say otherwise. */
 export const DEFAULT_TRADES_LIMIT = 25;
@@ -112,4 +115,40 @@ export async function patchTrade(
  */
 export async function deleteTrade(sessionToken: string, tradeId: number): Promise<void> {
   await callApi<undefined>(`/v1/trades/${tradeId}`, sessionToken, { method: "DELETE" });
+}
+
+/** Enqueue a reflection over the exact period/filter selection the page shows. */
+export async function enqueueTradeSummary(
+  sessionToken: string,
+  period: Period,
+  filters: TradeFilters,
+): Promise<TradeSummaryJobAccepted> {
+  const body: TradeSummaryJobRequest = {
+    from: period.from,
+    to: period.to,
+    ...Object.fromEntries(filtersToParams(filters)),
+  };
+  return callApi<TradeSummaryJobAccepted>("/v1/trades/summary", sessionToken, {
+    method: "POST",
+    body,
+  });
+}
+
+/** Relay an already parsed request body; FastAPI remains the strict validator. */
+export async function enqueueTradeSummaryRequest(
+  sessionToken: string,
+  request: TradeSummaryJobRequest,
+): Promise<TradeSummaryJobAccepted> {
+  return callApi<TradeSummaryJobAccepted>("/v1/trades/summary", sessionToken, {
+    method: "POST",
+    body: request,
+  });
+}
+
+/** Poll one owner-scoped summary job. FastAPI resolves ownership from the handle. */
+export async function fetchTradeSummaryJob(
+  sessionToken: string,
+  jobId: number,
+): Promise<TradeSummaryJobStatus> {
+  return callApi<TradeSummaryJobStatus>(`/v1/trades/summary/${jobId}`, sessionToken);
 }

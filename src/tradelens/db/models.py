@@ -613,3 +613,31 @@ class AIJob(Base):
     finished_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class TradeSummaryResult(Base):
+    """Persisted prose for a filtered-trade AI job.
+
+    The queue stores only ``trade_summary:<id>`` in ``result_ref``. The result
+    itself remains owner-scoped and is deduplicated by the immutable snapshot
+    key carried in the job payload.
+    """
+
+    __tablename__ = "trade_summary_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "summary_key", name="uq_trade_summary_results_user_key"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    summary_key: Mapped[str] = mapped_column(String, nullable=False)
+    filters_json: Mapped[str] = mapped_column(Text, nullable=False)
+    content_md: Mapped[str] = mapped_column(Text, nullable=False)
+    reviewed_trades: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
