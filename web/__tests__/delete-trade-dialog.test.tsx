@@ -66,7 +66,7 @@ describe("DeleteTradeDialog", () => {
   });
 
   describe("503 — screenshot cleanup failed", () => {
-    it("says plainly that nothing was deleted and it can be retried", async () => {
+    it("says the trade survived while some screenshots may already be gone", async () => {
       const deleteTrade = vi.fn().mockResolvedValue({ status: 503 });
       const onDeleted = vi.fn();
       render(
@@ -75,7 +75,8 @@ describe("DeleteTradeDialog", () => {
       fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
       const alert = await screen.findByRole("alert");
-      expect(alert).toHaveTextContent(/nothing was deleted/i);
+      expect(alert).toHaveTextContent(/trade was not deleted/i);
+      expect(alert).toHaveTextContent(/some screenshot.*may already have been removed/i);
       expect(alert).toHaveTextContent(/try again/i);
       expect(onDeleted).not.toHaveBeenCalled();
     });
@@ -108,11 +109,11 @@ describe("DeleteTradeDialog", () => {
   describe("503 — a cleanup failure a retry can never clear", () => {
     // The backend reports `unresolvable` separately from `remaining`
     // precisely so nobody tells a trader to keep retrying something that
-    // cannot succeed. Same truth as the retryable branch — nothing was
-    // deleted — but the advice has to be different, or the split was pointless.
+    // cannot succeed. Same truth as the retryable branch — the trade row
+    // survived — but the advice has to be different, or the split was pointless.
     const unresolvable = () => vi.fn().mockResolvedValue({ status: 503, unresolvable: true });
 
-    it("says nothing was deleted and that retrying will not help", async () => {
+    it("says the trade survived, cleanup may be partial, and retrying will not help", async () => {
       const onDeleted = vi.fn();
       render(
         <DeleteTradeDialog
@@ -125,7 +126,8 @@ describe("DeleteTradeDialog", () => {
       fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
       const alert = await screen.findByRole("alert");
-      expect(alert).toHaveTextContent(/nothing was deleted/i);
+      expect(alert).toHaveTextContent(/trade was not deleted/i);
+      expect(alert).toHaveTextContent(/some screenshot.*may already have been removed/i);
       expect(alert).toHaveTextContent(/trying again will not/i);
       expect(alert).toHaveTextContent(/support/i);
       expect(onDeleted).not.toHaveBeenCalled();
@@ -149,7 +151,7 @@ describe("DeleteTradeDialog", () => {
       expect(screen.getByRole("button", { name: /^delete trade$/i })).toBeDisabled();
     });
 
-    it("never implies anything was deleted", async () => {
+    it("never implies the trade itself was deleted", async () => {
       render(
         <DeleteTradeDialog
           open
@@ -163,7 +165,7 @@ describe("DeleteTradeDialog", () => {
       const alert = await screen.findByRole("alert");
       const text = alert.textContent ?? "";
       expect(text).not.toMatch(/trade (was |is )?(removed|deleted)\b/i);
-      expect(text).not.toMatch(/partly|partially/i);
+      expect(text).toMatch(/some screenshot.*may already have been removed/i);
     });
 
     it("reads differently from the retryable 503, not as the same message", async () => {
@@ -192,29 +194,32 @@ describe("DeleteTradeDialog", () => {
 
       expect(retryableText).toMatch(/you can try again/i);
       expect(unresolvableText).not.toBe(retryableText);
-      // Both still make the one guarantee that must never vary.
-      expect(retryableText).toMatch(/nothing was deleted/i);
-      expect(unresolvableText).toMatch(/nothing was deleted/i);
+      // Both still make the one guarantee that must never vary: the trade row
+      // survived, while cleanup may already have removed individual objects.
+      expect(retryableText).toMatch(/trade was not deleted/i);
+      expect(unresolvableText).toMatch(/trade was not deleted/i);
     });
   });
 
   describe("other failures", () => {
-    it("reports a generic failure the same way — nothing deleted, retryable", async () => {
+    it("does not claim a generic failure proves deletion did not happen", async () => {
       const deleteTrade = vi.fn().mockResolvedValue({ status: 500 });
       render(<DeleteTradeDialog open onClose={vi.fn()} onDeleted={vi.fn()} deleteTrade={deleteTrade} />);
       fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
       const alert = await screen.findByRole("alert");
-      expect(alert).toHaveTextContent(/nothing was deleted/i);
+      expect(alert).toHaveTextContent(/could not confirm whether deletion completed/i);
+      expect(alert).toHaveTextContent(/refresh/i);
     });
 
-    it("reports a network failure the same way", async () => {
+    it("treats a network failure as an unknown outcome", async () => {
       const deleteTrade = vi.fn().mockRejectedValue(new Error("network down"));
       render(<DeleteTradeDialog open onClose={vi.fn()} onDeleted={vi.fn()} deleteTrade={deleteTrade} />);
       fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
       const alert = await screen.findByRole("alert");
-      expect(alert).toHaveTextContent(/nothing was deleted/i);
+      expect(alert).toHaveTextContent(/could not confirm whether deletion completed/i);
+      expect(alert).toHaveTextContent(/refresh/i);
     });
   });
 });

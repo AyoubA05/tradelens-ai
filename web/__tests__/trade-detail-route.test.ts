@@ -41,6 +41,16 @@ function req(method: string, id: string, body?: unknown, headers: Record<string,
   });
 }
 
+const eligibleUser = {
+  userId: 7,
+  email: "trader@example.test",
+  emailVerifiedAt: new Date("2026-08-01T00:00:00Z"),
+  emailVerificationRequired: true,
+  onboardingCompleted: true,
+  strategyProfileCompleted: true,
+  appSurface: "nextjs",
+};
+
 async function callPatch(request: Request, id: string) {
   const { PATCH } = await import("@/app/api/trades/[id]/route");
   return PATCH(request, { params: Promise.resolve({ id }) });
@@ -55,7 +65,7 @@ beforeEach(() => {
   vi.resetModules();
   patchTrade.mockReset();
   deleteTrade.mockReset();
-  authenticateSessionToken.mockReset().mockResolvedValue({ userId: 7, appSurface: "nextjs" });
+  authenticateSessionToken.mockReset().mockResolvedValue(eligibleUser);
   process.env.SITE_ORIGIN = "https://site.test";
 });
 
@@ -150,6 +160,30 @@ describe("DELETE /api/trades/[id]", () => {
 });
 
 describe("relay hardening", () => {
+  describe("the app eligibility gate is authorization, not only navigation", () => {
+    it.each([
+      { user: { ...eligibleUser, appSurface: "streamlit" }, label: "a Streamlit-only account" },
+      { user: { ...eligibleUser, onboardingCompleted: false }, label: "an account before onboarding" },
+      {
+        user: { ...eligibleUser, emailVerifiedAt: null, emailVerificationRequired: true },
+        label: "an account before email verification",
+      },
+    ])("refuses $label before PATCH or DELETE can reach FastAPI", async ({ user }) => {
+      authenticateSessionToken.mockResolvedValue(user);
+
+      const patch = await callPatch(
+        req("PATCH", "42", { expected_updated_at: "2026-08-01T00:00:00Z" }),
+        "42",
+      );
+      const del = await callDelete(req("DELETE", "42"), "42");
+
+      expect(patch.status).toBe(403);
+      expect(del.status).toBe(403);
+      expect(patchTrade).not.toHaveBeenCalled();
+      expect(deleteTrade).not.toHaveBeenCalled();
+    });
+  });
+
   describe("CSRF fails shut", () => {
     it("refuses rather than allows when SITE_ORIGIN is unset", async () => {
       // The nine `app/api/auth/*` routes guard with `if (siteOrigin && ...)`,

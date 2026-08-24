@@ -390,7 +390,7 @@ export interface components {
          */
         TradeConflictDetail: {
             /** Current Updated At */
-            current_updated_at: string | null;
+            current_updated_at: string;
             /**
              * Error
              * @constant
@@ -418,7 +418,7 @@ export interface components {
             /** Ai Grade */
             ai_grade: string | null;
             /** Asset */
-            asset: string | null;
+            asset: string;
             /** Asset Class */
             asset_class: string | null;
             /** Bias */
@@ -498,7 +498,7 @@ export interface components {
             /** Trade Process Notes */
             trade_process_notes: string | null;
             /** Updated At */
-            updated_at: string | null;
+            updated_at: string;
             /** User Grade */
             user_grade: string | null;
         };
@@ -524,7 +524,7 @@ export interface components {
             /** Ai Grade */
             ai_grade: string | null;
             /** Asset */
-            asset: string | null;
+            asset: string;
             /** Direction */
             direction: string | null;
             /** Id */
@@ -567,8 +567,9 @@ export interface components {
          *
          *     Every field defaults to unset, and the handler dumps with
          *     `exclude_unset=True`, so an omitted field is left alone while an explicit
-         *     `null` clears the column. Those two are different intentions and the wire
-         *     format can express both.
+         *     `null` clears a nullable column. Those two are different intentions and the
+         *     wire format can express both. `asset` is the exception because its database
+         *     column is NOT NULL: it may be omitted, but it may not be sent as null.
          *
          *     `expected_updated_at` is required, not optional. Inline editing on a page
          *     a trader may have left open invites the lost-update problem, and a guard
@@ -576,13 +577,13 @@ export interface components {
          */
         TradeUpdate: {
             /** Asset */
-            asset?: string | null;
+            asset?: string;
             /** Direction */
             direction?: string | null;
             /** Expected Updated At */
             expected_updated_at: string;
             /** Followed Rules */
-            followed_rules?: number | null;
+            followed_rules?: (0 | 1) | null;
             /** Htf Bias */
             htf_bias?: string | null;
             /** Killzone */

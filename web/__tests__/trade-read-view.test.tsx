@@ -68,6 +68,13 @@ describe("TradeReadView", () => {
     expect(screen.getByText("-$220.00")).toBeInTheDocument();
   });
 
+  it("renders market prices as quotations, not as dollar P&L amounts", () => {
+    render(<TradeReadView trade={BASE} />);
+    const entry = screen.getByText("Entry price").nextElementSibling;
+    expect(entry).toHaveTextContent("19,500.25");
+    expect(entry).not.toHaveTextContent("$");
+  });
+
   it("reads an unrecorded P&L as 'not recorded', never $0.00", () => {
     render(<TradeReadView trade={{ ...BASE, pnl: null }} />);
     expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
@@ -83,11 +90,11 @@ describe("TradeReadView", () => {
     expect(screen.getByText("Rules Followed").nextElementSibling).toHaveTextContent("—");
   });
 
-  it("renders every null field as the not-recorded token, never blank", () => {
+  it("renders every nullable field as the not-recorded token, never blank", () => {
     const empty: TradeDetail = {
       id: 1,
       ai_grade: null,
-      asset: null,
+      asset: "NQ",
       asset_class: null,
       bias: null,
       bos: null,
@@ -126,7 +133,7 @@ describe("TradeReadView", () => {
       tp_price: null,
       trade_date: null,
       trade_process_notes: null,
-      updated_at: null,
+      updated_at: "2026-08-01T14:00:00Z",
       user_grade: null,
     };
     render(<TradeReadView trade={empty} />);

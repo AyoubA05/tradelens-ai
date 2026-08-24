@@ -11,6 +11,12 @@ function moneyOrNone(v: number | null | undefined): string {
   return v === null || v === undefined ? NO_VALUE : money(v);
 }
 
+function numberOrNone(v: number | null | undefined): string {
+  return v === null || v === undefined
+    ? NO_VALUE
+    : v.toLocaleString("en-US", { maximumFractionDigits: 8 });
+}
+
 function rrOrNone(v: number | null | undefined): string {
   return v === null || v === undefined ? NO_VALUE : `${v.toFixed(2)}R`;
 }
@@ -115,11 +121,11 @@ export function TradeReadView({ trade }: { trade: TradeDetail }) {
       </FieldGroup>
 
       <FieldGroup title="Prices and size">
-        <Field label="Entry price" value={moneyOrNone(trade.entry_price)} />
-        <Field label="Stop price" value={moneyOrNone(trade.stop_price)} />
-        <Field label="TP price" value={moneyOrNone(trade.tp_price)} />
-        <Field label="Exit price" value={moneyOrNone(trade.exit_price)} />
-        <Field label="Position size" value={trade.position_size === null ? NO_VALUE : String(trade.position_size)} />
+        <Field label="Entry price" value={numberOrNone(trade.entry_price)} />
+        <Field label="Stop price" value={numberOrNone(trade.stop_price)} />
+        <Field label="TP price" value={numberOrNone(trade.tp_price)} />
+        <Field label="Exit price" value={numberOrNone(trade.exit_price)} />
+        <Field label="Position size" value={numberOrNone(trade.position_size)} />
         <Field label="Risk amount" value={moneyOrNone(trade.risk_amount)} />
         <Field label="Reward amount" value={moneyOrNone(trade.reward_amount)} />
       </FieldGroup>

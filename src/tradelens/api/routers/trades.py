@@ -10,6 +10,7 @@ imported as a module, not the bare function, so tests can patch it).
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -36,6 +37,14 @@ from src.tradelens.services.trade_service import (
 from src.tradelens.services.trade_validation import OutcomeMismatch
 
 router = APIRouter(prefix="/v1", tags=["trades"])
+
+
+def _finite_or_none(value: Optional[float]) -> Optional[float]:
+    """Represent corrupt historical NaN/Infinity as undefined strict JSON."""
+    if value is None:
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
 
 
 def _killzone_label(raw: Optional[str]) -> Optional[str]:
@@ -93,8 +102,8 @@ def get_trades_list(
             setup_type=trade.setup_type,
             killzone=_killzone_label(trade.killzone),
             result=trade.result,
-            pnl=trade.pnl,
-            rr_realized=trade.rr_realized,
+            pnl=_finite_or_none(trade.pnl),
+            rr_realized=_finite_or_none(trade.rr_realized),
             ai_grade=trade.ai_grade,
             user_grade=trade.user_grade,
             # `list_trades` eager-loads `screenshots`, so this is a length,
@@ -151,17 +160,17 @@ def _detail(trade, user_id: int) -> TradeDetail:
         direction=trade.direction,
         bias=trade.bias,
         setup_type=trade.setup_type,
-        entry_price=trade.entry_price,
-        stop_price=trade.stop_price,
-        tp_price=trade.tp_price,
-        exit_price=trade.exit_price,
-        position_size=trade.position_size,
-        risk_amount=trade.risk_amount,
-        reward_amount=trade.reward_amount,
-        rr_planned=trade.rr_planned,
-        rr_realized=trade.rr_realized,
+        entry_price=_finite_or_none(trade.entry_price),
+        stop_price=_finite_or_none(trade.stop_price),
+        tp_price=_finite_or_none(trade.tp_price),
+        exit_price=_finite_or_none(trade.exit_price),
+        position_size=_finite_or_none(trade.position_size),
+        risk_amount=_finite_or_none(trade.risk_amount),
+        reward_amount=_finite_or_none(trade.reward_amount),
+        rr_planned=_finite_or_none(trade.rr_planned),
+        rr_realized=_finite_or_none(trade.rr_realized),
         result=trade.result,
-        pnl=trade.pnl,
+        pnl=_finite_or_none(trade.pnl),
         strategy_used=trade.strategy_used,
         emotions_before=trade.emotions_before,
         emotions_during=trade.emotions_during,

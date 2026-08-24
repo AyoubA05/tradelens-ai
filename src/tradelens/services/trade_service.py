@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from src.tradelens.db.models import AIAnalysis, Correction, Screenshot, Trade
 from src.tradelens.db.session import SessionLocal
+from src.tradelens.services.assets import detect_asset_class
 from src.tradelens.services.ownership import require_user_id
 from src.tradelens.services.trade_validation import canonical_outcome, is_blank
 
@@ -287,7 +288,12 @@ def list_trades(
             if setup_type:
                 query = query.filter(Trade.setup_type == setup_type)
             if result:
-                query = query.filter(Trade.result == result)
+                # Exact but case-insensitive for rows written by the original
+                # seed script as ``win``/``loss``/``breakeven``. This does not
+                # introduce wildcard semantics; it only canonicalizes case.
+                query = query.filter(
+                    func.lower(Trade.result) == str(result).strip().lower()
+                )
             return query
 
         total = _filtered(db.query(func.count(Trade.id))).scalar() or 0
@@ -507,7 +513,16 @@ def update_trade_if_unchanged(
         # A tuple query, not an entity query: nothing enters the identity map,
         # so the Core UPDATE below cannot be shadowed by a stale ORM object.
         current = (
-            db.query(Trade.result, Trade.pnl)
+            db.query(
+                Trade.result,
+                Trade.pnl,
+                Trade.trade_date,
+                Trade.asset,
+                Trade.direction,
+                Trade.entry_price,
+                Trade.stop_price,
+                Trade.exit_price,
+            )
             .filter(Trade.id == trade_id, Trade.user_id == owner)
             .first()
         )
@@ -525,6 +540,43 @@ def update_trade_if_unchanged(
             )
         elif "result" in values:
             values["result"] = canonical_outcome(values["result"], current.pnl)
+
+        # These fields are server-owned because they derive from editable
+        # facts. Keeping them off the HTTP allowlist is only safe if the same
+        # atomic UPDATE refreshes them whenever a source value changes.
+        if "trade_date" in values:
+            trade_date = values["trade_date"]
+            values["day_of_week"] = (
+                datetime.strptime(trade_date, "%Y-%m-%d").strftime("%A")
+                if trade_date
+                else None
+            )
+
+        if "asset" in values:
+            detected_class = detect_asset_class(values["asset"])
+            if values["asset"] != current.asset or detected_class is not None:
+                # A known symbol always repairs a stale class during the full
+                # form's read/write round trip. For an unchanged custom symbol,
+                # preserve the class the legacy UI let its owner choose; when
+                # changing to a different unknown symbol, clear the old class
+                # rather than attaching (say) Futures to unrelated data.
+                values["asset_class"] = detected_class
+
+        hash_fields = {
+            "trade_date",
+            "asset",
+            "direction",
+            "entry_price",
+            "stop_price",
+            "exit_price",
+            "pnl",
+        }
+        if hash_fields.intersection(values):
+            candidate = {
+                field: values[field] if field in values else getattr(current, field)
+                for field in hash_fields
+            }
+            values["trade_hash"] = compute_trade_hash(candidate)
 
         values["updated_at"] = datetime.now(timezone.utc).isoformat()
 

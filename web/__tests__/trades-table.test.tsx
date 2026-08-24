@@ -135,14 +135,14 @@ describe("TradesTable — opening a trade from the list", () => {
     expect(screen.queryByRole("link", { name: /^view$/i })).not.toBeInTheDocument();
   });
 
-  it("still has a usable name when the row has almost nothing recorded", () => {
+  it("still has a usable name when only the required asset is recorded", () => {
     render(
       <TradesTable
         trades={[
           trade({
             id: 5,
             trade_date: null,
-            asset: null,
+            asset: "NQ",
             session: null,
             setup_type: null,
             result: null,
@@ -150,6 +150,6 @@ describe("TradesTable — opening a trade from the list", () => {
         ]}
       />,
     );
-    expect(screen.getByRole("link", { name: /trade 5/i })).toHaveAttribute("href", "/app/trades/5");
+    expect(screen.getByRole("link", { name: "NQ" })).toHaveAttribute("href", "/app/trades/5");
   });
 });

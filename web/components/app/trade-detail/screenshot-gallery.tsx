@@ -61,7 +61,7 @@ export function ScreenshotGallery({
   asset,
 }: {
   screenshots: ScreenshotDescriptor[];
-  asset: string | null;
+  asset: string;
 }) {
   if (screenshots.length === 0) return null;
 
@@ -70,7 +70,7 @@ export function ScreenshotGallery({
       <h2 className="font-display text-sm font-semibold text-text">Screenshots</h2>
       <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
         {screenshots.map((shot) => (
-          <Frame key={shot.id} shot={shot} asset={asset ?? "this"} />
+          <Frame key={shot.id} shot={shot} asset={asset} />
         ))}
       </div>
     </section>

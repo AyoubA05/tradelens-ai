@@ -15,17 +15,34 @@ future handler could reach for.
 
 from __future__ import annotations
 
-from typing import List, Literal, Optional
+import math
+from datetime import datetime
+from typing import List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from src.tradelens.services.sessions import KILLZONE_LABELS
+from src.tradelens.services.trade_validation import VALID_OUTCOMES
 
 TradeResult = Literal["Win", "Loss", "Breakeven"]
 
 
 class _Strict(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+
+    @field_validator("result", mode="before", check_fields=False)
+    @classmethod
+    def _canonical_result(cls, value):
+        """Normalize historical case without widening the public enum.
+
+        The repository's seed path stored lowercase outcomes before canonical
+        writes landed. Known spellings cross the wire canonically; an unknown
+        value still fails the Literal instead of silently inventing meaning.
+        """
+        if value is None or not isinstance(value, str):
+            return value
+        return VALID_OUTCOMES.get(value.strip().lower(), value)
 
 
 class TradeSummary(_Strict):
@@ -37,7 +54,7 @@ class TradeSummary(_Strict):
 
     id: int
     trade_date: Optional[str]
-    asset: Optional[str]
+    asset: str
     direction: Optional[str]
     session: Optional[str]
     setup_type: Optional[str]
@@ -99,7 +116,7 @@ class TradeDetail(_Strict):
     trade_date: Optional[str]
     day_of_week: Optional[str]
     session: Optional[str]
-    asset: Optional[str]
+    asset: str
     asset_class: Optional[str]
     timeframe: Optional[str]
     direction: Optional[str]
@@ -143,7 +160,7 @@ class TradeDetail(_Strict):
     followed_rules: Optional[int]
 
     created_at: Optional[str]
-    updated_at: Optional[str]
+    updated_at: str
 
     screenshots: List[ScreenshotDescriptor]
 
@@ -166,8 +183,9 @@ class TradeUpdate(_Strict):
 
     Every field defaults to unset, and the handler dumps with
     `exclude_unset=True`, so an omitted field is left alone while an explicit
-    `null` clears the column. Those two are different intentions and the wire
-    format can express both.
+    `null` clears a nullable column. Those two are different intentions and the
+    wire format can express both. `asset` is the exception because its database
+    column is NOT NULL: it may be omitted, but it may not be sent as null.
 
     `expected_updated_at` is required, not optional. Inline editing on a page
     a trader may have left open invites the lost-update problem, and a guard
@@ -177,7 +195,11 @@ class TradeUpdate(_Strict):
     expected_updated_at: str
 
     trade_date: Optional[str] = None
-    asset: Optional[str] = None
+    # Optional to send, but never nullable when sent. SkipJsonSchema keeps the
+    # runtime default honestly typed without advertising ``null`` in OpenAPI;
+    # the validator rejects an explicit null while omission remains detectable
+    # through exclude_unset=True.
+    asset: Union[str, SkipJsonSchema[None]] = None
     session: Optional[str] = None
     setup_type: Optional[str] = None
     timeframe: Optional[str] = None
@@ -186,11 +208,47 @@ class TradeUpdate(_Strict):
     pnl: Optional[float] = None
     rr_realized: Optional[float] = None
     risk_amount: Optional[float] = None
-    followed_rules: Optional[int] = None
+    followed_rules: Optional[Literal[0, 1]] = None
     killzone: Optional[str] = None
     htf_bias: Optional[str] = None
     notes: Optional[str] = None
     mistake_tags: Optional[str] = None
+
+    @field_validator("asset")
+    @classmethod
+    def _asset_must_exist_when_sent(cls, value: Optional[str]) -> str:
+        # The ORM column is NOT NULL. Omission means leave it alone, but an
+        # explicit null or blank would otherwise become either a 500 or a
+        # stored trade no list/filter can identify.
+        if value is None or not value.strip():
+            raise ValueError("asset must not be blank")
+        return value.strip()
+
+    @field_validator("trade_date")
+    @classmethod
+    def _trade_date_must_be_iso_when_sent(cls, value: Optional[str]) -> Optional[str]:
+        # Nullable legacy rows remain round-trippable. A non-null edit must be
+        # one real calendar day, not merely a string shaped approximately like
+        # one; day_of_week and period filtering derive from this value.
+        if value is None:
+            return None
+        try:
+            parsed = datetime.strptime(value, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError("trade_date must be a valid YYYY-MM-DD date") from exc
+        if parsed.strftime("%Y-%m-%d") != value:
+            raise ValueError("trade_date must be a valid YYYY-MM-DD date")
+        return value
+
+    @field_validator("pnl", "rr_realized", "risk_amount")
+    @classmethod
+    def _numbers_must_be_finite(cls, value: Optional[float]) -> Optional[float]:
+        # Python's JSON decoder accepts values such as ``1e400`` as infinity.
+        # SQLite may store that while PostgreSQL/strict serialization can fail
+        # later, so reject it at the request boundary before any write occurs.
+        if value is not None and not math.isfinite(value):
+            raise ValueError("numeric values must be finite")
+        return value
 
     @field_validator("killzone")
     @classmethod
@@ -271,7 +329,7 @@ class TradeConflictDetail(_Strict):
     """What the client needs to show a trader whose edit lost a race."""
 
     error: Literal["stale_trade"]
-    current_updated_at: Optional[str]
+    current_updated_at: str
 
 
 class TradeConflictResponse(_Strict):

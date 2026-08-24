@@ -141,8 +141,8 @@ describe("TradeDetailView", () => {
   // The delete closure is the only place the relay's real HTTP status becomes
   // the dialog's `{status, unresolvable}`. `delete-trade-dialog.test.tsx`
   // injects its own stub for every failure case, so without these three the
-  // backend's 503, the relay's unresolvable split and the dialog's "Nothing
-  // was deleted" copy are each tested while the wire between them is not —
+  // backend's 503, the relay's unresolvable split and the dialog's precise
+  // partial-cleanup copy are each tested while the wire between them is not —
   // and a hardcoded `return { status: 204 }` after the fetch stays green.
   it("shows the retryable cleanup failure when the relay answers 503", async () => {
     vi.stubGlobal(
@@ -157,7 +157,8 @@ describe("TradeDetailView", () => {
     fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/nothing was deleted/i);
+    expect(alert).toHaveTextContent(/trade was not deleted/i);
+    expect(alert).toHaveTextContent(/some screenshot.*may already have been removed/i);
     expect(alert).toHaveTextContent(/you can try again/i);
     expect(push).not.toHaveBeenCalled();
     // Retryable, so the confirm button stays live.
@@ -177,8 +178,9 @@ describe("TradeDetailView", () => {
     fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/nothing was deleted/i);
-    expect(alert).toHaveTextContent(/trying again will not change that/i);
+    expect(alert).toHaveTextContent(/trade was not deleted/i);
+    expect(alert).toHaveTextContent(/some screenshot.*may already have been removed/i);
+    expect(alert).toHaveTextContent(/trying again will not/i);
     expect(alert).not.toHaveTextContent(/you can try again/i);
     expect(push).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /^delete trade$/i })).toBeDisabled();
@@ -199,7 +201,8 @@ describe("TradeDetailView", () => {
     fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/nothing was deleted/i);
+    expect(alert).toHaveTextContent(/trade was not deleted/i);
+    expect(alert).toHaveTextContent(/some screenshot.*may already have been removed/i);
     expect(alert).toHaveTextContent(/you can try again/i);
     expect(push).not.toHaveBeenCalled();
   });
@@ -210,7 +213,9 @@ describe("TradeDetailView", () => {
     fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/nothing was deleted/i);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/could not confirm whether deletion completed/i);
+    expect(alert).toHaveTextContent(/refresh/i);
     expect(push).not.toHaveBeenCalled();
   });
 

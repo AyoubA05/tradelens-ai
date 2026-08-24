@@ -14,13 +14,13 @@ import { useModalTrap } from "@/lib/app/modal-trap";
  *
  * **The 503 branch is the reason this component exists in this shape.** The
  * backend deletes screenshot objects before the row, and a cleanup failure
- * returns 503 with the row still intact — nothing deleted (design decision
+ * returns 503 with the trade row still intact (design decision
  * #6, and the Risks section: "a trader told their screenshots are gone
  * while private images remain in the bucket has been given a false privacy
- * assurance"). This dialog's job is to keep that guarantee visible: on any
- * failure the copy says plainly that nothing was deleted. It never says
- * "trade removed," never reads as partial success, and never auto-retries —
- * retrying is the trader's decision.
+ * assurance"). This dialog's job is to keep that guarantee precise. It never
+ * says "trade removed" for a 503 and never auto-retries — retrying is the
+ * trader's decision — but it acknowledges that earlier screenshot deletions
+ * in a sequential cleanup cannot be rolled back.
  *
  * The 503 has two shapes and they get different copy. A retryable cleanup
  * fault says "you can try again," because a retry genuinely can clear it.
@@ -31,6 +31,12 @@ import { useModalTrap } from "@/lib/app/modal-trap";
  * remaining/unresolvable split was written to prevent, so the confirm
  * button is disabled in that branch rather than inviting a retry the
  * copy has just said cannot work.
+ *
+ * A 503 guarantees the TRADE ROW survived, not that every object survived.
+ * Cleanup is sequential, so one screenshot can be removed before a later
+ * object fails. Generic/network failures are even less knowable: the response
+ * can be lost after the server commits. The copy therefore never claims
+ * "nothing was deleted" on either path.
  *
  * Initial focus lands on Cancel, not Confirm — a destructive action should
  * not be one accidental Enter key away from firing.
@@ -118,10 +124,10 @@ export function DeleteTradeDialog({
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-negative" aria-hidden="true" />
             <p className="text-sm text-text">
               {error === "cleanup_unresolvable"
-                ? "Nothing was deleted. One of the stored screenshots cannot be removed from here, and trying again will not change that. Everything is still here, untouched — this one needs our support team to look at it before it can be cleared."
+                ? "The trade was not deleted. Screenshot cleanup could not finish, and some screenshots may already have been removed. Trying again will not change the remaining problem — this one needs our support team to look at it before it can be cleared."
                 : error === "cleanup_failed"
-                  ? "Nothing was deleted. We could not finish removing the stored screenshots, so the trade and its images are still here, untouched. You can try again."
-                  : "Nothing was deleted. Something went wrong. You can try again."}
+                  ? "The trade was not deleted. Screenshot cleanup could not finish, and some screenshots may already have been removed. You can try again to remove what remains."
+                  : "We could not confirm whether deletion completed. Refresh your journal before trying again."}
             </p>
           </div>
         )}

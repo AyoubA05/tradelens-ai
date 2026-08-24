@@ -706,15 +706,8 @@
         "description": "What the client needs to show a trader whose edit lost a race.",
         "properties": {
           "current_updated_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Current Updated At"
+            "title": "Current Updated At",
+            "type": "string"
           },
           "error": {
             "const": "stale_trade",
@@ -759,15 +752,8 @@
             "title": "Ai Grade"
           },
           "asset": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Asset"
+            "title": "Asset",
+            "type": "string"
           },
           "asset_class": {
             "anyOf": [
@@ -1193,15 +1179,8 @@
             "title": "Trade Process Notes"
           },
           "updated_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Updated At"
+            "title": "Updated At",
+            "type": "string"
           },
           "user_grade": {
             "anyOf": [
@@ -1311,15 +1290,8 @@
             "title": "Ai Grade"
           },
           "asset": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Asset"
+            "title": "Asset",
+            "type": "string"
           },
           "direction": {
             "anyOf": [
@@ -1454,18 +1426,11 @@
       },
       "TradeUpdate": {
         "additionalProperties": false,
-        "description": "The PATCH body \u2014 a POSITIVE allowlist of genuinely user-editable fields.\n\n`trade_service.update_trade` accepts every column except `id` and\n`user_id`. That is right for a trusted in-process caller and wrong at an\nHTTP edge, so this model names the editable fields and nothing else;\n`extra=\"forbid\"` refuses the rest. Ownership and server-owned metadata \u2014\n`user_id`, `id`, `trade_hash`, `is_sample`, `created_at`, `updated_at`,\n`strategy_id` \u2014 are therefore unreachable through HTTP input whatever the\nrequest says.\n\nBecause the allowlist is positive, a new column on the `Trade` model is\nNOT editable until someone deliberately adds it here. The safe default\nsurvives schema growth, and `SERVER_OWNED_TRADE_COLUMNS` below makes that\ngrowth visible: a column in neither set fails the contract test.\n\nEvery field defaults to unset, and the handler dumps with\n`exclude_unset=True`, so an omitted field is left alone while an explicit\n`null` clears the column. Those two are different intentions and the wire\nformat can express both.\n\n`expected_updated_at` is required, not optional. Inline editing on a page\na trader may have left open invites the lost-update problem, and a guard\na client can skip by omitting a field is not a guard.",
+        "description": "The PATCH body \u2014 a POSITIVE allowlist of genuinely user-editable fields.\n\n`trade_service.update_trade` accepts every column except `id` and\n`user_id`. That is right for a trusted in-process caller and wrong at an\nHTTP edge, so this model names the editable fields and nothing else;\n`extra=\"forbid\"` refuses the rest. Ownership and server-owned metadata \u2014\n`user_id`, `id`, `trade_hash`, `is_sample`, `created_at`, `updated_at`,\n`strategy_id` \u2014 are therefore unreachable through HTTP input whatever the\nrequest says.\n\nBecause the allowlist is positive, a new column on the `Trade` model is\nNOT editable until someone deliberately adds it here. The safe default\nsurvives schema growth, and `SERVER_OWNED_TRADE_COLUMNS` below makes that\ngrowth visible: a column in neither set fails the contract test.\n\nEvery field defaults to unset, and the handler dumps with\n`exclude_unset=True`, so an omitted field is left alone while an explicit\n`null` clears a nullable column. Those two are different intentions and the\nwire format can express both. `asset` is the exception because its database\ncolumn is NOT NULL: it may be omitted, but it may not be sent as null.\n\n`expected_updated_at` is required, not optional. Inline editing on a page\na trader may have left open invites the lost-update problem, and a guard\na client can skip by omitting a field is not a guard.",
         "properties": {
           "asset": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Asset"
+            "title": "Asset",
+            "type": "string"
           },
           "direction": {
             "anyOf": [
@@ -1485,6 +1450,10 @@
           "followed_rules": {
             "anyOf": [
               {
+                "enum": [
+                  0,
+                  1
+                ],
                 "type": "integer"
               },
               {

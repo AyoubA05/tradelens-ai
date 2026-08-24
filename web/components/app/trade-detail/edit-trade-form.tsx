@@ -23,7 +23,7 @@ function numberOrNull(value: string): number | null | "invalid" {
   return Number.isFinite(n) ? n : "invalid";
 }
 
-function flagOrNull(value: string): number | null {
+function flagOrNull(value: string): 0 | 1 | null {
   if (value === "yes") return 1;
   if (value === "no") return 0;
   return null;
@@ -118,6 +118,11 @@ export function EditTradeForm({
       setValidationError("P&L, risk amount and R realized must be numbers, or left blank.");
       return;
     }
+    const asset = draft.asset.trim();
+    if (!asset) {
+      setValidationError("Asset is required.");
+      return;
+    }
 
     // No stamp, no save. `expected_updated_at` is the whole conflict guard;
     // substituting `""` for a missing one would send a request that is
@@ -135,7 +140,7 @@ export function EditTradeForm({
     const body: TradeUpdate = {
       expected_updated_at: trade.updated_at,
       trade_date: emptyToNull(draft.trade_date),
-      asset: emptyToNull(draft.asset),
+      asset,
       direction: emptyToNull(draft.direction),
       session: emptyToNull(draft.session),
       killzone: emptyToNull(draft.killzone),

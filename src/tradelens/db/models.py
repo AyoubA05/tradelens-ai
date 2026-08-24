@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Optional
 from sqlalchemy import (
     Boolean,
@@ -17,6 +17,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .session import Base
+
+
+def _utc_iso() -> str:
+    """A stable optimistic-concurrency stamp for direct ORM inserts."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 class User(Base):
@@ -199,7 +204,16 @@ class Trade(Base):
     trade_hash: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
 
     created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    updated_at: Mapped[str] = mapped_column(
+        String,
+        nullable=False,
+        default=_utc_iso,
+        # `updated_at` is a legacy VARCHAR. PostgreSQL requires the default
+        # expression to match that type; a bare CURRENT_TIMESTAMP is temporal
+        # and can make the production migration fail. This cast is portable
+        # to SQLite while retaining a database-side non-NULL default.
+        server_default=text("CAST(CURRENT_TIMESTAMP AS VARCHAR)"),
+    )
 
     strategy_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("strategies.id"), nullable=True

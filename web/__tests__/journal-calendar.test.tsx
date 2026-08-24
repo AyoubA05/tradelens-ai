@@ -58,6 +58,21 @@ describe("JournalCalendar", () => {
     expect(params.get("to")).toBe("2026-08-05");
   });
 
+  it("names that the calendar aggregate is unfiltered when the table is filtered", () => {
+    render(
+      <JournalCalendar
+        calendar={calendar}
+        period={period}
+        sample={sample}
+        filters={{ asset: "NQ", result: "Win" }}
+      />,
+    );
+
+    expect(
+      screen.getByText(/active filters apply to the table and day links, not these daily totals/i),
+    ).toBeInTheDocument();
+  });
+
   it("does not link an untraded day", () => {
     render(<JournalCalendar calendar={calendar} period={period} sample={sample} filters={{}} />);
     // Day 10 has no calendar entry and is inside the window.

@@ -128,6 +128,18 @@ describe("EditTradeForm", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("blocks submission when the required asset is blank", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<EditTradeForm trade={TRADE} onCancel={vi.fn()} onSaved={vi.fn()} onConflictReload={vi.fn()} />);
+    fireEvent.change(screen.getByDisplayValue("NQ"), { target: { value: "   " } });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/asset.*required/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("calls onCancel without saving", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -217,7 +229,10 @@ describe("EditTradeForm — a missing conflict stamp", () => {
    * if it ever becomes reachable again, the trader is told, not left staring
    * at an unexplained failure.
    */
-  const stampless = { ...TRADE, updated_at: null } satisfies TradeDetail;
+  // Deliberately malformed: the current contract/database invariant forbids
+  // this, but the component still fails safely if stale external data ever
+  // bypasses that boundary.
+  const stampless = { ...TRADE, updated_at: null } as unknown as TradeDetail;
 
   it("does not attempt the save at all", async () => {
     const fetchMock = fetchOkOnce({});

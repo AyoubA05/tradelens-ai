@@ -65,6 +65,7 @@ export function JournalCalendar({
     return iso >= period.from && iso <= period.to;
   };
   const hasOutside = cells.some((d) => d !== null && !inWindow(d));
+  const hasActiveFilters = Object.values(filters).some(Boolean);
 
   function hrefForDay(day: number): string {
     const iso = isoFor(day);
@@ -77,6 +78,12 @@ export function JournalCalendar({
   return (
     <section className="mt-10">
       <h2 className="font-display text-xl font-bold">Trading days</h2>
+      {hasActiveFilters && (
+        <p className="mt-2 text-sm text-muted">
+          Calendar totals include every trade in the selected period. Active filters apply to
+          the table and day links, not these daily totals.
+        </p>
+      )}
       {!sample.show_dominant_series ? (
         <div className="mt-4 rounded-xl border border-line bg-surface p-6">
           <p className="text-sm text-muted">

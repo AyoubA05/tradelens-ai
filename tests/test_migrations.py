@@ -12,6 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine, inspect
@@ -475,3 +476,69 @@ def test_updated_at_backfill_makes_every_row_editable_again(tmp_path):
             )
             == rows
         )
+
+
+def test_trade_edit_invariants_migration_prevents_future_null_stamps(tmp_path):
+    """A backfill alone cannot stop a future raw insert recreating NULL."""
+    from sqlalchemy.exc import IntegrityError
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'edit-invariants.db'}")
+    mig = _load_mig("b8c9d0e1f2g3_enforce_trade_edit_invariants.py")
+    with engine.connect() as conn:
+        conn.exec_driver_sql(
+            "CREATE TABLE trades ("
+            "id INTEGER PRIMARY KEY, asset VARCHAR NOT NULL, "
+            "created_at VARCHAR, updated_at VARCHAR, result VARCHAR)"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO trades (asset, created_at, updated_at, result) VALUES "
+            "('NQ', '2026-01-01T00:00:00+00:00', NULL, 'win'),"
+            "('ES', NULL, 'ALREADY-SET', ' LOSS '),"
+            "('GC', NULL, 'OTHER-STAMP', 'operator-value')"
+        )
+        ctx = MigrationContext.configure(conn)
+        mig.op = Operations(ctx)
+
+        mig.upgrade()
+
+        columns = {c["name"]: c for c in inspect(conn).get_columns("trades")}
+        assert columns["updated_at"]["nullable"] is False
+        assert columns["updated_at"]["default"] is not None
+        assert "CAST" in columns["updated_at"]["default"].upper()
+        rows = conn.exec_driver_sql(
+            "SELECT asset, updated_at, result FROM trades ORDER BY id"
+        ).fetchall()
+        assert rows[0][1] == "2026-01-01T00:00:00+00:00"
+        assert [row[2] for row in rows] == ["Win", "Loss", "operator-value"]
+
+        conn.exec_driver_sql("INSERT INTO trades (asset) VALUES ('YM')")
+        assert conn.exec_driver_sql(
+            "SELECT updated_at FROM trades WHERE asset = 'YM'"
+        ).scalar_one()
+
+        with pytest.raises(IntegrityError):
+            conn.exec_driver_sql(
+                "INSERT INTO trades (asset, updated_at) VALUES ('RTY', NULL)"
+            )
+
+        mig.downgrade()
+        downgraded = {c["name"]: c for c in inspect(conn).get_columns("trades")}
+        assert downgraded["updated_at"]["nullable"] is True
+        assert downgraded["updated_at"]["default"] is None
+
+
+def test_trade_model_declares_the_same_non_null_timestamp_invariant():
+    """Fresh databases built from metadata must match the migration head."""
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateTable
+
+    from src.tradelens.db.models import Trade
+
+    column = Trade.__table__.c.updated_at
+    assert column.nullable is False
+    assert column.server_default is not None
+    assert "CAST" in str(column.server_default.arg).upper()
+    postgres_ddl = str(
+        CreateTable(Trade.__table__).compile(dialect=postgresql.dialect())
+    )
+    assert "DEFAULT CAST(CURRENT_TIMESTAMP AS VARCHAR) NOT NULL" in postgres_ddl

@@ -109,7 +109,11 @@ def test_a_deactivated_account_is_refused(two_users):
 
 
 @pytest.mark.parametrize("bad", [None, "", 123, b"bytes", "not-a-real-token"])
-def test_garbage_is_refused_without_raising(bad):
+def test_garbage_is_refused_without_raising(bad, two_users):
+    # The string case reaches the database. Use the same isolated, migrated
+    # schema as every other website-session test instead of whichever ignored
+    # developer SQLite file happens to exist at the default path.
+    del two_users
     assert auth_sessions.restore_website_session(bad) is None
 
 

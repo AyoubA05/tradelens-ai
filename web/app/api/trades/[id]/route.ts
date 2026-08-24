@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { optionalEnv } from "@/lib/env";
-import { authenticateSessionToken, sessionTokenFrom } from "@/lib/auth/session";
+import {
+  appLayoutRedirect,
+  authenticateSessionToken,
+  sessionTokenFrom,
+} from "@/lib/auth/session";
 import { isSameOriginRequest } from "@/lib/security/redirect";
 import { ApiError } from "@/lib/api/client";
 import { deleteTrade, patchTrade, type TradeUpdate } from "@/lib/app/trades";
@@ -87,6 +91,13 @@ async function authorize(request: Request): Promise<{ token: string } | NextResp
   const user = token ? await authenticateSessionToken(token) : null;
   if (!token || !user) {
     return NextResponse.json({ ok: false }, { status: 401, headers: NO_STORE });
+  }
+  // The app-surface/email/onboarding gate is authorization here, not merely
+  // page navigation. A Streamlit-only or otherwise ineligible account can
+  // call this route directly without ever rendering the protected page, so
+  // the relay must refuse before it signs a FastAPI mutation.
+  if (appLayoutRedirect(user)) {
+    return NextResponse.json({ ok: false }, { status: 403, headers: NO_STORE });
   }
   return { token };
 }

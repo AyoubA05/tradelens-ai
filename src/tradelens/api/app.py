@@ -12,11 +12,14 @@ codegen, which needs a file rather than a public endpoint.
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from src.tradelens.api.config import is_production, validate_api_runtime
 from src.tradelens.api.routers import overview, session, trades
+from src.tradelens.api.serialization import to_jsonable
 
 
 def create_app() -> FastAPI:
@@ -29,6 +32,21 @@ def create_app() -> FastAPI:
         redoc_url=None if production else "/redoc",
         openapi_url=None if production else "/openapi.json",
     )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        del request
+        # Pydantic correctly rejects a JSON number such as ``1e400`` as
+        # infinity, but its error record includes that original value. The
+        # default Starlette renderer then raises while serializing the error,
+        # converting a safe 422 into a 500. Scrub non-finite diagnostic input
+        # using the same strict serializer as successful API payloads.
+        return JSONResponse(
+            status_code=422,
+            content={"detail": to_jsonable(jsonable_encoder(exc.errors()))},
+        )
 
     @app.middleware("http")
     async def no_store(request, call_next):

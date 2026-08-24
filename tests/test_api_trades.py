@@ -95,6 +95,49 @@ def test_list_never_returns_another_owner_s_rows(
     assert body["trades"] == []
 
 
+def test_list_ignores_every_browser_supplied_owner_alias(
+    client, website_session_handle, two_users
+):
+    """The authenticated session row is the only authority for ownership."""
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    _create(other, trade_date="2026-08-10", asset="FOREIGN")
+    query = (
+        f"{QUERY}&user_id={other}&uid={other}&owner={other}"
+        f"&accountId={other}&account_id={other}"
+    )
+
+    r = client.get(f"{LIST_PATH}?{query}", headers=_headers(handle, query=query))
+
+    assert r.status_code == 200
+    assert r.json()["total"] == 0
+    assert r.json()["trades"] == []
+
+
+def test_list_result_filter_matches_a_legacy_lowercase_row(
+    client, website_session_handle
+):
+    """The historical seed script stored lowercase outcome labels."""
+    user_id, handle = website_session_handle
+    trade = _create(user_id, result="Win", pnl=None)
+    from src.tradelens.db.models import Trade
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        db.query(Trade).filter(Trade.id == trade.id).update({"result": "win"})
+        db.commit()
+    finally:
+        db.close()
+
+    query = f"{QUERY}&result=Win"
+    r = client.get(f"{LIST_PATH}?{query}", headers=_headers(handle, query=query))
+
+    assert r.status_code == 200, r.text
+    assert r.json()["total"] == 1
+    assert r.json()["trades"][0]["result"] == "Win"
+
+
 def test_list_invalid_period_is_rejected_with_422(client, website_session_handle):
     _, handle = website_session_handle
     bad = "from=not-a-date&to=2026-08-31"
@@ -225,6 +268,95 @@ def test_detail_returns_the_owner_s_trade(client, website_session_handle):
     assert body["id"] == trade.id
     assert body["killzone"] == "New York AM"
     assert body["screenshots"] == []
+
+
+def test_detail_normalises_a_legacy_lowercase_result_and_can_patch_it(
+    client, website_session_handle
+):
+    """A value successfully read must not block an unrelated PATCH.
+
+    Lowercase outcomes were emitted by the repository's seed path before
+    canonical outcome writes were introduced, so this is real legacy data.
+    """
+    user_id, handle = website_session_handle
+    trade = _create(user_id, result="Win", pnl=None, notes="old")
+    from src.tradelens.db.models import Trade
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        db.query(Trade).filter(Trade.id == trade.id).update({"result": "win"})
+        db.commit()
+    finally:
+        db.close()
+
+    path = f"/v1/trades/{trade.id}"
+    read = client.get(path, headers=_headers(handle, query="", path=path))
+    assert read.status_code == 200, read.text
+    assert read.json()["result"] == "Win"
+
+    written = _patch(
+        client,
+        handle,
+        trade.id,
+        {
+            "result": read.json()["result"],
+            "notes": "edited",
+            "expected_updated_at": read.json()["updated_at"],
+        },
+    )
+    assert written.status_code == 200, written.text
+    assert written.json()["notes"] == "edited"
+
+
+def test_detail_maps_legacy_non_finite_numbers_to_undefined_and_can_repair_them(
+    client, website_session_handle
+):
+    """Invalid historical numeric data must not make the whole trade unreadable.
+
+    The strict JSON boundary represents a non-finite stored measurement as
+    ``null``. The edit form can then save the record and clear the invalid
+    value instead of receiving a 500 forever.
+    """
+    user_id, handle = website_session_handle
+    trade = _create(user_id, pnl=10.0, result="Win", risk_amount=5.0)
+    from src.tradelens.db.models import Trade
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        db.query(Trade).filter(Trade.id == trade.id).update(
+            {"pnl": float("inf"), "risk_amount": float("nan")}
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    path = f"/v1/trades/{trade.id}"
+    read = client.get(path, headers=_headers(handle, query="", path=path))
+    assert read.status_code == 200, read.text
+    assert read.json()["pnl"] is None
+    assert read.json()["risk_amount"] is None
+
+    listed = client.get(f"{LIST_PATH}?{QUERY}", headers=_headers(handle))
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["trades"][0]["pnl"] is None
+
+    written = _patch(
+        client,
+        handle,
+        trade.id,
+        {
+            "pnl": None,
+            "risk_amount": None,
+            "notes": "repaired",
+            "expected_updated_at": read.json()["updated_at"],
+        },
+    )
+    assert written.status_code == 200, written.text
+    assert written.json()["notes"] == "repaired"
+    assert _read_row(trade.id)["pnl"] is None
+    assert _read_row(trade.id)["risk_amount"] is None
 
 
 def test_detail_another_owner_s_trade_is_404(client, website_session_handle, two_users):
@@ -534,6 +666,120 @@ def test_patch_editing_pnl_rederives_result(client, website_session_handle):
     assert r.status_code == 200, r.text
     assert r.json()["result"] == "Loss"
     assert _read_row(trade.id)["result"] == "Loss"
+    assert (
+        _read_row(trade.id)["trade_hash"]
+        == "5f0effffb4bac6800cdbad1f313909f3c0139bbbbeb7780c72c3ecf721cb0e08"
+    ), "the server-owned duplicate fingerprint must follow an edited P&L"
+
+
+def test_patch_rederives_day_and_hash_when_the_trade_date_changes(
+    client, website_session_handle
+):
+    user_id, handle = website_session_handle
+    trade = _create(user_id, trade_date="2026-08-10")
+
+    r = _patch(
+        client,
+        handle,
+        trade.id,
+        {
+            "trade_date": "2026-08-11",
+            "expected_updated_at": trade.updated_at,
+        },
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json()["day_of_week"] == "Tuesday"
+    assert (
+        _read_row(trade.id)["trade_hash"]
+        == "96c4be1b7ba4c8e6865cbfe8251be450b232ea96082c5380afce9b3fd94836f8"
+    )
+
+
+def test_patch_rederives_asset_class_and_hash_when_the_asset_changes(
+    client, website_session_handle
+):
+    user_id, handle = website_session_handle
+    trade = _create(user_id, trade_date="2026-08-10", asset="NQ", asset_class="Futures")
+
+    r = _patch(
+        client,
+        handle,
+        trade.id,
+        {"asset": "EURUSD", "expected_updated_at": trade.updated_at},
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json()["asset_class"] == "Forex"
+    assert (
+        _read_row(trade.id)["trade_hash"]
+        == "503aed4051fa12fdd34597958560af5518c1370360a65f2bdac7fb18ea8e0935"
+    )
+
+
+def test_full_form_round_trip_repairs_a_stale_known_asset_class(
+    client, website_session_handle
+):
+    user_id, handle = website_session_handle
+    trade = _create(user_id, asset="NQ", asset_class="Forex")
+
+    r = _patch(
+        client,
+        handle,
+        trade.id,
+        {"asset": "NQ", "expected_updated_at": trade.updated_at},
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json()["asset_class"] == "Futures"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("asset", None),
+        ("asset", "   "),
+        ("trade_date", "2026-02-30"),
+        ("trade_date", "not-a-date"),
+        ("followed_rules", 2),
+        ("followed_rules", -1),
+    ],
+)
+def test_patch_rejects_values_that_cannot_form_a_valid_trade(
+    client, website_session_handle, field, value
+):
+    user_id, handle = website_session_handle
+    trade = _create(user_id, asset="NQ", trade_date="2026-08-10", followed_rules=1)
+    before = _read_row(trade.id)
+
+    r = _patch(
+        client,
+        handle,
+        trade.id,
+        {field: value, "expected_updated_at": trade.updated_at},
+    )
+
+    assert r.status_code == 422, r.text
+    assert _read_row(trade.id) == before
+
+
+def test_patch_rejects_a_json_number_that_overflows_to_infinity(
+    client, website_session_handle
+):
+    user_id, handle = website_session_handle
+    trade = _create(user_id, pnl=10.0, result="Win")
+    before = _read_row(trade.id)
+    path = f"/v1/trades/{trade.id}"
+    body = (
+        '{"pnl":1e400,"expected_updated_at":' + json.dumps(trade.updated_at) + "}"
+    ).encode()
+
+    r = client.patch(
+        path, content=body, headers=_write_headers(handle, "PATCH", path, body)
+    )
+
+    assert r.status_code == 422, r.text
+    assert _read_row(trade.id) == before
 
 
 def test_patch_a_label_contradicting_the_stored_pnl_is_rejected(
@@ -721,6 +967,58 @@ def test_the_409_comes_from_a_single_conditional_updates_rowcount(
     assert trade.id in bound
     assert user_id in bound
     assert "1999-01-01T00:00:00+00:00" in bound
+
+
+def test_an_intervening_commit_cannot_be_lost_between_read_and_write(
+    client, website_session_handle
+):
+    """Commit a second writer after the service read and before its UPDATE.
+
+    A check-then-update implementation overwrites ``newer writer`` and returns
+    200. The atomic timestamp predicate must return 409 and preserve it.
+    """
+    from sqlalchemy import event, update
+
+    from src.tradelens.db import session as db_session
+    from src.tradelens.db.models import Trade
+    from src.tradelens.db.session import SessionLocal
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id, notes="original")
+    injected = False
+    newer_stamp = "2026-08-24T12:00:00+00:00"
+
+    def _interleave(conn, cursor, statement, parameters, context, executemany):
+        nonlocal injected
+        if injected or not statement.lstrip().upper().startswith("UPDATE TRADES"):
+            return
+        injected = True
+        other = SessionLocal()
+        try:
+            other.execute(
+                update(Trade)
+                .where(Trade.id == trade.id, Trade.user_id == user_id)
+                .values(notes="newer writer", updated_at=newer_stamp)
+            )
+            other.commit()
+        finally:
+            other.close()
+
+    event.listen(db_session.engine, "before_cursor_execute", _interleave)
+    try:
+        r = _patch(
+            client,
+            handle,
+            trade.id,
+            {"notes": "stale writer", "expected_updated_at": trade.updated_at},
+        )
+    finally:
+        event.remove(db_session.engine, "before_cursor_execute", _interleave)
+
+    assert injected is True
+    assert r.status_code == 409, r.text
+    assert _read_row(trade.id)["notes"] == "newer writer"
+    assert _read_row(trade.id)["updated_at"] == newer_stamp
 
 
 def test_the_409_re_read_is_owner_scoped_too(client, website_session_handle):
@@ -1274,3 +1572,16 @@ def test_delete_openapi_declares_204_and_the_cleanup_failure_shape():
     assert "204" in operation["responses"]
     ref = operation["responses"]["503"]["content"]["application/json"]["schema"]["$ref"]
     assert ref.endswith("/ScreenshotCleanupFailedResponse")
+
+
+def test_patch_openapi_does_not_advertise_explicit_null_for_required_asset():
+    """Omission means unchanged, but an explicit null is rejected at runtime.
+
+    If OpenAPI says ``null`` is valid, the generated TypeScript client invites
+    requests that the API deterministically rejects with 422.
+    """
+    asset = create_app().openapi()["components"]["schemas"]["TradeUpdate"][
+        "properties"
+    ]["asset"]
+    assert asset["type"] == "string"
+    assert "anyOf" not in asset

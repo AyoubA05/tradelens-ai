@@ -47,6 +47,11 @@ describe("fetchTrades", () => {
     const call = callApi.mock.calls[0];
     expect(call).toHaveLength(3);
     expect(call[2].body).toBeUndefined();
+    expect(Object.keys(call[2])).toEqual(["query"]);
+    const outgoingKeys = [...new URLSearchParams(call[2].query).keys()].sort();
+    expect(outgoingKeys).toEqual(["asset", "from", "limit", "offset", "to"]);
+    // Keep the explicit spelling check as a readable diagnostic, but the
+    // key allowlist above is what also catches an indirectly renamed owner.
     expect(JSON.stringify(call)).not.toMatch(/user|owner|account|uid/i);
   });
 
