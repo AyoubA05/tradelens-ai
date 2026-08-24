@@ -5965,3 +5965,121 @@ of the database host, API origin, or service secret appeared in `.next/static`.
 
 **Phase 2 is cleared for merge after these review changes are included. Stop here; do not begin
 Phase 3.**
+
+---
+
+# Phase 3 — Trades + Trade Detail (2026-08-23)
+
+Branch `worktree-phase3-trades`, from `main` @ `a7a05a7`. Plan:
+`docs/superpowers/plans/2026-08-22-nextjs-migration-phase3-trades.md`.
+
+`/app/journal` is a real filterable, paginated trade log and `/app/trades/[id]` a real trade
+record that can be read, edited and deleted. **This phase opened the project's first write path
+across the API boundary** — every prior endpoint was a read.
+
+## What shipped
+
+| Endpoint / surface | Notes |
+|---|---|
+| `GET /v1/trades` | filtered, offset-paginated, total from one shared filter construction |
+| `GET /v1/trades/{id}` | detail plus presigned screenshot descriptors |
+| `PATCH /v1/trades/{id}` | positive allowlist, atomic optimistic concurrency |
+| `DELETE /v1/trades/{id}` | owner-scoped, idempotent, failure-aware R2 cleanup |
+| `/app/journal` | filter bar, table, calendar with open-from-day, pagination |
+| `/app/trades/[id]` | read view, inline edit, delete dialog, screenshot gallery |
+| `/api/trades/[id]` | Next relay so Client Components can mutate without the service secret |
+
+## Architecture decisions
+
+**Optimistic concurrency is one conditional UPDATE.** The predicate carries trade id, the
+authenticated owner and `expected_updated_at`; the decision is the rowcount. A read-compare-write
+sequence would reintroduce the exact lost-update window the field exists to close — the same
+TOCTOU Phase 0 removed from `restore_website_session_handle`. A rowcount of 0 triggers one
+owner-scoped re-read purely to separate 404 from 409.
+
+**The PATCH body is a positive allowlist.** `trade_service.update_trade` accepts every column but
+`id`/`user_id` — right for a trusted in-process caller, wrong at an HTTP edge.
+`EDITABLE_TRADE_FIELDS | SERVER_OWNED_TRADE_COLUMNS == columns` is asserted against the live
+model, so a **new column is unwritable until someone deliberately files it**.
+
+**Deletion removes R2 objects before the row, and never overclaims.** The FK cascade drops the
+screenshot row and leaves the object. `delete_trade_objects` is owner-scoped (`Screenshot` has no
+`user_id`, so the trade join is its only ownership signal), idempotent, and failure-aware:
+`complete` requires both `failed` and `skipped` empty, and a failure returns 503 with the row
+intact and nothing deleted. The UI says exactly that.
+
+**404 never 403, byte-identical.** On every per-id route. A 403 confirms the row exists.
+
+**The relay fails shut.** `web/app/api/trades/[id]/route.ts` refuses when `SITE_ORIGIN` is unset,
+deliberately diverging from the nine pre-existing `app/api/auth/*` routes, which skip their CSRF
+check in that case. It is the first of these to guard trade data rather than an auth flow.
+
+## The defining lesson: six tests proven dead by mutation
+
+Six separate tests in this phase passed against deliberately broken code. Every one asserted a
+value the implementation **echoed back** rather than an observable outcome:
+
+1. The limit clamp asserted `page.limit`, not the rows returned — the query could ignore the
+   clamp entirely and stay green.
+2. The stable-order test asserted set-equality, which the partial-ordering bug survives because
+   SQLite happens to return rowid order.
+3. The cross-owner screenshot test built the other owner's trade with no screenshots, so its
+   `calls == []` assertion proved nothing.
+4. `callApi`'s error path: `ApiError(response.status)` → `ApiError(200)` passed **all 1184 web
+   tests**, in the one file every API call shares.
+5. The delete closure: hardcoding `{status: 204}` passed **all 1184** — the backend 503, the
+   relay's `unresolvable` split and the dialog's "Nothing was deleted" copy were each tested, and
+   the wire between them was not.
+6. `presign_download`'s ownership join could be removed with 119/119 green, because the test's
+   malformed key was rejected by a downstream gate rather than by ownership.
+
+A Group B implementer found a seventh in its **own** work before review: removing the ownership
+join from `_owned_object_keys` stayed green because `_is_final_key` masked it.
+
+The pattern is one thing: **assert what crosses the boundary, never what the handler hands back.**
+
+## Defects caught before merge
+
+Beyond the dead tests: every sample-data trade was **permanently un-editable** (built without
+`updated_at`, and `NULL = 'anything'` is never true, so the atomic predicate could never match —
+no value a client could send worked); the `asset` filter was a substring match, so filtering to
+NQ also returned MNQ in both rows and total, and `asset=%` matched everything; an unrecognised
+killzone read fine but 422'd on write-back, so an edit form posting the whole record could not
+save a legacy trade; and spec §8's grade and screenshot columns were missing while a stale test
+actively asserted their absence.
+
+## Verification
+
+- Python **2742+ passed / 7 skipped**; ruff and black clean.
+- Web **1198 passed / 61 files**; `tsc --noEmit` clean; eslint 0 errors.
+- Production build compiled; `/app/journal`, `/app/trades/[id]`, `/api/trades/[id]` all dynamic.
+- Contract drift gate clean. Single Alembic head `a7b8c9d0e1f2`, migration round-trips.
+- **Live browser smoke pass** on a disposable Neon branch against real Postgres: cross-owner
+  isolation (none of the other owner's data anywhere in the payload), the exact-match asset fix,
+  pagination boundaries, the em-dash for unrecorded P&L, and every relay guard — stale stamp 409,
+  cross-owner 404, forbidden field 422, missing Origin 403, no session 401. A successful PATCH
+  followed by a replay of the same stamp returned 409: the lost-update guard working against a
+  real database. Database state confirmed afterwards.
+
+## Carried forward
+
+- **Docker build/startup/health remains an open pre-deployment gate** (banner at the top).
+- Deferred by owner direction: the filtered-set **AI summary → Phase 3E**, and per-trade
+  screenshot **upload → Phase 4**. Both are spec §8 items and neither is silently dropped.
+- The nine `app/api/auth/*` routes still skip CSRF entirely when `SITE_ORIGIN` is unset. The
+  relay now diverges deliberately. Whoever takes this up should **tighten the nine, never loosen
+  the relay**.
+- `_is_final_key` hardcodes `.png`, so `delete_trade_objects` skips a non-PNG final object. It
+  fails safe today (a blocked delete, never a false success) but is the trigger condition for the
+  `presign_download` masking risk.
+- Quarantine objects from an upload that was never finalized have no DB row, so a trade delete
+  never reaches them. Needs a reconciler.
+- `list_trades` does not filter `is_sample`, so demo trades appear alongside real ones — coherent
+  with Overview, which does the same, but there is no demo-data indicator anywhere in `web/`.
+- Postgres isolation: under snapshot isolation a genuine concurrent writer would raise a
+  serialization error, giving a 500 rather than a 409. The safety property survives (nothing is
+  written); only the message is less specific. All concurrency probes ran on SQLite.
+- Screenshot rendering and the 503 cleanup-failure path have never been exercised in a browser —
+  no R2 credentials in the smoke environment.
+- The journal calendar shows the **unfiltered** period aggregate beside a **filtered** table.
+  No number is wrong, but nothing labels the scope difference. Needs a labelling decision.
