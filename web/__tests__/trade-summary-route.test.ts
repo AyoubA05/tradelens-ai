@@ -80,6 +80,30 @@ describe("POST /api/trades/summary", () => {
   });
 });
 
+describe("both relay routes with SITE_ORIGIN unset", () => {
+  // The nine app/api/auth/* routes fall back to a permissive same-origin check
+  // when SITE_ORIGIN is absent. These two deliberately do not: a summary is a
+  // paid call, so a missing origin setting must fail shut, never open.
+  it("refuses rather than falling back to a permissive origin check", async () => {
+    delete process.env.SITE_ORIGIN;
+    const { POST } = await import("@/app/api/trades/summary/route");
+    const { GET } = await import("@/app/api/trades/summary/[jobId]/route");
+
+    const enqueue = await POST(
+      request("POST", "https://site.test/api/trades/summary", {}),
+    );
+    const poll = await GET(request("GET", "https://site.test/api/trades/summary/12"), {
+      params: Promise.resolve({ jobId: "12" }),
+    });
+
+    expect(enqueue.status).toBe(403);
+    expect(poll.status).toBe(403);
+    expect(enqueueTradeSummaryRequest).not.toHaveBeenCalled();
+    expect(fetchTradeSummaryJob).not.toHaveBeenCalled();
+    expect(authenticateSessionToken).not.toHaveBeenCalled();
+  });
+});
+
 describe("GET /api/trades/summary/[jobId]", () => {
   it("relays the actual owner-scoped job response", async () => {
     const payload = { job_id: 12, status: "running", result: null, error: null };

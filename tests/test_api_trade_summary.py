@@ -12,7 +12,7 @@ from src.tradelens.api.app import create_app
 from src.tradelens.api import jobs
 from src.tradelens.api import worker
 from src.tradelens.api.security import sign_request
-from src.tradelens.db.models import AIJob
+from src.tradelens.db.models import AIJob, AIUsageLog
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services import trade_service
 
@@ -389,5 +389,49 @@ def test_repeating_a_failed_selection_does_not_automatically_rerun_paid_work(
         rows = db.query(AIJob).filter(AIJob.user_id == owner).all()
         assert len(rows) == 1
         assert rows[0].error == "safe failure"
+    finally:
+        db.close()
+
+
+def test_worker_logs_spend_for_a_paid_call_whose_response_fails_validation(
+    website_session_handle, monkeypatch
+):
+    """Logging only after the save would drop a billed but unusable call."""
+    owner, _handle = website_session_handle
+    from src.tradelens.services import trade_summary
+    from src.tradelens.services.ai_client import Usage
+
+    monkeypatch.setattr(
+        trade_summary,
+        "chat",
+        lambda **kwargs: (
+            "### Not The Contract\n\nTruncated.",
+            Usage("t", 1, 1, 2, 0.5, 0.1),
+        ),
+    )
+    job_id, _ = jobs.enqueue(
+        owner,
+        "trade_summary",
+        "worker-validation-failure",
+        {
+            "period_label": "2026-08-01 to 2026-08-31",
+            "filters": {},
+            "trades": [{"id": 1}, {"id": 2}],
+            "summary_key": "snapshot-invalid",
+        },
+    )
+
+    assert jobs.run_once(worker.HANDLERS) is True
+
+    db = SessionLocal()
+    try:
+        job = db.query(AIJob).filter(AIJob.id == job_id).one()
+        assert job.status == "failed"
+        rows = (
+            db.query(AIUsageLog)
+            .filter(AIUsageLog.user_id == owner, AIUsageLog.feature == "Trade Summary")
+            .all()
+        )
+        assert [row.cost_usd for row in rows] == [0.5]
     finally:
         db.close()

@@ -26,8 +26,14 @@ _log = logging.getLogger(__name__)
 
 
 def _trade_summary_handler(user_id: int, payload: dict) -> str:
-    result, usage = generate_trade_summary(
-        payload["trades"], period_label=payload["period_label"]
+    # Usage is recorded through this callback the moment the provider answers,
+    # not after the result is saved: generation raises on a malformed response
+    # and that call is still billed. Cost tracking that goes silent exactly when
+    # something went wrong is worse than none.
+    result, _usage = generate_trade_summary(
+        payload["trades"],
+        period_label=payload["period_label"],
+        on_usage=lambda usage: log_ai_usage("Trade Summary", usage, user_id=user_id),
     )
     result_id = save_trade_summary_result(
         user_id=user_id,
@@ -35,7 +41,6 @@ def _trade_summary_handler(user_id: int, payload: dict) -> str:
         filters=payload.get("filters") or {},
         result=result,
     )
-    log_ai_usage("Trade Summary", usage, user_id=user_id)
     return f"trade_summary:{result_id}"
 
 

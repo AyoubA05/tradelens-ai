@@ -92,7 +92,10 @@ describe("TradeSummaryPanel", () => {
         "This review didn't finish. To avoid duplicate processing, this exact selection will not run again automatically.",
       ),
     );
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    // A failure must not remove the only control on the panel: the trader keeps
+    // a deliberate, manual retry. Nothing re-runs on its own.
+    expect(screen.getByRole("button", { name: /try again/i })).toBeEnabled();
+    expect(fetch).toHaveBeenCalledTimes(2);
 
     rerender(<TradeSummaryPanel period={period} filters={{ asset: "ES" }} tradeCount={2} />);
     expect(screen.getByRole("button", { name: /summarize/i })).toBeEnabled();
@@ -150,5 +153,91 @@ describe("TradeSummaryPanel", () => {
 
     expect(screen.getByRole("heading", { name: "Session Summary", level: 3 })).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledTimes(10);
+  });
+
+  it("does not render a summary resolved for a selection the trader has left", async () => {
+    const markdown = [
+      "### Session Summary\n\nSelection A evidence.",
+      "### Discipline & Rule Adherence\n\nEvidence.",
+      "### Emotional Review\n\nEvidence.",
+      "### Recurring Patterns\n\nEvidence.",
+      "### Improvement Actions\n\nEvidence.",
+    ].join("\n\n");
+    let resolvePoll: (value: Response) => void = () => {};
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ job_id: 31, status: "queued", created: true }), {
+          status: 202,
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          resolvePoll = resolve;
+        }),
+      );
+
+    const { rerender } = render(
+      <TradeSummaryPanel period={period} filters={{ asset: "NQ" }} tradeCount={2} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /summarize/i }));
+    await act(async () => {
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+
+    rerender(<TradeSummaryPanel period={period} filters={{ asset: "ES" }} tradeCount={2} />);
+    await act(async () => {
+      resolvePoll(
+        new Response(
+          JSON.stringify({
+            job_id: 31,
+            status: "succeeded",
+            result: { content_md: markdown, reviewed_trades: 2 },
+            error: null,
+          }),
+          { status: 200 },
+        ),
+      );
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+
+    expect(screen.queryByText("Selection A evidence.")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "Session Summary", level: 3 }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/reviewed 2 trades/i)).not.toBeInTheDocument();
+  });
+
+  it("leaves no permanently disabled button after filters move away and back", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ job_id: 44, status: "queued", created: true }), {
+          status: 202,
+        }),
+      )
+      .mockImplementationOnce(
+        (_url, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            (init as RequestInit).signal?.addEventListener("abort", () =>
+              reject(new DOMException("Aborted", "AbortError")),
+            );
+          }),
+      );
+
+    const { rerender } = render(
+      <TradeSummaryPanel period={period} filters={{ asset: "NQ" }} tradeCount={2} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /summarize/i }));
+    await act(async () => {
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+    expect(screen.getByRole("button", { name: /reviewing trades/i })).toBeDisabled();
+
+    rerender(<TradeSummaryPanel period={period} filters={{ asset: "ES" }} tradeCount={2} />);
+    await act(async () => {
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+    rerender(<TradeSummaryPanel period={period} filters={{ asset: "NQ" }} tradeCount={2} />);
+
+    expect(screen.getByRole("button", { name: /summarize these 2 trades/i })).toBeEnabled();
   });
 });

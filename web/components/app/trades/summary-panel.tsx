@@ -171,7 +171,12 @@ export function TradeSummaryPanel({
         setError(true);
       }
     } finally {
-      if (!controller.signal.aborted) setLoading(false);
+      // Clear on controller identity, not on abortedness. A filter change
+      // aborts this run without starting another, and keying off
+      // `signal.aborted` left `loading` true forever for that selection:
+      // switching back to it rendered a permanently disabled button over a
+      // job that may have succeeded and been paid for.
+      if (active.current === controller) setLoading(false);
     }
   }
 
@@ -185,7 +190,7 @@ export function TradeSummaryPanel({
             execution and discipline, never future market direction.
           </p>
         </div>
-        {tradeCount >= 2 && !currentError && (
+        {tradeCount >= 2 && (
           <button
             type="button"
             onClick={generate}
@@ -194,7 +199,9 @@ export function TradeSummaryPanel({
           >
             {currentLoading
               ? "Reviewing trades…"
-              : `Summarize these ${tradeCount} trades`}
+              : currentError
+                ? "Try again"
+                : `Summarize these ${tradeCount} trades`}
           </button>
         )}
       </div>

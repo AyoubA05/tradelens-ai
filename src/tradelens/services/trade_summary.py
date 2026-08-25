@@ -6,7 +6,7 @@ import json
 import math
 import re
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from sqlalchemy.exc import IntegrityError
 
@@ -63,8 +63,18 @@ class TradeSummaryError(Exception):
 
 
 def _safe_scalar(value):
+    """Make one snapshot value prompt-safe.
+
+    Text is bounded here rather than field-by-field so that a field added to
+    ``_SNAPSHOT_FIELDS`` later is bounded by default. Every string column that
+    reaches the prompt is browser-writable through the PATCH allowlist, and
+    several of them (emotions, setup_type, htf_bias, asset) have no column
+    length, so an unbounded value is a real cost and context-overflow lever.
+    """
     if isinstance(value, float) and not math.isfinite(value):
         return None
+    if isinstance(value, str):
+        return value[:MAX_TEXT_CHARS]
     return value
 
 
@@ -106,6 +116,69 @@ def build_trade_snapshot(page) -> List[Dict[str, object]]:
     return snapshot
 
 
+# A structurally perfect answer can still contain a trade idea, which is the one
+# thing this product must never emit. These patterns target forward-looking
+# directives about a future position; ordinary past-tense reflection ("long
+# entries were late", "next time I will size smaller") must pass untouched.
+_DIRECTION = (
+    r"(?:buy|buys|buying|sell|sells|selling|long|longs|short|shorts|shorting|enter)"
+)
+# Excludes SMC vocabulary and adjectival uses that describe already-taken trades.
+_NOT_A_POSITION = (
+    r"(?![-\s]?(?:side|term)\b)"
+    r"(?!\s+(?:entry|entries|trade|trades|setup|setups|position|positions|bias|"
+    r"execution|executions|sizing|management|liquidity|leg|legs)\b)"
+)
+_RECOMMENDS = (
+    r"(?:you should|you must|you ought to|you need to|you could|we recommend|"
+    r"i recommend|i'd recommend|i would recommend|my recommendation is to|"
+    r"consider|look to|looking to|aim to|plan to|be ready to|prepare to|"
+    r"get ready to|wait to)"
+)
+_FUTURE = (
+    r"(?:next session|next sessions|next trading session|next trading day|"
+    r"next week|next open|tomorrow|going forward|upcoming session|"
+    r"the coming session)"
+)
+_LEVEL = r"(?:above|below|near|around|at|from|into|over|under)\s+\$?\d"
+# Past-tense reflection markers. Only relax the price-level rule, which is the
+# one pattern a genuine retrospective ("entries above 20150 were late") can trip.
+_REFLECTIVE = (
+    r"\b(?:was|were|had|did|didn't|has been|have been|should have|could have|"
+    r"would have|last week|this week|yesterday|previously|already|"
+    r"next time)\b"
+)
+
+_ADVICE_PATTERNS = (
+    # "you should buy", "consider longs", "look to short"
+    re.compile(
+        rf"\b{_RECOMMENDS}\s+(?:a|an|the|to|going)?\s*\b{_DIRECTION}\b{_NOT_A_POSITION}"
+    ),
+    # "next session, short the open" — a future marker governing a position
+    re.compile(rf"\b{_FUTURE}\b[^.!?]{{0,60}}?\b{_DIRECTION}\b{_NOT_A_POSITION}"),
+    re.compile(rf"\b{_DIRECTION}\b{_NOT_A_POSITION}[^.!?]{{0,60}}?\b{_FUTURE}\b"),
+)
+_PRICE_PATTERNS = (
+    # "buy above 20150", "short below 4500"
+    re.compile(rf"\b{_DIRECTION}\b{_NOT_A_POSITION}[^.!?]{{0,40}}?\b{_LEVEL}"),
+)
+
+
+def _reject_forward_looking(markdown: str) -> None:
+    """Reject a response that reads as a trade idea rather than a reflection."""
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", markdown.lower()):
+        if any(pattern.search(sentence) for pattern in _ADVICE_PATTERNS):
+            raise TradeSummaryError(
+                "The AI summary contained forward-looking trade guidance."
+            )
+        if re.search(_REFLECTIVE, sentence):
+            continue
+        if any(pattern.search(sentence) for pattern in _PRICE_PATTERNS):
+            raise TradeSummaryError(
+                "The AI summary contained forward-looking trade guidance."
+            )
+
+
 def _validate_markdown(markdown: str) -> None:
     headings = tuple(re.findall(r"(?m)^### [^\n]+$", markdown))
     if headings != REQUIRED_SECTIONS:
@@ -113,7 +186,10 @@ def _validate_markdown(markdown: str) -> None:
 
 
 def generate_trade_summary(
-    trades: List[Dict[str, object]], *, period_label: str
+    trades: List[Dict[str, object]],
+    *,
+    period_label: str,
+    on_usage: Optional[Callable[[Usage], None]] = None,
 ) -> tuple[dict, Usage]:
     """Generate a post-trade reflection for an immutable filtered snapshot."""
     if len(trades) < MIN_SUMMARY_TRADES:
@@ -146,9 +222,15 @@ def generate_trade_summary(
         system_message=system_message,
         demo_response=_DEMO_SUMMARY_MD,
     )
+    if on_usage is not None:
+        # Record spend the moment the provider answers. Validation below raises
+        # and discards this Usage, so logging any later means a truncated or
+        # non-conforming response is billed but never appears in cost tracking.
+        on_usage(usage)
     if isinstance(content, AIUnavailable):
         raise TradeSummaryError(content.reason)
     _validate_markdown(content)
+    _reject_forward_looking(content)
     return {"content_md": content, "reviewed_trades": len(trades)}, usage
 
 

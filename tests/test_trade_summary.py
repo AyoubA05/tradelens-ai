@@ -148,3 +148,118 @@ def test_generation_rejects_an_extra_section_instead_of_expanding_the_contract(
         trade_summary.generate_trade_summary(
             [{"id": 1}, {"id": 2}], period_label="2026-08"
         )
+
+
+def test_every_snapshot_string_field_is_bounded_not_just_the_notes_columns():
+    """Unbounded emotions/setup text is browser-writable and blows the prompt budget."""
+    trade_summary = importlib.import_module("src.tradelens.services.trade_summary")
+    oversized = "z" * 200_000
+    trades = [
+        SimpleNamespace(
+            id=index,
+            trade_date="2026-08-01",
+            asset=oversized,
+            direction=oversized,
+            timeframe=oversized,
+            session=oversized,
+            killzone=oversized,
+            setup_type=oversized,
+            confirmation_model=oversized,
+            htf_bias=oversized,
+            result="Win",
+            pnl=1.0,
+            rr_realized=1.0,
+            followed_rules=1,
+            emotions_before=oversized,
+            emotions_during=oversized,
+            emotions_after=oversized,
+            ai_grade="B",
+            user_grade="A",
+            notes="ok",
+            trade_process_notes="ok",
+            mistake_tags="[]",
+        )
+        for index in (1, 2)
+    ]
+
+    snapshot = trade_summary.build_trade_snapshot(SimpleNamespace(trades=trades))
+
+    for row in snapshot:
+        for field, value in row.items():
+            if isinstance(value, str):
+                assert len(value) <= trade_summary.MAX_TEXT_CHARS, field
+    assert len(json.dumps(snapshot)) < 40_000
+
+
+def test_a_structurally_valid_trade_idea_is_rejected_before_it_reaches_the_trader(
+    monkeypatch,
+):
+    """Shape validation alone would render a forward-looking call verbatim."""
+    trade_summary = importlib.import_module("src.tradelens.services.trade_summary")
+    sections = [
+        "### Session Summary\n\nTwo completed trades were reviewed.",
+        "### Discipline & Rule Adherence\n\nBoth records contain evidence.",
+        "### Emotional Review\n\nEmotion logging was limited.",
+        "### Recurring Patterns\n\nThe sample remains small.",
+        "### Improvement Actions\n\nConsider longs above 20150 next session.",
+    ]
+    monkeypatch.setattr(
+        trade_summary,
+        "chat",
+        lambda **kwargs: ("\n\n".join(sections), Usage("test", 1, 1, 2, 0.01, 0.1)),
+    )
+
+    with pytest.raises(trade_summary.TradeSummaryError):
+        trade_summary.generate_trade_summary(
+            [{"id": 1}, {"id": 2}], period_label="2026-08"
+        )
+
+
+def test_ordinary_past_tense_reflection_is_not_mistaken_for_trade_guidance(
+    monkeypatch,
+):
+    """An over-broad advice gate would reject the reviews the product exists to give."""
+    trade_summary = importlib.import_module("src.tradelens.services.trade_summary")
+    markdown = "\n\n".join(
+        [
+            "### Session Summary\n\nLong entries were late this week.",
+            "### Discipline & Rule Adherence\n\nSell-side liquidity was swept first.",
+            "### Emotional Review\n\nYou should review the emotion fields you skipped.",
+            "### Recurring Patterns\n\nEntries above 20150 were consistently late.",
+            "### Improvement Actions\n\nNext time I will size smaller; I should have waited.",
+        ]
+    )
+    monkeypatch.setattr(
+        trade_summary,
+        "chat",
+        lambda **kwargs: (markdown, Usage("test", 1, 1, 2, 0.01, 0.1)),
+    )
+
+    result, _usage = trade_summary.generate_trade_summary(
+        [{"id": 1}, {"id": 2}], period_label="2026-08"
+    )
+
+    assert result["content_md"] == markdown
+
+
+def test_a_call_that_fails_validation_is_still_recorded_in_cost_tracking(monkeypatch):
+    """Billing goes silent exactly when a paid response was unusable otherwise."""
+    trade_summary = importlib.import_module("src.tradelens.services.trade_summary")
+    recorded = []
+    monkeypatch.setattr(
+        trade_summary,
+        "chat",
+        lambda **kwargs: (
+            "### Wrong Heading\n\nTruncated",
+            Usage("t", 1, 1, 2, 0.9, 0.1),
+        ),
+    )
+
+    with pytest.raises(trade_summary.TradeSummaryError):
+        trade_summary.generate_trade_summary(
+            [{"id": 1}, {"id": 2}],
+            period_label="2026-08",
+            on_usage=recorded.append,
+        )
+
+    assert [usage.estimated_cost_usd for usage in recorded] == [0.9]
