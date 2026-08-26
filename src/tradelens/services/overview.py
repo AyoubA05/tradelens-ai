@@ -25,14 +25,13 @@ from __future__ import annotations
 
 import datetime as dt
 from typing import Any, Dict, List, Mapping, Optional
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pandas as pd
 
 from src.tradelens.api.serialization import finite_or_state
 from src.tradelens.services import metrics
 from src.tradelens.services.activation import activation_status
-from src.tradelens.services.app_settings import DEFAULT_TIMEZONE, get_timezone
+from src.tradelens.services.app_settings import today_for_owner
 from src.tradelens.services.ownership import require_user_id
 from src.tradelens.services.sample_policy import sample_state
 from src.tradelens.services.sessions import KILLZONE_LABELS
@@ -143,20 +142,16 @@ def _need(mapping: Any, key: str) -> Any:
 
 
 def _today_for_owner(owner: int, *, now_utc: Optional[dt.datetime] = None) -> dt.date:
-    """Return the current calendar date in one owner's configured timezone."""
-    zone_name = get_timezone(owner)
-    try:
-        zone = ZoneInfo(zone_name)
-    except (ZoneInfoNotFoundError, KeyError, ValueError, OSError):
-        try:
-            zone = ZoneInfo(DEFAULT_TIMEZONE)
-        except (ZoneInfoNotFoundError, KeyError, ValueError, OSError):
-            zone = dt.timezone.utc
+    """Return the current calendar date in one owner's configured timezone.
 
-    instant = now_utc or dt.datetime.now(dt.timezone.utc)
-    if instant.tzinfo is None:
-        instant = instant.replace(tzinfo=dt.timezone.utc)
-    return instant.astimezone(zone).date()
+    Thin wrapper over `services/app_settings.today_for_owner`, the single
+    shared implementation (Phase 4 lifted it there so the New Trade
+    future-date check could reuse it rather than carrying a second copy of
+    the zoneinfo logic). Kept as a module-level name here, unchanged in
+    signature and behaviour, because existing tests monkeypatch
+    `overview._today_for_owner` directly.
+    """
+    return today_for_owner(owner, now_utc=now_utc)
 
 
 def build_overview(

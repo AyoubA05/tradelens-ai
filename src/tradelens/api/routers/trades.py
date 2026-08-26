@@ -45,6 +45,7 @@ from src.tradelens.services.trade_service import (
     list_trades,
     update_trade_if_unchanged,
 )
+from src.tradelens.services.app_settings import today_for_owner
 from src.tradelens.services.trade_summary import (
     MAX_SUMMARIES_PER_WINDOW,
     MIN_SUMMARY_TRADES,
@@ -165,7 +166,12 @@ def create_trade_route(
     data = payload.model_dump(exclude={"entry_time"})
     data["entry_time"] = payload.entry_time
 
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # The ceiling is the OWNER's calendar date, not the server's. A trader
+    # ahead of UTC has their actual today rejected as "future" for hours
+    # around UTC midnight — refusing legitimate work. Phase 3E hit the same
+    # class in Overview's Today/This Week and `today_for_owner` is the single
+    # source that fix established.
+    today = today_for_owner(user_id).isoformat()
     if payload.trade_date > today:
         raise HTTPException(
             status_code=422, detail="trade_date must not be in the future"

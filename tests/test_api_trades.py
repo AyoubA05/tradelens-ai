@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import json
 import time
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -1809,6 +1810,135 @@ def test_create_future_trade_date_is_422(client, website_session_handle):
     _, handle = website_session_handle
     r = _post(client, handle, _create_body(trade_date="2099-01-01"))
     assert r.status_code == 422
+
+
+# ---------------------------------------------------- POST /v1/trades: owner calendar
+#
+# The create route's future-date ceiling is `today_for_owner`, the same
+# owner-calendar resolution Phase 3E established for Overview's Today/This
+# Week. A UTC-only ceiling refuses a trader's genuine "today" for hours
+# around UTC midnight whenever they are ahead of UTC.
+#
+# `today_for_owner(owner)` takes no `now_utc` override from the route (only
+# `services/overview.py`'s tests get to inject one directly), so determinism
+# here comes from pinning the wall clock `today_for_owner` reads —
+# `app_settings.datetime.now(timezone.utc)` — to one fixed instant, the same
+# way `freezegun` or any clock-injection tool would. That pins *when "now"
+# is*, not *how the owner's date is computed from it*: the zone conversion,
+# the persisted-timezone lookup, and the fallback chain in `today_for_owner`
+# all still run for real. Patching `today_for_owner` itself (or the route's
+# imported reference to it) would instead stub out the exact resolution
+# under test, so that is deliberately not what happens here.
+_FIXED_UTC_INSTANT = datetime(2026, 8, 20, 23, 30, tzinfo=timezone.utc)
+
+
+class _FixedClockDatetime(datetime):
+    """A `datetime` subclass whose `.now()` always returns the pinned instant.
+
+    Only `.now()` is overridden; every other classmethod/constructor path
+    (`.replace`, `.astimezone`, arithmetic) is inherited unchanged, so
+    `today_for_owner`'s zone conversion runs on real `datetime` machinery
+    against a frozen starting instant rather than a mocked result.
+    """
+
+    @classmethod
+    def now(cls, tz=None):
+        return _FIXED_UTC_INSTANT.astimezone(tz) if tz else _FIXED_UTC_INSTANT
+
+
+@pytest.fixture
+def frozen_clock(monkeypatch):
+    """Pin every clock this test could exercise to `_FIXED_UTC_INSTANT`.
+
+    `today_for_owner` reads `datetime.now(timezone.utc)` through the module
+    global `app_settings.datetime`; `trades.py` imports the *function*
+    `today_for_owner`, not the module, so its calls still execute inside
+    `app_settings`'s namespace and see that patch.
+
+    `trades.py` ALSO imports its own `datetime` name (for the fingerprint/
+    idempotency-window logic elsewhere in the router), and that name is what
+    the pre-fix ceiling — `datetime.now(timezone.utc).strftime(...)` — reads
+    directly rather than through `today_for_owner`. Freezing only
+    `app_settings.datetime` left the mutation-testing check below
+    non-deterministic: reverting the route to the old UTC-only line ignored
+    this fixture entirely and fell back to the real wall clock, so the
+    headline test only happened to catch the regression when run before
+    2026-08-21 in real time — exactly the kind of flakiness this task warns
+    against. Freezing both names makes the fix under test, and the bug it
+    replaced, read the same pinned instant either way.
+    """
+    from src.tradelens.api.routers import trades as trades_module
+    from src.tradelens.services import app_settings
+
+    monkeypatch.setattr(app_settings, "datetime", _FixedClockDatetime)
+    monkeypatch.setattr(trades_module, "datetime", _FixedClockDatetime)
+
+
+def test_create_todays_date_in_a_zone_ahead_of_utc_is_accepted(
+    client, website_session_handle, frozen_clock
+):
+    """The headline case: Kiritimati (UTC+14) is already tomorrow when UTC is not.
+
+    At the frozen instant, 2026-08-20 23:30 UTC, UTC's calendar date is still
+    the 20th, but Kiritimati (the zone Phase 3E used to prove this exact
+    class of fix) is already 2026-08-21 13:30 local. `trade_date` "2026-08-21"
+    is this owner's real today and must be accepted. Against the old
+    UTC-only ceiling it is tomorrow and gets refused — see the mutation
+    check in this file's companion report.
+
+    The timezone is set through `app_settings.set_timezone`, the app's own
+    mechanism, not by patching resolution internals — the only thing patched
+    is the wall clock (`frozen_clock`), never the owner-date computation
+    itself.
+    """
+    from src.tradelens.services import app_settings
+
+    user_id, handle = website_session_handle
+    app_settings.set_timezone(user_id, "Pacific/Kiritimati")
+
+    r = _post(client, handle, _create_body(trade_date="2026-08-21"))
+
+    assert r.status_code == 201, r.text
+    assert r.json()["trade_date"] == "2026-08-21"
+
+
+def test_create_tomorrow_in_the_owner_s_own_zone_is_still_422(
+    client, website_session_handle, frozen_clock
+):
+    """A genuinely future date is still refused once resolved through the owner's zone."""
+    from src.tradelens.services import app_settings
+
+    user_id, handle = website_session_handle
+    app_settings.set_timezone(user_id, "Pacific/Kiritimati")
+
+    # At the frozen instant, Kiritimati's own today is 2026-08-21 (see the
+    # headline test above); 08-22 is tomorrow in that same zone.
+    r = _post(client, handle, _create_body(trade_date="2026-08-22"))
+
+    assert r.status_code == 422
+
+
+def test_create_with_no_saved_timezone_falls_back_and_still_creates(
+    client, website_session_handle
+):
+    """An owner who never set a timezone gets the product default, not an error."""
+    _, handle = website_session_handle
+    r = _post(client, handle, _create_body(trade_date="2026-08-10"))
+    assert r.status_code == 201, r.text
+
+
+def test_create_with_an_invalid_saved_timezone_falls_back_and_still_creates(
+    client, website_session_handle
+):
+    """A corrupted/invalid saved zone must resolve via fallback, never raise."""
+    from src.tradelens.services import app_settings
+
+    user_id, handle = website_session_handle
+    app_settings.set_timezone(user_id, "Not/AZone")
+
+    r = _post(client, handle, _create_body(trade_date="2026-08-10"))
+
+    assert r.status_code == 201, r.text
 
 
 def test_create_outcome_contradicting_pnl_is_422_not_500(
