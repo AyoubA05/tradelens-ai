@@ -363,3 +363,57 @@ def test_update_trade_relabels_when_pnl_flips_sign(in_memory_db):
     updated = trade_service.update_trade(trade.id, 1, pnl=250.0)
     assert updated.result == "Win"
     assert updated.pnl == 250.0
+
+
+# ---------------------------------------------------------------- find_by_fingerprint
+
+
+def test_find_by_fingerprint_returns_the_owner_s_matching_trade(in_memory_db):
+    trade = _create(
+        {
+            "asset": "NQ",
+            "trade_date": "2026-07-18",
+            "direction": "Long",
+            "entry_price": 100.0,
+            "user_id": 1,
+        }
+    )
+    found = trade_service.find_by_fingerprint(user_id=1, trade_hash=trade.trade_hash)
+    assert found is not None
+    assert found.id == trade.id
+
+
+def test_find_by_fingerprint_is_none_for_another_owner_s_identical_fingerprint(
+    in_memory_db,
+):
+    """Two owners can log the identical trade; neither sees the other's row."""
+    mine = _create(
+        {
+            "asset": "NQ",
+            "trade_date": "2026-07-18",
+            "direction": "Long",
+            "entry_price": 100.0,
+            "user_id": 1,
+        }
+    )
+    theirs = _create(
+        {
+            "asset": "NQ",
+            "trade_date": "2026-07-18",
+            "direction": "Long",
+            "entry_price": 100.0,
+            "user_id": 2,
+        }
+    )
+    assert mine.trade_hash == theirs.trade_hash
+
+    found = trade_service.find_by_fingerprint(user_id=2, trade_hash=mine.trade_hash)
+    assert found is not None
+    assert found.id == theirs.id
+    assert found.id != mine.id
+
+
+def test_find_by_fingerprint_is_none_when_nothing_matches(in_memory_db):
+    _create({"asset": "NQ", "trade_date": "2026-07-18", "user_id": 1})
+    found = trade_service.find_by_fingerprint(user_id=1, trade_hash="no-such-hash")
+    assert found is None

@@ -105,6 +105,29 @@ def find_recent_duplicate(
         db.close()
 
 
+def find_by_fingerprint(*, user_id: int, trade_hash: str) -> Optional[Trade]:
+    """Return this user's trade matching `trade_hash`, or None.
+
+    Un-windowed, unlike `find_recent_duplicate`: a resubmission a day later is
+    still the same trade, and `trade_hash_exists` cannot answer this because it
+    returns no row. This is the lookup the New Trade POST route uses to report
+    `duplicate_of` instead of writing a second row. The owner is required, for
+    the same reason `find_recent_duplicate` requires one: this returns a Trade
+    object shown to the caller, so an unscoped match would hand one trader
+    another trader's record.
+    """
+    owner = require_user_id(user_id)
+    db: Session = SessionLocal()
+    try:
+        return (
+            db.query(Trade)
+            .filter(Trade.trade_hash == trade_hash, Trade.user_id == owner)
+            .first()
+        )
+    finally:
+        db.close()
+
+
 def create_trade(trade_data: dict, *, user_id: int) -> Trade:
     """
     Insert a trade row. Auto-calculates day_of_week, rr_planned, rr_realized,
