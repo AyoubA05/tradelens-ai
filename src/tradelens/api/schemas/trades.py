@@ -194,6 +194,137 @@ class TradeDetail(_Strict):
     screenshots: List[ScreenshotDescriptor]
 
 
+class TradeCreate(_Strict):
+    """`POST /v1/trades` body — a POSITIVE allowlist, same discipline as
+    `TradeUpdate`. Ownership and server-owned metadata (`user_id`, `id`,
+    `trade_hash`, `is_sample`, `created_at`, `updated_at`, `strategy_id`) are
+    unreachable through HTTP input; `extra="forbid"` refuses anything else,
+    including a new `Trade` column that has not been deliberately filed here.
+
+    Mirrors the field set the Streamlit New Trade page (`1_NewTrade.py`)
+    actually submits to `create_trade`, minus what the service derives itself
+    (`day_of_week`, `rr_planned`, `ai_grade`, `user_grade`) and minus the
+    server-owned columns above. `entry_time` is not a `Trade` column — it only
+    feeds `compute_trade_hash` — but is accepted here because omitting it
+    would silently change the fingerprint the client and server agree on.
+    """
+
+    trade_date: str
+    asset: str
+    entry_time: Optional[str] = None
+    direction: Optional[str] = None
+    bias: Optional[str] = None
+    session: Optional[str] = None
+    setup_type: Optional[str] = None
+    timeframe: Optional[str] = None
+    asset_class: Optional[str] = None
+    htf_bias: Optional[str] = None
+    killzone: Optional[str] = None
+    strategy_used: Optional[str] = None
+    confirmation_model: Optional[str] = None
+    entry_type: Optional[str] = None
+
+    entry_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    tp_price: Optional[float] = None
+    exit_price: Optional[float] = None
+    position_size: Optional[float] = None
+    risk_amount: Optional[float] = None
+    reward_amount: Optional[float] = None
+    rr_realized: Optional[float] = None
+
+    result: Optional[TradeResult] = None
+    pnl: Optional[float] = None
+
+    liquidity_sweep: Optional[Literal[0, 1]] = None
+    fvg_used: Optional[Literal[0, 1]] = None
+    order_block_used: Optional[Literal[0, 1]] = None
+    bos: Optional[Literal[0, 1]] = None
+    choch: Optional[Literal[0, 1]] = None
+    followed_rules: Optional[Literal[0, 1]] = None
+    mistake_tags: Optional[str] = None
+
+    emotions_before: Optional[str] = None
+    emotions_during: Optional[str] = None
+    emotions_after: Optional[str] = None
+    notes: Optional[str] = None
+    trade_process_notes: Optional[str] = None
+
+    @field_validator("asset")
+    @classmethod
+    def _asset_must_not_be_blank(cls, value: str) -> str:
+        # The ORM column is NOT NULL; a blank string would be a stored trade
+        # no list/filter can identify.
+        if not value.strip():
+            raise ValueError("asset must not be blank")
+        return value.strip()
+
+    @field_validator("trade_date")
+    @classmethod
+    def _trade_date_must_be_iso(cls, value: str) -> str:
+        try:
+            parsed = datetime.strptime(value, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError("trade_date must be a valid YYYY-MM-DD date") from exc
+        if parsed.strftime("%Y-%m-%d") != value:
+            raise ValueError("trade_date must be a valid YYYY-MM-DD date")
+        return value
+
+    @field_validator(
+        "pnl",
+        "rr_realized",
+        "risk_amount",
+        "reward_amount",
+        "entry_price",
+        "stop_price",
+        "tp_price",
+        "exit_price",
+        "position_size",
+    )
+    @classmethod
+    def _numbers_must_be_finite(cls, value: Optional[float]) -> Optional[float]:
+        if value is not None and not math.isfinite(value):
+            raise ValueError("numeric values must be finite")
+        return value
+
+
+class TradeCreateResponse(TradeDetail):
+    """`TradeDetail` plus whether this submit matched an existing trade.
+
+    `duplicate_of` is the id of the trade this response actually describes
+    when a fingerprint match was found — the same row `id` already carries,
+    named separately so the client can distinguish "just created" from "this
+    already existed" without a second lookup.
+    """
+
+    duplicate_of: Optional[int] = None
+
+
+# The create write surface, derived from the model itself so it cannot drift
+# from `TradeCreate`. Mirrors `EDITABLE_TRADE_FIELDS` below.
+CREATABLE_TRADE_FIELDS = frozenset(TradeCreate.model_fields) - {"entry_time"}
+
+# Every `Trade` column NOT reachable through `POST /v1/trades`, named
+# explicitly for the same reason `SERVER_OWNED_TRADE_COLUMNS` is: a column
+# added to the model belongs to neither set until someone files it here, and
+# the contract test fails until they do.
+SERVER_OWNED_ON_CREATE = frozenset(
+    {
+        "id",
+        "user_id",
+        "trade_hash",
+        "is_sample",
+        "created_at",
+        "updated_at",
+        "strategy_id",
+        "day_of_week",
+        "rr_planned",
+        "ai_grade",
+        "user_grade",
+    }
+)
+
+
 class TradeUpdate(_Strict):
     """The PATCH body — a POSITIVE allowlist of genuinely user-editable fields.
 

@@ -25,6 +25,8 @@ from src.tradelens.api.schemas.trades import (
     ScreenshotCleanupFailedResponse,
     ScreenshotDescriptor,
     TradeConflictResponse,
+    TradeCreate,
+    TradeCreateResponse,
     TradeDetail,
     TradeListResponse,
     TradeSummary,
@@ -35,7 +37,10 @@ from src.tradelens.api.schemas.trades import (
 )
 from src.tradelens.services.sessions import KILLZONE_LABELS
 from src.tradelens.services.trade_service import (
+    compute_trade_hash,
+    create_trade,
     delete_trade,
+    find_by_fingerprint,
     get_trade,
     list_trades,
     update_trade_if_unchanged,
@@ -131,6 +136,67 @@ def get_trades_list(
     ]
     return TradeListResponse(
         trades=trades, total=page.total, limit=page.limit, offset=page.offset
+    )
+
+
+@router.post("/trades", status_code=status.HTTP_201_CREATED)
+def create_trade_route(
+    payload: TradeCreate,
+    response: Response,
+    user_id: int = Depends(current_user),
+) -> TradeCreateResponse:
+    """Create one trade for the authenticated owner.
+
+    The body is a positive allowlist (`TradeCreate`); ownership and
+    server-owned metadata are unreachable no matter what is sent —
+    `create_trade` also forces `user_id` from the session, so this is
+    defense in depth, not the only gate.
+
+    A submit whose fingerprint (`compute_trade_hash`) matches an existing
+    trade for this owner creates nothing: it returns 200 with that trade and
+    `duplicate_of` set, so a double-submit or a retried request after a
+    dropped response never produces a second row (Decision 5). A genuinely
+    new fingerprint creates and returns 201.
+
+    `canonical_outcome` raises `OutcomeMismatch` on a P&L/label contradiction
+    rather than picking a side; letting that escape here would be a 500, so
+    it is caught and reported as 422 naming the contradiction.
+    """
+    data = payload.model_dump(exclude={"entry_time"})
+    data["entry_time"] = payload.entry_time
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if payload.trade_date > today:
+        raise HTTPException(
+            status_code=422, detail="trade_date must not be in the future"
+        )
+
+    fingerprint = compute_trade_hash(data)
+    existing = find_by_fingerprint(user_id=user_id, trade_hash=fingerprint)
+    if existing is not None:
+        # 200, not 201: nothing was created. Status code alone tells a client
+        # which branch it got before it even reads the body.
+        # `find_by_fingerprint` closes its own session without eager-loading
+        # relationships, so re-fetch through `get_trade` before `_detail`
+        # touches `.screenshots`.
+        response.status_code = status.HTTP_200_OK
+        full = get_trade(existing.id, user_id)
+        return TradeCreateResponse(
+            **_detail(full, user_id).model_dump(), duplicate_of=existing.id
+        )
+
+    try:
+        created = create_trade(data, user_id=user_id)
+    except OutcomeMismatch as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # `create_trade` closes its own session before returning, so relationship
+    # access on that instance (e.g. `.screenshots` inside `_detail`) would
+    # raise DetachedInstanceError. Re-fetch through `get_trade`, which
+    # eager-loads everything `_detail` touches.
+    trade = get_trade(created.id, user_id)
+    return TradeCreateResponse(
+        **_detail(trade, user_id).model_dump(), duplicate_of=None
     )
 
 

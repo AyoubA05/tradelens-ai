@@ -1585,3 +1585,262 @@ def test_patch_openapi_does_not_advertise_explicit_null_for_required_asset():
     ]["asset"]
     assert asset["type"] == "string"
     assert "anyOf" not in asset
+
+
+# ---------------------------------------------------------------- POST /v1/trades
+
+CREATE_PATH = "/v1/trades"
+
+
+def _create_headers(handle, body: bytes, *, path=CREATE_PATH, method="POST"):
+    ts = str(int(time.time()))
+    sig = sign_request(SECRET, ts, method, path, "", body)
+    return {
+        "Content-Type": "application/json",
+        "X-TL-Signature": f"v1={ts}:{sig}",
+        "X-TL-Session-Handle": handle,
+    }
+
+
+def _create_body(**overrides) -> dict:
+    body = {
+        "trade_date": "2026-08-10",
+        "asset": "NQ",
+        "direction": "Long",
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "tp_price": 115.0,
+        "result": "Win",
+        "pnl": 250.0,
+    }
+    body.update(overrides)
+    return body
+
+
+def _post(client, handle, body: dict):
+    payload = json.dumps(body, separators=(",", ":")).encode()
+    return client.post(
+        CREATE_PATH, content=payload, headers=_create_headers(handle, payload)
+    )
+
+
+def test_create_unsigned_request_is_refused(client, website_session_handle):
+    _, handle = website_session_handle
+    body = json.dumps(_create_body(), separators=(",", ":")).encode()
+    r = client.post(CREATE_PATH, content=body, headers={"X-TL-Session-Handle": handle})
+    assert r.status_code == 401
+
+
+def test_create_request_without_a_session_is_refused(client):
+    body = json.dumps(_create_body(), separators=(",", ":")).encode()
+    ts = str(int(time.time()))
+    sig = sign_request(SECRET, ts, "POST", CREATE_PATH, "", body)
+    r = client.post(
+        CREATE_PATH, content=body, headers={"X-TL-Signature": f"v1={ts}:{sig}"}
+    )
+    assert r.status_code == 401
+
+
+def test_create_a_tampered_body_fails_the_signature(client, website_session_handle):
+    _, handle = website_session_handle
+    signed = json.dumps(_create_body(), separators=(",", ":")).encode()
+    tampered = json.dumps(_create_body(asset="MNQ"), separators=(",", ":")).encode()
+    r = client.post(
+        CREATE_PATH,
+        content=tampered,
+        headers=_create_headers(handle, signed),
+    )
+    assert r.status_code == 401
+
+
+def test_create_allowlisted_fields_round_trip(client, website_session_handle):
+    user_id, handle = website_session_handle
+    body = _create_body(
+        notes="my notes",
+        emotions_before="calm",
+        mistake_tags="fomo",
+        setup_type="Reversal",
+        session="NY AM",
+        killzone="ny_am",
+        htf_bias="bullish",
+        followed_rules=1,
+        liquidity_sweep=1,
+        fvg_used=0,
+    )
+    r = _post(client, handle, body)
+    assert r.status_code == 201, r.text
+    out = r.json()
+    assert out["notes"] == "my notes"
+    assert out["emotions_before"] == "calm"
+    assert out["mistake_tags"] == "fomo"
+    assert out["setup_type"] == "Reversal"
+    assert out["session"] == "NY AM"
+    assert out["killzone"] == "New York AM"
+    assert out["htf_bias"] == "bullish"
+    assert out["followed_rules"] == 1
+    assert out["liquidity_sweep"] == 1
+    assert out["fvg_used"] == 0
+    assert out["duplicate_of"] is None
+
+    from src.tradelens.db.models import Trade
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        row = db.query(Trade).filter(Trade.id == out["id"]).first()
+        assert row.user_id == user_id
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize(
+    "server_owned_field,value",
+    [
+        ("user_id", 999),
+        ("id", 999),
+        ("trade_hash", "forged"),
+        ("is_sample", 1),
+        ("created_at", "2020-01-01T00:00:00Z"),
+        ("updated_at", "2020-01-01T00:00:00Z"),
+        ("strategy_id", 1),
+    ],
+)
+def test_create_rejects_every_server_owned_field(
+    client, website_session_handle, server_owned_field, value
+):
+    _, handle = website_session_handle
+    body = _create_body(**{server_owned_field: value})
+    r = _post(client, handle, body)
+    assert r.status_code == 422, r.text
+
+
+def test_create_ignores_the_session_owner_never_a_body_field(
+    client, website_session_handle, two_users
+):
+    """The owner is unreachable through the body — it comes only from the session."""
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+
+    body = json.dumps(_create_body(), separators=(",", ":")).encode()
+    # Sign a body containing user_id — extra="forbid" refuses it before
+    # ownership would even matter, which is itself the point: there is no
+    # way to get a foreign owner into this write.
+    forged = json.dumps(
+        {**_create_body(), "user_id": other}, separators=(",", ":")
+    ).encode()
+    r = client.post(
+        CREATE_PATH, content=forged, headers=_create_headers(handle, forged)
+    )
+    assert r.status_code == 422
+
+
+def test_create_second_identical_submit_creates_no_second_row(
+    client, website_session_handle
+):
+    user_id, handle = website_session_handle
+    body = _create_body()
+
+    first = _post(client, handle, body)
+    assert first.status_code == 201, first.text
+    trade_id = first.json()["id"]
+
+    from src.tradelens.db.models import Trade
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        count_before = db.query(Trade).count()
+    finally:
+        db.close()
+
+    second = _post(client, handle, body)
+    assert second.status_code == 200, second.text
+    assert second.json()["duplicate_of"] == trade_id
+    assert second.json()["id"] == trade_id
+
+    db = SessionLocal()
+    try:
+        count_after = db.query(Trade).count()
+    finally:
+        db.close()
+    assert count_after == count_before, "a duplicate submit must create no row"
+
+
+def test_create_two_owners_submitting_identical_trades_each_get_their_own_row(
+    client, website_session_handle, two_users
+):
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    body = _create_body()
+
+    mine = _post(client, handle, body)
+    assert mine.status_code == 201, mine.text
+
+    # The other owner submits the identical trade directly through the
+    # service (no second session fixture wired here) and must get their own
+    # row, not be told it is a duplicate of the first owner's.
+    other_trade = trade_service.create_trade(
+        {
+            "trade_date": "2026-08-10",
+            "asset": "NQ",
+            "direction": "Long",
+            "entry_price": 100.0,
+            "stop_price": 95.0,
+            "tp_price": 115.0,
+            "result": "Win",
+            "pnl": 250.0,
+        },
+        user_id=other,
+    )
+    assert other_trade.id != mine.json()["id"]
+
+    from src.tradelens.db.models import Trade
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        assert db.query(Trade).filter(Trade.user_id == user_id).count() == 1
+        assert db.query(Trade).filter(Trade.user_id == other).count() == 1
+    finally:
+        db.close()
+
+
+def test_create_future_trade_date_is_422(client, website_session_handle):
+    _, handle = website_session_handle
+    r = _post(client, handle, _create_body(trade_date="2099-01-01"))
+    assert r.status_code == 422
+
+
+def test_create_outcome_contradicting_pnl_is_422_not_500(
+    client, website_session_handle
+):
+    _, handle = website_session_handle
+    r = _post(client, handle, _create_body(result="Win", pnl=-500.0))
+    assert r.status_code == 422
+    assert r.status_code != 500
+
+
+def test_create_response_is_not_cacheable(client, website_session_handle):
+    _, handle = website_session_handle
+    r = _post(client, handle, _create_body())
+    assert "no-store" in r.headers.get("cache-control", "")
+
+
+def test_create_openapi_contract_covers_every_trade_column():
+    """Every `Trade` column is deliberately in exactly one of the create sets.
+
+    A column added to the model later belongs to neither
+    `CREATABLE_TRADE_FIELDS` nor `SERVER_OWNED_ON_CREATE` until someone files
+    it — this test fails until they do, so the write surface cannot silently
+    widen.
+    """
+    from src.tradelens.api.schemas.trades import (
+        CREATABLE_TRADE_FIELDS,
+        SERVER_OWNED_ON_CREATE,
+    )
+    from src.tradelens.db.models import Trade
+
+    model_columns = {c.key for c in Trade.__table__.columns}
+    accounted = CREATABLE_TRADE_FIELDS | SERVER_OWNED_ON_CREATE
+    assert model_columns == accounted, model_columns.symmetric_difference(accounted)
+    assert CREATABLE_TRADE_FIELDS.isdisjoint(SERVER_OWNED_ON_CREATE)

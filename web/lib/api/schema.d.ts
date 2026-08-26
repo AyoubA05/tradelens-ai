@@ -88,7 +88,26 @@ export interface paths {
          */
         get: operations["get_trades_list_v1_trades_get"];
         put?: never;
-        post?: never;
+        /**
+         * Create Trade Route
+         * @description Create one trade for the authenticated owner.
+         *
+         *     The body is a positive allowlist (`TradeCreate`); ownership and
+         *     server-owned metadata are unreachable no matter what is sent —
+         *     `create_trade` also forces `user_id` from the session, so this is
+         *     defense in depth, not the only gate.
+         *
+         *     A submit whose fingerprint (`compute_trade_hash`) matches an existing
+         *     trade for this owner creates nothing: it returns 200 with that trade and
+         *     `duplicate_of` set, so a double-submit or a retried request after a
+         *     dropped response never produces a second row (Decision 5). A genuinely
+         *     new fingerprint creates and returns 201.
+         *
+         *     `canonical_outcome` raises `OutcomeMismatch` on a P&L/label contradiction
+         *     rather than picking a side; letting that escape here would be a 500, so
+         *     it is caught and reported as 422 naming the contradiction.
+         */
+        post: operations["create_trade_route_v1_trades_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -444,6 +463,194 @@ export interface components {
          */
         TradeConflictResponse: {
             detail: components["schemas"]["TradeConflictDetail"];
+        };
+        /**
+         * TradeCreate
+         * @description `POST /v1/trades` body — a POSITIVE allowlist, same discipline as
+         *     `TradeUpdate`. Ownership and server-owned metadata (`user_id`, `id`,
+         *     `trade_hash`, `is_sample`, `created_at`, `updated_at`, `strategy_id`) are
+         *     unreachable through HTTP input; `extra="forbid"` refuses anything else,
+         *     including a new `Trade` column that has not been deliberately filed here.
+         *
+         *     Mirrors the field set the Streamlit New Trade page (`1_NewTrade.py`)
+         *     actually submits to `create_trade`, minus what the service derives itself
+         *     (`day_of_week`, `rr_planned`, `ai_grade`, `user_grade`) and minus the
+         *     server-owned columns above. `entry_time` is not a `Trade` column — it only
+         *     feeds `compute_trade_hash` — but is accepted here because omitting it
+         *     would silently change the fingerprint the client and server agree on.
+         */
+        TradeCreate: {
+            /** Asset */
+            asset: string;
+            /** Asset Class */
+            asset_class?: string | null;
+            /** Bias */
+            bias?: string | null;
+            /** Bos */
+            bos?: (0 | 1) | null;
+            /** Choch */
+            choch?: (0 | 1) | null;
+            /** Confirmation Model */
+            confirmation_model?: string | null;
+            /** Direction */
+            direction?: string | null;
+            /** Emotions After */
+            emotions_after?: string | null;
+            /** Emotions Before */
+            emotions_before?: string | null;
+            /** Emotions During */
+            emotions_during?: string | null;
+            /** Entry Price */
+            entry_price?: number | null;
+            /** Entry Time */
+            entry_time?: string | null;
+            /** Entry Type */
+            entry_type?: string | null;
+            /** Exit Price */
+            exit_price?: number | null;
+            /** Followed Rules */
+            followed_rules?: (0 | 1) | null;
+            /** Fvg Used */
+            fvg_used?: (0 | 1) | null;
+            /** Htf Bias */
+            htf_bias?: string | null;
+            /** Killzone */
+            killzone?: string | null;
+            /** Liquidity Sweep */
+            liquidity_sweep?: (0 | 1) | null;
+            /** Mistake Tags */
+            mistake_tags?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Order Block Used */
+            order_block_used?: (0 | 1) | null;
+            /** Pnl */
+            pnl?: number | null;
+            /** Position Size */
+            position_size?: number | null;
+            /** Result */
+            result?: ("Win" | "Loss" | "Breakeven") | null;
+            /** Reward Amount */
+            reward_amount?: number | null;
+            /** Risk Amount */
+            risk_amount?: number | null;
+            /** Rr Realized */
+            rr_realized?: number | null;
+            /** Session */
+            session?: string | null;
+            /** Setup Type */
+            setup_type?: string | null;
+            /** Stop Price */
+            stop_price?: number | null;
+            /** Strategy Used */
+            strategy_used?: string | null;
+            /** Timeframe */
+            timeframe?: string | null;
+            /** Tp Price */
+            tp_price?: number | null;
+            /** Trade Date */
+            trade_date: string;
+            /** Trade Process Notes */
+            trade_process_notes?: string | null;
+        };
+        /**
+         * TradeCreateResponse
+         * @description `TradeDetail` plus whether this submit matched an existing trade.
+         *
+         *     `duplicate_of` is the id of the trade this response actually describes
+         *     when a fingerprint match was found — the same row `id` already carries,
+         *     named separately so the client can distinguish "just created" from "this
+         *     already existed" without a second lookup.
+         */
+        TradeCreateResponse: {
+            /** Ai Grade */
+            ai_grade: string | null;
+            /** Asset */
+            asset: string;
+            /** Asset Class */
+            asset_class: string | null;
+            /** Bias */
+            bias: string | null;
+            /** Bos */
+            bos: number | null;
+            /** Choch */
+            choch: number | null;
+            /** Confirmation Model */
+            confirmation_model: string | null;
+            /** Created At */
+            created_at: string | null;
+            /** Day Of Week */
+            day_of_week: string | null;
+            /** Direction */
+            direction: string | null;
+            /** Duplicate Of */
+            duplicate_of?: number | null;
+            /** Emotions After */
+            emotions_after: string | null;
+            /** Emotions Before */
+            emotions_before: string | null;
+            /** Emotions During */
+            emotions_during: string | null;
+            /** Entry Price */
+            entry_price: number | null;
+            /** Entry Type */
+            entry_type: string | null;
+            /** Exit Price */
+            exit_price: number | null;
+            /** Followed Rules */
+            followed_rules: number | null;
+            /** Fvg Used */
+            fvg_used: number | null;
+            /** Htf Bias */
+            htf_bias: string | null;
+            /** Id */
+            id: number;
+            /** Killzone */
+            killzone: string | null;
+            /** Liquidity Sweep */
+            liquidity_sweep: number | null;
+            /** Mistake Tags */
+            mistake_tags: string | null;
+            /** Notes */
+            notes: string | null;
+            /** Order Block Used */
+            order_block_used: number | null;
+            /** Pnl */
+            pnl: number | null;
+            /** Position Size */
+            position_size: number | null;
+            /** Result */
+            result: ("Win" | "Loss" | "Breakeven") | null;
+            /** Reward Amount */
+            reward_amount: number | null;
+            /** Risk Amount */
+            risk_amount: number | null;
+            /** Rr Planned */
+            rr_planned: number | null;
+            /** Rr Realized */
+            rr_realized: number | null;
+            /** Screenshots */
+            screenshots: components["schemas"]["ScreenshotDescriptor"][];
+            /** Session */
+            session: string | null;
+            /** Setup Type */
+            setup_type: string | null;
+            /** Stop Price */
+            stop_price: number | null;
+            /** Strategy Used */
+            strategy_used: string | null;
+            /** Timeframe */
+            timeframe: string | null;
+            /** Tp Price */
+            tp_price: number | null;
+            /** Trade Date */
+            trade_date: string | null;
+            /** Trade Process Notes */
+            trade_process_notes: string | null;
+            /** Updated At */
+            updated_at: string;
+            /** User Grade */
+            user_grade: string | null;
         };
         /**
          * TradeDetail
@@ -852,6 +1059,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TradeListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_trade_route_v1_trades_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeCreateResponse"];
                 };
             };
             /** @description Validation Error */
