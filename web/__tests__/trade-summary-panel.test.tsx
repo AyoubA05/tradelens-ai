@@ -101,6 +101,33 @@ describe("TradeSummaryPanel", () => {
     expect(screen.getByRole("button", { name: /summarize/i })).toBeEnabled();
   });
 
+  it("shows the backend's rate-limit message instead of the generic error, with no retry", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          error: "rate_limited",
+          detail:
+            "You've reached 20 AI summaries for today. New summaries are available again 24 hours after your earliest one. Summaries you've already generated are still available.",
+        }),
+        { status: 429, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    render(<TradeSummaryPanel period={period} filters={{}} tradeCount={2} />);
+    fireEvent.click(screen.getByRole("button", { name: /summarize/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "You've reached 20 AI summaries for today. New summaries are available again 24 hours after your earliest one. Summaries you've already generated are still available.",
+      ),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /summarize/i })).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("does not offer a paid summary below the two-trade floor", () => {
     render(<TradeSummaryPanel period={period} filters={{}} tradeCount={1} />);
 

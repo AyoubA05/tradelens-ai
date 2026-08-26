@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -40,7 +41,9 @@ from src.tradelens.services.trade_service import (
     update_trade_if_unchanged,
 )
 from src.tradelens.services.trade_summary import (
+    MAX_SUMMARIES_PER_WINDOW,
     MIN_SUMMARY_TRADES,
+    SUMMARY_WINDOW_HOURS,
     build_trade_snapshot,
     get_trade_summary_result,
 )
@@ -182,6 +185,41 @@ def enqueue_trade_summary(
     snapshot_key = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     job_payload["summary_key"] = snapshot_key
     key = "trade_summary:" + snapshot_key
+
+    # Idempotency stops a double-click; it does not stop a trader walking
+    # `from`/`to` a day at a time, since every distinct selection is a
+    # legitimately distinct — and separately billable — Opus job. The count is
+    # therefore over the owner's `trade_summary` jobs in a rolling window and
+    # is deliberately blind to filters, so no filter permutation escapes it.
+    # Checked here, before `enqueue`, so a refusal writes no `ai_jobs` row and
+    # never reaches the worker or Anthropic. It is checked *after* the period
+    # and floor validation above so a malformed or too-small request still
+    # gets its 422.
+    if (
+        jobs.count_recent_jobs(
+            user_id,
+            "trade_summary",
+            datetime.now(timezone.utc) - timedelta(hours=SUMMARY_WINDOW_HOURS),
+        )
+        >= MAX_SUMMARIES_PER_WINDOW
+    ):
+        # Being at the limit must never lock a trader out of a summary they
+        # already have. Only work that would create a *new* job is refused.
+        existing = jobs.get_owned_job_by_idempotency_key(user_id, "trade_summary", key)
+        if existing is None:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"You've reached {MAX_SUMMARIES_PER_WINDOW} AI summaries for "
+                    f"today. New summaries are available again "
+                    f"{SUMMARY_WINDOW_HOURS} hours after your earliest one. "
+                    "Summaries you've already generated are still available."
+                ),
+            )
+        return TradeSummaryJobAccepted(
+            job_id=int(existing.id), status=existing.status, created=False
+        )
+
     job_id, created = jobs.enqueue(user_id, "trade_summary", key, job_payload)
     job = jobs.get_owned_job(job_id, user_id)
     if job is None:  # Defensive: enqueue committed this exact owner-scoped row.

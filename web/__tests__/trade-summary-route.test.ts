@@ -64,6 +64,39 @@ describe("POST /api/trades/summary", () => {
     expect(response.headers.get("cache-control")).toContain("no-store");
   });
 
+  it("maps a backend 429 to a distinguishable body carrying the backend's message", async () => {
+    const { ApiError } = await import("@/lib/api/client");
+    enqueueTradeSummaryRequest.mockRejectedValue(
+      new ApiError(429, { detail: "You've reached 20 AI summaries for today." }),
+    );
+    const { POST } = await import("@/app/api/trades/summary/route");
+
+    const response = await POST(
+      request("POST", "https://site.test/api/trades/summary", { from: "2026-08-01", to: "2026-08-31" }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: "rate_limited",
+      detail: "You've reached 20 AI summaries for today.",
+    });
+    expect(response.headers.get("cache-control")).toContain("no-store");
+  });
+
+  it("keeps the opaque body for every other backend failure status", async () => {
+    const { ApiError } = await import("@/lib/api/client");
+    enqueueTradeSummaryRequest.mockRejectedValue(new ApiError(500, { detail: "internal" }));
+    const { POST } = await import("@/app/api/trades/summary/route");
+
+    const response = await POST(
+      request("POST", "https://site.test/api/trades/summary", { from: "2026-08-01", to: "2026-08-31" }),
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ ok: false });
+  });
+
   it("fails shut on cross-site or app-ineligible requests before FastAPI", async () => {
     const { POST } = await import("@/app/api/trades/summary/route");
     const crossSite = await POST(

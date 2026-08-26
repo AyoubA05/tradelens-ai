@@ -15,6 +15,10 @@ from src.tradelens.api.security import sign_request
 from src.tradelens.db.models import AIJob, AIUsageLog
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services import trade_service
+from src.tradelens.services.trade_summary import (
+    MAX_SUMMARIES_PER_WINDOW,
+    SUMMARY_WINDOW_HOURS,
+)
 
 SECRET = "test-service-secret-value-at-least-32-bytes"
 SUMMARY_PATH = "/v1/trades/summary"
@@ -435,3 +439,205 @@ def test_worker_logs_spend_for_a_paid_call_whose_response_fails_validation(
         assert [row.cost_usd for row in rows] == [0.5]
     finally:
         db.close()
+
+
+# --- Owner-scoped rate limit -------------------------------------------------
+#
+# Idempotency alone leaves the endpoint open: every distinct selection is a
+# distinct, legitimately billable Opus job, so walking `from`/`to` a day at a
+# time mints unbounded spend. These tests pin the ceiling, and — as much as the
+# ceiling itself — pin that hitting it never costs a trader access to a summary
+# they already paid for.
+
+
+def _handle_for(user_id: int) -> str:
+    """A live website session handle for an arbitrary owner.
+
+    Inserted directly, exactly as the `website_session` fixture does: the point
+    is the API's owner resolution, not the sign-in form.
+    """
+    import datetime as dt
+    import hashlib
+    import secrets
+
+    from sqlalchemy import text as sa_text
+
+    from src.tradelens.services import auth_sessions
+
+    token = secrets.token_urlsafe(32)
+    now = dt.datetime.now(dt.timezone.utc)
+    digest = hashlib.sha256(
+        (auth_sessions.WEBSITE_DOMAIN + token).encode("utf-8")
+    ).hexdigest()
+    db = SessionLocal()
+    try:
+        db.execute(
+            sa_text(
+                "INSERT INTO auth_sessions (token_hash, user_id, created_at, "
+                "expires_at, last_seen_at, surface) VALUES (:h,:u,:c,:e,:l,:s)"
+            ),
+            {
+                "h": digest,
+                "u": user_id,
+                "c": now,
+                "e": now + dt.timedelta(hours=12),
+                "l": now,
+                "s": auth_sessions.SURFACE_WEBSITE,
+            },
+        )
+        db.commit()
+    finally:
+        db.close()
+    return digest
+
+
+def _fill_window(user_id: int, count: int) -> None:
+    """Put `count` recent trade_summary jobs in the window for one owner."""
+    from datetime import datetime, timezone
+
+    db = SessionLocal()
+    try:
+        for index in range(count):
+            db.add(
+                AIJob(
+                    user_id=user_id,
+                    kind="trade_summary",
+                    idempotency_key=f"trade_summary:filler-{index}",
+                    payload="{}",
+                    status="succeeded",
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+        db.commit()
+    finally:
+        db.close()
+
+
+def _job_count(user_id: int) -> int:
+    db = SessionLocal()
+    try:
+        return db.query(AIJob).filter(AIJob.user_id == user_id).count()
+    finally:
+        db.close()
+
+
+def _post(client, handle, body_dict):
+    body = json.dumps(body_dict, separators=(",", ":")).encode()
+    return client.post(
+        SUMMARY_PATH,
+        content=body,
+        headers=_signed_headers(handle, "POST", SUMMARY_PATH, body),
+    )
+
+
+def test_owner_at_the_limit_is_refused_without_creating_a_billable_job(
+    client, website_session_handle
+):
+    """Returning 429 while still writing the row would refuse the trader and bill anyway."""
+    owner, handle = website_session_handle
+    _create(owner, notes="one")
+    _create(owner, trade_date="2026-08-11", notes="two")
+    _fill_window(owner, MAX_SUMMARIES_PER_WINDOW)
+    before = _job_count(owner)
+
+    response = _post(client, handle, {"from": "2026-08-01", "to": "2026-08-31"})
+
+    assert response.status_code == 429, response.text
+    assert _job_count(owner) == before
+    detail = response.json()["detail"]
+    assert str(MAX_SUMMARIES_PER_WINDOW) in detail
+    assert str(SUMMARY_WINDOW_HOURS) in detail
+
+
+def test_walking_filters_and_date_ranges_does_not_buy_extra_summaries(
+    client, website_session_handle
+):
+    """Keying the count on filters would let a day-at-a-time walk mint unbounded spend."""
+    owner, handle = website_session_handle
+    for day in range(10, 20):
+        _create(owner, trade_date=f"2026-08-{day}", asset="NQ")
+        _create(owner, trade_date=f"2026-08-{day}", asset="ES")
+    _fill_window(owner, MAX_SUMMARIES_PER_WINDOW)
+    before = _job_count(owner)
+
+    selections = [
+        {"from": "2026-08-10", "to": "2026-08-12"},
+        {"from": "2026-08-11", "to": "2026-08-13"},
+        {"from": "2026-08-10", "to": "2026-08-19", "asset": "NQ"},
+        {"from": "2026-08-10", "to": "2026-08-19", "asset": "ES"},
+        {"from": "2026-08-14", "to": "2026-08-19"},
+    ]
+    for selection in selections:
+        response = _post(client, handle, selection)
+        assert response.status_code == 429, (selection, response.text)
+
+    assert _job_count(owner) == before
+
+
+def test_at_the_limit_an_existing_selection_is_still_returned(
+    client, website_session_handle
+):
+    """Refusing a key that already exists would lock a trader out of work already paid for."""
+    owner, handle = website_session_handle
+    _create(owner, notes="one")
+    _create(owner, trade_date="2026-08-11", notes="two")
+    selection = {"from": "2026-08-01", "to": "2026-08-31"}
+
+    first = _post(client, handle, selection)
+    assert first.status_code == 202
+    assert first.json()["created"] is True
+
+    _fill_window(owner, MAX_SUMMARIES_PER_WINDOW)
+    before = _job_count(owner)
+
+    repeated = _post(client, handle, selection)
+
+    assert repeated.status_code == 202, repeated.text
+    assert repeated.json()["job_id"] == first.json()["job_id"]
+    assert repeated.json()["created"] is False
+    assert _job_count(owner) == before
+
+
+def test_the_limit_is_per_owner_not_global(client, two_users, website_session_handle):
+    """A global count would let one busy trader silence everyone else's journal."""
+    owner, _ = website_session_handle
+    other = next(user_id for user_id in two_users if user_id != owner)
+    other_handle = _handle_for(other)
+    _create(other, notes="one")
+    _create(other, trade_date="2026-08-11", notes="two")
+    _fill_window(owner, MAX_SUMMARIES_PER_WINDOW + 5)
+    before = _job_count(other)
+
+    response = _post(client, other_handle, {"from": "2026-08-01", "to": "2026-08-31"})
+
+    assert response.status_code == 202, response.text
+    assert response.json()["created"] is True
+    assert _job_count(other) == before + 1
+
+
+def test_an_owner_under_the_limit_is_unaffected(client, website_session_handle):
+    """The ceiling must be generous enough that ordinary journalling never meets it."""
+    owner, handle = website_session_handle
+    _create(owner, notes="one")
+    _create(owner, trade_date="2026-08-11", notes="two")
+    _fill_window(owner, MAX_SUMMARIES_PER_WINDOW - 1)
+    before = _job_count(owner)
+
+    response = _post(client, handle, {"from": "2026-08-01", "to": "2026-08-31"})
+
+    assert response.status_code == 202, response.text
+    assert response.json()["created"] is True
+    assert _job_count(owner) == before + 1
+
+
+def test_a_too_small_selection_at_the_limit_still_gets_its_422(
+    client, website_session_handle
+):
+    """Ordering matters: a malformed request must not be masked as a rate limit."""
+    owner, handle = website_session_handle
+    _create(owner, notes="only-one")
+    _fill_window(owner, MAX_SUMMARIES_PER_WINDOW)
+
+    response = _post(client, handle, {"from": "2026-08-01", "to": "2026-08-31"})
+
+    assert response.status_code == 422, response.text

@@ -17,6 +17,12 @@ from src.tradelens.services.ownership import require_user_id
 
 MIN_SUMMARY_TRADES = 2
 MAX_SUMMARY_TRADES = 40
+# One number, one place, like the two above: every summary is a paid Opus call,
+# and without a ceiling an authenticated trader can mint unbounded distinct
+# billable jobs by walking the date range. Generous on purpose — a journal is
+# reviewed a handful of times a day, so this bounds abuse without being felt.
+MAX_SUMMARIES_PER_WINDOW = 20
+SUMMARY_WINDOW_HOURS = 24
 MAX_TEXT_CHARS = 500
 REQUIRED_SECTIONS = (
     "### Session Summary",

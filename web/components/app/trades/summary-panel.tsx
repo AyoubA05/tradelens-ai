@@ -20,6 +20,8 @@ const POLL_DELAYS_MS = [
 ];
 const FAILURE_MESSAGE =
   "This review didn't finish. To avoid duplicate processing, this exact selection will not run again automatically. Update the selection before requesting another review.";
+const RATE_LIMIT_FALLBACK_MESSAGE =
+  "You've reached today's limit for AI summaries. Summaries you've already generated are still available.";
 
 function InlineMarkdown({ text }: { text: string }) {
   return text.split(/(\*\*[^*]+\*\*)/g).map((part, index) =>
@@ -105,6 +107,7 @@ export function TradeSummaryPanel({
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+  const [rateLimitMessage, setRateLimitMessage] = useState<string | null>(null);
   const [result, setResult] = useState<SummaryResult | null>(null);
   const [stateSelectionKey, setStateSelectionKey] = useState<string | null>(null);
   const active = useRef<AbortController | null>(null);
@@ -119,6 +122,7 @@ export function TradeSummaryPanel({
   const stateIsCurrent = stateSelectionKey === selectionKey;
   const currentLoading = stateIsCurrent && loading;
   const currentError = stateIsCurrent && error;
+  const currentRateLimitMessage = stateIsCurrent ? rateLimitMessage : null;
   const currentResult = stateIsCurrent ? result : null;
 
   useEffect(() => () => active.current?.abort(), []);
@@ -133,6 +137,7 @@ export function TradeSummaryPanel({
     setStateSelectionKey(selectionKey);
     setLoading(true);
     setError(false);
+    setRateLimitMessage(null);
     setResult(null);
 
     try {
@@ -145,6 +150,18 @@ export function TradeSummaryPanel({
         credentials: "same-origin",
         signal: controller.signal,
       });
+      if (queuedResponse.status === 429) {
+        // A 429 is not a failure to recover from — it is the backend saying
+        // no. Surface its own message rather than the generic failure text,
+        // and never retry automatically: the retry would just fail again.
+        const payload = (await queuedResponse.json().catch(() => null)) as {
+          detail?: unknown;
+        } | null;
+        setRateLimitMessage(
+          typeof payload?.detail === "string" ? payload.detail : RATE_LIMIT_FALLBACK_MESSAGE,
+        );
+        return;
+      }
       if (!queuedResponse.ok) throw new Error("enqueue failed");
       const queued = (await queuedResponse.json()) as JobAccepted;
 
@@ -190,7 +207,7 @@ export function TradeSummaryPanel({
             execution and discipline, never future market direction.
           </p>
         </div>
-        {tradeCount >= 2 && (
+        {tradeCount >= 2 && !currentRateLimitMessage && (
           <button
             type="button"
             onClick={generate}
@@ -219,7 +236,12 @@ export function TradeSummaryPanel({
           Reviewing this completed-trade selection. The journal remains available.
         </p>
       )}
-      {currentError && (
+      {currentRateLimitMessage && (
+        <p className="mt-4 text-sm text-muted" role="status">
+          {currentRateLimitMessage}
+        </p>
+      )}
+      {currentError && !currentRateLimitMessage && (
         <p className="mt-4 text-sm text-muted" role="alert">
           {FAILURE_MESSAGE}
         </p>

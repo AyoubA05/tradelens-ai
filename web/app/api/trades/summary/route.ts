@@ -38,6 +38,22 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof ApiError) {
+      // 429 carries a backend message the trader needs (limit reached, when it
+      // resets, existing summaries still work) — everything else keeps the
+      // opaque `{ ok: false }` shape so no other backend detail leaks through.
+      if (error.status === 429) {
+        const detail =
+          typeof error.body === "object" &&
+          error.body !== null &&
+          "detail" in error.body &&
+          typeof (error.body as { detail: unknown }).detail === "string"
+            ? (error.body as { detail: string }).detail
+            : undefined;
+        return NextResponse.json(
+          { ok: false, error: "rate_limited", detail },
+          { status: 429, headers: SUMMARY_NO_STORE },
+        );
+      }
       return NextResponse.json(
         { ok: false },
         { status: error.status, headers: SUMMARY_NO_STORE },

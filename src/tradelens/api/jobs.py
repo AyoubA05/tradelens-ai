@@ -70,6 +70,57 @@ def enqueue(
         db.close()
 
 
+def count_recent_jobs(user_id: int, kind: str, since: datetime) -> int:
+    """How many jobs of one kind this owner created at or after `since`.
+
+    Owner-scoped by construction: the count is filtered on the resolved
+    session owner and never on anything a caller could send. It deliberately
+    ignores payload and filters, so walking a date range one day at a time
+    still lands in the same bucket — that walk is exactly the abuse a
+    filter-keyed count would miss.
+    """
+    owner = require_user_id(user_id)
+    db = SessionLocal()
+    try:
+        return int(
+            db.query(AIJob)
+            .filter(
+                AIJob.user_id == owner,
+                AIJob.kind == kind,
+                AIJob.created_at >= since,
+            )
+            .count()
+        )
+    finally:
+        db.close()
+
+
+def get_owned_job_by_idempotency_key(
+    user_id: int, kind: str, idempotency_key: str
+) -> Optional[AIJob]:
+    """Return this owner's existing job for a key, if there is one.
+
+    Read-only lookup used to tell "this would create a new billable job" from
+    "this is the same selection again". `enqueue` still owns creation, so no
+    read-then-write race is introduced: a miss here only means the caller
+    declines to create, never that it creates twice.
+    """
+    owner = require_user_id(user_id)
+    db = SessionLocal()
+    try:
+        return (
+            db.query(AIJob)
+            .filter(
+                AIJob.user_id == owner,
+                AIJob.kind == kind,
+                AIJob.idempotency_key == idempotency_key,
+            )
+            .first()
+        )
+    finally:
+        db.close()
+
+
 def get_owned_job(job_id: int, user_id: int) -> Optional[AIJob]:
     """Return one job only when it belongs to the authenticated owner."""
     owner = require_user_id(user_id)
