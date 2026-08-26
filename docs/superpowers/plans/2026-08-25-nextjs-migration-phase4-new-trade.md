@@ -141,11 +141,13 @@ Each task follows the TDD shape used since Phase 2: write the failing test, run 
 ### GROUP A — Trade creation and duplicate detection *(deep review)*
 
 **Task A1 — `find_by_fingerprint` in `trade_service`.**
-Surface the existing `(trade_hash, user_id)` lookup as `find_by_fingerprint(*, user_id: int, trade_hash: str) -> Optional[Trade]`, owner-scoped via `require_user_id`. Do not change `compute_trade_hash` or `create_trade`.
+Add `find_by_fingerprint(*, user_id: int, trade_hash: str) -> Optional[Trade]`, owner-scoped via `require_user_id`. Do not change `compute_trade_hash` or `create_trade`.
+
+**Two similar functions already exist — do not duplicate or confuse them.** `trade_hash_exists(trade_hash, user_id) -> bool` returns no row, so A2 cannot report `duplicate_of` from it. `find_recent_duplicate(trade_data, user_id, within_seconds=60)` is time-windowed, and a resubmission a day later is still the same trade — a 60-second window would let a genuine duplicate through. A third, un-windowed, row-returning function is what A2 needs. Leave both existing functions untouched; other callers depend on them.
 Tests: returns the owner's matching trade; returns `None` for another owner's identical fingerprint (**seed both and assert cross-owner isolation directly**); returns `None` when nothing matches.
 
 **Task A2 — `POST /v1/trades`.**
-Body is a positive allowlist over the parity field set (Task C1 names it). `extra="forbid"`; `user_id`, `id`, `trade_hash`, `is_sample`, `created_at`, `updated_at`, `strategy_id` unreachable. On submit: compute the fingerprint, call `find_by_fingerprint`; if it matches, return **200** with the existing trade and `duplicate_of` set, creating nothing; otherwise `create_trade` and return **201**. Server-side validation refuses a P&L/outcome contradiction by delegating to `canonical_outcome` (which already re-derives the label from P&L) and refuses a trade date in the future.
+Body is a positive allowlist over the parity field set (Task C1 names it). `extra="forbid"`; `user_id`, `id`, `trade_hash`, `is_sample`, `created_at`, `updated_at`, `strategy_id` unreachable. On submit: compute the fingerprint, call `find_by_fingerprint`; if it matches, return **200** with the existing trade and `duplicate_of` set, creating nothing; otherwise `create_trade` and return **201**. Server-side validation refuses a P&L/outcome contradiction by delegating to `canonical_outcome`, and refuses a trade date in the future. **`canonical_outcome` raises `OutcomeMismatch` rather than picking a side** — catch it and return **422** naming the contradiction; letting it escape would be a 500.
 Tests: each allowlisted field round-trips; each server-owned field is rejected; a second identical submit creates no second row (**assert the row count**, not just the response); two owners submitting identical trades each get their own row; a future date is 422; unsigned and body-tampered requests fail Lock 1; the response is not cacheable.
 **Mutations:** remove the fingerprint check (duplicate test must fail); remove `extra="forbid"` (each server-owned field test must fail).
 
@@ -157,7 +159,11 @@ Tests: an owned trade returns a URL whose key sits under the caller's quarantine
 **Mutation:** remove the ownership check — the cross-owner test must fail.
 
 **Task B2 — `POST /v1/trades/{id}/screenshot/finalize`.**
-Body carries the `key` the browser received. Delegates to `storage.finalize_upload`, which re-derives the expected quarantine prefix and refuses anything outside it, decodes, validates, re-encodes, promotes to a fresh owner-scoped final key, writes the `screenshots` row, and deletes the quarantine object. Rejected images return **422** with a plain message; a key outside the caller's prefix returns **404**.
+Body carries the `key` the browser received. Delegates to `storage.finalize_upload`, which re-derives the expected quarantine prefix and refuses anything outside it, decodes, validates, re-encodes, promotes to a fresh owner-scoped final key, and deletes the quarantine object.
+
+**`finalize_upload` does NOT write the `screenshots` row** — it returns `{key, content_type, width, height}` and the caller persists. `screenshot_service.save_screenshot` cannot be reused: it writes to **local disk** for the Streamlit path. Add a small owner-scoped recorder that turns a promoted key into a `Screenshot` row (`trade_id`, `file_path`, `width`, `height`, `uploaded_at`).
+
+**This opens a partial-failure window that must be closed.** If the promote succeeds and the row write fails, the final object is both unreachable and **unsweepable** — `delete_trade_objects` resolves keys *from* `screenshots.file_path`, so an unrecorded final object is an orphan nothing can find or remove. On a row-write failure, delete the just-promoted final object before surfacing the error, and test that path explicitly. Rejected images return **422** with a plain message; a key outside the caller's prefix returns **404**.
 Tests: a valid PNG round-trips and produces a `screenshots` row whose `file_path` is under the owner's final prefix; **a forged key naming another owner's quarantine path is refused, and the test is built so ownership — not malformed input — is what causes the refusal** (Phase 3's review found exactly this test written the vacuous way); a non-image is 422; an oversized file is 422; a decompression bomb is 422; the promoted bytes differ from the uploaded bytes (proving re-encode, not copy); the quarantine object is gone afterwards.
 **Mutations:** remove the prefix re-derivation; skip `validate_and_normalise`. Both must fail named tests.
 
@@ -165,8 +171,10 @@ Tests: a valid PNG round-trips and produces a `screenshots` row whose `file_path
 Deletes a quarantine object the trader chose not to keep, or that failed validation. Owner-scoped and idempotent — a missing object is success. Never touches a final key.
 Tests: an owned quarantine key is removed; a key outside the caller's prefix issues **no delete call at all**; a second abandon succeeds; a final key is refused rather than deleted.
 
-**Task B4 — generalise `_is_final_key` beyond `.png`.**
-Carried from Phase 3 and now load-bearing: `_is_final_key` hardcodes `.png`, so a non-PNG final object would be *skipped* by `delete_trade_objects` — a privacy tail the moment normalization emits another format. Derive the accepted extension set from what `validate_and_normalise` can emit, in one place, so the two cannot drift.
+**Task B4 — single-source `_is_final_key`'s extension against what normalization emits.**
+Carried from Phase 3: `_is_final_key` hardcodes `.png`, so a non-PNG final object would be *skipped* by `delete_trade_objects` — a privacy tail the moment normalization emits another format. Derive the accepted extension set from what `validate_and_normalise` can emit, in one place, so the two cannot drift.
+
+**Scope note:** `validate_and_normalise` emits **only `image/png`** today, so the set has one entry. The value here is removing the drift risk, not adding formats — **do not add a second output format in this phase**; that is scope this plan does not authorise.
 Tests: a final key with each emittable extension is recognised; a key with an unexpected extension is not; `delete_trade_objects` reports a skipped key as **incomplete** (the Phase 3E rule that `complete` requires both `failed` and `skipped` empty must still hold).
 
 ### GROUP C — The dense form *(light review)*
