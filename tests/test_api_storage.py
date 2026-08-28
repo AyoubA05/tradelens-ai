@@ -660,9 +660,10 @@ def test_record_object_screenshot_writes_a_row_for_the_owner(two_users):
     )
     key = f"u/{a}/t/{mine.id}/00000000-0000-4000-8000-000000000000.png"
 
-    shot_id = screenshot_service.record_object_screenshot(
+    shot_id, uploaded_at = screenshot_service.record_object_screenshot(
         mine.id, key, user_id=a, width=3, height=2
     )
+    assert uploaded_at
 
     from src.tradelens.db.models import Screenshot
     from src.tradelens.db.session import SessionLocal

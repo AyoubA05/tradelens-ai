@@ -2136,3 +2136,261 @@ def test_the_presign_contract_covers_exactly_the_storage_allowlist():
     from src.tradelens.api.schemas.trades import ScreenshotContentType
 
     assert set(get_args(ScreenshotContentType)) == set(storage.ALLOWED_CONTENT_TYPES)
+
+
+# ------------------------------------ POST /v1/trades/{id}/screenshot/finalize
+
+
+def _finalize_path(trade_id):
+    return f"/v1/trades/{trade_id}/screenshot/finalize"
+
+
+def _png_bytes(size=(3, 2)):
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", size, "teal").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _quarantine_key(user_id, trade_id, name="uploaded"):
+    return f"quarantine/u/{user_id}/t/{trade_id}/{name}.png"
+
+
+def _screenshot_rows(trade_id):
+    from src.tradelens.db.models import Screenshot
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return db.query(Screenshot).filter(Screenshot.trade_id == trade_id).all()
+    finally:
+        db.close()
+
+
+def test_finalize_records_a_row_under_the_owners_final_prefix(
+    client, website_session_handle, monkeypatch
+):
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    key = _quarantine_key(user_id, trade.id)
+    fake = _FakeS3(objects={key: _png_bytes()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(client, handle, _finalize_path(trade.id), {"key": key})
+
+    assert r.status_code == 201
+    body = r.json()
+    assert body["width"] == 3 and body["height"] == 2
+    assert body["uploaded_at"], "the client shows when a screenshot was attached"
+
+    rows = _screenshot_rows(trade.id)
+    assert len(rows) == 1
+    assert rows[0].id == body["id"]
+    assert rows[0].file_path.startswith(f"u/{user_id}/t/{trade.id}/")
+    assert rows[0].file_path.endswith(".png")
+    # The quarantine object is gone: nothing untrusted is left in the bucket.
+    assert key in fake.deleted
+
+
+def test_finalize_promotes_re_encoded_bytes_not_the_uploaded_ones(
+    client, website_session_handle, monkeypatch
+):
+    """The bytes a viewer downloads are never the bytes that were uploaded.
+
+    A polyglot — a valid PNG with an appended payload — survives every header
+    check ever written and does not survive being decoded and written out
+    fresh. Asserting the promoted body DIFFERS from the upload is what proves
+    a re-encode happened rather than a copy.
+    """
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    key = _quarantine_key(user_id, trade.id)
+    uploaded = _png_bytes() + b"<script>payload</script>"
+    fake = _FakeS3(objects={key: uploaded})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(client, handle, _finalize_path(trade.id), {"key": key})
+
+    assert r.status_code == 201
+    promoted_key = _screenshot_rows(trade.id)[0].file_path
+    promoted = fake.puts[promoted_key]["Body"]
+    assert promoted != uploaded
+    assert b"<script>" not in promoted
+    assert fake.puts[promoted_key]["ContentType"] == "image/png"
+
+
+def test_finalize_refuses_a_key_naming_another_owners_quarantine(
+    client, website_session_handle, two_users, monkeypatch
+):
+    """Ownership — not malformed input — is what refuses this.
+
+    The trade IS the caller's, so `_owns_trade` passes. The key is perfectly
+    well-formed and the object exists in the fake bucket, so no downstream
+    gate (decode, size, extension) would reject it either. The ONLY thing that
+    can refuse it is `finalize_upload` re-deriving the caller's own quarantine
+    prefix and finding the key names user `other`'s. Remove that
+    re-derivation and this test promotes another tenant's bytes into the
+    caller's trade.
+    """
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    mine = _create(user_id)
+    forged = _quarantine_key(other, mine.id, "theirs")
+    fake = _FakeS3(objects={forged: _png_bytes()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(client, handle, _finalize_path(mine.id), {"key": forged})
+
+    assert r.status_code == 404
+    assert r.json() == {"detail": "trade not found"}
+    assert fake.gets == [], "a refused key must never be read from the bucket"
+    assert fake.puts == {}
+    assert _screenshot_rows(mine.id) == []
+
+
+def test_finalize_on_another_owners_trade_is_404(
+    client, website_session_handle, two_users, monkeypatch
+):
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    theirs = _create(other)
+    key = _quarantine_key(other, theirs.id)
+    fake = _FakeS3(objects={key: _png_bytes()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(client, handle, _finalize_path(theirs.id), {"key": key})
+
+    assert r.status_code == 404
+    assert fake.gets == []
+    assert _screenshot_rows(theirs.id) == []
+
+
+def test_finalize_refuses_a_non_image(client, website_session_handle, monkeypatch):
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    key = _quarantine_key(user_id, trade.id)
+    fake = _FakeS3(objects={key: b"<html><script>not a picture</script></html>"})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(client, handle, _finalize_path(trade.id), {"key": key})
+
+    assert r.status_code == 422
+    assert fake.puts == {}, "nothing untrusted may be promoted"
+    assert key in fake.deleted, "a rejected upload is discarded, not left behind"
+    assert _screenshot_rows(trade.id) == []
+
+
+def test_finalize_refuses_an_oversized_upload(
+    client, website_session_handle, monkeypatch
+):
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    key = _quarantine_key(user_id, trade.id)
+    fake = _FakeS3(objects={key: b"x" * (storage.MAX_UPLOAD_BYTES + 1)})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(client, handle, _finalize_path(trade.id), {"key": key})
+
+    assert r.status_code == 422
+    assert fake.puts == {}
+    assert _screenshot_rows(trade.id) == []
+
+
+def test_finalize_refuses_a_decompression_bomb(
+    client, website_session_handle, monkeypatch
+):
+    """A small file that expands into gigabytes of pixels. Refused on its
+    declared dimensions, before Pillow is asked to allocate them."""
+    import io
+
+    from PIL import Image
+
+    from src.tradelens.api import storage
+    from src.tradelens.api import imaging
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    key = _quarantine_key(user_id, trade.id)
+    bomb = io.BytesIO()
+    huge = imaging.MAX_DIMENSION + 1
+    Image.new("L", (huge, 1)).save(bomb, format="PNG")
+    fake = _FakeS3(objects={key: bomb.getvalue()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(client, handle, _finalize_path(trade.id), {"key": key})
+
+    assert r.status_code == 422
+    assert fake.puts == {}
+    assert _screenshot_rows(trade.id) == []
+
+
+def test_finalize_deletes_the_promoted_object_when_the_row_write_fails(
+    client, website_session_handle, monkeypatch
+):
+    """A promoted object with no screenshots row is unreachable AND unsweepable.
+
+    `delete_trade_objects` resolves keys FROM `screenshots.file_path`, so an
+    unrecorded final object is an orphan nothing can find or remove — strictly
+    worse than a quarantine orphan, which at least has no download path. The
+    promote must be undone before the error is surfaced.
+    """
+    from src.tradelens.api import storage
+    from src.tradelens.services import screenshot_service
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    key = _quarantine_key(user_id, trade.id)
+    fake = _FakeS3(objects={key: _png_bytes()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("database is unavailable")
+
+    monkeypatch.setattr(screenshot_service, "record_object_screenshot", _boom)
+
+    r = _post_signed(client, handle, _finalize_path(trade.id), {"key": key})
+
+    assert r.status_code == 503
+    assert _screenshot_rows(trade.id) == []
+    promoted = list(fake.puts)
+    assert len(promoted) == 1
+    assert promoted[0] in fake.deleted, (
+        "the promoted object must be removed before the error is surfaced, "
+        "or it is an orphan nothing can find"
+    )
+
+
+def test_finalize_rejects_a_body_carrying_anything_but_a_key(
+    client, website_session_handle, monkeypatch
+):
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(
+        client,
+        handle,
+        _finalize_path(trade.id),
+        {"key": _quarantine_key(user_id, trade.id), "width": 9999},
+    )
+
+    assert r.status_code == 422
+    assert fake.gets == []

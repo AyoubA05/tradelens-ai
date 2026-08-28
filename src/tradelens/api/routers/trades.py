@@ -24,6 +24,7 @@ from src.tradelens.api.routers.overview import _validated_period
 from src.tradelens.api.schemas.trades import (
     ScreenshotCleanupFailedResponse,
     ScreenshotDescriptor,
+    ScreenshotKeyRequest,
     ScreenshotPresignRequest,
     ScreenshotPresignResponse,
     TradeConflictResponse,
@@ -37,6 +38,7 @@ from src.tradelens.api.schemas.trades import (
     TradeSummaryJobStatus,
     TradeUpdate,
 )
+from src.tradelens.services import screenshot_service
 from src.tradelens.services.sessions import KILLZONE_LABELS
 from src.tradelens.services.trade_service import (
     compute_trade_hash,
@@ -552,3 +554,59 @@ def presign_screenshot_upload(
     except PermissionError:
         raise _not_found() from None
     return ScreenshotPresignResponse(**signed)
+
+
+@router.post(
+    "/trades/{trade_id}/screenshot/finalize",
+    status_code=status.HTTP_201_CREATED,
+)
+def finalize_screenshot_upload(
+    trade_id: int,
+    payload: ScreenshotKeyRequest,
+    user_id: int = Depends(current_user),
+) -> ScreenshotDescriptor:
+    """Validate a quarantined upload, promote re-encoded bytes, record the row.
+
+    The `key` in the body is a claim, never a location. `finalize_upload`
+    re-derives this owner's own quarantine prefix and refuses anything outside
+    it, so a forged key naming another tenant is a 404 that never reads a byte
+    from the bucket.
+
+    **The row write is what makes the promoted object reachable, and also what
+    makes it sweepable.** `delete_trade_objects` resolves keys FROM
+    `screenshots.file_path`, so a promoted object with no row is an orphan
+    nothing can find and nothing can remove — strictly worse than a quarantine
+    orphan, which at least has no download path. If the row write fails, the
+    just-promoted object is deleted before the error is surfaced, leaving the
+    bucket as it was and the retry safe.
+    """
+    try:
+        promoted = storage.finalize_upload(user_id, trade_id, payload.key)
+    except PermissionError:
+        raise _not_found() from None
+    except storage.UploadRejected as exc:
+        # A stable phrase, not a reason: telling a prober which check they
+        # failed hands them the shape of the validator.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    try:
+        screenshot_id, uploaded_at = screenshot_service.record_object_screenshot(
+            trade_id,
+            promoted["key"],
+            user_id=user_id,
+            width=promoted["width"],
+            height=promoted["height"],
+        )
+    except Exception:
+        storage.delete_owned_object(user_id, trade_id, promoted["key"])
+        raise HTTPException(
+            status_code=503, detail="the screenshot could not be attached"
+        ) from None
+
+    return ScreenshotDescriptor(
+        id=screenshot_id,
+        width=promoted["width"],
+        height=promoted["height"],
+        uploaded_at=uploaded_at,
+        url=storage.presign_download(user_id, screenshot_id),
+    )

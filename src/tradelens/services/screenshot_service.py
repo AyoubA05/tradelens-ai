@@ -111,16 +111,16 @@ def record_object_screenshot(
     user_id: int,
     width=None,
     height=None,
-) -> int:
+):
     """Record an already-promoted object-store key as a screenshots row.
 
     `save_screenshot` cannot serve the web path: it writes bytes to local disk
     for the Streamlit upload. Here the bytes already live in R2, re-encoded by
     `imaging.validate_and_normalise`, and only the row is missing.
 
-    Returns the new row's id rather than the ORM instance: the caller needs it
-    after the session closes, and a detached instance would raise the moment
-    anything touched a relationship.
+    Returns `(id, uploaded_at)` rather than the ORM instance: the caller needs
+    both after the session closes, and a detached instance would raise the
+    moment anything touched a relationship.
     """
     _require_owned_trade(trade_id, user_id)
     db: Session = SessionLocal()
@@ -135,7 +135,7 @@ def record_object_screenshot(
         db.add(record)
         db.commit()
         db.refresh(record)
-        return record.id
+        return record.id, record.uploaded_at
     except Exception:
         db.rollback()
         raise
