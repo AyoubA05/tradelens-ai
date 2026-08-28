@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import time
 from datetime import datetime, timezone
 
@@ -2155,8 +2156,12 @@ def _png_bytes(size=(3, 2)):
     return buf.getvalue()
 
 
-def _quarantine_key(user_id, trade_id, name="uploaded"):
-    return f"quarantine/u/{user_id}/t/{trade_id}/{name}.png"
+def _quarantine_key(user_id, trade_id, name=None):
+    # The server always names the object `<uuid4>.png`, and both finalize and
+    # abandon now enforce that shape, so a test key must have it too.
+    import uuid as _uuid
+
+    return f"quarantine/u/{user_id}/t/{trade_id}/{name or _uuid.uuid4()}.png"
 
 
 def _screenshot_objects(trade_id):
@@ -2244,7 +2249,7 @@ def test_finalize_refuses_a_key_naming_another_owners_quarantine(
     user_id, handle = website_session_handle
     other = next(u for u in two_users if u != user_id)
     mine = _create(user_id)
-    forged = _quarantine_key(other, mine.id, "theirs")
+    forged = _quarantine_key(other, mine.id)
     fake = _FakeS3(objects={forged: _png_bytes()})
     monkeypatch.setattr(storage, "_client", lambda: fake)
 
@@ -2375,6 +2380,98 @@ def test_finalize_deletes_the_promoted_object_when_the_row_write_fails(
     )
 
 
+def test_finalize_of_a_key_whose_object_is_gone_is_a_clear_4xx(
+    client, website_session_handle, monkeypatch
+):
+    """A stale key, a double finalize, or a retry after abandon.
+
+    The object store answers with a missing-key error, which used to escape as
+    a 500 and tell the trader nothing. It is a client-side situation: say the
+    upload is gone and that the trade is untouched, so retrying is obviously
+    safe.
+    """
+    from botocore.exceptions import ClientError
+
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    key = _quarantine_key(user_id, trade.id)
+
+    class _EmptyBucket(_FakeS3):
+        def get_object(self, Bucket=None, Key=None):
+            self.gets.append(Key)
+            raise ClientError(
+                {
+                    "Error": {"Code": "NoSuchKey"},
+                    "ResponseMetadata": {"HTTPStatusCode": 404},
+                },
+                "GetObject",
+            )
+
+    fake = _EmptyBucket()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(client, handle, _finalize_path(trade.id), {"key": key})
+
+    assert r.status_code == 409, "a missing upload is not a server fault"
+    detail = r.json()["detail"]
+    assert "no longer available" in detail
+    assert "unchanged" in detail, "nothing was lost from the trade itself"
+    assert fake.puts == {}
+    assert _screenshot_objects(trade.id) == []
+
+
+def test_finalize_still_answers_503_when_the_orphan_cleanup_also_fails(
+    client, website_session_handle, monkeypatch
+):
+    """The cleanup failing must not cost the trader a worse answer.
+
+    The row write failed, so the promoted object is already an orphan
+    `delete_trade_objects` can never reach. If the delete that is supposed to
+    undo the promote raises, the exception would replace the intended 503 with
+    a 500 — the trader is told "server error" for a situation whose answer is
+    the same either way, and the orphan is silent on top of it.
+    """
+    from src.tradelens.api import storage
+    from src.tradelens.services import screenshot_service
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    key = _quarantine_key(user_id, trade.id)
+
+    class _UndeletableFinal(_FakeS3):
+        def delete_object(self, Bucket=None, Key=None):
+            self.deleted.append(Key)
+            if not Key.startswith("quarantine/"):
+                raise RuntimeError("the object store is unavailable")
+
+    fake = _UndeletableFinal(objects={key: _png_bytes()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("database is unavailable")
+
+    monkeypatch.setattr(screenshot_service, "record_object_screenshot", _boom)
+
+    caplog_records = []
+    handler = logging.Handler()
+    handler.emit = caplog_records.append
+    logger = logging.getLogger("src.tradelens.api.routers.trades")
+    logger.addHandler(handler)
+    try:
+        r = _post_signed(client, handle, _finalize_path(trade.id), {"key": key})
+    finally:
+        logger.removeHandler(handler)
+
+    assert r.status_code == 503, "a failing cleanup must not become a 500"
+    assert r.json()["detail"] == "the screenshot could not be attached"
+    assert _screenshot_objects(trade.id) == []
+    assert any(
+        record.levelno >= logging.ERROR for record in caplog_records
+    ), "an unreachable orphan must be visible, not silent"
+
+
 def test_finalize_rejects_a_body_carrying_anything_but_a_key(
     client, website_session_handle, monkeypatch
 ):
@@ -2464,7 +2561,7 @@ def test_abandon_refuses_a_quarantine_key_naming_another_owner(
     user_id, handle = website_session_handle
     other = next(u for u in two_users if u != user_id)
     mine = _create(user_id)
-    forged = _quarantine_key(other, mine.id, "theirs")
+    forged = _quarantine_key(other, mine.id)
     fake = _FakeS3(objects={forged: _png_bytes()})
     monkeypatch.setattr(storage, "_client", lambda: fake)
 

@@ -710,3 +710,139 @@ def test_record_object_screenshot_refuses_another_owners_trade(two_users):
         assert db.query(Screenshot).count() == 0
     finally:
         db.close()
+
+
+# --------------------------------------- quarantine key shape and sweeping (M)
+
+
+def _trade_for(user_id):
+    return _create(
+        {
+            "user_id": user_id,
+            "trade_date": "2026-08-12",
+            "asset": "NQ",
+            "result": "Win",
+            "pnl": 1.0,
+        }
+    )
+
+
+TRAVERSAL_SUFFIX = "../../../../u/999999/t/9/00000000-0000-4000-8000-000000000000.png"
+
+
+def test_finalize_refuses_a_traversal_key_under_the_callers_own_prefix(
+    two_users, monkeypatch
+):
+    """A `startswith` gate is not a gate.
+
+    The key begins with the caller's own quarantine prefix, so a prefix check
+    passes it, and the trade is the caller's, so ownership passes it too. What
+    follows the prefix walks back out into another tenant's namespace, and
+    botocore sends the `..` segments literally: whether they resolve is the
+    object store's decision, not ours. Nothing may be read, written or deleted
+    on the strength of it.
+    """
+    a, _ = two_users
+    mine = _trade_for(a)
+    forged = f"quarantine/u/{a}/t/{mine.id}/{TRAVERSAL_SUFFIX}"
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    with pytest.raises(PermissionError):
+        storage.finalize_upload(a, mine.id, forged)
+
+    assert fake.gets == [], "a traversal key must never be read from the bucket"
+    assert fake.puts == {}
+    assert fake.deleted == []
+
+
+def test_abandon_refuses_a_traversal_key_under_the_callers_own_prefix(
+    two_users, monkeypatch
+):
+    """Same forgery, and here a delete of an arbitrary key would just succeed."""
+    a, _ = two_users
+    mine = _trade_for(a)
+    forged = f"quarantine/u/{a}/t/{mine.id}/{TRAVERSAL_SUFFIX}"
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    with pytest.raises(PermissionError):
+        storage.abandon_upload(a, mine.id, forged)
+
+    assert fake.deleted == [], "a refused key must issue no delete at all"
+
+
+def test_finalize_refuses_the_callers_own_prefix_naming_another_owners_trade(
+    two_users, monkeypatch
+):
+    """Only `_owns_trade` can refuse this shape.
+
+    The key is under the CALLER's own `u/<me>/` prefix and is perfectly
+    well-formed, so re-deriving the prefix passes it — the trade id inside it
+    belongs to someone else. Remove the `_owns_trade` check from
+    `finalize_upload` and this call reads and promotes bytes for a trade the
+    caller has no claim to.
+    """
+    a, b = two_users
+    theirs = _trade_for(b)
+    key = f"quarantine/u/{a}/t/{theirs.id}/00000000-0000-4000-8000-000000000000.png"
+    fake = _FakeS3(objects={key: _png()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    with pytest.raises(PermissionError):
+        storage.finalize_upload(a, theirs.id, key)
+
+    assert fake.gets == []
+    assert fake.puts == {}
+
+
+def test_finalize_discards_quarantine_when_the_promote_itself_faults(
+    two_users, monkeypatch
+):
+    """The one path where nothing else ever sweeps.
+
+    A `put_object` fault skips both the rejection discard and the success
+    discard. The leftover has no `screenshots` row, so `delete_trade_objects`
+    cannot see it, and the client has already errored out — so if finalize
+    does not clear it here, nothing ever will.
+    """
+    a, _ = two_users
+    mine = _trade_for(a)
+    upload_key = f"quarantine/u/{a}/t/{mine.id}/44444444-4444-4444-8444-444444444444.png"
+
+    class _FaultyPut(_FakeS3):
+        def put_object(self, Bucket=None, Key=None, **kwargs):
+            raise _client_error("InternalError", 500)
+
+    fake = _FaultyPut(objects={upload_key: _png()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    with pytest.raises(Exception):
+        storage.finalize_upload(a, mine.id, upload_key)
+
+    assert upload_key in fake.deleted
+
+
+def test_finalize_reports_a_missing_quarantine_object_as_missing(
+    two_users, monkeypatch
+):
+    """A stale key, a double finalize, or a retry after abandon.
+
+    None of those are server faults, and none are "these bytes are not an
+    image" either, so they get their own signal the router can turn into
+    something the trader can act on.
+    """
+    a, _ = two_users
+    mine = _trade_for(a)
+    upload_key = f"quarantine/u/{a}/t/{mine.id}/55555555-5555-4555-8555-555555555555.png"
+
+    class _EmptyBucket(_FakeS3):
+        def get_object(self, Bucket=None, Key=None):
+            self.gets.append(Key)
+            raise _client_error("NoSuchKey", 404)
+
+    fake = _EmptyBucket()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    with pytest.raises(storage.UploadMissing):
+        storage.finalize_upload(a, mine.id, upload_key)
