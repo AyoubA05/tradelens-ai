@@ -192,7 +192,7 @@ export function NewTradeForm() {
           The trade is recorded exactly as you entered it — nothing was lost. Only the chart image
           failed to upload.
         </p>
-        <p className="mt-2 max-w-md text-sm text-negative">{screenshotProblem}</p>
+        <p className="mt-2 max-w-md break-words text-sm text-negative">{screenshotProblem}</p>
         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
           <button
             type="button"
@@ -237,18 +237,18 @@ export function NewTradeForm() {
           exists. Nothing new was created — this is a post-trade journal, not a place for
           duplicates.
         </p>
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
           <button
             type="button"
             onClick={() => router.push(`/app/trades/${duplicateOf}`)}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition-colors duration-150 ease-tl hover:bg-accent/90"
+            className="min-h-[44px] rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition-colors duration-150 ease-tl hover:bg-accent/90"
           >
             View existing trade
           </button>
           <button
             type="button"
             onClick={() => setDuplicateOf(null)}
-            className="rounded-lg border border-line-strong px-4 py-2 text-sm text-text transition-colors duration-150 ease-tl hover:bg-surface-2"
+            className="min-h-[44px] rounded-lg border border-line-strong px-4 py-2 text-sm text-text transition-colors duration-150 ease-tl hover:bg-surface-2"
           >
             Edit and try again
           </button>
@@ -677,7 +677,7 @@ export function NewTradeForm() {
 
       {/* Completeness warnings — never blocking (global rule 5) */}
       {warnings.length > 0 && (
-        <div className="rounded-xl border border-line bg-surface-2/50 px-4 py-3 text-sm text-muted">
+        <div className="break-words rounded-xl border border-line bg-surface-2/50 px-4 py-3 text-sm text-muted">
           <p className="font-medium text-text">A thin record is allowed. This would help:</p>
           <ul className="mt-1 list-inside list-disc">
             {warnings.map((w) => (
@@ -689,7 +689,7 @@ export function NewTradeForm() {
 
       {/* Client-side errors — courtesy only; the server is the real gate */}
       {errors.length > 0 && (
-        <div role="alert" className="rounded-xl border border-negative/30 bg-negative/5 px-4 py-3 text-sm text-negative">
+        <div role="alert" className="break-words rounded-xl border border-negative/30 bg-negative/5 px-4 py-3 text-sm text-negative">
           <ul className="list-inside list-disc">
             {errors.map((e) => (
               <li key={e}>{e}</li>
@@ -698,7 +698,7 @@ export function NewTradeForm() {
         </div>
       )}
       {submitError && (
-        <p role="alert" className="text-sm text-negative">
+        <p role="alert" className="break-words text-sm text-negative">
           {submitError}
         </p>
       )}
@@ -707,7 +707,7 @@ export function NewTradeForm() {
         <button
           type="submit"
           disabled={submitting}
-          className="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-bg transition-colors duration-150 ease-tl hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
+          className="min-h-[44px] w-full rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-bg sm:w-auto transition-colors duration-150 ease-tl hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {submitting ? "Saving…" : "Save trade"}
         </button>
