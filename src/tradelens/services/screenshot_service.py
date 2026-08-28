@@ -102,3 +102,42 @@ def save_screenshot_url(trade_id: int, url: str, *, user_id: int) -> Screenshot:
         raise
     finally:
         db.close()
+
+
+def record_object_screenshot(
+    trade_id: int,
+    file_path: str,
+    *,
+    user_id: int,
+    width=None,
+    height=None,
+) -> int:
+    """Record an already-promoted object-store key as a screenshots row.
+
+    `save_screenshot` cannot serve the web path: it writes bytes to local disk
+    for the Streamlit upload. Here the bytes already live in R2, re-encoded by
+    `imaging.validate_and_normalise`, and only the row is missing.
+
+    Returns the new row's id rather than the ORM instance: the caller needs it
+    after the session closes, and a detached instance would raise the moment
+    anything touched a relationship.
+    """
+    _require_owned_trade(trade_id, user_id)
+    db: Session = SessionLocal()
+    try:
+        record = Screenshot(
+            trade_id=trade_id,
+            file_path=str(file_path),
+            width=width,
+            height=height,
+            uploaded_at=datetime.now(timezone.utc).isoformat(),
+        )
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        return record.id
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()

@@ -504,7 +504,9 @@ def test_an_extension_normalisation_never_emits_is_not_a_final_key():
     So a stored `.jpg` final key names something `finalize_upload` cannot have
     written, and must not be treated as this owner's object to delete.
     """
-    unexpected = set(storage.ALLOWED_CONTENT_TYPES.values()) - storage.FINAL_KEY_EXTENSIONS
+    unexpected = (
+        set(storage.ALLOWED_CONTENT_TYPES.values()) - storage.FINAL_KEY_EXTENSIONS
+    )
     assert unexpected, "the test needs at least one non-emitted extension"
     for extension in unexpected:
         key = f"u/3/t/9/00000000-0000-4000-8000-000000000000.{extension}"
@@ -545,3 +547,163 @@ def test_delete_trade_objects_reports_an_unemittable_extension_as_incomplete(
     assert cleanup.skipped == [stray]
     assert fake.deleted == []
     assert cleanup.complete is False
+
+
+# ------------------------------------------------------ abandon_upload (B3)
+
+
+def test_abandon_removes_an_owned_quarantine_object(two_users, monkeypatch):
+    a, _ = two_users
+    mine = _create(
+        {
+            "user_id": a,
+            "trade_date": "2026-08-12",
+            "asset": "NQ",
+            "result": "Win",
+            "pnl": 1.0,
+        }
+    )
+    key = f"quarantine/u/{a}/t/{mine.id}/00000000-0000-4000-8000-000000000000.png"
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    assert storage.abandon_upload(a, mine.id, key) is True
+    assert fake.deleted == [key]
+    # Idempotent: the object being gone already IS the desired end state.
+    assert storage.abandon_upload(a, mine.id, key) is True
+
+
+def test_abandon_refuses_a_quarantine_key_naming_another_owner(two_users, monkeypatch):
+    """Ownership, not malformed input, is what refuses this.
+
+    The trade IS the caller's and the key is perfectly well-formed — it simply
+    names user `b`'s quarantine prefix. Nothing downstream can reject it, so
+    the prefix re-derivation is the only thing standing between a forged key
+    and a cross-tenant delete.
+    """
+    a, b = two_users
+    mine = _create(
+        {
+            "user_id": a,
+            "trade_date": "2026-08-12",
+            "asset": "NQ",
+            "result": "Win",
+            "pnl": 1.0,
+        }
+    )
+    forged = f"quarantine/u/{b}/t/{mine.id}/00000000-0000-4000-8000-000000000000.png"
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    with pytest.raises(PermissionError):
+        storage.abandon_upload(a, mine.id, forged)
+    assert fake.deleted == [], "a refused key must issue no delete call at all"
+
+
+def test_abandon_never_touches_a_final_key(two_users, monkeypatch):
+    """Abandon exists to drop quarantine. A final key is a promoted, recorded
+    object; deleting it here would erase a screenshot the trader kept."""
+    a, _ = two_users
+    mine = _create(
+        {
+            "user_id": a,
+            "trade_date": "2026-08-12",
+            "asset": "NQ",
+            "result": "Win",
+            "pnl": 1.0,
+        }
+    )
+    final = f"u/{a}/t/{mine.id}/00000000-0000-4000-8000-000000000000.png"
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    with pytest.raises(PermissionError):
+        storage.abandon_upload(a, mine.id, final)
+    assert fake.deleted == []
+
+
+def test_abandon_refuses_a_trade_the_caller_does_not_own(two_users, monkeypatch):
+    a, b = two_users
+    theirs = _create(
+        {
+            "user_id": b,
+            "trade_date": "2026-08-12",
+            "asset": "NQ",
+            "result": "Win",
+            "pnl": 1.0,
+        }
+    )
+    key = f"quarantine/u/{a}/t/{theirs.id}/00000000-0000-4000-8000-000000000000.png"
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    with pytest.raises(PermissionError):
+        storage.abandon_upload(a, theirs.id, key)
+    assert fake.deleted == []
+
+
+# ------------------------------------------- recording a promoted object (B2)
+
+
+def test_record_object_screenshot_writes_a_row_for_the_owner(two_users):
+    from src.tradelens.services import screenshot_service
+
+    a, _ = two_users
+    mine = _create(
+        {
+            "user_id": a,
+            "trade_date": "2026-08-12",
+            "asset": "NQ",
+            "result": "Win",
+            "pnl": 1.0,
+        }
+    )
+    key = f"u/{a}/t/{mine.id}/00000000-0000-4000-8000-000000000000.png"
+
+    shot_id = screenshot_service.record_object_screenshot(
+        mine.id, key, user_id=a, width=3, height=2
+    )
+
+    from src.tradelens.db.models import Screenshot
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        row = db.query(Screenshot).filter(Screenshot.id == shot_id).one()
+        assert row.file_path == key
+        assert (row.width, row.height) == (3, 2)
+        assert row.uploaded_at
+    finally:
+        db.close()
+
+
+def test_record_object_screenshot_refuses_another_owners_trade(two_users):
+    """The trade belongs to `b` and the key is well-formed for `a`, so the
+    ownership lookup is the only thing that can refuse this."""
+    from src.tradelens.services import screenshot_service
+
+    a, b = two_users
+    theirs = _create(
+        {
+            "user_id": b,
+            "trade_date": "2026-08-12",
+            "asset": "NQ",
+            "result": "Win",
+            "pnl": 1.0,
+        }
+    )
+    key = f"u/{a}/t/{theirs.id}/00000000-0000-4000-8000-000000000000.png"
+
+    with pytest.raises(PermissionError):
+        screenshot_service.record_object_screenshot(
+            theirs.id, key, user_id=a, width=3, height=2
+        )
+
+    from src.tradelens.db.models import Screenshot
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        assert db.query(Screenshot).count() == 0
+    finally:
+        db.close()

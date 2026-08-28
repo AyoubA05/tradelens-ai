@@ -257,6 +257,30 @@ def finalize_upload(user_id: int, trade_id: int, upload_key: str) -> dict:
     }
 
 
+def abandon_upload(user_id: int, trade_id: int, upload_key: str) -> bool:
+    """Drop a quarantine object the trader chose not to keep.
+
+    The supplied key is a claim. Ownership of the trade is checked and the
+    caller's own quarantine prefix is re-derived, so a well-formed key naming
+    another owner is refused before any delete is issued — nothing downstream
+    would catch it, because a delete of an arbitrary key succeeds.
+
+    A FINAL key is refused too: it does not sit under the quarantine prefix,
+    and a promoted object is a screenshot the trader kept. Idempotent — an
+    object that is already gone is the desired end state, so a second abandon
+    is success rather than an error a retrying client can never clear.
+    """
+    owner = require_user_id(user_id)
+    if not _owns_trade(owner, trade_id):
+        raise PermissionError("upload not found")
+    prefix = _expected_prefix(owner, trade_id, quarantine=True)
+    if not isinstance(upload_key, str) or not upload_key.startswith(prefix):
+        raise PermissionError("upload not found")
+
+    _client().delete_object(Bucket=r2_config()["bucket"], Key=upload_key)
+    return True
+
+
 def delete_owned_object(user_id: int, trade_id: int, key: str) -> bool:
     """Delete one normalized object only when its owner/trade prefix matches."""
     owner = require_user_id(user_id)
