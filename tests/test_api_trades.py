@@ -2159,7 +2159,7 @@ def _quarantine_key(user_id, trade_id, name="uploaded"):
     return f"quarantine/u/{user_id}/t/{trade_id}/{name}.png"
 
 
-def _screenshot_rows(trade_id):
+def _screenshot_objects(trade_id):
     from src.tradelens.db.models import Screenshot
     from src.tradelens.db.session import SessionLocal
 
@@ -2188,7 +2188,7 @@ def test_finalize_records_a_row_under_the_owners_final_prefix(
     assert body["width"] == 3 and body["height"] == 2
     assert body["uploaded_at"], "the client shows when a screenshot was attached"
 
-    rows = _screenshot_rows(trade.id)
+    rows = _screenshot_objects(trade.id)
     assert len(rows) == 1
     assert rows[0].id == body["id"]
     assert rows[0].file_path.startswith(f"u/{user_id}/t/{trade.id}/")
@@ -2219,7 +2219,7 @@ def test_finalize_promotes_re_encoded_bytes_not_the_uploaded_ones(
     r = _post_signed(client, handle, _finalize_path(trade.id), {"key": key})
 
     assert r.status_code == 201
-    promoted_key = _screenshot_rows(trade.id)[0].file_path
+    promoted_key = _screenshot_objects(trade.id)[0].file_path
     promoted = fake.puts[promoted_key]["Body"]
     assert promoted != uploaded
     assert b"<script>" not in promoted
@@ -2254,7 +2254,7 @@ def test_finalize_refuses_a_key_naming_another_owners_quarantine(
     assert r.json() == {"detail": "trade not found"}
     assert fake.gets == [], "a refused key must never be read from the bucket"
     assert fake.puts == {}
-    assert _screenshot_rows(mine.id) == []
+    assert _screenshot_objects(mine.id) == []
 
 
 def test_finalize_on_another_owners_trade_is_404(
@@ -2273,7 +2273,7 @@ def test_finalize_on_another_owners_trade_is_404(
 
     assert r.status_code == 404
     assert fake.gets == []
-    assert _screenshot_rows(theirs.id) == []
+    assert _screenshot_objects(theirs.id) == []
 
 
 def test_finalize_refuses_a_non_image(client, website_session_handle, monkeypatch):
@@ -2290,7 +2290,7 @@ def test_finalize_refuses_a_non_image(client, website_session_handle, monkeypatc
     assert r.status_code == 422
     assert fake.puts == {}, "nothing untrusted may be promoted"
     assert key in fake.deleted, "a rejected upload is discarded, not left behind"
-    assert _screenshot_rows(trade.id) == []
+    assert _screenshot_objects(trade.id) == []
 
 
 def test_finalize_refuses_an_oversized_upload(
@@ -2308,7 +2308,7 @@ def test_finalize_refuses_an_oversized_upload(
 
     assert r.status_code == 422
     assert fake.puts == {}
-    assert _screenshot_rows(trade.id) == []
+    assert _screenshot_objects(trade.id) == []
 
 
 def test_finalize_refuses_a_decompression_bomb(
@@ -2336,7 +2336,7 @@ def test_finalize_refuses_a_decompression_bomb(
 
     assert r.status_code == 422
     assert fake.puts == {}
-    assert _screenshot_rows(trade.id) == []
+    assert _screenshot_objects(trade.id) == []
 
 
 def test_finalize_deletes_the_promoted_object_when_the_row_write_fails(
@@ -2366,7 +2366,7 @@ def test_finalize_deletes_the_promoted_object_when_the_row_write_fails(
     r = _post_signed(client, handle, _finalize_path(trade.id), {"key": key})
 
     assert r.status_code == 503
-    assert _screenshot_rows(trade.id) == []
+    assert _screenshot_objects(trade.id) == []
     promoted = list(fake.puts)
     assert len(promoted) == 1
     assert promoted[0] in fake.deleted, (
