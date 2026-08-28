@@ -180,7 +180,9 @@ def test_finalize_reencodes_then_deletes_the_untrusted_object(two_users, monkeyp
             "pnl": 1.0,
         }
     )
-    upload_key = f"quarantine/u/{a}/t/{mine.id}/11111111-1111-4111-8111-111111111111.png"
+    upload_key = (
+        f"quarantine/u/{a}/t/{mine.id}/11111111-1111-4111-8111-111111111111.png"
+    )
     poisoned = _png() + b"<script>payload</script>"
     fake = _FakeS3(objects={upload_key: poisoned})
     monkeypatch.setattr(storage, "_client", lambda: fake)
@@ -208,7 +210,9 @@ def test_finalize_enforces_the_real_size_cap_and_discards_quarantine(
             "pnl": 1.0,
         }
     )
-    upload_key = f"quarantine/u/{a}/t/{mine.id}/22222222-2222-4222-8222-222222222222.png"
+    upload_key = (
+        f"quarantine/u/{a}/t/{mine.id}/22222222-2222-4222-8222-222222222222.png"
+    )
     fake = _FakeS3(objects={upload_key: b"x" * (storage.MAX_UPLOAD_BYTES + 1)})
     monkeypatch.setattr(storage, "_client", lambda: fake)
 
@@ -808,7 +812,9 @@ def test_finalize_discards_quarantine_when_the_promote_itself_faults(
     """
     a, _ = two_users
     mine = _trade_for(a)
-    upload_key = f"quarantine/u/{a}/t/{mine.id}/44444444-4444-4444-8444-444444444444.png"
+    upload_key = (
+        f"quarantine/u/{a}/t/{mine.id}/44444444-4444-4444-8444-444444444444.png"
+    )
 
     class _FaultyPut(_FakeS3):
         def put_object(self, Bucket=None, Key=None, **kwargs):
@@ -834,7 +840,9 @@ def test_finalize_reports_a_missing_quarantine_object_as_missing(
     """
     a, _ = two_users
     mine = _trade_for(a)
-    upload_key = f"quarantine/u/{a}/t/{mine.id}/55555555-5555-4555-8555-555555555555.png"
+    upload_key = (
+        f"quarantine/u/{a}/t/{mine.id}/55555555-5555-4555-8555-555555555555.png"
+    )
 
     class _EmptyBucket(_FakeS3):
         def get_object(self, Bucket=None, Key=None):

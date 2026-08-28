@@ -108,9 +108,7 @@ def _expected_prefix(user_id: int, trade_id: int, *, quarantine: bool) -> str:
     return f"quarantine/{base}" if quarantine else base
 
 
-def _is_scoped_key(
-    key: object, prefix: str, allowed_extensions: frozenset
-) -> bool:
+def _is_scoped_key(key: object, prefix: str, allowed_extensions: frozenset) -> bool:
     """Whether `key` is exactly `<prefix><uuid4>.<ext>` and nothing else.
 
     A `startswith` check alone is NOT enough, and this is the single reason
