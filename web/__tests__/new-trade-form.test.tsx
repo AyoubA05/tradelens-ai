@@ -1,0 +1,113 @@
+import "@testing-library/jest-dom/vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const push = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+
+import { NewTradeForm } from "@/components/app/new-trade/new-trade-form";
+
+function fetchOkOnce(body: unknown, status = 200) {
+  return vi.fn().mockResolvedValue({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  });
+}
+
+beforeEach(() => {
+  push.mockReset();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+/**
+ * Task C2 — the dense New Trade form.
+ *
+ * These tests cover: it renders every group visible at once (no wizard),
+ * client validation surfaces the P&L/outcome contradiction inline without
+ * blocking submit, completeness warnings are non-blocking, a successful
+ * create navigates to the new trade, and a duplicate (`duplicate_of`) is
+ * shown as "already logged," never as an error.
+ */
+describe("NewTradeForm", () => {
+  it("renders every section at once — no wizard, no step indicator", () => {
+    render(<NewTradeForm />);
+    expect(screen.getByText("Chart")).toBeInTheDocument();
+    expect(screen.getByText("When and what")).toBeInTheDocument();
+    expect(screen.getByText("Setup and evidence")).toBeInTheDocument();
+    expect(screen.getByText("Risk and outcome")).toBeInTheDocument();
+    expect(screen.getByText("Reflection")).toBeInTheDocument();
+    expect(screen.queryByText(/step \d of \d/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a P&L/result contradiction inline, mirroring canonical_outcome, without disabling submit", () => {
+    render(<NewTradeForm />);
+    fireEvent.change(screen.getByPlaceholderText("e.g., 250.00"), { target: { value: "250" } });
+    fireEvent.change(screen.getByLabelText("Result"), { target: { value: "Loss" } });
+
+    expect(screen.getByRole("alert", { name: "" })).toBeInTheDocument();
+    expect(screen.getByText(/doesn't match/i)).toBeInTheDocument();
+    // Courtesy only — never the only gate (global rule 4).
+    expect(screen.getByRole("button", { name: /save trade/i })).not.toBeDisabled();
+  });
+
+  it("shows completeness warnings without blocking submit (global rule 5)", () => {
+    render(<NewTradeForm />);
+    expect(screen.getByText(/thin record is allowed/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save trade/i })).not.toBeDisabled();
+  });
+
+  it("submits the built payload and navigates to the created trade", async () => {
+    const fetchMock = fetchOkOnce({ id: 99, duplicate_of: null });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<NewTradeForm />);
+    fireEvent.change(screen.getByLabelText("Asset"), { target: { value: "NQ" } });
+    fireEvent.change(screen.getByPlaceholderText(/09:30/), { target: { value: "09:30" } });
+    fireEvent.click(screen.getByRole("button", { name: /save trade/i }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/app/trades/99"));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/trades/create");
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body.asset).toBe("NQ");
+  });
+
+  it("shows a duplicate as 'already logged', not as an error, and creates nothing new", async () => {
+    vi.stubGlobal("fetch", fetchOkOnce({ id: 7, duplicate_of: 7 }));
+
+    render(<NewTradeForm />);
+    fireEvent.change(screen.getByLabelText("Asset"), { target: { value: "NQ" } });
+    fireEvent.change(screen.getByPlaceholderText(/09:30/), { target: { value: "09:30" } });
+    fireEvent.click(screen.getByRole("button", { name: /save trade/i }));
+
+    await waitFor(() => expect(screen.getByText(/already logged/i)).toBeInTheDocument());
+    expect(push).not.toHaveBeenCalled();
+    expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
+  });
+
+  it("reports a failed save plainly and never navigates", async () => {
+    vi.stubGlobal(
+      "fetch",
+      fetchOkOnce({ ok: false, detail: "trade_date must not be in the future" }, 422),
+    );
+
+    render(<NewTradeForm />);
+    fireEvent.click(screen.getByRole("button", { name: /save trade/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/trade_date must not be in the future/i)).toBeInTheDocument(),
+    );
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("reveals the custom asset field only when 'Other / Custom' is picked", () => {
+    render(<NewTradeForm />);
+    expect(screen.queryByLabelText("Custom asset")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Asset"), { target: { value: "Other / Custom" } });
+    expect(screen.getByLabelText("Custom asset")).toBeInTheDocument();
+  });
+});

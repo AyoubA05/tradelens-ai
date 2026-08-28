@@ -72,6 +72,55 @@ export interface NewTradeFieldDef {
   readonly clientValidation: string;
 }
 
+// Futures + forex only (Item 5 in the Streamlit form's own history — crypto
+// stays recognisable to the classifier for legacy rows but is no longer
+// offered on New Trade). Mirrors `src/tradelens/services/assets.py`'s
+// `FUTURES`/`FOREX`/`OTHER`; that file has no HTTP endpoint of its own, so
+// this list is a deliberate, reviewable copy rather than a live fetch.
+export const OTHER_ASSET = "Other / Custom";
+export const ASSET_OPTIONS = [
+  "NQ",
+  "MNQ",
+  "ES",
+  "MES",
+  "YM",
+  "MYM",
+  "RTY",
+  "M2K",
+  "CL",
+  "MCL",
+  "GC",
+  "MGC",
+  "SI",
+  "HG",
+  "NG",
+  "ZB",
+  "ZN",
+  "6E",
+  "6B",
+  "6J",
+  "6A",
+  "6C",
+  "6S",
+  "EURUSD",
+  "GBPUSD",
+  "USDJPY",
+  "USDCHF",
+  "USDCAD",
+  "AUDUSD",
+  "NZDUSD",
+  "EURJPY",
+  "GBPJPY",
+  "EURGBP",
+  "EURAUD",
+  "EURCAD",
+  "AUDJPY",
+  "CADJPY",
+  "XAUUSD",
+  "XAGUSD",
+  OTHER_ASSET,
+] as const;
+
 export const TIMEFRAME_OPTIONS = ["1m", "5m", "15m", "1H", "4H", "D"] as const;
 export const BIAS_OPTIONS = ["Bullish", "Bearish", "Consolidation"] as const;
 export const RESULT_OPTIONS = ["Win", "Loss", "Breakeven"] as const;

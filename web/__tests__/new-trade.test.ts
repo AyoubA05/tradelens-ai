@@ -1,19 +1,8 @@
 import "@testing-library/jest-dom/vitest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const callApi = vi.fn();
-vi.mock("@/lib/api/client", () => ({
-  callApi: (...a: unknown[]) => callApi(...a),
-  ApiError: class ApiError extends Error {
-    constructor(readonly status: number) {
-      super(`api request failed with status ${status}`);
-    }
-  },
-}));
+import { describe, expect, it } from "vitest";
 
 import {
   buildTradeCreatePayload,
-  createTrade,
   emptyNewTradeFormValues,
   parseEntryTime,
   parsePrice,
@@ -21,11 +10,9 @@ import {
   validateNewTrade,
   type NewTradeFormValues,
 } from "@/lib/app/new-trade";
-import { ApiError } from "@/lib/api/client";
 
 const OTHER = "Other / Custom";
 
-beforeEach(() => callApi.mockReset());
 
 describe("parsePrice", () => {
   it("keeps exact decimals a number_input would round", () => {
@@ -175,24 +162,5 @@ describe("buildTradeCreatePayload — folds form fields into TradeCreate", () =>
     expect(payload.session).toBeNull();
     expect(payload.killzone).toBeNull();
     expect(payload.asset_class).toBeNull();
-  });
-});
-
-describe("createTrade", () => {
-  it("POSTs the payload and returns the response untouched", async () => {
-    const response = { id: 1, duplicate_of: null };
-    callApi.mockResolvedValue(response);
-    const payload = buildTradeCreatePayload(values(), OTHER);
-    await expect(createTrade("tok", payload)).resolves.toBe(response);
-    const [path, token, init] = callApi.mock.calls[0];
-    expect(path).toBe("/v1/trades");
-    expect(token).toBe("tok");
-    expect(init).toEqual({ method: "POST", body: payload });
-  });
-
-  it("lets a 422 outcome-mismatch the client missed propagate — the server is the real gate", async () => {
-    callApi.mockRejectedValueOnce(new ApiError(422));
-    const payload = buildTradeCreatePayload(values(), OTHER);
-    await expect(createTrade("tok", payload)).rejects.toMatchObject({ status: 422 });
   });
 });

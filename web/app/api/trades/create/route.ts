@@ -8,7 +8,8 @@ import {
 } from "@/lib/auth/session";
 import { isSameOriginRequest } from "@/lib/security/redirect";
 import { ApiError } from "@/lib/api/client";
-import { createTrade, type TradeCreate } from "@/lib/app/new-trade";
+import { createTrade } from "@/lib/app/new-trade-create";
+import type { TradeCreate } from "@/lib/app/new-trade";
 
 /**
  * The one bridge the New Trade Client Component has to FastAPI's

@@ -1,13 +1,19 @@
-import "server-only";
-
-import { callApi } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
 import { FOLLOWED_RULES_OPTIONS, RESULT_OPTIONS } from "@/lib/app/new-trade-fields";
 
 /**
- * New Trade: the form's own values, the fold into `TradeCreate`, client-side
- * validation (courtesy only — see design-decisions.md #7 and
- * global-constraints.md), and the server call.
+ * New Trade: the form's own values, the fold into `TradeCreate`, and
+ * client-side validation (courtesy only — see design-decisions.md #7 and
+ * global-constraints.md).
+ *
+ * Deliberately NOT `server-only`: `NewTradeForm` (a Client Component) needs
+ * `buildTradeCreatePayload`/`validateNewTrade` to run in the browser for
+ * live inline feedback. The actual `POST /v1/trades` call — the one thing
+ * that needs `callApi` and the service secret — lives in
+ * `new-trade-create.ts`, a separate `server-only` module the API route
+ * imports instead. Splitting it this way is what keeps a `server-only`
+ * import from ever reaching this file's Client Component importers, the
+ * exact fault a combined module hits at build time.
  *
  * `TradeCreate` is Group A's positive allowlist for `POST /v1/trades`
  * (`src/tradelens/api/schemas/trades.py`); it is read from the generated
@@ -287,26 +293,4 @@ export function buildTradeCreatePayload(
     notes: noteLines.join("\n") || null,
     trade_process_notes: values.processNotes.trim() || null,
   };
-}
-
-/**
- * Create a trade for the authenticated owner.
- *
- * Same boundary as `createTrade`'s siblings in `trades.ts`: the session
- * token is forwarded, ownership is resolved API-side. A submit whose
- * fingerprint matches an existing trade returns 200 with `duplicate_of` set
- * rather than a second row (design decision #5) — that is not an error, and
- * this function does not treat it as one; the caller reads `duplicate_of`.
- * A P&L/result contradiction the client-side check missed still comes back
- * as `ApiError(422)`, which this function does not catch — the server's
- * `canonical_outcome` is the actual gate (design decision, global rule 4).
- */
-export async function createTrade(
-  sessionToken: string,
-  payload: TradeCreate,
-): Promise<TradeCreateResponse> {
-  return callApi<TradeCreateResponse>("/v1/trades", sessionToken, {
-    method: "POST",
-    body: payload,
-  });
 }

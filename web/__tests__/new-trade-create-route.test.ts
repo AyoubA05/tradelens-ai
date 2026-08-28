@@ -14,8 +14,8 @@ const { createTrade, authenticateSessionToken } = vi.hoisted(() => ({
   authenticateSessionToken: vi.fn(),
 }));
 
-vi.mock("@/lib/app/new-trade", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/app/new-trade")>();
+vi.mock("@/lib/app/new-trade-create", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/app/new-trade-create")>();
   return { ...actual, createTrade };
 });
 
