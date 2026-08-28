@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session, selectinload
 
 from src.tradelens.db.models import AIAnalysis, Correction, Screenshot, Trade
 from src.tradelens.db.session import SessionLocal
+from src.tradelens.services.app_settings import get_timezone
 from src.tradelens.services.assets import detect_asset_class
 from src.tradelens.services.ownership import require_user_id
+from src.tradelens.services.sessions import detect_killzone, detect_session
 from src.tradelens.services.trade_validation import canonical_outcome, is_blank
 
 
@@ -153,6 +155,24 @@ def create_trade(trade_data: dict, *, user_id: int) -> Trade:
             data["day_of_week"] = dt.strftime("%A")
         except ValueError:
             pass
+
+    # Auto-derive session/killzone from entry_time, same "fill only when
+    # absent" pattern as day_of_week above. The Streamlit path already
+    # derives both itself (it needs `session` on screen before save) and
+    # passes them in explicitly, so this must never overwrite a caller's
+    # value — only the new API route, which sends both as null, hits this.
+    # The timezone MUST be the owner's stored setting, never a request- or
+    # server-supplied one: a wrong zone silently shifts which killzone a
+    # trade is attributed to, corrupting the killzone-performance analytics
+    # those fields feed (same reasoning as `today_for_owner`'s future-date
+    # ceiling).
+    if not data.get("session") or not data.get("killzone"):
+        user_tz = get_timezone(owner)
+        entry_time = data.get("entry_time")
+        if not data.get("session"):
+            data["session"] = detect_session(entry_time, trade_date_str, user_tz)
+        if not data.get("killzone"):
+            data["killzone"] = detect_killzone(entry_time, trade_date_str, user_tz)
 
     direction = data.get("direction", "Long")
     entry = data.get("entry_price")
