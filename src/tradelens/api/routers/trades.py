@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -58,6 +59,8 @@ from src.tradelens.services.trade_summary import (
     get_trade_summary_result,
 )
 from src.tradelens.services.trade_validation import OutcomeMismatch
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["trades"])
 
@@ -584,6 +587,19 @@ def finalize_screenshot_upload(
         promoted = storage.finalize_upload(user_id, trade_id, payload.key)
     except PermissionError:
         raise _not_found() from None
+    except storage.UploadMissing as exc:
+        # A stale key, a second finalize, or a retry after abandon. The bytes
+        # are simply not there, which is a client-side situation and not a
+        # server fault: it used to escape as a botocore error and surface as a
+        # 500, which told the trader nothing. Say what happened and what to do,
+        # and be explicit that the trade itself is unaffected.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "that upload is no longer available, so no screenshot was "
+                "attached. Your trade is unchanged — upload the image again."
+            ),
+        ) from exc
     except storage.UploadRejected as exc:
         # A stable phrase, not a reason: telling a prober which check they
         # failed hands them the shape of the validator.
@@ -598,7 +614,24 @@ def finalize_screenshot_upload(
             height=promoted["height"],
         )
     except Exception:
-        storage.delete_owned_object(user_id, trade_id, promoted["key"])
+        # The row write failed, so the just-promoted object has nothing
+        # pointing at it. Removing it is the whole point of this block, and
+        # the removal can itself fail or raise — in which case the object is
+        # a permanent orphan that `delete_trade_objects` can never reach,
+        # because that resolves keys FROM the rows we just failed to write.
+        # Never let that failure replace the 503 with a 500: the trader's
+        # answer is the same either way, and swallowing the cleanup error
+        # silently would hide the one case worth knowing about.
+        try:
+            removed = storage.delete_owned_object(user_id, trade_id, promoted["key"])
+        except Exception:  # noqa: BLE001 — logged, never masks the 503
+            removed = False
+        if not removed:
+            _log.error(
+                "Orphaned a promoted screenshot object for trade %s: the "
+                "database row failed and the object could not be removed",
+                int(trade_id),
+            )
         raise HTTPException(
             status_code=503, detail="the screenshot could not be attached"
         ) from None

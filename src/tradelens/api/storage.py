@@ -50,6 +50,8 @@ NORMALISED_CONTENT_TYPES = frozenset({NORMALISED_CONTENT_TYPE})
 FINAL_KEY_EXTENSIONS = frozenset(
     ALLOWED_CONTENT_TYPES[content_type] for content_type in NORMALISED_CONTENT_TYPES
 )
+# What a quarantine key may end in: whatever the browser was allowed to PUT.
+UPLOAD_KEY_EXTENSIONS = frozenset(ALLOWED_CONTENT_TYPES.values())
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 PRESIGN_TTL_SECONDS = 300
 _log = logging.getLogger(__name__)
@@ -57,6 +59,18 @@ _log = logging.getLogger(__name__)
 
 class UploadRejected(ValueError):
     """Stable refusal for an invalid object in the upload quarantine."""
+
+
+class UploadMissing(LookupError):
+    """The named quarantine object is not there to promote.
+
+    Distinct from `UploadRejected`, which means "these bytes are not an image
+    we accept". This one means there are no bytes at all: a stale key, a
+    second finalize of one already promoted and discarded, or a retry after
+    the upload was abandoned. It is an ordinary thing for a client to hit,
+    so the caller can answer it with something the trader can act on instead
+    of letting a botocore error surface as a server fault.
+    """
 
 
 def _client():
@@ -94,20 +108,63 @@ def _expected_prefix(user_id: int, trade_id: int, *, quarantine: bool) -> str:
     return f"quarantine/{base}" if quarantine else base
 
 
-def _is_final_key(key: object, user_id: int, trade_id: int) -> bool:
-    if not isinstance(key, str) or not key.startswith(
-        _expected_prefix(user_id, trade_id, quarantine=False)
-    ):
+def _is_scoped_key(
+    key: object, prefix: str, allowed_extensions: frozenset
+) -> bool:
+    """Whether `key` is exactly `<prefix><uuid4>.<ext>` and nothing else.
+
+    A `startswith` check alone is NOT enough, and this is the single reason
+    this helper exists. Every key the server builds ends in one `<uuid>.<ext>`
+    segment, so anything the client sends back that does not is forged — and
+    the forgery that matters is a relative one:
+
+        quarantine/u/<me>/t/<mine>/../../../../u/<victim>/t/9/<uuid>.png
+
+    That passes the caller's own prefix while naming another tenant's object.
+    botocore transmits the `..` segments literally and unencoded, so whether
+    it resolves is entirely up to how the object store treats a key: on S3 a
+    key is an opaque string and the traversal is inert, but that is a property
+    of the backend, not of us, and it must not be what stands between an
+    attacker and a cross-tenant read. Requiring the remainder to be a single
+    filename segment removes the question: no separators, so no dot segments,
+    so nothing to resolve.
+    """
+    if not isinstance(key, str) or not key.startswith(prefix):
         return False
-    filename = key.rsplit("/", 1)[-1]
-    stem, dot, extension = filename.rpartition(".")
-    if not dot or extension not in FINAL_KEY_EXTENSIONS:
+    remainder = key[len(prefix) :]
+    if "/" in remainder or "\\" in remainder:
+        return False
+    stem, dot, extension = remainder.rpartition(".")
+    if not dot or extension not in allowed_extensions:
         return False
     try:
         uuid.UUID(stem)
     except (ValueError, AttributeError):
         return False
     return True
+
+
+def _is_final_key(key: object, user_id: int, trade_id: int) -> bool:
+    return _is_scoped_key(
+        key,
+        _expected_prefix(user_id, trade_id, quarantine=False),
+        FINAL_KEY_EXTENSIONS,
+    )
+
+
+def _is_quarantine_key(key: object, user_id: int, trade_id: int) -> bool:
+    """The same shape discipline as a final key, one prefix up.
+
+    The extension set is wider because quarantine holds what the browser sent
+    (PNG, JPEG or WebP) rather than what normalisation emits, and it is derived
+    from the same declaration `presign_upload` signs against so the two cannot
+    drift apart.
+    """
+    return _is_scoped_key(
+        key,
+        _expected_prefix(user_id, trade_id, quarantine=True),
+        UPLOAD_KEY_EXTENSIONS,
+    )
 
 
 def _owns_trade(user_id: int, trade_id: int) -> bool:
@@ -196,21 +253,26 @@ def finalize_upload(user_id: int, trade_id: int, upload_key: str) -> dict:
     """Validate an R2 upload and promote only fresh normalized PNG bytes.
 
     The original object is in a non-downloadable quarantine prefix. It is
-    discarded on both successful validation and content rejection. Callers may
-    persist only the returned final key in ``screenshots.file_path``.
+    discarded on every exit — success, content rejection, and object-store
+    fault alike — because nothing else in the system can name it afterwards.
+    Callers may persist only the returned final key in ``screenshots.file_path``.
     """
     owner = require_user_id(user_id)
     if not _owns_trade(owner, trade_id):
         raise PermissionError("trade not found")
-    prefix = _expected_prefix(owner, trade_id, quarantine=True)
-    if not isinstance(upload_key, str) or not upload_key.startswith(prefix):
+    if not _is_quarantine_key(upload_key, owner, trade_id):
         raise PermissionError("upload not found")
 
     cfg = r2_config()
     bucket = cfg["bucket"]
     client = _client()
     try:
-        response = client.get_object(Bucket=bucket, Key=upload_key)
+        try:
+            response = client.get_object(Bucket=bucket, Key=upload_key)
+        except Exception as exc:  # noqa: BLE001 — classified, then re-raised
+            if _is_already_gone(exc):
+                raise UploadMissing("the upload is no longer available") from exc
+            raise
         body = response.get("Body")
         try:
             length = response.get("ContentLength")
@@ -244,7 +306,14 @@ def finalize_upload(user_id: int, trade_id: int, upload_key: str) -> dict:
             ContentType=content_type,
             CacheControl="private, no-store",
         )
-    except UploadRejected:
+    except Exception:  # noqa: BLE001 — cleanup on EVERY exit, then re-raise
+        # Not just the rejection path. A `get_object` or `put_object` fault
+        # would otherwise skip both the rejection discard and the success
+        # discard, and nothing else in the system can ever name that object
+        # again: quarantine has no `screenshots` row, so `delete_trade_objects`
+        # cannot see it, and only an explicit `abandon_upload` from a client
+        # that has already errored out could clear it. This is the one path
+        # where nothing sweeps, so it sweeps itself.
         _discard_quarantine(client, bucket, upload_key)
         raise
 
@@ -273,8 +342,7 @@ def abandon_upload(user_id: int, trade_id: int, upload_key: str) -> bool:
     owner = require_user_id(user_id)
     if not _owns_trade(owner, trade_id):
         raise PermissionError("upload not found")
-    prefix = _expected_prefix(owner, trade_id, quarantine=True)
-    if not isinstance(upload_key, str) or not upload_key.startswith(prefix):
+    if not _is_quarantine_key(upload_key, owner, trade_id):
         raise PermissionError("upload not found")
 
     _client().delete_object(Bucket=r2_config()["bucket"], Key=upload_key)

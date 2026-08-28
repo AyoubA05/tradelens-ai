@@ -180,7 +180,7 @@ def test_finalize_reencodes_then_deletes_the_untrusted_object(two_users, monkeyp
             "pnl": 1.0,
         }
     )
-    upload_key = f"quarantine/u/{a}/t/{mine.id}/deadbeef.png"
+    upload_key = f"quarantine/u/{a}/t/{mine.id}/11111111-1111-4111-8111-111111111111.png"
     poisoned = _png() + b"<script>payload</script>"
     fake = _FakeS3(objects={upload_key: poisoned})
     monkeypatch.setattr(storage, "_client", lambda: fake)
@@ -208,7 +208,7 @@ def test_finalize_enforces_the_real_size_cap_and_discards_quarantine(
             "pnl": 1.0,
         }
     )
-    upload_key = f"quarantine/u/{a}/t/{mine.id}/too-big.png"
+    upload_key = f"quarantine/u/{a}/t/{mine.id}/22222222-2222-4222-8222-222222222222.png"
     fake = _FakeS3(objects={upload_key: b"x" * (storage.MAX_UPLOAD_BYTES + 1)})
     monkeypatch.setattr(storage, "_client", lambda: fake)
 
@@ -225,7 +225,9 @@ def test_finalize_refuses_object_key_manipulation_before_touching_r2(
     fake = _FakeS3()
     monkeypatch.setattr(storage, "_client", lambda: fake)
     with pytest.raises(PermissionError):
-        storage.finalize_upload(a, 1, f"quarantine/u/{b}/t/1/stolen.png")
+        storage.finalize_upload(
+            a, 1, f"quarantine/u/{b}/t/1/33333333-3333-4333-8333-333333333333.png"
+        )
     assert fake.gets == []
 
 
