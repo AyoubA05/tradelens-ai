@@ -2394,3 +2394,172 @@ def test_finalize_rejects_a_body_carrying_anything_but_a_key(
 
     assert r.status_code == 422
     assert fake.gets == []
+
+
+# ------------------------------------- POST /v1/trades/{id}/screenshot/abandon
+
+
+def _abandon_path(trade_id):
+    return f"/v1/trades/{trade_id}/screenshot/abandon"
+
+
+def _final_key(user_id, trade_id, name="kept"):
+    return f"u/{user_id}/t/{trade_id}/{name}.png"
+
+
+def test_abandon_removes_an_owned_quarantine_object(
+    client, website_session_handle, monkeypatch
+):
+    """The ordinary path: a trader backed out of an upload they had started."""
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    key = _quarantine_key(user_id, trade.id)
+    fake = _FakeS3(objects={key: _png_bytes()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(client, handle, _abandon_path(trade.id), {"key": key})
+
+    assert r.status_code == 204
+    assert fake.deleted == [key]
+
+
+def test_abandon_of_an_already_gone_object_is_still_success(
+    client, website_session_handle, monkeypatch
+):
+    """Idempotent by design.
+
+    The absent object IS the desired end state, so a second abandon must not
+    hand a retrying client an error it can never clear.
+    """
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    key = _quarantine_key(user_id, trade.id)
+    fake = _FakeS3(objects={key: _png_bytes()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    first = _post_signed(client, handle, _abandon_path(trade.id), {"key": key})
+    second = _post_signed(client, handle, _abandon_path(trade.id), {"key": key})
+
+    assert (first.status_code, second.status_code) == (204, 204)
+
+
+def test_abandon_refuses_a_quarantine_key_naming_another_owner(
+    client, website_session_handle, two_users, monkeypatch
+):
+    """Ownership — not malformed input — is what refuses this.
+
+    The trade IS the caller's, so `_owns_trade` passes. The key is perfectly
+    well-formed, sits under a real quarantine prefix, and names an object that
+    exists, so no downstream gate would reject it either: a delete of an
+    arbitrary key would simply SUCCEED. The only thing that can refuse it is
+    `abandon_upload` re-deriving the caller's own prefix. Remove that and this
+    test deletes another tenant's in-flight upload.
+    """
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    mine = _create(user_id)
+    forged = _quarantine_key(other, mine.id, "theirs")
+    fake = _FakeS3(objects={forged: _png_bytes()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(client, handle, _abandon_path(mine.id), {"key": forged})
+
+    assert r.status_code == 404
+    assert r.json() == {"detail": "trade not found"}
+    assert fake.deleted == [], "a refused key must issue no delete at all"
+
+
+def test_abandon_never_deletes_a_final_key(client, website_session_handle, monkeypatch):
+    """A promoted object is a screenshot the trader KEPT.
+
+    It also has a `screenshots` row pointing at it, so deleting it here would
+    leave a row naming an object that no longer exists — a broken image in the
+    journal that no cleanup path would ever reconcile.
+    """
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    kept = _final_key(user_id, trade.id)
+    fake = _FakeS3(objects={kept: _png_bytes()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(client, handle, _abandon_path(trade.id), {"key": kept})
+
+    assert r.status_code == 404
+    assert fake.deleted == []
+
+
+def test_abandon_on_another_owners_trade_is_404(
+    client, website_session_handle, two_users, monkeypatch
+):
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    theirs = _create(other)
+    key = _quarantine_key(other, theirs.id)
+    fake = _FakeS3(objects={key: _png_bytes()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(client, handle, _abandon_path(theirs.id), {"key": key})
+
+    assert r.status_code == 404
+    assert fake.deleted == []
+
+
+def test_abandon_for_a_missing_trade_is_byte_identical_to_a_foreign_one(
+    client, website_session_handle, two_users, monkeypatch
+):
+    """A distinguishable response would confirm the row exists."""
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    theirs = _create(other)
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    foreign = _post_signed(
+        client,
+        handle,
+        _abandon_path(theirs.id),
+        {"key": _quarantine_key(other, theirs.id)},
+    )
+    missing = _post_signed(
+        client,
+        handle,
+        _abandon_path(9_999_999),
+        {"key": _quarantine_key(user_id, 9_999_999)},
+    )
+
+    assert foreign.status_code == missing.status_code == 404
+    assert foreign.json() == missing.json()
+
+
+def test_abandon_rejects_a_body_carrying_anything_but_a_key(
+    client, website_session_handle, monkeypatch
+):
+    """The write contract is a positive allowlist."""
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(
+        client,
+        handle,
+        _abandon_path(trade.id),
+        {"key": _quarantine_key(user_id, trade.id), "trade_id": 1},
+    )
+
+    assert r.status_code == 422
+    assert fake.deleted == []

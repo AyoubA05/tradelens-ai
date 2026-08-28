@@ -610,3 +610,37 @@ def finalize_screenshot_upload(
         uploaded_at=uploaded_at,
         url=storage.presign_download(user_id, screenshot_id),
     )
+
+
+@router.post(
+    "/trades/{trade_id}/screenshot/abandon",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def abandon_screenshot_upload(
+    trade_id: int,
+    payload: ScreenshotKeyRequest,
+    user_id: int = Depends(current_user),
+) -> Response:
+    """Drop a quarantined upload the trader chose not to keep.
+
+    Backing out of an upload is a normal thing to do, and the object left
+    behind has no download path but does occupy the bucket forever. This is
+    the only way to clear one, since nothing else can name it: a quarantine
+    object has no `screenshots` row, so `delete_trade_objects` cannot see it.
+
+    The `key` is a claim. `abandon_upload` re-derives this caller's own
+    quarantine prefix, which is the ONLY thing standing between a forged key
+    and a deleted object — a delete of an arbitrary key would otherwise just
+    succeed. A final key is refused for the same reason it is not quarantine:
+    a promoted object is a screenshot the trader kept, and a `screenshots` row
+    points at it.
+
+    Idempotent. An object already gone is the end state this asks for, so a
+    retry is success rather than an error the client can never clear.
+    """
+    try:
+        storage.abandon_upload(user_id, trade_id, payload.key)
+    except PermissionError:
+        raise _not_found() from None
+
+    return Response(status_code=204)
