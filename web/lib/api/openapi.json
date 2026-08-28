@@ -701,6 +701,71 @@
         "title": "ScreenshotDescriptor",
         "type": "object"
       },
+      "ScreenshotKeyRequest": {
+        "additionalProperties": false,
+        "description": "A key the browser received back from presign.\n\nIt is a CLAIM, never a location. Every handler re-derives the caller's own\nexpected prefix and refuses anything outside it, so a forged key cannot\nname another owner's object.",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "ScreenshotKeyRequest",
+        "type": "object"
+      },
+      "ScreenshotPresignRequest": {
+        "additionalProperties": false,
+        "description": "What the browser is asking permission to upload.\n\nOnly the content type. The object key is chosen by the server and is never\ninfluenced by the client \u2014 a user-supplied key component is a\npath-traversal and overwrite primitive.",
+        "properties": {
+          "content_type": {
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ],
+            "title": "Content Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content_type"
+        ],
+        "title": "ScreenshotPresignRequest",
+        "type": "object"
+      },
+      "ScreenshotPresignResponse": {
+        "additionalProperties": false,
+        "description": "A short-lived PUT URL into a namespace with no download path.\n\n`max_bytes` is advisory: a presigned PUT cannot bind a maximum size, so\nthe real gate runs server-side at finalize. Sending it lets the browser\nspare a trader a slow upload that would be refused anyway.",
+        "properties": {
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "max_bytes": {
+            "title": "Max Bytes",
+            "type": "integer"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "key",
+          "expires_in",
+          "max_bytes"
+        ],
+        "title": "ScreenshotPresignResponse",
+        "type": "object"
+      },
       "TradeConflictDetail": {
         "additionalProperties": false,
         "description": "What the client needs to show a trader whose edit lost a race.",
@@ -3347,6 +3412,158 @@
           }
         },
         "summary": "Patch Trade",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
+    "/v1/trades/{trade_id}/screenshot/abandon": {
+      "post": {
+        "description": "Drop a quarantined upload the trader chose not to keep.\n\nBacking out of an upload is a normal thing to do, and the object left\nbehind has no download path but does occupy the bucket forever. This is\nthe only way to clear one, since nothing else can name it: a quarantine\nobject has no `screenshots` row, so `delete_trade_objects` cannot see it.\n\nThe `key` is a claim. `abandon_upload` re-derives this caller's own\nquarantine prefix, which is the ONLY thing standing between a forged key\nand a deleted object \u2014 a delete of an arbitrary key would otherwise just\nsucceed. A final key is refused for the same reason it is not quarantine:\na promoted object is a screenshot the trader kept, and a `screenshots` row\npoints at it.\n\nIdempotent. An object already gone is the end state this asks for, so a\nretry is success rather than an error the client can never clear.",
+        "operationId": "abandon_screenshot_upload_v1_trades__trade_id__screenshot_abandon_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trade_id",
+            "required": true,
+            "schema": {
+              "title": "Trade Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScreenshotKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Abandon Screenshot Upload",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
+    "/v1/trades/{trade_id}/screenshot/finalize": {
+      "post": {
+        "description": "Validate a quarantined upload, promote re-encoded bytes, record the row.\n\nThe `key` in the body is a claim, never a location. `finalize_upload`\nre-derives this owner's own quarantine prefix and refuses anything outside\nit, so a forged key naming another tenant is a 404 that never reads a byte\nfrom the bucket.\n\n**The row write is what makes the promoted object reachable, and also what\nmakes it sweepable.** `delete_trade_objects` resolves keys FROM\n`screenshots.file_path`, so a promoted object with no row is an orphan\nnothing can find and nothing can remove \u2014 strictly worse than a quarantine\norphan, which at least has no download path. If the row write fails, the\njust-promoted object is deleted before the error is surfaced, leaving the\nbucket as it was and the retry safe.",
+        "operationId": "finalize_screenshot_upload_v1_trades__trade_id__screenshot_finalize_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trade_id",
+            "required": true,
+            "schema": {
+              "title": "Trade Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScreenshotKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenshotDescriptor"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finalize Screenshot Upload",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
+    "/v1/trades/{trade_id}/screenshot/presign": {
+      "post": {
+        "description": "Ask permission to upload one chart image for a trade.\n\nThe trade is what authorises the upload (Decision 1): `presign_upload`\nrequires the trade to exist and belong to the caller, so there is exactly\none ownership rule in the system and no trade-less draft namespace with a\nsecond one.\n\nThe signed URL points into a quarantine prefix that has NO download path.\nOnly `finalize_upload` can promote bytes out of it, and only after\nre-encoding them. The key is chosen entirely by the server; the request\nbody carries the content type and nothing else.\n\nA trade that is not the caller's returns 404, byte-identical to a missing\none, and signs nothing \u2014 a 403 would confirm the row exists, and a URL\nwould be an upload slot in another owner's namespace.",
+        "operationId": "presign_screenshot_upload_v1_trades__trade_id__screenshot_presign_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trade_id",
+            "required": true,
+            "schema": {
+              "title": "Trade Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScreenshotPresignRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenshotPresignResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Presign Screenshot Upload",
         "tags": [
           "trades"
         ]

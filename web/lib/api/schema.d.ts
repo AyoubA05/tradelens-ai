@@ -211,6 +211,108 @@ export interface paths {
         patch: operations["patch_trade_v1_trades__trade_id__patch"];
         trace?: never;
     };
+    "/v1/trades/{trade_id}/screenshot/abandon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Abandon Screenshot Upload
+         * @description Drop a quarantined upload the trader chose not to keep.
+         *
+         *     Backing out of an upload is a normal thing to do, and the object left
+         *     behind has no download path but does occupy the bucket forever. This is
+         *     the only way to clear one, since nothing else can name it: a quarantine
+         *     object has no `screenshots` row, so `delete_trade_objects` cannot see it.
+         *
+         *     The `key` is a claim. `abandon_upload` re-derives this caller's own
+         *     quarantine prefix, which is the ONLY thing standing between a forged key
+         *     and a deleted object — a delete of an arbitrary key would otherwise just
+         *     succeed. A final key is refused for the same reason it is not quarantine:
+         *     a promoted object is a screenshot the trader kept, and a `screenshots` row
+         *     points at it.
+         *
+         *     Idempotent. An object already gone is the end state this asks for, so a
+         *     retry is success rather than an error the client can never clear.
+         */
+        post: operations["abandon_screenshot_upload_v1_trades__trade_id__screenshot_abandon_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/trades/{trade_id}/screenshot/finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finalize Screenshot Upload
+         * @description Validate a quarantined upload, promote re-encoded bytes, record the row.
+         *
+         *     The `key` in the body is a claim, never a location. `finalize_upload`
+         *     re-derives this owner's own quarantine prefix and refuses anything outside
+         *     it, so a forged key naming another tenant is a 404 that never reads a byte
+         *     from the bucket.
+         *
+         *     **The row write is what makes the promoted object reachable, and also what
+         *     makes it sweepable.** `delete_trade_objects` resolves keys FROM
+         *     `screenshots.file_path`, so a promoted object with no row is an orphan
+         *     nothing can find and nothing can remove — strictly worse than a quarantine
+         *     orphan, which at least has no download path. If the row write fails, the
+         *     just-promoted object is deleted before the error is surfaced, leaving the
+         *     bucket as it was and the retry safe.
+         */
+        post: operations["finalize_screenshot_upload_v1_trades__trade_id__screenshot_finalize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/trades/{trade_id}/screenshot/presign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Presign Screenshot Upload
+         * @description Ask permission to upload one chart image for a trade.
+         *
+         *     The trade is what authorises the upload (Decision 1): `presign_upload`
+         *     requires the trade to exist and belong to the caller, so there is exactly
+         *     one ownership rule in the system and no trade-less draft namespace with a
+         *     second one.
+         *
+         *     The signed URL points into a quarantine prefix that has NO download path.
+         *     Only `finalize_upload` can promote bytes out of it, and only after
+         *     re-encoding them. The key is chosen entirely by the server; the request
+         *     body carries the content type and nothing else.
+         *
+         *     A trade that is not the caller's returns 404, byte-identical to a missing
+         *     one, and signs nothing — a 403 would confirm the row exists, and a URL
+         *     would be an upload slot in another owner's namespace.
+         */
+        post: operations["presign_screenshot_upload_v1_trades__trade_id__screenshot_presign_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -442,6 +544,51 @@ export interface components {
             url: string | null;
             /** Width */
             width: number | null;
+        };
+        /**
+         * ScreenshotKeyRequest
+         * @description A key the browser received back from presign.
+         *
+         *     It is a CLAIM, never a location. Every handler re-derives the caller's own
+         *     expected prefix and refuses anything outside it, so a forged key cannot
+         *     name another owner's object.
+         */
+        ScreenshotKeyRequest: {
+            /** Key */
+            key: string;
+        };
+        /**
+         * ScreenshotPresignRequest
+         * @description What the browser is asking permission to upload.
+         *
+         *     Only the content type. The object key is chosen by the server and is never
+         *     influenced by the client — a user-supplied key component is a
+         *     path-traversal and overwrite primitive.
+         */
+        ScreenshotPresignRequest: {
+            /**
+             * Content Type
+             * @enum {string}
+             */
+            content_type: "image/png" | "image/jpeg" | "image/webp";
+        };
+        /**
+         * ScreenshotPresignResponse
+         * @description A short-lived PUT URL into a namespace with no download path.
+         *
+         *     `max_bytes` is advisory: a presigned PUT cannot bind a maximum size, so
+         *     the real gate runs server-side at finalize. Sending it lets the browser
+         *     spare a trader a slow upload that would be refused anyway.
+         */
+        ScreenshotPresignResponse: {
+            /** Expires In */
+            expires_in: number;
+            /** Key */
+            key: string;
+            /** Max Bytes */
+            max_bytes: number;
+            /** Url */
+            url: string;
         };
         /**
          * TradeConflictDetail
@@ -1269,6 +1416,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TradeConflictResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    abandon_screenshot_upload_v1_trades__trade_id__screenshot_abandon_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScreenshotKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finalize_screenshot_upload_v1_trades__trade_id__screenshot_finalize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScreenshotKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotDescriptor"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    presign_screenshot_upload_v1_trades__trade_id__screenshot_presign_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScreenshotPresignRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotPresignResponse"];
                 };
             };
             /** @description Validation Error */
