@@ -37,6 +37,19 @@ ALLOWED_CONTENT_TYPES = {
     "image/jpeg": "jpg",
     "image/webp": "webp",
 }
+# What `imaging.validate_and_normalise` is allowed to emit. It is declared
+# HERE, not in imaging.py, because `_is_final_key` has to know it and imaging
+# already imports this module (the reverse import would be a cycle). Both the
+# normalizer's output type and the extensions `_is_final_key` accepts are
+# derived from this one set, so they cannot drift: a hardcoded ".png" here and
+# a normalizer that later emits WebP would make `delete_trade_objects` SKIP
+# every object of the new format, leaving private images in the bucket after a
+# trade deletion with nothing left pointing at them.
+NORMALISED_CONTENT_TYPE = "image/png"
+NORMALISED_CONTENT_TYPES = frozenset({NORMALISED_CONTENT_TYPE})
+FINAL_KEY_EXTENSIONS = frozenset(
+    ALLOWED_CONTENT_TYPES[content_type] for content_type in NORMALISED_CONTENT_TYPES
+)
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 PRESIGN_TTL_SECONDS = 300
 _log = logging.getLogger(__name__)
@@ -87,10 +100,11 @@ def _is_final_key(key: object, user_id: int, trade_id: int) -> bool:
     ):
         return False
     filename = key.rsplit("/", 1)[-1]
-    if not filename.endswith(".png"):
+    stem, dot, extension = filename.rpartition(".")
+    if not dot or extension not in FINAL_KEY_EXTENSIONS:
         return False
     try:
-        uuid.UUID(filename[:-4])
+        uuid.UUID(stem)
     except (ValueError, AttributeError):
         return False
     return True

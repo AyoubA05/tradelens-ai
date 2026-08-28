@@ -23,7 +23,7 @@ import io
 
 from PIL import Image, UnidentifiedImageError
 
-from src.tradelens.api.storage import MAX_UPLOAD_BYTES
+from src.tradelens.api.storage import MAX_UPLOAD_BYTES, NORMALISED_CONTENT_TYPE
 
 MAX_PIXELS = 50_000_000
 MAX_DIMENSION = 12_000
@@ -86,4 +86,4 @@ def validate_and_normalise(data: bytes) -> tuple[bytes, str, int, int]:
 
     out = io.BytesIO()
     clean.save(out, format="PNG", optimize=True)
-    return out.getvalue(), "image/png", width, height
+    return out.getvalue(), NORMALISED_CONTENT_TYPE, width, height

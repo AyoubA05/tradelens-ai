@@ -477,3 +477,71 @@ def test_delete_trade_objects_needs_no_object_store_when_there_is_nothing_to_do(
 
     monkeypatch.setattr(storage, "_client", _explode)
     assert storage.delete_trade_objects(a, mine.id).complete is True
+
+
+# ------------------------------------------------ final-key extensions (B4)
+
+
+def test_final_key_extensions_are_derived_from_what_normalisation_emits():
+    """`_is_final_key` must accept exactly what `finalize_upload` can write.
+
+    A hardcoded `.png` and a normalizer that later emits something else drift
+    apart silently, and the drift is a privacy tail: `delete_trade_objects`
+    SKIPS a key `_is_final_key` refuses, so every object of the new format
+    survives a trade deletion.
+    """
+    assert storage.FINAL_KEY_EXTENSIONS == {
+        storage.ALLOWED_CONTENT_TYPES[ct] for ct in storage.NORMALISED_CONTENT_TYPES
+    }
+    for extension in storage.FINAL_KEY_EXTENSIONS:
+        key = f"u/3/t/9/00000000-0000-4000-8000-000000000000.{extension}"
+        assert storage._is_final_key(key, 3, 9) is True
+
+
+def test_an_extension_normalisation_never_emits_is_not_a_final_key():
+    """`image/jpeg` is an accepted UPLOAD type but never a normalized OUTPUT.
+
+    So a stored `.jpg` final key names something `finalize_upload` cannot have
+    written, and must not be treated as this owner's object to delete.
+    """
+    unexpected = set(storage.ALLOWED_CONTENT_TYPES.values()) - storage.FINAL_KEY_EXTENSIONS
+    assert unexpected, "the test needs at least one non-emitted extension"
+    for extension in unexpected:
+        key = f"u/3/t/9/00000000-0000-4000-8000-000000000000.{extension}"
+        assert storage._is_final_key(key, 3, 9) is False
+
+
+def test_normalisation_only_ever_emits_a_declared_content_type():
+    """The other half of the single source: what imaging actually returns."""
+    from src.tradelens.api.imaging import validate_and_normalise
+
+    _, content_type, _, _ = validate_and_normalise(_png())
+    assert content_type in storage.NORMALISED_CONTENT_TYPES
+
+
+def test_delete_trade_objects_reports_an_unemittable_extension_as_incomplete(
+    two_users, monkeypatch
+):
+    """A key with an extension normalisation never emits is a SKIP, and a skip
+    makes the cleanup incomplete — the caller must not answer "your
+    screenshots are gone" over a bucket that still holds them."""
+    a, _ = two_users
+    mine = _create(
+        {
+            "user_id": a,
+            "trade_date": "2026-08-12",
+            "asset": "NQ",
+            "result": "Win",
+            "pnl": 1.0,
+        }
+    )
+    stray = f"u/{a}/t/{mine.id}/00000000-0000-4000-8000-000000000000.jpg"
+    _screenshot(mine.id, stray)
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    cleanup = storage.delete_trade_objects(a, mine.id)
+
+    assert cleanup.skipped == [stray]
+    assert fake.deleted == []
+    assert cleanup.complete is False
