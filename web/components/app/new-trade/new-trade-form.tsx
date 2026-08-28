@@ -127,6 +127,11 @@ export function NewTradeForm() {
 
     const payload = buildTradeCreatePayload(values, OTHER_ASSET);
     setSubmitting(true);
+    // Local, not state: `setSavedTradeId` below does not update its own
+    // `savedTradeId` binding within this same synchronous call, so the
+    // catch block cannot rely on that state to know whether creation
+    // already happened — it needs a value set and read in the same pass.
+    let createdTradeId: number | null = null;
     try {
       const response = await fetch("/api/trades/create", {
         method: "POST",
@@ -159,6 +164,7 @@ export function NewTradeForm() {
       // Past this line the trade is durable (design decision #6). No
       // failure below may say nothing was saved, and none may send the
       // trader back through create.
+      createdTradeId = created.id;
       setSavedTradeId(created.id);
       if (screenshotFile) {
         const attached = await runUpload(created.id, screenshotFile);
@@ -166,9 +172,25 @@ export function NewTradeForm() {
       }
       router.push(`/app/trades/${created.id}`);
     } catch {
-      setSubmitError(
-        "We could not reach the server. Nothing was saved. Check your connection and try again.",
-      );
+      // Design decision #6: once a trade exists, no failure may claim
+      // nothing was saved — including one thrown here, after creation, by
+      // something like `router.push`. Guard on the local `createdTradeId`
+      // (not the `savedTradeId` state, which has not re-rendered yet within
+      // this same call): unset means the POST itself never completed and
+      // nothing was written, so the "could not reach the server" copy is
+      // accurate; set means the trade is durable and this falls through to
+      // the same saved-trade panel a failed screenshot attach uses, never
+      // back to "nothing was saved."
+      if (createdTradeId !== null) {
+        setSavedTradeId(createdTradeId);
+        setScreenshotProblem(
+          "Your trade is saved. Something went wrong after that — you can open it from here.",
+        );
+      } else {
+        setSubmitError(
+          "We could not reach the server. Nothing was saved. Check your connection and try again.",
+        );
+      }
     } finally {
       setSubmitting(false);
     }

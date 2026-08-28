@@ -104,6 +104,26 @@ describe("NewTradeForm", () => {
     expect(push).not.toHaveBeenCalled();
   });
 
+  it("never says 'nothing was saved' when the trade was created but something after that throws", async () => {
+    // The trade-creation POST succeeds; the failure happens after (here,
+    // router.push) — a case the outer catch used to conflate with "the
+    // server was unreachable, nothing was saved" (design decision #6).
+    vi.stubGlobal("fetch", fetchOkOnce({ id: 42, duplicate_of: null }));
+    push.mockImplementationOnce(() => {
+      throw new Error("navigation failed");
+    });
+
+    render(<NewTradeForm />);
+    fireEvent.change(screen.getByLabelText("Asset"), { target: { value: "NQ" } });
+    fireEvent.change(screen.getByPlaceholderText(/09:30/), { target: { value: "09:30" } });
+    fireEvent.click(screen.getByRole("button", { name: /save trade/i }));
+
+    await waitFor(() =>
+      expect(screen.getAllByText(/your trade is saved/i).length).toBeGreaterThan(0),
+    );
+    expect(screen.queryByText(/nothing was saved/i)).not.toBeInTheDocument();
+  });
+
   it("reveals the custom asset field only when 'Other / Custom' is picked", () => {
     render(<NewTradeForm />);
     expect(screen.queryByLabelText("Custom asset")).not.toBeInTheDocument();

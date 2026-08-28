@@ -14,6 +14,7 @@ from src.tradelens.services.app_settings import get_timezone
 from src.tradelens.services.assets import detect_asset_class
 from src.tradelens.services.ownership import require_user_id
 from src.tradelens.services.sessions import detect_killzone, detect_session
+from src.tradelens.services.strategy import get_active_strategy
 from src.tradelens.services.trade_validation import canonical_outcome, is_blank
 
 
@@ -173,6 +174,17 @@ def create_trade(trade_data: dict, *, user_id: int) -> Trade:
             data["session"] = detect_session(entry_time, trade_date_str, user_tz)
         if not data.get("killzone"):
             data["killzone"] = detect_killzone(entry_time, trade_date_str, user_tz)
+
+    # Auto-derive strategy_used from the owner's active Strategy Profile,
+    # same "fill only when absent" pattern as day_of_week/session/killzone
+    # above. This is a Journal filter (see `strategy` filter in get_trades
+    # below) — the browser must not assert which strategy is active, only
+    # the server-side profile the owner actually set. The Streamlit path
+    # already derives and passes this explicitly, so it is never overwritten.
+    if not data.get("strategy_used"):
+        active_strategy = get_active_strategy(owner)
+        if active_strategy:
+            data["strategy_used"] = active_strategy.get("name")
 
     direction = data.get("direction", "Long")
     entry = data.get("entry_price")
