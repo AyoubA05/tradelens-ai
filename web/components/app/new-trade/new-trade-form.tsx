@@ -17,6 +17,14 @@ import {
   TIMEFRAME_OPTIONS,
 } from "@/lib/app/new-trade-fields";
 import {
+  ScreenshotUpload,
+  type ScreenshotUploadStatus,
+} from "@/components/app/new-trade/screenshot-upload";
+import {
+  abandonScreenshotUpload,
+  attachScreenshot,
+} from "@/lib/app/screenshot-upload";
+import {
   buildTradeCreatePayload,
   emptyNewTradeFormValues,
   validateNewTrade,
@@ -71,12 +79,46 @@ export function NewTradeForm() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [duplicateOf, setDuplicateOf] = useState<number | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<ScreenshotUploadStatus>({ kind: "idle" });
+  // Set only once the trade actually exists. Everything downstream reads it
+  // to decide what to say: while it is null a failure means nothing was
+  // written, and once it is set NO failure may ever say that again.
+  const [savedTradeId, setSavedTradeId] = useState<number | null>(null);
+  const [screenshotProblem, setScreenshotProblem] = useState<string | null>(null);
+  // A quarantine object left behind by a failed attach. Nothing else in the
+  // system can name it, so abandoning it here is the only cleanup there is.
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
 
   function set<K extends keyof NewTradeFormValues>(key: K, value: NewTradeFormValues[K]) {
     setValues((v) => ({ ...v, [key]: value }));
   }
 
   const { errors, warnings } = validateNewTrade(values, OTHER_ASSET);
+
+  /**
+   * Attach the picked screenshot to a trade that ALREADY EXISTS.
+   *
+   * Takes the trade id as an argument rather than resubmitting anything:
+   * this is the same call the retry button makes, so a retry can never
+   * create a second trade. (The server's fingerprint would refuse a
+   * duplicate write anyway — but the UI must not offer a path that looks
+   * like resubmitting the form.)
+   */
+  async function runUpload(tradeId: number, file: File): Promise<boolean> {
+    setScreenshotProblem(null);
+    const result = await attachScreenshot(tradeId, file, {
+      onPhase: (phase, progress) => setUploadStatus({ kind: "busy", phase, progress }),
+    });
+    if (result.status === "attached") {
+      setPendingKey(null);
+      setUploadStatus({ kind: "attached" });
+      return true;
+    }
+    setPendingKey(result.pendingKey ?? null);
+    setUploadStatus({ kind: "problem", message: result.message });
+    setScreenshotProblem(result.message);
+    return false;
+  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -95,6 +137,7 @@ export function NewTradeForm() {
         // The server is the real gate (global rule 4): a 422 here is the
         // allowlist, the future-date check, or canonical_outcome catching
         // something the client-side mirror above missed or a race changed.
+        // Nothing was created on this path, which is why it may say so.
         let detail = "This trade did not save. Nothing was recorded. Check the form and try again.";
         try {
           const body = (await response.json()) as { detail?: unknown };
@@ -112,16 +155,77 @@ export function NewTradeForm() {
         setDuplicateOf(created.duplicate_of);
         return;
       }
-      // Screenshot upload against the new trade id is a separate step
-      // (design decision #1 — the trade's id authorises the upload); the
-      // relay for that is not part of this task, so a picked file is
-      // reported rather than silently dropped.
+
+      // Past this line the trade is durable (design decision #6). No
+      // failure below may say nothing was saved, and none may send the
+      // trader back through create.
+      setSavedTradeId(created.id);
+      if (screenshotFile) {
+        const attached = await runUpload(created.id, screenshotFile);
+        if (!attached) return; // the partial-failure panel takes over
+      }
       router.push(`/app/trades/${created.id}`);
     } catch {
-      setSubmitError("We could not reach the server. Nothing was saved. Check your connection and try again.");
+      setSubmitError(
+        "We could not reach the server. Nothing was saved. Check your connection and try again.",
+      );
     } finally {
       setSubmitting(false);
     }
+  }
+
+  /**
+   * The trade is saved and the screenshot is not attached (design decision
+   * #6 / Task D2).
+   *
+   * This panel exists so that a flaky upload can never be reported as a
+   * lost trade. It offers exactly two ways forward — retry the upload
+   * against the existing trade, or open the trade without a screenshot —
+   * and deliberately offers no route back into the form, because that is
+   * the only action here that could look like creating a second trade.
+   */
+  if (savedTradeId !== null && screenshotProblem !== null) {
+    return (
+      <div role="alert" className={sectionClass}>
+        <h2 className={sectionTitleClass}>Your trade is saved. The screenshot did not attach.</h2>
+        <p className="mt-2 max-w-md text-sm text-muted">
+          The trade is recorded exactly as you entered it — nothing was lost. Only the chart image
+          failed to upload.
+        </p>
+        <p className="mt-2 max-w-md text-sm text-negative">{screenshotProblem}</p>
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            disabled={uploadStatus.kind === "busy" || !screenshotFile}
+            onClick={async () => {
+              if (!screenshotFile) return;
+              // The existing trade id, never the form (Task D2).
+              if (await runUpload(savedTradeId, screenshotFile)) {
+                router.push(`/app/trades/${savedTradeId}`);
+              }
+            }}
+            className="min-h-[44px] rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-bg transition-colors duration-150 ease-tl hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {uploadStatus.kind === "busy" ? "Uploading…" : "Try the upload again"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              // Giving up on the upload is the moment the quarantine
+              // object becomes litter, so this is where abandon belongs.
+              if (pendingKey) void abandonScreenshotUpload(savedTradeId, pendingKey);
+              router.push(`/app/trades/${savedTradeId}`);
+            }}
+            className="min-h-[44px] rounded-lg border border-line-strong px-4 py-2 text-sm text-text transition-colors duration-150 ease-tl hover:bg-surface-2"
+          >
+            Open the trade without a screenshot
+          </button>
+        </div>
+        <p className="mt-3 text-xs text-muted">
+          You can also attach a screenshot later from the trade&apos;s own page.
+        </p>
+      </div>
+    );
   }
 
   if (duplicateOf !== null) {
@@ -161,21 +265,17 @@ export function NewTradeForm() {
         <p className="mt-1 text-xs text-muted">
           Optional. Post-trade review only — nothing here is a live signal.
         </p>
-        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className={labelClass}>
-            Upload screenshot
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              onChange={(e) => setScreenshotFile(e.target.files?.[0] ?? null)}
-              className={inputClass}
-            />
-          </label>
-          <p className="self-end text-xs text-muted">
-            {screenshotFile
-              ? `${screenshotFile.name} — attach it from the trade's page after saving.`
-              : "No screenshot attached."}
-          </p>
+        <div className="mt-3">
+          <ScreenshotUpload
+            file={screenshotFile}
+            onSelect={(file) => {
+              setScreenshotFile(file);
+              setUploadStatus({ kind: "idle" });
+              setScreenshotProblem(null);
+            }}
+            status={uploadStatus}
+            disabled={submitting}
+          />
         </div>
       </section>
 

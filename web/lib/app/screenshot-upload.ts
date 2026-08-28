@@ -45,12 +45,19 @@ export const ACCEPTED_SCREENSHOT_TYPES: readonly ScreenshotContentType[] = [
  * a retry after abandon) and the same file simply needs uploading again.
  * Collapsing either into `failed` would throw away the reason that split
  * exists.
+ *
+ * `pendingKey` is a quarantine object that still exists and that nobody
+ * else can ever name — no download path, no `screenshots` row, invisible to
+ * `delete_trade_objects`. It is set only on the outcomes where that is
+ * true, so a caller that gives up (the trader chooses to continue without
+ * the screenshot) can abandon it. It is absent where the object is already
+ * gone.
  */
 export type ScreenshotAttachResult =
   | { status: "attached"; screenshot: ScreenshotDescriptor }
-  | { status: "rejected"; message: string }
-  | { status: "stale"; message: string }
-  | { status: "failed"; message: string };
+  | { status: "rejected"; message: string; pendingKey?: string }
+  | { status: "stale"; message: string; pendingKey?: string }
+  | { status: "failed"; message: string; pendingKey?: string };
 
 export type UploadPhase = "presigning" | "uploading" | "validating";
 
@@ -229,10 +236,11 @@ export async function attachScreenshot(
       return { status: "rejected", message: REJECTED_MESSAGE };
     }
     if (response.status === 409) return { status: "stale", message: STALE_MESSAGE };
-    return { status: "failed", message: FAILED_MESSAGE };
+    return { status: "failed", message: FAILED_MESSAGE, pendingKey: presigned.key };
   } catch {
     // A transient fault, not a refusal: the key may still be finalizable,
-    // so it is NOT abandoned here.
-    return { status: "failed", message: FAILED_MESSAGE };
+    // so it is NOT abandoned here — it rides out as `pendingKey` so a
+    // trader who gives up still gets the object cleaned up.
+    return { status: "failed", message: FAILED_MESSAGE, pendingKey: presigned.key };
   }
 }
