@@ -1974,3 +1974,165 @@ def test_create_openapi_contract_covers_every_trade_column():
     accounted = CREATABLE_TRADE_FIELDS | SERVER_OWNED_ON_CREATE
     assert model_columns == accounted, model_columns.symmetric_difference(accounted)
     assert CREATABLE_TRADE_FIELDS.isdisjoint(SERVER_OWNED_ON_CREATE)
+
+
+# ------------------------------------- POST /v1/trades/{id}/screenshot/presign
+
+
+class _FakeS3:
+    """Records what was asked of R2 so a test can assert that NOTHING was."""
+
+    def __init__(self, objects=None):
+        self.objects = objects or {}
+        self.signed = []
+        self.puts = {}
+        self.deleted = []
+        self.gets = []
+
+    def generate_presigned_url(self, operation, Params=None, ExpiresIn=None):
+        self.signed.append((operation, Params))
+        return f"https://r2.example/{Params['Key']}?sig=x"
+
+    def get_object(self, Bucket=None, Key=None):
+        self.gets.append(Key)
+        data = self.objects[Key]
+        return {"ContentLength": len(data), "Body": _Body(data)}
+
+    def put_object(self, Bucket=None, Key=None, **kwargs):
+        self.puts[Key] = kwargs
+
+    def delete_object(self, Bucket=None, Key=None):
+        self.deleted.append(Key)
+
+
+class _Body:
+    def __init__(self, data):
+        self.data = data
+
+    def read(self, amount=None):
+        return self.data if amount is None else self.data[:amount]
+
+    def close(self):
+        return None
+
+
+def _presign_path(trade_id):
+    return f"/v1/trades/{trade_id}/screenshot/presign"
+
+
+def _post_signed(client, handle, path, body):
+    payload = json.dumps(body, separators=(",", ":")).encode()
+    return client.post(
+        path, content=payload, headers=_create_headers(handle, payload, path=path)
+    )
+
+
+@pytest.fixture
+def fake_r2(monkeypatch):
+    from src.tradelens.api import storage
+
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+    return fake
+
+
+def test_presign_returns_a_url_under_the_callers_quarantine_prefix(
+    client, website_session_handle, fake_r2
+):
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+
+    r = _post_signed(
+        client, handle, _presign_path(trade.id), {"content_type": "image/png"}
+    )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["key"].startswith(f"quarantine/u/{user_id}/t/{trade.id}/")
+    assert body["url"].startswith("https://r2.example/")
+    assert body["expires_in"] > 0
+    assert body["max_bytes"] > 0
+
+
+def test_presign_on_another_owners_trade_is_404_and_signs_nothing(
+    client, website_session_handle, two_users, fake_r2
+):
+    """Ownership is what refuses this. The trade exists and the request is
+    perfectly well-formed — only the owner differs, so a 403 would confirm the
+    row exists and a signed URL would hand over an upload slot in someone
+    else's namespace."""
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    theirs = _create(other)
+
+    r = _post_signed(
+        client, handle, _presign_path(theirs.id), {"content_type": "image/png"}
+    )
+
+    assert r.status_code == 404
+    assert r.json() == {"detail": "trade not found"}
+    assert fake_r2.signed == [], "a refused request must sign nothing at all"
+
+
+def test_presign_for_a_missing_trade_is_byte_identical_to_a_foreign_one(
+    client, website_session_handle, two_users, fake_r2
+):
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    theirs = _create(other)
+
+    foreign = _post_signed(
+        client, handle, _presign_path(theirs.id), {"content_type": "image/png"}
+    )
+    missing = _post_signed(
+        client, handle, _presign_path(999_999), {"content_type": "image/png"}
+    )
+
+    assert foreign.status_code == missing.status_code == 404
+    assert foreign.content == missing.content
+
+
+@pytest.mark.parametrize(
+    "content_type", ["image/svg+xml", "text/html", "application/pdf", ""]
+)
+def test_presign_refuses_an_unsupported_content_type_before_signing(
+    client, website_session_handle, fake_r2, content_type
+):
+    """SVG is script-bearing markup, not a picture. The refusal happens in the
+    request contract, so nothing is signed and no upload slot exists."""
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+
+    r = _post_signed(
+        client, handle, _presign_path(trade.id), {"content_type": content_type}
+    )
+
+    assert r.status_code == 422
+    assert fake_r2.signed == []
+
+
+def test_presign_rejects_a_client_supplied_key(client, website_session_handle, fake_r2):
+    """The server chooses where bytes land, always."""
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+
+    r = _post_signed(
+        client,
+        handle,
+        _presign_path(trade.id),
+        {"content_type": "image/png", "key": "u/1/t/1/anything.png"},
+    )
+
+    assert r.status_code == 422
+    assert fake_r2.signed == []
+
+
+def test_the_presign_contract_covers_exactly_the_storage_allowlist():
+    """A Literal cannot be derived from a dict, so this is what keeps the
+    request contract and `storage.ALLOWED_CONTENT_TYPES` from drifting."""
+    from typing import get_args
+
+    from src.tradelens.api import storage
+    from src.tradelens.api.schemas.trades import ScreenshotContentType
+
+    assert set(get_args(ScreenshotContentType)) == set(storage.ALLOWED_CONTENT_TYPES)

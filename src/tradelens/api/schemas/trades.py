@@ -519,3 +519,47 @@ class ScreenshotCleanupFailedDetail(_Strict):
 
 class ScreenshotCleanupFailedResponse(_Strict):
     detail: ScreenshotCleanupFailedDetail
+
+
+# ------------------------------------------------------- screenshot lifecycle
+
+# The upload types the presigned policy will bind. Pinned against
+# `storage.ALLOWED_CONTENT_TYPES` by a test rather than derived, because a
+# `Literal` needs literal members — the test is what keeps the two together.
+ScreenshotContentType = Literal["image/png", "image/jpeg", "image/webp"]
+
+
+class ScreenshotPresignRequest(_Strict):
+    """What the browser is asking permission to upload.
+
+    Only the content type. The object key is chosen by the server and is never
+    influenced by the client — a user-supplied key component is a
+    path-traversal and overwrite primitive.
+    """
+
+    content_type: ScreenshotContentType
+
+
+class ScreenshotPresignResponse(_Strict):
+    """A short-lived PUT URL into a namespace with no download path.
+
+    `max_bytes` is advisory: a presigned PUT cannot bind a maximum size, so
+    the real gate runs server-side at finalize. Sending it lets the browser
+    spare a trader a slow upload that would be refused anyway.
+    """
+
+    url: str
+    key: str
+    expires_in: int
+    max_bytes: int
+
+
+class ScreenshotKeyRequest(_Strict):
+    """A key the browser received back from presign.
+
+    It is a CLAIM, never a location. Every handler re-derives the caller's own
+    expected prefix and refuses anything outside it, so a forged key cannot
+    name another owner's object.
+    """
+
+    key: str

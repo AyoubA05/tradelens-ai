@@ -24,6 +24,8 @@ from src.tradelens.api.routers.overview import _validated_period
 from src.tradelens.api.schemas.trades import (
     ScreenshotCleanupFailedResponse,
     ScreenshotDescriptor,
+    ScreenshotPresignRequest,
+    ScreenshotPresignResponse,
     TradeConflictResponse,
     TradeCreate,
     TradeCreateResponse,
@@ -521,3 +523,32 @@ def delete_trade_endpoint(
         raise _not_found()
 
     return Response(status_code=204)
+
+
+@router.post("/trades/{trade_id}/screenshot/presign")
+def presign_screenshot_upload(
+    trade_id: int,
+    payload: ScreenshotPresignRequest,
+    user_id: int = Depends(current_user),
+) -> ScreenshotPresignResponse:
+    """Ask permission to upload one chart image for a trade.
+
+    The trade is what authorises the upload (Decision 1): `presign_upload`
+    requires the trade to exist and belong to the caller, so there is exactly
+    one ownership rule in the system and no trade-less draft namespace with a
+    second one.
+
+    The signed URL points into a quarantine prefix that has NO download path.
+    Only `finalize_upload` can promote bytes out of it, and only after
+    re-encoding them. The key is chosen entirely by the server; the request
+    body carries the content type and nothing else.
+
+    A trade that is not the caller's returns 404, byte-identical to a missing
+    one, and signs nothing — a 403 would confirm the row exists, and a URL
+    would be an upload slot in another owner's namespace.
+    """
+    try:
+        signed = storage.presign_upload(user_id, trade_id, payload.content_type)
+    except PermissionError:
+        raise _not_found() from None
+    return ScreenshotPresignResponse(**signed)
