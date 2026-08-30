@@ -6521,3 +6521,134 @@ to ignore it.
    tested in isolation; the end-to-end behaviour of a real model against a real injection is not.
 4. **Real 375px browser smoke.** The browser pane collapsed to a 0-width shell after every mobile
    resize, so those measurements were of an empty page and are not claimed.
+
+---
+
+# Phase 4 — New Trade + Screenshot Upload (2026-08-28)
+
+Branch `worktree-phase4-new-trade`, from `main` @ `7ff5982`. Plan:
+`docs/superpowers/plans/2026-08-25-nextjs-migration-phase4-new-trade.md`.
+
+`/app/trades/new` is a real single dense form, and the R2 screenshot lifecycle Phase 0 built is
+finally exercised end to end. **This is the first code in the project to move untrusted bytes and
+the first to accept an object key from a browser** — everything before it moved JSON.
+
+## What shipped
+
+| Surface | Notes |
+|---|---|
+| `POST /v1/trades` | positive allowlist, fingerprint duplicate detection, owner-calendar date ceiling |
+| `POST /v1/trades/{id}/screenshot/presign` | ContentType bound into the signed policy; quarantine namespace |
+| `.../finalize` | shape-gated key, decode, validate, **re-encode**, promote, record, discard quarantine |
+| `.../abandon` | owner-scoped, idempotent |
+| `/app/trades/new` | one dense form, no wizard; stacks at ~375px |
+| `/api/trades/create`, `/api/trades/[id]/screenshot` | BFF relays, fail-shut CSRF |
+
+## Architecture decisions
+
+**The trade is created first, and its id authorises the upload.** `presign_upload` already
+required `_owns_trade`, so reusing it keeps exactly one way ownership is resolved. A trade-less
+draft namespace would have meant inventing a second ownership rule for objects with no owning row,
+plus a sweeper — a new trust boundary to save one round trip. The cost is a window where a trade
+exists without its screenshot, and that is the right direction for the failure to point: a trade
+without its screenshot is visible and attachable later, while a screenshot without a trade is an
+orphan nobody can find.
+
+**A browser-supplied key is a claim, never a location.** `_is_scoped_key` requires the remainder
+after the owner's prefix to be a single `<uuid4>.<ext>` segment with no separators. Both quarantine
+and final validation share it, so they cannot drift.
+
+**Three derivations moved server-side** — session, killzone and `strategy_used` — because each
+depends on the owner's stored timezone or profile, which a browser must not assert.
+
+## Defects caught before merge
+
+**A path-traversal hole in the quarantine gate.** `_is_final_key` shape-validated its keys, but
+`finalize_upload` and `abandon_upload` gated on `startswith` alone, so
+`quarantine/u/{me}/t/{T}/../../../../u/{victim}/t/9/<uuid>.png` passed. **botocore transmits those
+`..` segments literally and unencoded.** On S3 keys are opaque and it is inert; on R2 it was
+unverifiable without credentials, and if R2 normalises paths it would have meant cross-tenant read
+*and destruction* — finalize fetching a victim's object, re-encoding it into the attacker's trade,
+then deleting the original. Fixed by shape rather than by going to find out, so the question is
+moot rather than mitigated.
+
+**An ownership guard with no isolating test.** `finalize_upload`'s `_owns_trade` could be removed
+with nothing failing: both candidate tests were refused *downstream* by the prefix check, and one
+was circular. The missing shape was a key under the caller's **own** prefix naming **another
+owner's** trade.
+
+**A promoted object with no `screenshots` row is unreachable *and* unsweepable**, since
+`delete_trade_objects` resolves keys from `screenshots.file_path`. Finalize now deletes the
+promoted object before surfacing a row-write failure.
+
+**"Nothing was saved" could print after a save.** The guard read `savedTradeId` *state*, which is
+stale within the same synchronous call; it now reads a local `createdTradeId`. Telling a trader
+nothing was saved when a trade was is the worst failure this phase can produce, and it invites a
+duplicate resubmit.
+
+**The server-side derivations silently corrupted CSV import.** `create_trade` has **three**
+callers, not two — `csvio.import_trades_csv` was missed. `CSV_COLUMNS` has neither `killzone` nor
+`entry_time`, so every imported trade was getting a **fabricated** `Off-Hours`/`off_session` where
+it previously got NULL, and any blank `strategy_used` was stamped with the **importer's currently
+active** profile, attributing historical trades to a strategy they were not taken under. All three
+columns feed analytics the product is built on. Now: session/killzone derive only when
+`entry_time` is present — "we don't know" is a different fact from "outside session hours" — and
+`strategy_used` derives only on the API path via an explicit, fail-closed `derive_strategy` flag.
+
+## The test-suite theme, and its eleventh instance
+
+Across Phases 3, 3E and 4, **eleven** tests have now been proven to pass against deliberately
+broken code. Two shapes recur:
+
+- **Asserting an echoed value** rather than an observable outcome — `page.limit` instead of the
+  rows returned, `ApiError(200)` instead of the real status, a hardcoded `{status: 204}`.
+- **Being refused by a downstream gate**, so the guard under test is never exercised at all.
+
+Two new species appeared in Phase 4. A **shadowed test helper**: `_screenshot_rows` defined twice
+~900 lines apart, so Python bound the last definition module-wide and three delete assertions
+silently began comparing a `Screenshot` to an int. It failed noisily only by luck — one assertion
+was `== [id]`; had it been `== []` it would have passed vacuously. And a **test pinning the
+defect**: `test_missing_entry_time_still_creates_with_off_session_defaults` asserted the
+fabricated `Off-Hours` as correct, so the suite was *actively defending* the CSV regression rather
+than merely blind to it. That is why 2864 passing tests said nothing.
+
+The final review swept every `tests/*.py` by AST and every `web/__tests__` file for duplicate
+top-level definitions: no others.
+
+## Verification
+
+- Python **2867 passed / 7 skipped**; ruff clean; black 283 unchanged.
+- Web **1326 passed / 74 files**; `tsc --noEmit` clean; eslint 0 errors.
+- Production build; `/app/trades/new`, `/api/trades/create`, `/api/trades/[id]/screenshot` all `f`.
+- OpenAPI/TypeScript drift gate clean. Single Alembic head `c9d0e1f2g3h4`.
+
+## NOT verified — stated plainly
+
+**The browser smoke pass was not run.** Two independent blockers, both checked rather than assumed:
+no R2 credentials exist anywhere (only `.env.example` names them), and local Postgres egress on
+5432 is blocked — a fresh disposable Neon branch was reachable from the Neon control-plane API but
+not from this machine, and an endpoint that connected successfully *earlier in the same session*
+also failed, which rules out the new branch. So the presigned PUT round trip, the Content-Type
+policy R2 actually enforces, and real 375px layout are all unexercised. `xhrPut` is unexecuted
+code. Mobile is checked structurally (class-level) only; jsdom computes no layout.
+
+An empty disposable branch `br-wandering-paper-au9c8n5e` was left in place with an auto-expiry of
+2026-08-29T06:00Z rather than deleted — nothing was seeded and deletion needs the owner's word.
+
+## Carried forward
+
+- Deferred to **Phase 4E**, tracked not dropped: AI autofill, per-field accept/reject review,
+  draft autosave, and image-URL ingest (a server-side fetch of attacker-influenced input belongs
+  with the analysis work that motivates it).
+- **Four pre-deployment gates remain open**: Docker build/startup/health; broader Python
+  dependency audit; working Anthropic key + live injection/model smoke; real 375px browser smoke.
+  **The R2 upload lifecycle now joins them** as a deploy-gate item.
+- The flaky Streamlit AppTest harness (3-4 failures per full run on unmodified `main` too, never
+  the same tests, all passing in isolation) remains tracked technical debt. It was explicitly out
+  of scope here, and it is worth fixing on its own terms: a suite that fails differently every run
+  trains people to ignore it.
+- `pendingKey` cleanup on tab close is best-effort; an abandoned quarantine object is unreachable
+  and unguessable but nothing sweeps it. An R2 lifecycle rule on the `quarantine/` prefix is the
+  right home for that, not application code.
+- Minor: the 16-digit trade-id cap admits values above `MAX_SAFE_INTEGER` (shared with the Phase 3
+  route, backend 404s); Streamlit casts `position_size` to int while the client sends a float.
