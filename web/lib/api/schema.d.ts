@@ -279,6 +279,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/trades/{trade_id}/screenshot/ingest-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest Screenshot Url
+         * @description Attach a chart image the server fetches from a link.
+         *
+         *     This is the only place bytes enter the system without a browser upload, and
+         *     it is deliberately not a second image path: the fetched bytes are PUT into
+         *     this caller's own quarantine key and then go through the same
+         *     `finalize_upload` — the same decode, the same size and dimension caps, the
+         *     same re-encode, the same row write — as anything a trader uploads. A temp
+         *     file handed to the model instead would inherit none of that.
+         *
+         *     Ownership is settled FIRST, before a single packet leaves the server. A
+         *     foreign trade must not cause an outbound request: the fetch is observable
+         *     to whoever controls the URL, so issuing one would turn this endpoint into a
+         *     cross-tenant existence oracle regardless of what status code came back.
+         *
+         *     The URL is attacker-controlled, so `fetch_image_bytes` — not this handler —
+         *     decides what may be connected to.
+         */
+        post: operations["ingest_screenshot_url_v1_trades__trade_id__screenshot_ingest_url_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/trades/{trade_id}/screenshot/presign": {
         parameters: {
             query?: never;
@@ -587,6 +622,20 @@ export interface components {
             key: string;
             /** Max Bytes */
             max_bytes: number;
+            /** Url */
+            url: string;
+        };
+        /**
+         * ScreenshotUrlRequest
+         * @description A link to a chart image the server will fetch on the trader's behalf.
+         *
+         *     Just the URL. It is untrusted in two separate ways and both are handled
+         *     elsewhere: `url_ingest` decides whether the address may be connected to at
+         *     all, and the bytes that come back are put through the same quarantine and
+         *     `finalize_upload` re-encode as any browser upload. Nothing here influences
+         *     where the object lands — the key is still server-chosen.
+         */
+        ScreenshotUrlRequest: {
             /** Url */
             url: string;
         };
@@ -1467,6 +1516,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ScreenshotKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotDescriptor"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_screenshot_url_v1_trades__trade_id__screenshot_ingest_url_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScreenshotUrlRequest"];
             };
         };
         responses: {

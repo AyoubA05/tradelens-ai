@@ -178,6 +178,44 @@ def _owns_trade(user_id: int, trade_id: int) -> bool:
         db.close()
 
 
+def owns_trade(user_id: int, trade_id: int) -> bool:
+    """Whether this trade is the caller's.
+
+    Public so a handler can refuse a foreign trade BEFORE it does anything
+    expensive or observable — for URL ingest that means before a single packet
+    leaves the server, which is a property no later check can restore.
+    """
+    return _owns_trade(require_user_id(user_id), trade_id)
+
+
+def put_quarantine_object(
+    user_id: int, trade_id: int, data: bytes, content_type: str
+) -> str:
+    """Put server-fetched bytes into this caller's quarantine and return the key.
+
+    URL ingest has no presigned PUT, so this is how those bytes enter the one
+    trusted image path instead of a temp file beside it. It is deliberately the
+    same namespace the browser uploads into: quarantine has no download path,
+    and `finalize_upload` is still the only thing that can promote anything out
+    of it — so URL bytes inherit the decode, the size and dimension caps and
+    the re-encode without a second implementation of any of them.
+
+    The key is built by `_build_quarantine_key`, so it is server-chosen and
+    owner-scoped exactly like a presigned one; nothing about the URL reaches it.
+    """
+    owner = require_user_id(user_id)
+    if not _owns_trade(owner, trade_id):
+        raise PermissionError("trade not found")
+    key = _build_quarantine_key(owner, trade_id, content_type)
+    _client().put_object(
+        Bucket=r2_config()["bucket"],
+        Key=key,
+        Body=data,
+        ContentType=content_type,
+    )
+    return key
+
+
 def presign_upload(user_id: int, trade_id: int, content_type: str) -> dict:
     """A short-lived PUT URL for one specific object.
 

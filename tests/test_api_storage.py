@@ -938,3 +938,64 @@ def test_finalize_reports_a_missing_quarantine_object_as_missing(
 
     with pytest.raises(storage.UploadMissing):
         storage.finalize_upload(a, mine.id, upload_key)
+
+
+# ----------------------------------------------- put_quarantine_object (A2)
+
+
+def test_put_quarantine_object_refuses_a_trade_the_caller_does_not_own(
+    two_users, monkeypatch
+):
+    """The service's own ownership check, exercised directly.
+
+    The URL-ingest route checks ownership before it fetches, so this check is
+    never reached through the API and a route-level test cannot see it. That is
+    exactly why it is pinned here: it is the guard that survives a future
+    caller which forgets, and an unreachable guard nothing tests is a guard
+    that gets deleted as dead code.
+    """
+    a, b = two_users
+    theirs = _create(
+        {
+            "user_id": b,
+            "trade_date": "2026-08-12",
+            "asset": "NQ",
+            "result": "Win",
+            "pnl": 1.0,
+        }
+    )
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    with pytest.raises(PermissionError):
+        storage.put_quarantine_object(a, theirs.id, _png(), "image/png")
+
+    assert fake.puts == {}, "a refused ingest must write nothing at all"
+
+
+def test_put_quarantine_object_lands_under_the_callers_own_quarantine_prefix(
+    two_users, monkeypatch
+):
+    """Server-fetched bytes enter the SAME non-downloadable namespace an upload
+    does. Anywhere else would be a second image path with none of the guards
+    that promotion out of quarantine applies."""
+    a, _ = two_users
+    mine = _create({"user_id": a, "trade_date": "2026-08-12", "asset": "NQ"})
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    key = storage.put_quarantine_object(a, mine.id, _png(), "image/png")
+
+    assert key.startswith(f"quarantine/u/{a}/t/{mine.id}/")
+    assert key.endswith(".png")
+    assert list(fake.puts) == [key]
+    assert fake.puts[key]["ContentType"] == "image/png"
+
+
+def test_owns_trade_is_false_for_another_owners_trade(two_users):
+    a, b = two_users
+    theirs = _create({"user_id": b, "trade_date": "2026-08-12", "asset": "NQ"})
+    mine = _create({"user_id": a, "trade_date": "2026-08-12", "asset": "NQ"})
+
+    assert storage.owns_trade(a, theirs.id) is False
+    assert storage.owns_trade(a, mine.id) is True

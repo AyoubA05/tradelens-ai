@@ -766,6 +766,21 @@
         "title": "ScreenshotPresignResponse",
         "type": "object"
       },
+      "ScreenshotUrlRequest": {
+        "additionalProperties": false,
+        "description": "A link to a chart image the server will fetch on the trader's behalf.\n\nJust the URL. It is untrusted in two separate ways and both are handled\nelsewhere: `url_ingest` decides whether the address may be connected to at\nall, and the bytes that come back are put through the same quarantine and\n`finalize_upload` re-encode as any browser upload. Nothing here influences\nwhere the object lands \u2014 the key is still server-chosen.",
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "ScreenshotUrlRequest",
+        "type": "object"
+      },
       "TradeConflictDetail": {
         "additionalProperties": false,
         "description": "What the client needs to show a trader whose edit lost a race.",
@@ -3461,6 +3476,59 @@
           }
         },
         "summary": "Finalize Screenshot Upload",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
+    "/v1/trades/{trade_id}/screenshot/ingest-url": {
+      "post": {
+        "description": "Attach a chart image the server fetches from a link.\n\nThis is the only place bytes enter the system without a browser upload, and\nit is deliberately not a second image path: the fetched bytes are PUT into\nthis caller's own quarantine key and then go through the same\n`finalize_upload` \u2014 the same decode, the same size and dimension caps, the\nsame re-encode, the same row write \u2014 as anything a trader uploads. A temp\nfile handed to the model instead would inherit none of that.\n\nOwnership is settled FIRST, before a single packet leaves the server. A\nforeign trade must not cause an outbound request: the fetch is observable\nto whoever controls the URL, so issuing one would turn this endpoint into a\ncross-tenant existence oracle regardless of what status code came back.\n\nThe URL is attacker-controlled, so `fetch_image_bytes` \u2014 not this handler \u2014\ndecides what may be connected to.",
+        "operationId": "ingest_screenshot_url_v1_trades__trade_id__screenshot_ingest_url_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trade_id",
+            "required": true,
+            "schema": {
+              "title": "Trade Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScreenshotUrlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenshotDescriptor"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ingest Screenshot Url",
         "tags": [
           "trades"
         ]

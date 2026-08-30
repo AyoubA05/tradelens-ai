@@ -20,7 +20,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.exc import IntegrityError
 
-from src.tradelens.api import jobs, storage
+from src.tradelens.api import imaging, jobs, storage
 from src.tradelens.api.deps import current_user
 from src.tradelens.api.routers.overview import _validated_period
 from src.tradelens.api.schemas.trades import (
@@ -29,6 +29,7 @@ from src.tradelens.api.schemas.trades import (
     ScreenshotKeyRequest,
     ScreenshotPresignRequest,
     ScreenshotPresignResponse,
+    ScreenshotUrlRequest,
     TradeConflictResponse,
     TradeCreate,
     TradeCreateResponse,
@@ -40,7 +41,7 @@ from src.tradelens.api.schemas.trades import (
     TradeSummaryJobStatus,
     TradeUpdate,
 )
-from src.tradelens.services import screenshot_service
+from src.tradelens.services import screenshot_service, url_ingest
 from src.tradelens.services.assets import detect_asset_class
 from src.tradelens.services.sessions import KILLZONE_LABELS
 from src.tradelens.services.trade_service import (
@@ -65,6 +66,11 @@ from src.tradelens.services.trade_validation import OutcomeMismatch
 _log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["trades"])
+
+# One phrase for every "these bytes are not a picture" refusal, matching what
+# `finalize_upload` surfaces, so a URL and an upload are indistinguishable to
+# anyone probing the validator.
+NOT_AN_IMAGE_DETAIL = "not a supported image"
 
 
 def _finite_or_none(value: Optional[float]) -> Optional[float]:
@@ -630,6 +636,19 @@ def finalize_screenshot_upload(
         # failed hands them the shape of the validator.
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    return _attach_promoted(trade_id, promoted, user_id)
+
+
+def _attach_promoted(
+    trade_id: int, promoted: dict, user_id: int
+) -> ScreenshotDescriptor:
+    """Record the row for a just-promoted object, and sign it for the client.
+
+    Shared by finalize and URL ingest so both reach the bucket through exactly
+    one promote-then-record sequence. A second copy of this is how one of the
+    two would end up writing a promoted object with no row — an orphan nothing
+    can name, since `delete_trade_objects` resolves keys FROM the rows.
+    """
     try:
         screenshot_id, uploaded_at = screenshot_service.record_object_screenshot(
             trade_id,
@@ -681,6 +700,75 @@ def finalize_screenshot_upload(
         uploaded_at=uploaded_at,
         url=download_url,
     )
+
+
+@router.post(
+    "/trades/{trade_id}/screenshot/ingest-url",
+    status_code=status.HTTP_201_CREATED,
+)
+def ingest_screenshot_url(
+    trade_id: int,
+    payload: ScreenshotUrlRequest,
+    user_id: int = Depends(current_user),
+) -> ScreenshotDescriptor:
+    """Attach a chart image the server fetches from a link.
+
+    This is the only place bytes enter the system without a browser upload, and
+    it is deliberately not a second image path: the fetched bytes are PUT into
+    this caller's own quarantine key and then go through the same
+    `finalize_upload` — the same decode, the same size and dimension caps, the
+    same re-encode, the same row write — as anything a trader uploads. A temp
+    file handed to the model instead would inherit none of that.
+
+    Ownership is settled FIRST, before a single packet leaves the server. A
+    foreign trade must not cause an outbound request: the fetch is observable
+    to whoever controls the URL, so issuing one would turn this endpoint into a
+    cross-tenant existence oracle regardless of what status code came back.
+
+    The URL is attacker-controlled, so `fetch_image_bytes` — not this handler —
+    decides what may be connected to.
+    """
+    if not storage.owns_trade(user_id, trade_id):
+        raise _not_found()
+
+    try:
+        data = url_ingest.fetch_image_bytes(payload.url)
+    except url_ingest.UrlIngestError as exc:
+        # A plain sentence the trader can act on. It names no address and no
+        # check, so it is not a probe of the network the server can see.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # Which content type the bytes CLAIM, only so the quarantine key carries an
+    # extension. `finalize_upload` feeds that extension back in as the expected
+    # type and makes the decoder corroborate it, exactly as it does for the
+    # Content-Type a presigned upload was signed against.
+    content_type = imaging.sniff_content_type(data)
+    if content_type is None:
+        raise HTTPException(status_code=422, detail=NOT_AN_IMAGE_DETAIL)
+
+    try:
+        upload_key = storage.put_quarantine_object(
+            user_id, trade_id, data, content_type
+        )
+    except PermissionError:
+        raise _not_found() from None
+
+    try:
+        promoted = storage.finalize_upload(user_id, trade_id, upload_key)
+    except PermissionError:
+        raise _not_found() from None
+    except storage.UploadMissing as exc:
+        # The object was written moments ago by this same request, so this
+        # means the bucket lost it rather than a client sending a stale key.
+        raise HTTPException(
+            status_code=503, detail="the screenshot could not be attached"
+        ) from exc
+    except storage.UploadRejected as exc:
+        # A stable phrase, not a reason: a decompression bomb, a polyglot and a
+        # renamed executable all land here and are told the same thing.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return _attach_promoted(trade_id, promoted, user_id)
 
 
 @router.post(

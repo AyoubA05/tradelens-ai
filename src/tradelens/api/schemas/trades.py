@@ -579,6 +579,19 @@ class ScreenshotPresignResponse(_Strict):
     max_bytes: int
 
 
+class ScreenshotUrlRequest(_Strict):
+    """A link to a chart image the server will fetch on the trader's behalf.
+
+    Just the URL. It is untrusted in two separate ways and both are handled
+    elsewhere: `url_ingest` decides whether the address may be connected to at
+    all, and the bytes that come back are put through the same quarantine and
+    `finalize_upload` re-encode as any browser upload. Nothing here influences
+    where the object lands — the key is still server-chosen.
+    """
+
+    url: str
+
+
 class ScreenshotKeyRequest(_Strict):
     """A key the browser received back from presign.
 
