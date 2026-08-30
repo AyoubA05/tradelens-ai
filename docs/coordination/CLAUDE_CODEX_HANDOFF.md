@@ -6655,3 +6655,119 @@ An empty disposable branch `br-wandering-paper-au9c8n5e` was left in place with 
   right home for that, not application code.
 - Minor: the 16-digit trade-id cap admits values above `MAX_SAFE_INTEGER` (shared with the Phase 3
   route, backend 404s); Streamlit casts `position_size` to int while the client sends a float.
+
+---
+
+# Phase 4 — Codex independent review (2026-08-30)
+
+**Reviewed range:** `7ff5982..85b759d` plus the corrective changes recorded below. This was an
+independent code/data/security review of Phase 4 only. Phase 4E and Phase 5 were not started.
+
+## Findings by severity
+
+### Critical
+
+None confirmed.
+
+### High
+
+None confirmed. In particular, no cross-tenant read, upload, promotion, signing, association, or
+delete path survived the two-owner adversarial tests.
+
+### Medium — fixed
+
+1. **Concurrent identical creates were not idempotent.** `POST /v1/trades` performed an
+   owner-scoped `find_by_fingerprint` followed by an INSERT with no database constraint. A barrier
+   forced both requests past the lookup and reproduced two `201` responses and two rows. A nullable,
+   server-owned `trades.create_idempotency_key` plus unique `(user_id, create_idempotency_key)` now
+   serializes only the authenticated HTTP-create path. CSV, Streamlit and historical rows retain
+   NULL, so their historical semantics and existing duplicate hashes are unchanged. The losing
+   transaction returns the winner as the existing `200` result. Migration
+   `d0e1f2g3h4i5` upgrades/downgrades cleanly and preserves pre-existing duplicate `trade_hash` rows.
+2. **The create allowlist admitted server-derived analytics fields.** A browser could submit
+   `strategy_used`, `session`, `killzone`, or `asset_class`; all four returned `201` and persisted
+   the forged value. They are now absent from `TradeCreate`, explicitly server-owned, and derived
+   from the authenticated owner's profile/settings plus the submitted instrument/time. The frontend
+   omits them. Exhaustive model-column partition tests keep future columns fail-closed.
+3. **An ambiguous R2 PUT fault could orphan a final object.** A fake that persisted the normalized
+   object and then raised reproduced a promoted object with no database row and no later sweep path.
+   Finalization now best-effort deletes the locally known possible final key as well as quarantine
+   before surfacing the fault.
+
+### Low — fixed
+
+1. **The server did not enforce the form's required time or unequal entry/stop rule.** Missing,
+   blank and malformed times and equal entry/stop prices all previously wrote rows. Pydantic now
+   enforces both. Entry time is canonicalized to `HH:MM:SS`, also fixing a real Streamlit/API
+   fingerprint divergence (`datetime.time(09:30)` versus HTTP `"09:30"`).
+2. **Declared upload type was not corroborated by decoded bytes.** A `.png` quarantine key carrying
+   JPEG bytes was accepted because JPEG was independently allowlisted. Finalization now compares
+   Pillow's decoded format with the content type encoded by the server-generated key, then still
+   re-encodes only clean PNG. Positive PNG/JPEG/WebP and mismatch cases are covered.
+3. **A post-commit download-signing fault reported attachment failure.** The object and screenshot
+   row could both be durable, then `presign_download` could raise and turn the response into 500.
+   Signing is now response decoration: this path logs without keys/URLs and returns `201` with the
+   contract's existing nullable URL instead of inviting a duplicate upload.
+4. **A lost create response produced false certainty.** The browser said “Nothing was saved” when a
+   connection could have failed after commit. It now says the outcome could not be confirmed and
+   that an identical retry is safe; the database-backed idempotency rule makes that statement true.
+
+### Hardening / verified without a code defect
+
+- The literal `..` traversal plus backslash, encoded/double-encoded dot segments, Unicode slash
+  lookalikes, nested segments, query/fragment suffixes and malformed UUID shapes all fail before an
+  R2 call. A deliberate prefix-only mutation made both finalize and abandon traversal tests fail.
+- Removing `_owns_trade` independently from presign and finalize made their foreign-owner tests
+  fail. The foreign finalize key was syntactically valid under the caller's own namespace, so the
+  result is not masked by key validation. All cross-owner API responses remain 404, not 403.
+- Flattening screenshot relay errors to 502 made the observable 422, 409 and cross-owner 404 tests
+  fail. Omitting the database idempotency key made the synchronized concurrency test fail with two
+  `201`s. All mutations were restored before the final runs.
+- CSV imports were executed through the real importer with an active strategy and owner timezone:
+  missing historical `session`, `killzone` and `strategy_used` remain NULL, while an explicitly
+  recorded strategy remains unchanged. `create_idempotency_key` is also NULL for non-HTTP callers.
+- The form's naive entry time is intentionally treated as the owner's wall-clock, matching the
+  existing Streamlit service semantics. The owner timezone comes only from persisted settings and
+  is never browser-supplied. If Phase 4E begins ingesting timezone-aware screenshot/AI timestamps,
+  it must not assume those have the same semantics as this local wall-clock field.
+
+## Verdicts
+
+- **Tenant isolation:** clear. Identity comes only from the authenticated website session →
+  domain-separated handle → FastAPI session row. Service/query ownership remains load-bearing on
+  every screenshot and create path. No browser owner field changes it.
+- **Key/storage boundary:** clear in code and deterministic tests. Browser keys remain untrusted
+  claims; only normalized bytes reach final storage and only rows joined through an owned trade can
+  be signed or deleted.
+- **Create integrity/idempotency:** clear after the database constraint, strict positive allowlist,
+  server validation and cross-surface time canonicalization.
+- **Partial failures:** clear for the tested application paths after possible-final cleanup and
+  truthful post-commit behavior. R2 and Postgres cannot form one transaction; failed best-effort
+  object deletion is still logged and requires operational reconciliation/lifecycle policy.
+- **Phase 4 is cleared for merge.** This does not clear the live deployment gates below.
+
+## Verification actually run
+
+- Focused Phase 4 Python: **243 passed**; focused web: **106 passed / 10 files**.
+- Full Python after final regeneration: **2896 passed / 7 skipped / 0 failed**.
+- Full web: **1327 passed / 74 files**.
+- TypeScript clean; ESLint **0 errors** (two pre-existing `modal-trap.ts` warnings); Ruff clean;
+  Black **283 files unchanged**.
+- Next.js 16.3.0 production build passed; `/app/trades/new`, `/api/trades/create`, and
+  `/api/trades/[id]/screenshot` are dynamic.
+- OpenAPI and generated TypeScript were regenerated twice with identical SHA-256 outputs; the
+  drift test passed.
+- Alembic has one head, `d0e1f2g3h4i5`; blank SQLite upgrade, downgrade one revision, re-upgrade,
+  legacy duplicate preservation, and migration-chain tests passed.
+
+## Still not verified — hard pre-deployment gates
+
+The review did **not** run a live R2/browser smoke because credentials/network access remain
+unavailable. Therefore `xhrPut`, Cloudflare's real presigned PUT Content-Type enforcement, exact
+bucket CORS/private-bucket configuration, response behavior, cleanup against real R2, and an actual
+375px browser layout remain unverified. Docker, a broader dependency audit, and a working Anthropic
+live smoke also remain open. Do not represent any of those as passed; do not deploy the screenshot
+upload path until the live R2/browser lifecycle is exercised with two accounts and disposable data.
+
+**Next owner:** merge and push this cleared Phase 4 branch. Keep Phase 4E separate and do not start
+it from this review turn.
