@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { NEW_TRADE_FIELD_NAMES } from "@/lib/app/new-trade-fields";
+import { NEW_TRADE_FIELDS, NEW_TRADE_FIELD_NAMES } from "@/lib/app/new-trade-fields";
 
 /**
  * Field parity, pinned (Task C1).
@@ -55,5 +55,18 @@ describe("New Trade field parity", () => {
 
   it("has no duplicate field names", () => {
     expect(new Set(NEW_TRADE_FIELD_NAMES).size).toBe(NEW_TRADE_FIELD_NAMES.length);
+  });
+});
+
+describe("field contract honesty", () => {
+  it("declares the screenshot field as a file picker, not file-or-URL", () => {
+    // Image-URL ingest is deferred to Phase 4E and no URL input is rendered
+    // anywhere. A contract that overstates what ships becomes the record.
+    const screenshot = NEW_TRADE_FIELDS.find((f) => f.name === "screenshot");
+    expect(screenshot?.type).toBe("file");
+  });
+
+  it("has no field claiming URL ingest", () => {
+    expect(NEW_TRADE_FIELDS.some((f) => String(f.type).includes("url"))).toBe(false);
   });
 });

@@ -119,12 +119,34 @@ describe("POST /api/trades/create", () => {
     expect(createTrade).not.toHaveBeenCalled();
   });
 
-  it("forwards a 422 (allowlist rejection or future trade_date) plainly", async () => {
+  it("forwards the backend's 422 detail so the trader learns what to fix", async () => {
+    // Without the detail the form can only show generic "this did not save"
+    // copy — losing the future-date message and the OutcomeMismatch text
+    // that names the contradiction the trader has to resolve.
     const { ApiError } = await import("@/lib/api/client");
     createTrade.mockRejectedValue(new ApiError(422, { detail: "trade_date must not be in the future" }));
     const response = await callPost(req({ asset: "NQ" }));
     expect(response.status).toBe(422);
-    expect((await response.json()).ok).toBe(false);
+    const body = await response.json();
+    expect(body.ok).toBe(false);
+    expect(body.detail).toBe("trade_date must not be in the future");
+  });
+
+  it("sends no detail on a 422 whose body carries none", async () => {
+    const { ApiError } = await import("@/lib/api/client");
+    createTrade.mockRejectedValue(new ApiError(422));
+    const response = await callPost(req({ asset: "NQ" }));
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ ok: false });
+  });
+
+  it("keeps every other backend status opaque", async () => {
+    // Only 422 is client-correctable; no other backend message may leak.
+    const { ApiError } = await import("@/lib/api/client");
+    createTrade.mockRejectedValue(new ApiError(500, { detail: "traceback-ish internals" }));
+    const response = await callPost(req({ asset: "NQ" }));
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ ok: false });
   });
 
   it("uses 502 only for a fault that is not the backend's own status", async () => {

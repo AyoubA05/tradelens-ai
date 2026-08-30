@@ -59,7 +59,9 @@ export type NewTradeFieldType =
   | "price-text"
   | "number"
   | "radio"
-  | "file-or-url";
+  /** A file picker only. Image-URL ingest is deferred to Phase 4E; until it
+   *  ships, no URL input is rendered and this contract must not imply one. */
+  | "file";
 
 export interface NewTradeFieldDef {
   /** The form's own vocabulary — matches `NewTradeFormValues` keys. */
@@ -176,7 +178,7 @@ export const MISTAKE_OPTIONS = [
  * step order (Screenshot, Context, Execution, Reflection).
  */
 export const NEW_TRADE_FIELDS: readonly NewTradeFieldDef[] = [
-  { name: "screenshot", label: "Screenshot", type: "file-or-url", clientValidation: "none — optional; type/size checked by the browser file picker only" },
+  { name: "screenshot", label: "Screenshot", type: "file", clientValidation: "none — optional; type/size checked by the browser file picker only" },
   { name: "asset", label: "Asset", type: "select-with-custom", clientValidation: "required, non-blank after trim" },
   { name: "trade_date", label: "Trade date", type: "date", clientValidation: "required; not after the browser's local today (courtesy mirror of the server's owner-timezone check)" },
   { name: "entry_time", label: "Entry time", type: "time-text", clientValidation: "required; must parse as HH:MM, H:MM AM/PM, HHMM, or H AM/PM" },

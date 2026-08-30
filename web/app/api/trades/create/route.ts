@@ -33,6 +33,15 @@ const NO_STORE = {
   "Referrer-Policy": "no-referrer",
 };
 
+/** The backend's own user-facing message, when it sent one. */
+function detailFrom(body: unknown): string | undefined {
+  if (typeof body === "object" && body !== null && "detail" in body) {
+    const detail = (body as { detail: unknown }).detail;
+    if (typeof detail === "string") return detail;
+  }
+  return undefined;
+}
+
 async function authorize(request: Request): Promise<{ token: string } | NextResponse> {
   const siteOrigin = optionalEnv("SITE_ORIGIN");
   // Fail shut, matching the trade-detail relay's deliberate divergence from
@@ -74,8 +83,20 @@ export async function POST(request: Request) {
   } catch (err) {
     if (err instanceof ApiError) {
       // 422 (a P&L/outcome contradiction the client-side check missed, or a
-      // future trade_date) is forwarded plainly — the client's job is to
+      // future trade_date) is the one status whose body says something the
+      // trader can act on: the backend's message names the contradiction or
+      // the offending date, and without it the form can only show generic
+      // "this did not save" copy that tells them nothing to fix. Same shape
+      // as the summary relay's 429 — forward `detail` for that status only,
+      // so no other backend message leaks through. The client's job is to
       // show it, never to reshape or retry past it.
+      if (err.status === 422) {
+        const detail = detailFrom(err.body);
+        return NextResponse.json(
+          { ok: false, ...(detail ? { detail } : {}) },
+          { status: 422, headers: NO_STORE },
+        );
+      }
       return NextResponse.json({ ok: false }, { status: err.status, headers: NO_STORE });
     }
     return NextResponse.json({ ok: false }, { status: 502, headers: NO_STORE });

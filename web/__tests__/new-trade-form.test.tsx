@@ -89,17 +89,38 @@ describe("NewTradeForm", () => {
     expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
   });
 
-  it("reports a failed save plainly and never navigates", async () => {
+  it("renders the 422 detail the relay forwards, not generic copy", async () => {
+    // `{ ok: false, detail }` is exactly what app/api/trades/create answers
+    // on a 422 (see new-trade-create-route.test.ts). The trader must see the
+    // backend's own message — here the contradiction named by
+    // OutcomeMismatch — rather than "nothing was recorded", which tells them
+    // nothing to fix.
     vi.stubGlobal(
       "fetch",
-      fetchOkOnce({ ok: false, detail: "trade_date must not be in the future" }, 422),
+      fetchOkOnce(
+        { ok: false, detail: "result says Win but pnl is negative" },
+        422,
+      ),
     );
 
     render(<NewTradeForm />);
     fireEvent.click(screen.getByRole("button", { name: /save trade/i }));
 
     await waitFor(() =>
-      expect(screen.getByText(/trade_date must not be in the future/i)).toBeInTheDocument(),
+      expect(screen.getByText(/result says Win but pnl is negative/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/nothing was recorded/i)).not.toBeInTheDocument();
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("falls back to plain copy when the failure carries no detail", async () => {
+    vi.stubGlobal("fetch", fetchOkOnce({ ok: false }, 502));
+
+    render(<NewTradeForm />);
+    fireEvent.click(screen.getByRole("button", { name: /save trade/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/nothing was recorded/i)).toBeInTheDocument(),
     );
     expect(push).not.toHaveBeenCalled();
   });
