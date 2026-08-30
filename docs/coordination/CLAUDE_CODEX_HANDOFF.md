@@ -14,7 +14,7 @@ the same time.
 
 **Owner-approved Phase 0 checkpoint, 2026-08-18.** CI run `32170167686` on `8672c36` is
 green and Codex's review fixes at `44f4bb5` are accepted. Green CI does **not** clear the
-three gates below. They are pre-deployment gates, not Phase 1 planning items, and none has
+six gates below (three from Phase 0, one added by Phase 3E, two more by Phase 3E/4). They are pre-deployment gates, not Phase 1 planning items, and none has
 been run. **Do not describe any of them as done until it has actually been executed and its
 real output recorded here.**
 
@@ -23,6 +23,9 @@ real output recorded here.**
 | 1 | `Dockerfile.api` build + FastAPI startup/health smoke test (`/health` and an authenticated `whoami`) | **NOT RUN** | Docker is unavailable in the development environment. The image has never been built or booted anywhere. |
 | 2 | Disposable PostgreSQL migration upgrade/downgrade verification | **NOT RUN** | Only SQLite has been exercised. `TRADELENS_PG_TEST_URL` is absent, so the Postgres suite skips. |
 | 3 | Real PostgreSQL concurrent AI-job enqueue/claim verification | **NOT RUN** | Two true thread races pass against SQLite; exclusivity under Postgres connection pooling is unproven. |
+| 4 | Broader Python dependency audit | **NOT RUN** | Added after Phase 3E. |
+| 5 | Working Anthropic key + live injection/model smoke | **NOT RUN** | The key in `.streamlit/secrets.toml` is revoked (a direct API call returns 401). A trade note carrying `</trade_data_json>` + a SYSTEM OVERRIDE payload was seeded and confirmed reaching the snapshot, but the model's real response was never obtained. Every layer is tested in isolation; the end-to-end behaviour of a real model against a real injection is not. |
+| 6 | **Live R2 + browser smoke of the screenshot lifecycle** | **NOT RUN** | Added by Phase 4, and the largest untested surface in the project. No R2 credentials exist anywhere — only `.env.example` names `R2_ACCOUNT_ID` etc. So the presigned PUT round trip, the Content-Type policy R2 itself enforces, and the `..`-segment question behind the traversal fix are all unexercised; `xhrPut` is unexecuted code. Local Postgres egress on 5432 was also blocked at the time, so no browser pass ran at all. Mobile at ~375px is checked structurally only — jsdom computes no layout. **This gate covers untrusted bytes crossing a tenant boundary; do not deploy the upload path until it has actually been run against real R2 in a real browser.** |
 
 Deployment configuration that also remains unproven from Git: use Neon's direct/unpooled URL
 for Alembic and the pooled endpoint at runtime; keep Production and Preview on separate Neon
