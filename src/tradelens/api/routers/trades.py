@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy.exc import IntegrityError
 
 from src.tradelens.api import jobs, storage
 from src.tradelens.api.deps import current_user
@@ -40,6 +41,7 @@ from src.tradelens.api.schemas.trades import (
     TradeUpdate,
 )
 from src.tradelens.services import screenshot_service
+from src.tradelens.services.assets import detect_asset_class
 from src.tradelens.services.sessions import KILLZONE_LABELS
 from src.tradelens.services.trade_service import (
     compute_trade_hash,
@@ -172,6 +174,10 @@ def create_trade_route(
     """
     data = payload.model_dump(exclude={"entry_time"})
     data["entry_time"] = payload.entry_time
+    # These values are derived from server-owned facts. In particular,
+    # session/killzone use the owner's persisted timezone and strategy_used
+    # uses the owner's active profile; none is accepted by TradeCreate.
+    data["asset_class"] = detect_asset_class(payload.asset)
 
     # The ceiling is the OWNER's calendar date, not the server's. A trader
     # ahead of UTC has their actual today rejected as "future" for hours
@@ -198,11 +204,27 @@ def create_trade_route(
             **_detail(full, user_id).model_dump(), duplicate_of=existing.id
         )
 
+    # The read above makes ordinary retries cheap, but cannot serialize two
+    # requests that both observe "missing". This server-owned key is guarded
+    # by a database unique constraint scoped to the authenticated owner.
+    data["create_idempotency_key"] = fingerprint
     try:
         # This is the live "I just took this trade" path, the only caller
         # entitled to fill a missing strategy_used from the owner's
         # currently active Strategy Profile (the form omits the field).
         created = create_trade(data, user_id=user_id, derive_strategy=True)
+    except IntegrityError:
+        # The only authenticated create-path uniqueness rule is the scoped
+        # idempotency key. The winning transaction has committed before the
+        # losing INSERT receives its constraint error, so it is now visible.
+        existing = find_by_fingerprint(user_id=user_id, trade_hash=fingerprint)
+        if existing is None:
+            raise
+        response.status_code = status.HTTP_200_OK
+        full = get_trade(existing.id, user_id)
+        return TradeCreateResponse(
+            **_detail(full, user_id).model_dump(), duplicate_of=existing.id
+        )
     except OutcomeMismatch as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -639,12 +661,25 @@ def finalize_screenshot_upload(
             status_code=503, detail="the screenshot could not be attached"
         ) from None
 
+    try:
+        download_url = storage.presign_download(user_id, screenshot_id)
+    except Exception:  # noqa: BLE001 — the row is already durable
+        # Signing decorates the response; it is not part of the database
+        # commit. Returning 500 here would tell the browser "not attached"
+        # after the screenshot row and object both exist, inviting a duplicate
+        # upload. The nullable contract already represents "no URL now".
+        _log.warning(
+            "Could not sign the newly attached screenshot for trade %s",
+            int(trade_id),
+        )
+        download_url = None
+
     return ScreenshotDescriptor(
         id=screenshot_id,
         width=promoted["width"],
         height=promoted["height"],
         uploaded_at=uploaded_at,
-        url=storage.presign_download(user_id, screenshot_id),
+        url=download_url,
     )
 
 

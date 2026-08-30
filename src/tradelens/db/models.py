@@ -135,6 +135,13 @@ class UserSetting(Base):
 
 class Trade(Base):
     __tablename__ = "trades"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "create_idempotency_key",
+            name="uq_trades_user_create_idempotency",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
@@ -202,6 +209,10 @@ class Trade(Base):
     )
     # Deterministic fingerprint for duplicate detection (Session B).
     trade_hash: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    # Only the authenticated HTTP create path sets this. Keeping it nullable
+    # preserves historical/CSV/Streamlit semantics while the per-owner unique
+    # constraint makes two concurrent HTTP retries collapse to one row.
+    create_idempotency_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     updated_at: Mapped[str] = mapped_column(

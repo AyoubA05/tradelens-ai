@@ -12,7 +12,9 @@ import contextlib
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, time as clock_time, timezone
+from threading import Barrier
 
 import pytest
 from fastapi.testclient import TestClient
@@ -1607,6 +1609,7 @@ def _create_headers(handle, body: bytes, *, path=CREATE_PATH, method="POST"):
 def _create_body(**overrides) -> dict:
     body = {
         "trade_date": "2026-08-10",
+        "entry_time": "09:30",
         "asset": "NQ",
         "direction": "Long",
         "entry_price": 100.0,
@@ -1662,8 +1665,6 @@ def test_create_allowlisted_fields_round_trip(client, website_session_handle):
         emotions_before="calm",
         mistake_tags="fomo",
         setup_type="Reversal",
-        session="NY AM",
-        killzone="ny_am",
         htf_bias="bullish",
         followed_rules=1,
         liquidity_sweep=1,
@@ -1676,8 +1677,9 @@ def test_create_allowlisted_fields_round_trip(client, website_session_handle):
     assert out["emotions_before"] == "calm"
     assert out["mistake_tags"] == "fomo"
     assert out["setup_type"] == "Reversal"
-    assert out["session"] == "NY AM"
+    assert out["session"] == "New York Open"
     assert out["killzone"] == "New York AM"
+    assert out["asset_class"] == "Futures"
     assert out["htf_bias"] == "bullish"
     assert out["followed_rules"] == 1
     assert out["liquidity_sweep"] == 1
@@ -1705,6 +1707,10 @@ def test_create_allowlisted_fields_round_trip(client, website_session_handle):
         ("created_at", "2020-01-01T00:00:00Z"),
         ("updated_at", "2020-01-01T00:00:00Z"),
         ("strategy_id", 1),
+        ("strategy_used", "Another trader's active strategy"),
+        ("session", "Forged Session"),
+        ("killzone", "forged_killzone"),
+        ("asset_class", "Forged Asset Class"),
     ],
 )
 def test_create_rejects_every_server_owned_field(
@@ -1768,6 +1774,78 @@ def test_create_second_identical_submit_creates_no_second_row(
     assert count_after == count_before, "a duplicate submit must create no row"
 
 
+def test_create_detects_the_same_time_fingerprint_written_by_streamlit(
+    client, website_session_handle
+):
+    """A time object and its HTTP spelling must identify the same trade.
+
+    Streamlit passes ``datetime.time(9, 30)`` into ``create_trade`` while the
+    Next.js API receives ``"09:30"``. Hashing their raw string forms makes
+    the same completed trade look different across the two live surfaces.
+    """
+    user_id, handle = website_session_handle
+    existing = trade_service.create_trade(
+        {
+            **_create_body(),
+            "entry_time": clock_time(9, 30),
+        },
+        user_id=user_id,
+    )
+
+    response = _post(client, handle, _create_body(entry_time="09:30"))
+
+    assert response.status_code == 200
+    assert response.json()["duplicate_of"] == existing.id
+
+
+def test_create_concurrent_identical_submits_commit_exactly_one_row(
+    client, website_session_handle, monkeypatch
+):
+    """The idempotency decision must survive two requests past the pre-check.
+
+    Removing the database uniqueness rule (or relying only on
+    ``find_by_fingerprint``) lets both requests observe "missing" and then
+    insert. The barrier makes that interleaving deterministic; the observable
+    contract remains one 201, one duplicate 200, one id, and one database row.
+    """
+    from src.tradelens.api.routers import trades as trades_router
+    from src.tradelens.db.models import Trade
+    from src.tradelens.db.session import SessionLocal
+
+    user_id, handle = website_session_handle
+    body = json.dumps(_create_body(), separators=(",", ":")).encode()
+    barrier = Barrier(2)
+    original_lookup = trades_router.find_by_fingerprint
+
+    def both_observe_the_missing_row(*, user_id, trade_hash):
+        found = original_lookup(user_id=user_id, trade_hash=trade_hash)
+        if found is None:
+            barrier.wait(timeout=10)
+        return found
+
+    monkeypatch.setattr(
+        trades_router, "find_by_fingerprint", both_observe_the_missing_row
+    )
+
+    def submit():
+        return client.post(
+            CREATE_PATH,
+            content=body,
+            headers=_create_headers(handle, body),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda _: submit(), range(2)))
+
+    assert sorted(response.status_code for response in responses) == [200, 201]
+    assert len({response.json()["id"] for response in responses}) == 1
+    db = SessionLocal()
+    try:
+        assert db.query(Trade).filter(Trade.user_id == user_id).count() == 1
+    finally:
+        db.close()
+
+
 def test_create_two_owners_submitting_identical_trades_each_get_their_own_row(
     client, website_session_handle, two_users
 ):
@@ -1810,6 +1888,39 @@ def test_create_two_owners_submitting_identical_trades_each_get_their_own_row(
 def test_create_future_trade_date_is_422(client, website_session_handle):
     _, handle = website_session_handle
     r = _post(client, handle, _create_body(trade_date="2099-01-01"))
+    assert r.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "entry_time",
+    [None, "", "25:99", "not-a-time"],
+)
+def test_create_requires_a_readable_entry_time(
+    client, website_session_handle, entry_time
+):
+    """The page promises that time is required; direct API calls must agree."""
+    _, handle = website_session_handle
+    body = _create_body()
+    if entry_time is None:
+        body.pop("entry_time")
+    else:
+        body["entry_time"] = entry_time
+
+    r = _post(client, handle, body)
+
+    assert r.status_code == 422
+
+
+def test_create_rejects_equal_entry_and_stop_prices(client, website_session_handle):
+    """Client validation is courtesy; the API remains the actual write gate."""
+    _, handle = website_session_handle
+
+    r = _post(
+        client,
+        handle,
+        _create_body(entry_price=100.0, stop_price=100.0),
+    )
+
     assert r.status_code == 422
 
 
@@ -2378,6 +2489,30 @@ def test_finalize_deletes_the_promoted_object_when_the_row_write_fails(
         "the promoted object must be removed before the error is surfaced, "
         "or it is an orphan nothing can find"
     )
+
+
+def test_finalize_does_not_report_failure_after_the_screenshot_row_committed(
+    client, website_session_handle, monkeypatch
+):
+    """Download signing is response decoration, not part of the durable write."""
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    key = _quarantine_key(user_id, trade.id)
+    fake = _FakeS3(objects={key: _png_bytes()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    def _signing_fault(*args, **kwargs):
+        raise RuntimeError("transient signer fault")
+
+    monkeypatch.setattr(storage, "presign_download", _signing_fault)
+
+    response = _post_signed(client, handle, _finalize_path(trade.id), {"key": key})
+
+    assert response.status_code == 201
+    assert response.json()["url"] is None
+    assert len(_screenshot_objects(trade.id)) == 1
 
 
 def test_finalize_of_a_key_whose_object_is_gone_is_a_clear_4xx(

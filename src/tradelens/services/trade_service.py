@@ -173,7 +173,7 @@ def create_trade(
     # absent" pattern as day_of_week above. The Streamlit path already
     # derives both itself (it needs `session` on screen before save) and
     # passes them in explicitly, so this must never overwrite a caller's
-    # value — only the new API route, which sends both as null, hits this.
+    # value — only the new API route, which omits both, hits this.
     # The timezone MUST be the owner's stored setting, never a request- or
     # server-supplied one: a wrong zone silently shifts which killzone a
     # trade is attributed to, corrupting the killzone-performance analytics

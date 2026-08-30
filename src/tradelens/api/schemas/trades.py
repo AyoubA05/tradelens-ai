@@ -19,10 +19,10 @@ import math
 from datetime import datetime
 from typing import List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.json_schema import SkipJsonSchema
 
-from src.tradelens.services.sessions import KILLZONE_LABELS
+from src.tradelens.services.sessions import KILLZONE_LABELS, parse_time_input
 from src.tradelens.services.trade_validation import VALID_OUTCOMES
 
 TradeResult = Literal["Win", "Loss", "Breakeven"]
@@ -196,31 +196,28 @@ class TradeDetail(_Strict):
 
 class TradeCreate(_Strict):
     """`POST /v1/trades` body — a POSITIVE allowlist, same discipline as
-    `TradeUpdate`. Ownership and server-owned metadata (`user_id`, `id`,
-    `trade_hash`, `is_sample`, `created_at`, `updated_at`, `strategy_id`) are
-    unreachable through HTTP input; `extra="forbid"` refuses anything else,
-    including a new `Trade` column that has not been deliberately filed here.
+    `TradeUpdate`. Ownership, idempotency, derived analytics and other
+    server-owned metadata are unreachable through HTTP input;
+    `extra="forbid"` refuses anything else, including a new `Trade` column
+    that has not been deliberately filed here.
 
     Mirrors the field set the Streamlit New Trade page (`1_NewTrade.py`)
     actually submits to `create_trade`, minus what the service derives itself
-    (`day_of_week`, `rr_planned`, `ai_grade`, `user_grade`) and minus the
-    server-owned columns above. `entry_time` is not a `Trade` column — it only
-    feeds `compute_trade_hash` — but is accepted here because omitting it
-    would silently change the fingerprint the client and server agree on.
+    (`day_of_week`, `session`, `killzone`, `asset_class`, `strategy_used`,
+    `rr_planned`, `ai_grade`, `user_grade`) and minus the other server-owned
+    columns. `entry_time` is not a `Trade` column — it feeds derivation and
+    `compute_trade_hash` — but is accepted here because omitting it would
+    silently change the fingerprint the client and server agree on.
     """
 
     trade_date: str
     asset: str
-    entry_time: Optional[str] = None
+    entry_time: str
     direction: Optional[str] = None
     bias: Optional[str] = None
-    session: Optional[str] = None
     setup_type: Optional[str] = None
     timeframe: Optional[str] = None
-    asset_class: Optional[str] = None
     htf_bias: Optional[str] = None
-    killzone: Optional[str] = None
-    strategy_used: Optional[str] = None
     confirmation_model: Optional[str] = None
     entry_type: Optional[str] = None
 
@@ -270,6 +267,28 @@ class TradeCreate(_Strict):
             raise ValueError("trade_date must be a valid YYYY-MM-DD date")
         return value
 
+    @field_validator("entry_time")
+    @classmethod
+    def _entry_time_must_be_readable(cls, value: str) -> str:
+        parsed = parse_time_input(value)
+        if parsed is None:
+            raise ValueError("entry_time must be a readable time")
+        # Streamlit passes a datetime.time into compute_trade_hash, whose
+        # stable string form includes seconds. Canonicalising the HTTP spelling
+        # to the same representation preserves duplicate detection across the
+        # two live application surfaces.
+        return parsed.strftime("%H:%M:%S")
+
+    @model_validator(mode="after")
+    def _entry_and_stop_must_differ(self):
+        if (
+            self.entry_price is not None
+            and self.stop_price is not None
+            and self.entry_price == self.stop_price
+        ):
+            raise ValueError("entry_price and stop_price must differ")
+        return self
+
     @field_validator(
         "pnl",
         "rr_realized",
@@ -313,11 +332,16 @@ SERVER_OWNED_ON_CREATE = frozenset(
         "id",
         "user_id",
         "trade_hash",
+        "create_idempotency_key",
         "is_sample",
         "created_at",
         "updated_at",
         "strategy_id",
+        "strategy_used",
         "day_of_week",
+        "session",
+        "killzone",
+        "asset_class",
         "rr_planned",
         "ai_grade",
         "user_grade",
@@ -453,6 +477,7 @@ SERVER_OWNED_TRADE_COLUMNS = frozenset(
         "id",
         "user_id",
         "trade_hash",
+        "create_idempotency_key",
         "is_sample",
         "created_at",
         "updated_at",

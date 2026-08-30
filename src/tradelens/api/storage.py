@@ -240,11 +240,11 @@ def presign_download(user_id: int, screenshot_id: int) -> Optional[str]:
     )
 
 
-def _discard_quarantine(client, bucket: str, key: str) -> None:
+def _discard_object(client, bucket: str, key: str) -> None:
     try:
         client.delete_object(Bucket=bucket, Key=key)
     except Exception:  # noqa: BLE001 — cleanup is best effort, but observable
-        _log.warning("Could not remove an object from the upload quarantine")
+        _log.warning("Could not remove an object after an upload operation")
 
 
 def finalize_upload(user_id: int, trade_id: int, upload_key: str) -> dict:
@@ -264,6 +264,7 @@ def finalize_upload(user_id: int, trade_id: int, upload_key: str) -> dict:
     cfg = r2_config()
     bucket = cfg["bucket"]
     client = _client()
+    final_key = None
     try:
         try:
             response = client.get_object(Bucket=bucket, Key=upload_key)
@@ -292,7 +293,15 @@ def finalize_upload(user_id: int, trade_id: int, upload_key: str) -> dict:
         from src.tradelens.api.imaging import ImageRejected, validate_and_normalise
 
         try:
-            normalized, content_type, width, height = validate_and_normalise(data)
+            extension = upload_key.rpartition(".")[2]
+            expected_content_type = next(
+                content_type
+                for content_type, configured_extension in ALLOWED_CONTENT_TYPES.items()
+                if configured_extension == extension
+            )
+            normalized, content_type, width, height = validate_and_normalise(
+                data, expected_content_type=expected_content_type
+            )
         except ImageRejected as exc:
             raise UploadRejected("not a supported image") from exc
 
@@ -312,10 +321,15 @@ def finalize_upload(user_id: int, trade_id: int, upload_key: str) -> dict:
         # cannot see it, and only an explicit `abandon_upload` from a client
         # that has already errored out could clear it. This is the one path
         # where nothing sweeps, so it sweeps itself.
-        _discard_quarantine(client, bucket, upload_key)
+        # A PUT can persist an object and then lose the response. Because the
+        # destination key was chosen locally, try to remove that possible
+        # orphan as well as quarantine before surfacing the ambiguous fault.
+        if final_key is not None:
+            _discard_object(client, bucket, final_key)
+        _discard_object(client, bucket, upload_key)
         raise
 
-    _discard_quarantine(client, bucket, upload_key)
+    _discard_object(client, bucket, upload_key)
     return {
         "key": final_key,
         "content_type": content_type,

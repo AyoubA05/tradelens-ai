@@ -1,6 +1,6 @@
 """Server-side session/killzone derivation on POST /v1/trades' create path.
 
-The Next.js form sends session/killzone as null (unlike the Streamlit page,
+The Next.js form omits session/killzone (unlike the Streamlit page,
 which derives and passes them explicitly), so `create_trade` must fill them
 in itself from entry_time + trade_date + the OWNER's stored timezone —
 never a server default or a request-supplied zone, since that would

@@ -169,6 +169,12 @@ def _png():
     return buf.getvalue()
 
 
+def _jpeg():
+    buf = io.BytesIO()
+    Image.new("RGB", (3, 2), "teal").save(buf, format="JPEG")
+    return buf.getvalue()
+
+
 def test_finalize_reencodes_then_deletes_the_untrusted_object(two_users, monkeypatch):
     a, _ = two_users
     mine = _create(
@@ -195,6 +201,31 @@ def test_finalize_reencodes_then_deletes_the_untrusted_object(two_users, monkeyp
     assert fake.puts[result["key"]]["ContentType"] == "image/png"
     assert upload_key in fake.deleted
     assert fake.bodies[upload_key].closed is True
+
+
+def test_finalize_rejects_bytes_that_do_not_match_the_presigned_content_type(
+    two_users, monkeypatch
+):
+    """The signed Content-Type is a claim the decoded image must corroborate.
+
+    A PNG presign produces a ``.png`` quarantine key. Uploading JPEG bytes
+    with the signed ``image/png`` header must not become acceptable merely
+    because JPEG is independently allowlisted; otherwise MIME/extension
+    binding exists in the signature but is not enforced by finalization.
+    """
+    a, _ = two_users
+    mine = _trade_for(a)
+    upload_key = (
+        f"quarantine/u/{a}/t/{mine.id}/" "12121212-1212-4212-8212-121212121212.png"
+    )
+    fake = _FakeS3(objects={upload_key: _jpeg()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    with pytest.raises(storage.UploadRejected):
+        storage.finalize_upload(a, mine.id, upload_key)
+
+    assert fake.puts == {}
+    assert upload_key in fake.deleted
 
 
 def test_finalize_enforces_the_real_size_cap_and_discards_quarantine(
@@ -734,6 +765,26 @@ def _trade_for(user_id):
 TRAVERSAL_SUFFIX = "../../../../u/999999/t/9/00000000-0000-4000-8000-000000000000.png"
 
 
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        TRAVERSAL_SUFFIX,
+        r"..\..\u\999\t\9\00000000-0000-4000-8000-000000000000.png",
+        "%2e%2e%2f%2e%2e%2fu%2f999%2ft%2f9%2f00000000-0000-4000-8000-000000000000.png",
+        "%252e%252e%252f00000000-0000-4000-8000-000000000000.png",
+        "..\u2215..\u221500000000-0000-4000-8000-000000000000.png",
+        "..\uff0f..\uff0f00000000-0000-4000-8000-000000000000.png",
+        "./00000000-0000-4000-8000-000000000000.png",
+        "00000000-0000-4000-8000-000000000000.png/..",
+        "00000000-0000-4000-8000-000000000000.png?ignored=1",
+        "00000000-0000-4000-8000-000000000000.png#fragment",
+    ],
+)
+def test_quarantine_key_rejects_traversal_and_encoding_variants(suffix):
+    key = f"quarantine/u/7/t/12/{suffix}"
+    assert storage._is_quarantine_key(key, 7, 12) is False
+
+
 def test_finalize_refuses_a_traversal_key_under_the_callers_own_prefix(
     two_users, monkeypatch
 ):
@@ -826,6 +877,39 @@ def test_finalize_discards_quarantine_when_the_promote_itself_faults(
     with pytest.raises(Exception):
         storage.finalize_upload(a, mine.id, upload_key)
 
+    assert upload_key in fake.deleted
+
+
+def test_finalize_cleans_the_possible_final_object_after_an_ambiguous_put_fault(
+    two_users, monkeypatch
+):
+    """A lost PUT response may mean R2 stored the object before raising.
+
+    The final key is already known locally. If finalize only discards
+    quarantine on the exception path, the possibly-written final object has
+    no screenshots row and is therefore unreachable and unsweepable. Cleanup
+    must target both keys before the fault escapes.
+    """
+    a, _ = two_users
+    mine = _trade_for(a)
+    upload_key = (
+        f"quarantine/u/{a}/t/{mine.id}/" "45454545-4545-4545-8545-454545454545.png"
+    )
+
+    class _StoredThenFaulted(_FakeS3):
+        def put_object(self, Bucket=None, Key=None, **kwargs):
+            self.puts[Key] = kwargs
+            self.objects[Key] = kwargs["Body"]
+            raise _client_error("InternalError", 500)
+
+    fake = _StoredThenFaulted(objects={upload_key: _png()})
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    with pytest.raises(Exception):
+        storage.finalize_upload(a, mine.id, upload_key)
+
+    promoted_key = next(iter(fake.puts))
+    assert promoted_key in fake.deleted
     assert upload_key in fake.deleted
 
 

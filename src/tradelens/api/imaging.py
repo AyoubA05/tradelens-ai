@@ -20,6 +20,7 @@ two limits cannot drift apart.
 from __future__ import annotations
 
 import io
+from typing import Optional
 
 from PIL import Image, UnidentifiedImageError
 
@@ -37,6 +38,11 @@ _MAGIC = (
     (b"\xff\xd8\xff", "JPEG"),
     (b"RIFF", "WEBP"),
 )
+_FORMAT_FOR_CONTENT_TYPE = {
+    "image/png": "PNG",
+    "image/jpeg": "JPEG",
+    "image/webp": "WEBP",
+}
 
 
 class ImageRejected(ValueError):
@@ -51,13 +57,18 @@ def _looks_like_an_image(data: bytes) -> bool:
     return any(data.startswith(prefix) for prefix, _ in _MAGIC)
 
 
-def validate_and_normalise(data: bytes) -> tuple[bytes, str, int, int]:
+def validate_and_normalise(
+    data: bytes, *, expected_content_type: Optional[str] = None
+) -> tuple[bytes, str, int, int]:
     """Return `(png_bytes, "image/png", width, height)` or raise `ImageRejected`."""
     if not data or len(data) > MAX_UPLOAD_BYTES or not _looks_like_an_image(data):
         raise ImageRejected("not a supported image")
 
     try:
         with Image.open(io.BytesIO(data)) as image:
+            expected_format = _FORMAT_FOR_CONTENT_TYPE.get(expected_content_type)
+            if expected_content_type is not None and image.format != expected_format:
+                raise ImageRejected("not a supported image")
             if getattr(image, "n_frames", 1) > 1:
                 raise ImageRejected("not a supported image")
 

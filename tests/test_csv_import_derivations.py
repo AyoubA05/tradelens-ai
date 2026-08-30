@@ -79,6 +79,7 @@ def test_csv_import_leaves_session_and_killzone_null(in_memory_db, owner):
     trade = _only_trade(in_memory_db, owner)
     assert trade.session is None
     assert trade.killzone is None
+    assert trade.create_idempotency_key is None
 
 
 def test_csv_import_does_not_stamp_the_active_strategy_profile(in_memory_db, owner):

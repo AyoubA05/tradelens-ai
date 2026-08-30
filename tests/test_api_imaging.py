@@ -22,6 +22,25 @@ def test_a_real_png_is_accepted_and_normalised():
     assert data.startswith(b"\x89PNG")
 
 
+@pytest.mark.parametrize(
+    ("source_format", "content_type"),
+    [("PNG", "image/png"), ("JPEG", "image/jpeg"), ("WEBP", "image/webp")],
+)
+def test_each_presign_type_must_match_and_still_normalises_to_png(
+    source_format, content_type
+):
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 3), "teal").save(buf, format=source_format)
+
+    data, normalized_type, width, height = validate_and_normalise(
+        buf.getvalue(), expected_content_type=content_type
+    )
+
+    assert normalized_type == "image/png"
+    assert data.startswith(b"\x89PNG")
+    assert (width, height) == (4, 3)
+
+
 def test_a_renamed_text_file_is_refused():
     """Magic bytes, not the declared type. A client's Content-Type is a claim."""
     with pytest.raises(ImageRejected):

@@ -803,22 +803,11 @@
       },
       "TradeCreate": {
         "additionalProperties": false,
-        "description": "`POST /v1/trades` body \u2014 a POSITIVE allowlist, same discipline as\n`TradeUpdate`. Ownership and server-owned metadata (`user_id`, `id`,\n`trade_hash`, `is_sample`, `created_at`, `updated_at`, `strategy_id`) are\nunreachable through HTTP input; `extra=\"forbid\"` refuses anything else,\nincluding a new `Trade` column that has not been deliberately filed here.\n\nMirrors the field set the Streamlit New Trade page (`1_NewTrade.py`)\nactually submits to `create_trade`, minus what the service derives itself\n(`day_of_week`, `rr_planned`, `ai_grade`, `user_grade`) and minus the\nserver-owned columns above. `entry_time` is not a `Trade` column \u2014 it only\nfeeds `compute_trade_hash` \u2014 but is accepted here because omitting it\nwould silently change the fingerprint the client and server agree on.",
+        "description": "`POST /v1/trades` body \u2014 a POSITIVE allowlist, same discipline as\n`TradeUpdate`. Ownership, idempotency, derived analytics and other\nserver-owned metadata are unreachable through HTTP input;\n`extra=\"forbid\"` refuses anything else, including a new `Trade` column\nthat has not been deliberately filed here.\n\nMirrors the field set the Streamlit New Trade page (`1_NewTrade.py`)\nactually submits to `create_trade`, minus what the service derives itself\n(`day_of_week`, `session`, `killzone`, `asset_class`, `strategy_used`,\n`rr_planned`, `ai_grade`, `user_grade`) and minus the other server-owned\ncolumns. `entry_time` is not a `Trade` column \u2014 it feeds derivation and\n`compute_trade_hash` \u2014 but is accepted here because omitting it would\nsilently change the fingerprint the client and server agree on.",
         "properties": {
           "asset": {
             "title": "Asset",
             "type": "string"
-          },
-          "asset_class": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Asset Class"
           },
           "bias": {
             "anyOf": [
@@ -928,15 +917,8 @@
             "title": "Entry Price"
           },
           "entry_time": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Entry Time"
+            "title": "Entry Time",
+            "type": "string"
           },
           "entry_type": {
             "anyOf": [
@@ -1000,17 +982,6 @@
               }
             ],
             "title": "Htf Bias"
-          },
-          "killzone": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Killzone"
           },
           "liquidity_sweep": {
             "anyOf": [
@@ -1135,17 +1106,6 @@
             ],
             "title": "Rr Realized"
           },
-          "session": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Session"
-          },
           "setup_type": {
             "anyOf": [
               {
@@ -1167,17 +1127,6 @@
               }
             ],
             "title": "Stop Price"
-          },
-          "strategy_used": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Strategy Used"
           },
           "timeframe": {
             "anyOf": [
@@ -1219,7 +1168,8 @@
         },
         "required": [
           "trade_date",
-          "asset"
+          "asset",
+          "entry_time"
         ],
         "title": "TradeCreate",
         "type": "object"

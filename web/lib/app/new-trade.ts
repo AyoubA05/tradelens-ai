@@ -260,11 +260,8 @@ export function buildTradeCreatePayload(
 
   return {
     trade_date: values.tradeDate,
-    entry_time: values.entryTime.trim() || null,
+    entry_time: values.entryTime.trim(),
     asset: resolvedAsset(values, otherLabel),
-    asset_class: null,
-    session: null,
-    killzone: null,
     timeframe: values.timeframe,
     direction: inferDirection(entry, stop),
     htf_bias: values.htfBias.toLowerCase(),

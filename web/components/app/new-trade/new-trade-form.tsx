@@ -162,7 +162,7 @@ export function NewTradeForm() {
       }
 
       // Past this line the trade is durable (design decision #6). No
-      // failure below may say nothing was saved, and none may send the
+      // failure below may claim it was not saved, and none may send the
       // trader back through create.
       createdTradeId = created.id;
       setSavedTradeId(created.id);
@@ -176,9 +176,10 @@ export function NewTradeForm() {
       // nothing was saved — including one thrown here, after creation, by
       // something like `router.push`. Guard on the local `createdTradeId`
       // (not the `savedTradeId` state, which has not re-rendered yet within
-      // this same call): unset means the POST itself never completed and
-      // nothing was written, so the "could not reach the server" copy is
-      // accurate; set means the trade is durable and this falls through to
+      // this same call): unset means the POST response was never observed.
+      // The server may still have committed before the connection failed, so
+      // the copy must preserve that uncertainty; set means the trade is
+      // durable and this falls through to
       // the same saved-trade panel a failed screenshot attach uses, never
       // back to "nothing was saved."
       if (createdTradeId !== null) {
@@ -188,7 +189,7 @@ export function NewTradeForm() {
         );
       } else {
         setSubmitError(
-          "We could not reach the server. Nothing was saved. Check your connection and try again.",
+          "We could not confirm whether the trade was saved. Check your connection — it is safe to retry the same trade.",
         );
       }
     } finally {

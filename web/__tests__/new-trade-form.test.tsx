@@ -145,6 +145,21 @@ describe("NewTradeForm", () => {
     expect(screen.queryByText(/nothing was saved/i)).not.toBeInTheDocument();
   });
 
+  it("does not claim nothing was saved when the create response is lost", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("connection reset")));
+
+    render(<NewTradeForm />);
+    fireEvent.change(screen.getByLabelText("Asset"), { target: { value: "NQ" } });
+    fireEvent.change(screen.getByPlaceholderText(/09:30/), { target: { value: "09:30" } });
+    fireEvent.click(screen.getByRole("button", { name: /save trade/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(/could not confirm/i),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(/safe to retry/i);
+    expect(screen.queryByText(/nothing was saved/i)).not.toBeInTheDocument();
+  });
+
   it("reveals the custom asset field only when 'Other / Custom' is picked", () => {
     render(<NewTradeForm />);
     expect(screen.queryByLabelText("Custom asset")).not.toBeInTheDocument();

@@ -614,23 +614,22 @@ export interface components {
         /**
          * TradeCreate
          * @description `POST /v1/trades` body — a POSITIVE allowlist, same discipline as
-         *     `TradeUpdate`. Ownership and server-owned metadata (`user_id`, `id`,
-         *     `trade_hash`, `is_sample`, `created_at`, `updated_at`, `strategy_id`) are
-         *     unreachable through HTTP input; `extra="forbid"` refuses anything else,
-         *     including a new `Trade` column that has not been deliberately filed here.
+         *     `TradeUpdate`. Ownership, idempotency, derived analytics and other
+         *     server-owned metadata are unreachable through HTTP input;
+         *     `extra="forbid"` refuses anything else, including a new `Trade` column
+         *     that has not been deliberately filed here.
          *
          *     Mirrors the field set the Streamlit New Trade page (`1_NewTrade.py`)
          *     actually submits to `create_trade`, minus what the service derives itself
-         *     (`day_of_week`, `rr_planned`, `ai_grade`, `user_grade`) and minus the
-         *     server-owned columns above. `entry_time` is not a `Trade` column — it only
-         *     feeds `compute_trade_hash` — but is accepted here because omitting it
-         *     would silently change the fingerprint the client and server agree on.
+         *     (`day_of_week`, `session`, `killzone`, `asset_class`, `strategy_used`,
+         *     `rr_planned`, `ai_grade`, `user_grade`) and minus the other server-owned
+         *     columns. `entry_time` is not a `Trade` column — it feeds derivation and
+         *     `compute_trade_hash` — but is accepted here because omitting it would
+         *     silently change the fingerprint the client and server agree on.
          */
         TradeCreate: {
             /** Asset */
             asset: string;
-            /** Asset Class */
-            asset_class?: string | null;
             /** Bias */
             bias?: string | null;
             /** Bos */
@@ -650,7 +649,7 @@ export interface components {
             /** Entry Price */
             entry_price?: number | null;
             /** Entry Time */
-            entry_time?: string | null;
+            entry_time: string;
             /** Entry Type */
             entry_type?: string | null;
             /** Exit Price */
@@ -661,8 +660,6 @@ export interface components {
             fvg_used?: (0 | 1) | null;
             /** Htf Bias */
             htf_bias?: string | null;
-            /** Killzone */
-            killzone?: string | null;
             /** Liquidity Sweep */
             liquidity_sweep?: (0 | 1) | null;
             /** Mistake Tags */
@@ -683,14 +680,10 @@ export interface components {
             risk_amount?: number | null;
             /** Rr Realized */
             rr_realized?: number | null;
-            /** Session */
-            session?: string | null;
             /** Setup Type */
             setup_type?: string | null;
             /** Stop Price */
             stop_price?: number | null;
-            /** Strategy Used */
-            strategy_used?: string | null;
             /** Timeframe */
             timeframe?: string | null;
             /** Tp Price */

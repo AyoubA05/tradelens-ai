@@ -159,8 +159,8 @@ describe("buildTradeCreatePayload — folds form fields into TradeCreate", () =>
   it("never includes screenshot, session, killzone or asset_class as a fabricated value", () => {
     const payload = buildTradeCreatePayload(values(), OTHER) as Record<string, unknown>;
     expect(payload).not.toHaveProperty("screenshot");
-    expect(payload.session).toBeNull();
-    expect(payload.killzone).toBeNull();
-    expect(payload.asset_class).toBeNull();
+    expect(payload).not.toHaveProperty("session");
+    expect(payload).not.toHaveProperty("killzone");
+    expect(payload).not.toHaveProperty("asset_class");
   });
 });

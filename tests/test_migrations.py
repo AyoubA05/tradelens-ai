@@ -15,7 +15,7 @@ import sys
 import pytest
 from alembic.operations import Operations
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from src.tradelens.db.models import Strategy, UserSetting
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -233,6 +233,69 @@ def test_phase3e_result_table_is_in_the_alembic_chain(tmp_path):
             for constraint in inspector.get_unique_constraints("trade_summary_results")
         }
         assert "uq_trade_summary_results_user_key" in unique_names
+
+
+def test_phase4_trade_create_idempotency_constraint_is_in_the_alembic_chain(
+    tmp_path,
+):
+    """A read-then-insert check cannot stop two concurrent API submissions."""
+    database_url = f"sqlite:///{tmp_path / 'phase4-idempotency.db'}"
+    result = _run_alembic(["upgrade", "head"], database_url)
+    assert result.returncode == 0, result.stderr
+
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        inspector = inspect(conn)
+        assert "create_idempotency_key" in _columns_of(conn, "trades")
+        unique_names = {
+            constraint["name"]
+            for constraint in inspector.get_unique_constraints("trades")
+        }
+        assert "uq_trades_user_create_idempotency" in unique_names
+
+
+def test_phase4_idempotency_migration_preserves_legacy_duplicate_hashes_and_downgrades(
+    tmp_path,
+):
+    """Historical duplicates are legal; only new API attempts are serialized."""
+    database_url = f"sqlite:///{tmp_path / 'phase4-idempotency-legacy.db'}"
+    assert _run_alembic(["upgrade", "c9d0e1f2g3h4"], database_url).returncode == 0
+
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO users (username, password_hash) "
+                "VALUES ('legacy-owner', 'hash')"
+            )
+        )
+        owner = conn.execute(
+            text("SELECT id FROM users WHERE username = 'legacy-owner'")
+        ).scalar_one()
+        conn.execute(
+            text(
+                "INSERT INTO trades (asset, user_id, trade_hash) VALUES "
+                "('NQ', :owner, 'same-hash'), "
+                "('NQ', :owner, 'same-hash')"
+            ),
+            {"owner": owner},
+        )
+    engine.dispose()
+
+    upgraded = _run_alembic(["upgrade", "head"], database_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM trades")).scalar_one() == 2
+        assert "create_idempotency_key" in _columns_of(conn, "trades")
+    engine.dispose()
+
+    downgraded = _run_alembic(["downgrade", "c9d0e1f2g3h4"], database_url)
+    assert downgraded.returncode == 0, downgraded.stderr
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        assert "create_idempotency_key" not in _columns_of(conn, "trades")
 
 
 def test_full_trade_schema_migration_creates_missing_historical_base_tables(tmp_path):
