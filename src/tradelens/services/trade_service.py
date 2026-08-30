@@ -131,10 +131,22 @@ def find_by_fingerprint(*, user_id: int, trade_hash: str) -> Optional[Trade]:
         db.close()
 
 
-def create_trade(trade_data: dict, *, user_id: int) -> Trade:
+def create_trade(
+    trade_data: dict, *, user_id: int, derive_strategy: bool = False
+) -> Trade:
     """
     Insert a trade row. Auto-calculates day_of_week, rr_planned, rr_realized,
     and a trade_hash fingerprint. Returns the persisted Trade.
+
+    `derive_strategy` opts a caller into filling a missing `strategy_used`
+    from the owner's *currently active* Strategy Profile. It is off by
+    default because "active now" is only a truthful answer for a trade being
+    logged now: the CSV importer replays historical trades, and stamping
+    those with today's profile would attribute them to a strategy they were
+    not taken under, and there would afterwards be no way to tell a derived
+    value from one the trader actually recorded. Only the API create path
+    (the Next.js New Trade form, which omits the field) opts in; the
+    Streamlit page passes its own value and is unaffected either way.
     """
     owner = require_user_id(user_id)
     data = dict(trade_data)
@@ -167,9 +179,18 @@ def create_trade(trade_data: dict, *, user_id: int) -> Trade:
     # trade is attributed to, corrupting the killzone-performance analytics
     # those fields feed (same reasoning as `today_for_owner`'s future-date
     # ceiling).
-    if not data.get("session") or not data.get("killzone"):
+    #
+    # Both derivations require an actual `entry_time`. With none, the
+    # detectors answer "Off-Hours"/"off_session", which is a claim about the
+    # trade rather than an absence of one — and "we don't know when this was
+    # entered" is a different fact from "this was entered outside session
+    # hours". CSV import carries no entry_time column at all, so without this
+    # guard every imported row would be stamped with a fabricated session and
+    # killzone feeding the Journal session filter and Overview's killzone
+    # panel. No entry time means NULL, as before.
+    entry_time = data.get("entry_time")
+    if entry_time and (not data.get("session") or not data.get("killzone")):
         user_tz = get_timezone(owner)
-        entry_time = data.get("entry_time")
         if not data.get("session"):
             data["session"] = detect_session(entry_time, trade_date_str, user_tz)
         if not data.get("killzone"):
@@ -177,11 +198,13 @@ def create_trade(trade_data: dict, *, user_id: int) -> Trade:
 
     # Auto-derive strategy_used from the owner's active Strategy Profile,
     # same "fill only when absent" pattern as day_of_week/session/killzone
-    # above. This is a Journal filter (see `strategy` filter in get_trades
-    # below) — the browser must not assert which strategy is active, only
-    # the server-side profile the owner actually set. The Streamlit path
-    # already derives and passes this explicitly, so it is never overwritten.
-    if not data.get("strategy_used"):
+    # above, but gated on `derive_strategy` (see the docstring: only the
+    # live create path may claim today's profile). This is a Journal filter
+    # (see `strategy` filter in get_trades below) — the browser must not
+    # assert which strategy is active, only the server-side profile the
+    # owner actually set. The Streamlit path already derives and passes this
+    # explicitly, so it is never overwritten.
+    if derive_strategy and not data.get("strategy_used"):
         active_strategy = get_active_strategy(owner)
         if active_strategy:
             data["strategy_used"] = active_strategy.get("name")

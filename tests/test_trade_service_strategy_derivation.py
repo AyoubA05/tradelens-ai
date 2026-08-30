@@ -53,7 +53,11 @@ def two_users(in_memory_db):
 
 
 def _create(data, user_id):
-    return trade_service.create_trade(data, user_id=user_id)
+    # `derive_strategy=True` is what the API create route passes: this file
+    # covers that path only. Callers that replay historical trades (CSV
+    # import) deliberately do not opt in — see
+    # test_csv_import_derivations.py.
+    return trade_service.create_trade(data, user_id=user_id, derive_strategy=True)
 
 
 def test_active_strategy_name_fills_strategy_used(two_users):

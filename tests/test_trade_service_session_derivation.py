@@ -95,15 +95,23 @@ def test_different_owner_timezone_yields_different_killzone(two_users):
     assert trade_owner.session != trade_other.session
 
 
-def test_missing_entry_time_still_creates_with_off_session_defaults(two_users):
+def test_missing_entry_time_leaves_session_and_killzone_null(two_users):
+    """No entry time means the derivation has nothing to derive FROM.
+
+    "Off-Hours"/"off_session" is a statement about the trade — that it was
+    entered outside session hours — and asserting it from an absent
+    entry_time invents a fact. These fields drive the Journal session filter
+    and Overview's killzone panel, so a fabricated value is indistinguishable
+    from a recorded one. Unknown stays NULL.
+    """
     owner, _ = two_users
     app_settings.set_timezone(owner, "America/New_York")
 
     trade = _create({"asset": "NQ", "trade_date": "2026-01-15"}, owner)
 
     assert trade.id is not None
-    assert trade.session == "Off-Hours"
-    assert trade.killzone == "off_session"
+    assert trade.session is None
+    assert trade.killzone is None
 
 
 def test_explicit_session_and_killzone_from_caller_are_preserved(two_users):

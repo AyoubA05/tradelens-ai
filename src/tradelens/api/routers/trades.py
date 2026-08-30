@@ -199,7 +199,10 @@ def create_trade_route(
         )
 
     try:
-        created = create_trade(data, user_id=user_id)
+        # This is the live "I just took this trade" path, the only caller
+        # entitled to fill a missing strategy_used from the owner's
+        # currently active Strategy Profile (the form omits the field).
+        created = create_trade(data, user_id=user_id, derive_strategy=True)
     except OutcomeMismatch as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
