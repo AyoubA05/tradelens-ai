@@ -139,8 +139,11 @@ class AutofillSuggestion(_Strict):
     authoritative.
 
     `autocheck` is not a second confidence policy: it is whatever
-    `ui.components.ai_autofill_review.should_autocheck` decided, carried on
-    the wire so the browser and Streamlit pre-check the same boxes.
+    `services.autocheck_policy.should_autocheck` decided, carried on the wire
+    so the browser and Streamlit pre-check the same boxes. The policy lives in
+    `services/` and not in `ui/components/ai_autofill_review.py`, which only
+    re-exports it — naming the UI module here would teach the layering the
+    opposite of what commit `abde2f0` fixed.
     """
 
     value: Union[str, float, int, None] = None

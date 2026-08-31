@@ -23,6 +23,7 @@ from src.tradelens.api.schemas.trades import (
 from src.tradelens.api.security import sign_request
 from src.tradelens.db.models import Trade
 from src.tradelens.db.session import SessionLocal
+from src.tradelens.services import drafts
 
 SECRET = "test-service-secret-value-at-least-32-bytes"
 DRAFT_PATH = "/v1/trades/draft"
@@ -232,3 +233,53 @@ def test_draft_allowlist_is_a_subset_of_the_create_allowlist():
 
 def test_draft_allowlist_is_disjoint_from_server_owned_fields():
     assert DRAFT_TRADE_FIELDS.isdisjoint(SERVER_OWNED_ON_CREATE)
+
+
+# --------------------------------------------- the wire-level suggestion filter
+
+
+def test_a_derived_field_cannot_be_suggested_on_the_wire(
+    client, website_session_handle
+):
+    """`ai_suggestions` keys are checked against the autofill allowlist here too.
+
+    The service-layer filter (`trade_autofill.filter_suggestions`) is the
+    load-bearing one, but the report advertises this second, wire-level copy
+    explicitly, so it is pinned: deleting
+    `TradeDraftPayload._suggestions_must_be_suggestable` makes this pass a
+    `strategy_used` suggestion straight through.
+    """
+    _, handle = website_session_handle
+    suggestion = {"value": "ICT 2022", "confidence": 0.9, "autocheck": False}
+    r = _put(
+        client, handle, {"asset": "NQ", "ai_suggestions": {"strategy_used": suggestion}}
+    )
+    assert r.status_code == 422
+
+
+def test_a_stored_derived_suggestion_cannot_round_trip_through_get(
+    client, website_session_handle
+):
+    """Even a draft written past the service filter cannot be read back.
+
+    `drafts.save_draft` is called directly here precisely because the point is
+    what happens when something upstream stored a suggestion it should not
+    have: the response model refuses to shape it, so a derived field never
+    reaches the browser as a reviewable suggestion.
+    """
+    owner, handle = website_session_handle
+    drafts.save_draft(
+        owner,
+        {
+            "asset": "NQ",
+            "ai_suggestions": {
+                "strategy_used": {
+                    "value": "ICT 2022",
+                    "confidence": 0.9,
+                    "autocheck": False,
+                }
+            },
+        },
+    )
+    r = client.get(DRAFT_PATH, headers=_get_headers(handle))
+    assert r.status_code != 200 or "strategy_used" not in r.text
