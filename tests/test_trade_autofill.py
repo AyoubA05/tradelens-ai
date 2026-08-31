@@ -268,3 +268,90 @@ def test_analyze_screenshot_v3_records_usage_when_the_provider_is_unavailable(
     with pytest.raises(vision_module.ScreenshotAnalysisError):
         vision_module.analyze_screenshot_v3(image, {}, None, on_usage=recorded.append)
     assert recorded == ["usage"]
+
+
+# ------------------------------------- the FINALIZED image, never an upload
+
+
+def _screenshot_row(user_id: int, file_path_for) -> int:
+    """One screenshot row whose `file_path` is chosen by the caller."""
+    from datetime import datetime, timezone
+
+    from src.tradelens.db.models import Screenshot
+    from src.tradelens.services import trade_service
+
+    trade = trade_service.create_trade(
+        {"asset": "NQ", "trade_date": "2026-08-10"}, user_id=user_id
+    )
+    db = SessionLocal()
+    try:
+        row = Screenshot(
+            trade_id=trade.id,
+            file_path=file_path_for(user_id, trade.id),
+            uploaded_at=datetime.now(timezone.utc).isoformat(),
+        )
+        db.add(row)
+        db.commit()
+        return int(row.id)
+    finally:
+        db.close()
+
+
+class _NeverCalledS3:
+    def get_object(self, **kwargs):  # pragma: no cover — the point is it isn't
+        raise AssertionError(f"read an object it should have refused: {kwargs}")
+
+
+def test_a_quarantine_key_is_never_read_for_analysis(
+    website_session_handle, monkeypatch
+):
+    """The one property autofill's safety rests on.
+
+    A quarantine object holds the bytes the *client* sent — not decoded, not
+    capped, not re-encoded. `finalize_upload` is what turns those into bytes we
+    produced, and analysing anything else would hand a crafted container
+    straight to the model. A row pointing at a quarantine key must therefore
+    read as "no such screenshot", not as an image.
+    """
+    from src.tradelens.api import storage
+
+    user_id, _ = website_session_handle
+    screenshot_id = _screenshot_row(
+        user_id,
+        lambda u, t: f"quarantine/u/{u}/t/{t}/"
+        "00000000-0000-4000-8000-000000000000.png",
+    )
+    monkeypatch.setattr(storage, "_client", lambda: _NeverCalledS3())
+
+    assert storage.read_owned_final_object(user_id, screenshot_id) is None
+
+
+def test_a_key_naming_another_tenant_is_never_read(website_session_handle, monkeypatch):
+    """A corrupted `file_path` must not become a cross-tenant read."""
+    from src.tradelens.api import storage
+
+    user_id, _ = website_session_handle
+    screenshot_id = _screenshot_row(
+        user_id,
+        lambda u, t: f"u/{u + 1}/t/{t}/00000000-0000-4000-8000-000000000000.png",
+    )
+    monkeypatch.setattr(storage, "_client", lambda: _NeverCalledS3())
+
+    assert storage.read_owned_final_object(user_id, screenshot_id) is None
+
+
+def test_an_unreadable_screenshot_never_reaches_the_provider(
+    website_session_handle, monkeypatch
+):
+    """`suggest_from_screenshot` refuses before any billable call."""
+    from src.tradelens.api import storage
+
+    user_id, _ = website_session_handle
+    calls = []
+    monkeypatch.setattr(storage, "read_owned_final_object", lambda u, s: None)
+    monkeypatch.setattr(
+        trade_autofill, "analyze_screenshot_v3", lambda *a, **k: calls.append(1)
+    )
+    with pytest.raises(trade_autofill.AutofillUnavailable):
+        trade_autofill.suggest_from_screenshot(user_id, 1, on_usage=lambda u: None)
+    assert calls == []
