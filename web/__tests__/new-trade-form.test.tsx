@@ -70,9 +70,11 @@ describe("NewTradeForm", () => {
     fireEvent.click(screen.getByRole("button", { name: /save trade/i }));
 
     await waitFor(() => expect(push).toHaveBeenCalledWith("/app/trades/99"));
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("/api/trades/create");
-    const body = JSON.parse((init as RequestInit).body as string);
+    // Not necessarily the first call: Task D3's draft-load runs a `GET
+    // /api/trades/draft` on mount, independent of and before this submit.
+    const createCall = fetchMock.mock.calls.find(([url]) => url === "/api/trades/create");
+    expect(createCall).toBeDefined();
+    const body = JSON.parse((createCall![1] as RequestInit).body as string);
     expect(body.asset).toBe("NQ");
   });
 
