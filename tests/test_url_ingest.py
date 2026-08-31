@@ -267,3 +267,88 @@ def test_a_public_host_returns_its_bytes_unchanged(monkeypatch):
     _wire(monkeypatch, resolves_to=PUBLIC_IP, response=_response(body=payload))
 
     assert fetch_image_bytes("http://chart.example/x.png") == payload
+
+
+# ------------------------------------------------------------- connect-time failures
+
+
+def test_a_refused_connection_surfaces_as_url_ingest_error_not_os_error(monkeypatch):
+    """A dead host, bad cert, or typo'd-but-resolvable domain must return the
+    module's generic UrlIngestError, not a raw OSError. Letting OSError escape
+    turns the exception type into a status-code oracle (500 vs 422) and breaks
+    every caller's `except UrlIngestError` handling."""
+    monkeypatch.setattr(
+        url_ingest.socket, "getaddrinfo", lambda host, p=None: _addrinfo(PUBLIC_IP, p)
+    )
+
+    def _refuse(address, timeout=None, source_address=None):
+        raise ConnectionRefusedError(61, "Connection refused")
+
+    monkeypatch.setattr(url_ingest.socket, "create_connection", _refuse)
+
+    with pytest.raises(UrlIngestError):
+        fetch_image_bytes("http://chart.example/x.png")
+
+
+def test_probe_content_type_returns_none_on_a_refused_connection(monkeypatch):
+    monkeypatch.setattr(
+        url_ingest.socket, "getaddrinfo", lambda host, p=None: _addrinfo(PUBLIC_IP, p)
+    )
+
+    def _refuse(address, timeout=None, source_address=None):
+        raise ConnectionRefusedError(61, "Connection refused")
+
+    monkeypatch.setattr(url_ingest.socket, "create_connection", _refuse)
+
+    # probe_content_type already swallows UrlIngestError into None; this
+    # proves it still does so when the failure is a raw connect-time error
+    # rather than a policy refusal.
+    assert url_ingest.probe_content_type("http://chart.example/x.png") is None
+
+
+def test_is_image_url_declines_rather_than_raises_on_a_refused_connection(monkeypatch):
+    """Regression: ai_screenshot_service.is_image_url used to be
+    `except Exception: return False`. It must decline an unreachable URL, not
+    traceback, or the Streamlit New Trade page breaks on any dead host."""
+    from src.tradelens.services import ai_screenshot_service
+
+    monkeypatch.setattr(
+        url_ingest.socket, "getaddrinfo", lambda host, p=None: _addrinfo(PUBLIC_IP, p)
+    )
+
+    def _refuse(address, timeout=None, source_address=None):
+        raise ConnectionRefusedError(61, "Connection refused")
+
+    monkeypatch.setattr(url_ingest.socket, "create_connection", _refuse)
+
+    # No image extension, so is_image_url must fall through to probe_content_type
+    # (the HEAD-based check) rather than short-circuiting on the filename.
+    assert ai_screenshot_service.is_image_url("http://chart.example/x") is False
+
+
+# ------------------------------------------------------------- peer parsing
+
+
+def test_an_unparseable_peer_string_surfaces_as_url_ingest_error(monkeypatch):
+    """`ipaddress.ip_address` raises ValueError on a peer string it cannot
+    parse. (On this Python 3.9.6, a zone-suffixed IPv6 literal like
+    "fe80::1%eth0" — the reviewer's example — actually parses fine, since
+    scope-id support landed in 3.9; it's covered as a link-local refusal by
+    the existing "not public" branch instead. A string `ip_address` truly
+    can't parse is the real reproduction of this failure mode.)
+
+    Calls `_open_pinned` directly with `approved_ip` equal to the unparseable
+    peer string: the peer-equality check's `peer != approved_ip` must be False
+    (so the `or` doesn't short-circuit past it) to force evaluation of
+    `ipaddress.ip_address(peer)`, which is where the ValueError originates.
+    Going through `fetch_image_bytes` can't reach this: `_resolve_public_addresses`
+    already rejects an unparseable resolved address before pinning, and any
+    mismatched peer/approved_ip pair trips the `!=` branch first without ever
+    calling `ip_address` on the peer.
+    """
+    bad_peer = "not-an-ip"
+    sock = _FakeSocket(_response(), bad_peer, 80)
+    monkeypatch.setattr(url_ingest.socket, "create_connection", lambda *a, **k: sock)
+
+    with pytest.raises(UrlIngestError):
+        url_ingest._open_pinned("http", "chart.example", 80, (bad_peer, 80))

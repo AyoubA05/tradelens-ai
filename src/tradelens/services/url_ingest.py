@@ -132,17 +132,33 @@ def _open_pinned(scheme: str, hostname: str, port: int, sockaddr: Tuple):
         return socket.create_connection((approved_ip, sockaddr[1]), _TIMEOUT)
 
     conn._create_connection = _connect_to_validated
-    conn.connect()
+    # Anything the socket/TLS layer can raise here — refused connection, a
+    # timeout, a bad certificate — is a network fact about an attacker-chosen
+    # host. It must come out as the same generic UrlIngestError as a policy
+    # refusal, or the exception type itself becomes an oracle that tells a
+    # prober "connect failed" apart from "policy refused" on public addresses.
+    try:
+        conn.connect()
+    except (OSError, ssl.SSLError) as exc:
+        conn.close()
+        raise UrlIngestError(UNREACHABLE_MSG) from exc
 
     # The socket's real peer, not the name we asked for. If anything at all put
     # this connection somewhere other than the address that passed the policy,
     # the fetch stops here rather than reading a byte from it.
     try:
         peer = conn.sock.getpeername()[0]
-    except OSError as exc:
+        peer_ip = ipaddress.ip_address(peer)
+    except (OSError, ValueError) as exc:
+        # ValueError covers a peer string ipaddress can't parse (e.g. a
+        # zone-suffixed IPv6 literal like "fe80::1%eth0") — a parse failure is
+        # not proof of safety, so it must refuse rather than propagate raw.
         conn.close()
         raise UrlIngestError(UNREACHABLE_MSG) from exc
-    if peer != approved_ip or not _is_public_address(ipaddress.ip_address(peer)):
+    # Compare as address objects, not strings: two strings can denote the same
+    # address under a resolver that doesn't share CPython's normalization, and
+    # this comparison is a security boundary, not a display concern.
+    if peer_ip != ipaddress.ip_address(approved_ip) or not _is_public_address(peer_ip):
         conn.close()
         raise UrlIngestError(UNREACHABLE_MSG)
     return conn
