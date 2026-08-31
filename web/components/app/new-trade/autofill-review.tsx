@@ -34,23 +34,36 @@ type AutofillSuggestion = components["schemas"]["AutofillSuggestion"];
 type TradeUpdate = components["schemas"]["TradeUpdate"];
 
 /**
- * Suggested draft fields this component can actually apply.
+ * Suggested fields this component can actually apply — every field
+ * `PATCH /v1/trades/{id}` accepts, in the component's own vocabulary.
  *
- * `TradeUpdate` (`PATCH /v1/trades/{id}`) accepts a narrower field set than
- * the draft/create allowlist — most suggestible fields (prices, position
- * size, confirmation text, emotions, process notes) have no patchable
- * counterpart at all. Those are still shown for review, just without an
- * "apply" checkbox, rather than silently hidden — a trader should be able
- * to see everything the model read off the chart, even the part this
- * component cannot yet write anywhere.
+ * A suggestion that cannot be applied is NOT rendered. An earlier version
+ * showed those as read-only cards, which reads as generosity and is not:
+ * a review affordance a trader cannot act on spends their attention and
+ * returns nothing, and it invites them to retype a number the model read
+ * off a chart, which is the least reviewed way a value can enter a journal.
+ *
+ * The gap itself is closed on the server where it can be: `bias` and the
+ * five SMC evidence flags are patchable as of Phase 4E's fix wave. The
+ * suggested prices deliberately are not — they feed `rr_planned` and
+ * `rr_realized`, so making them patchable means re-deriving both inside the
+ * atomic UPDATE. `tests/test_api_trade_autofill.py` pins exactly which
+ * suggestible fields have no apply path, so the two sets cannot drift apart
+ * without a test saying so.
  */
-const PATCHABLE_FIELDS = [
+export const APPLIABLE_FIELDS = [
   "asset",
+  "bias",
+  "bos",
+  "choch",
   "direction",
   "followed_rules",
+  "fvg_used",
   "htf_bias",
+  "liquidity_sweep",
   "mistake_tags",
   "notes",
+  "order_block_used",
   "pnl",
   "result",
   "risk_amount",
@@ -60,10 +73,21 @@ const PATCHABLE_FIELDS = [
   "trade_date",
 ] as const satisfies readonly (keyof TradeUpdate)[];
 
-type PatchableField = (typeof PATCHABLE_FIELDS)[number];
+type AppliableField = (typeof APPLIABLE_FIELDS)[number];
 
-function isPatchable(field: string): field is PatchableField {
-  return (PATCHABLE_FIELDS as readonly string[]).includes(field);
+function isAppliable(field: string): field is AppliableField {
+  return (APPLIABLE_FIELDS as readonly string[]).includes(field);
+}
+
+/** Only what the trader can act on ever reaches the review list. */
+function appliableOnly(
+  suggestions: Record<string, AutofillSuggestion>,
+): Record<string, AutofillSuggestion> {
+  const kept: Record<string, AutofillSuggestion> = {};
+  for (const [field, suggestion] of Object.entries(suggestions)) {
+    if (isAppliable(field)) kept[field] = suggestion;
+  }
+  return kept;
 }
 
 function fieldLabel(field: string): string {
@@ -87,7 +111,8 @@ type Phase =
   | { kind: "prompt" }
   | { kind: "working" }
   | { kind: "ready"; suggestions: Record<string, AutofillSuggestion> }
-  | { kind: "empty" } // succeeded with nothing to suggest
+  | { kind: "empty" } // succeeded with nothing this review can apply
+  | { kind: "superseded" } // a later run replaced this job's suggestions
   | { kind: "error"; message: string };
 
 async function pollJob(jobId: number): Promise<TradeAutofillJobStatus | null> {
@@ -150,7 +175,14 @@ export function AutofillReview({
         });
         return;
       }
-      const suggestions = job.suggestions ?? {};
+      if (job.superseded) {
+        // A later autofill run replaced this job's suggestions, so the
+        // server will not say which chart they came from. Nothing is shown
+        // rather than a set that might describe a different screenshot.
+        setPhase({ kind: "superseded" });
+        return;
+      }
+      const suggestions = appliableOnly(job.suggestions ?? {});
       if (Object.keys(suggestions).length === 0) {
         setPhase({ kind: "empty" });
         return;
@@ -159,7 +191,7 @@ export function AutofillReview({
       // to pre-check — never a second, client-invented threshold.
       const initial: Record<string, boolean> = {};
       for (const [field, s] of Object.entries(suggestions)) {
-        if (isPatchable(field)) initial[field] = s.autocheck;
+        initial[field] = s.autocheck;
       }
       setAccepted(initial);
       setPhase({ kind: "ready", suggestions });
@@ -176,7 +208,7 @@ export function AutofillReview({
     setApplyError(null);
     const body: Partial<TradeUpdate> = {};
     let any = false;
-    for (const field of PATCHABLE_FIELDS) {
+    for (const field of APPLIABLE_FIELDS) {
       if (!accepted[field]) continue;
       const suggestion = phase.suggestions[field];
       if (!suggestion) continue;
@@ -252,7 +284,9 @@ export function AutofillReview({
         </p>
       )}
 
-      {(phase.kind === "error" || phase.kind === "empty") && (
+      {(phase.kind === "error" ||
+        phase.kind === "empty" ||
+        phase.kind === "superseded") && (
         <div className="mt-4">
           {phase.kind === "error" && (
             <p role="alert" className="max-w-md break-words text-sm text-negative">
@@ -261,6 +295,12 @@ export function AutofillReview({
           )}
           {phase.kind === "empty" && (
             <p className="text-sm text-muted">Nothing to suggest from this screenshot.</p>
+          )}
+          {phase.kind === "superseded" && (
+            <p className="text-sm text-muted">
+              These suggestions were replaced by a newer screenshot&apos;s. Your trade is
+              unaffected.
+            </p>
           )}
           <button
             type="button"
@@ -276,26 +316,21 @@ export function AutofillReview({
         <div className="mt-4">
           <ul className="flex flex-col gap-2" data-testid="autofill-suggestion-list">
             {Object.entries(phase.suggestions).map(([field, suggestion]) => {
-              const patchable = isPatchable(field);
               return (
                 <li
                   key={field}
                   data-testid={`autofill-suggestion-${field}`}
                   className="flex items-start gap-3 rounded-lg border border-line bg-surface-2/40 px-3 py-2"
                 >
-                  {patchable ? (
-                    <input
-                      type="checkbox"
-                      checked={!!accepted[field]}
-                      onChange={(e) =>
-                        setAccepted((a) => ({ ...a, [field]: e.target.checked }))
-                      }
-                      aria-label={`Accept suggested ${fieldLabel(field)}`}
-                      className="mt-1"
-                    />
-                  ) : (
-                    <span className="mt-1 h-4 w-4 shrink-0" aria-hidden="true" />
-                  )}
+                  <input
+                    type="checkbox"
+                    checked={!!accepted[field]}
+                    onChange={(e) =>
+                      setAccepted((a) => ({ ...a, [field]: e.target.checked }))
+                    }
+                    aria-label={`Accept suggested ${fieldLabel(field)}`}
+                    className="mt-1"
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-medium text-text">{fieldLabel(field)}</p>
                     {/* The "Suggested" badge is what keeps this visibly
@@ -313,11 +348,6 @@ export function AutofillReview({
                         <span> · {Math.round(suggestion.confidence * 100)}% confidence</span>
                       )}
                     </p>
-                    {!patchable && (
-                      <p className="mt-0.5 text-[11px] text-muted">
-                        Shown for reference — this field can&apos;t be applied automatically yet.
-                      </p>
-                    )}
                   </div>
                 </li>
               );

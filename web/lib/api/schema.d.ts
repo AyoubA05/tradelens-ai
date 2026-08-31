@@ -1349,20 +1349,32 @@ export interface components {
         TradeUpdate: {
             /** Asset */
             asset?: string;
+            /** Bias */
+            bias?: string | null;
+            /** Bos */
+            bos?: (0 | 1) | null;
+            /** Choch */
+            choch?: (0 | 1) | null;
             /** Direction */
             direction?: string | null;
             /** Expected Updated At */
             expected_updated_at: string;
             /** Followed Rules */
             followed_rules?: (0 | 1) | null;
+            /** Fvg Used */
+            fvg_used?: (0 | 1) | null;
             /** Htf Bias */
             htf_bias?: string | null;
             /** Killzone */
             killzone?: string | null;
+            /** Liquidity Sweep */
+            liquidity_sweep?: (0 | 1) | null;
             /** Mistake Tags */
             mistake_tags?: string | null;
             /** Notes */
             notes?: string | null;
+            /** Order Block Used */
+            order_block_used?: (0 | 1) | null;
             /** Pnl */
             pnl?: number | null;
             /** Result */

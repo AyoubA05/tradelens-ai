@@ -17,11 +17,16 @@ from fastapi.testclient import TestClient
 
 from src.tradelens.api import jobs, worker
 from src.tradelens.api.app import create_app
+from src.tradelens.api.schemas.trades import (
+    EDITABLE_TRADE_FIELDS,
+    SERVER_OWNED_TRADE_COLUMNS,
+)
 from src.tradelens.api.security import sign_request
 from src.tradelens.db.models import AIJob, Screenshot, Trade
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services import trade_autofill, trade_service
 from src.tradelens.services.trade_autofill import (
+    AUTOFILL_TRADE_FIELDS,
     AUTOFILL_WINDOW_HOURS,
     JOB_KIND,
     MAX_AUTOFILLS_PER_WINDOW,
@@ -436,3 +441,58 @@ def test_a_current_job_s_suggestions_are_not_reported_superseded(
     assert r.status_code == 200
     assert r.json()["superseded"] is False
     assert r.json()["suggestions"]["entry_price"]["value"] == 20100.25
+
+
+# ------------------------------------------- suggestion / apply-path contract
+
+
+def test_every_suggestible_field_has_an_apply_path_except_the_filed_ones():
+    """The two allowlists are pinned against each other, both directions.
+
+    A suggestion is only worth showing a trader if they can act on it, so the
+    gap between "autofill may suggest this" and "PATCH accepts this" is named
+    here rather than discovered by a trader looking at a card with no
+    checkbox. The four prices are the deliberate exception: they are inputs to
+    `rr_planned` and `rr_realized`, so making them patchable means re-deriving
+    both inside `update_trade_if_unchanged`'s atomic UPDATE — a change to
+    derivation semantics, not a review affordance.
+
+    Adding a field to either allowlist fails this test until someone decides
+    which side of that line it belongs on, and updates
+    `web/components/app/new-trade/autofill-review.tsx`'s `APPLIABLE_FIELDS`
+    to match — that constant is what the browser renders a checkbox for.
+    """
+    assert AUTOFILL_TRADE_FIELDS - EDITABLE_TRADE_FIELDS == {
+        "entry_price",
+        "stop_price",
+        "tp_price",
+        "exit_price",
+    }
+
+
+def test_widening_the_patch_allowlist_did_not_reach_a_derived_field():
+    """The fields added for the apply path stay non-derived and user-editable.
+
+    `SERVER_OWNED_TRADE_COLUMNS` was narrowed by an independent Phase 4
+    review after it was found accepting server-derived fields. This pins that
+    the six fields moved out of it are the six intended ones, so a later
+    widening cannot ride along unnoticed.
+    """
+    assert EDITABLE_TRADE_FIELDS.isdisjoint(SERVER_OWNED_TRADE_COLUMNS)
+    assert {
+        "bias",
+        "liquidity_sweep",
+        "fvg_used",
+        "order_block_used",
+        "bos",
+        "choch",
+    } <= EDITABLE_TRADE_FIELDS
+    # Still server-owned, and named here so a future widening of the six
+    # above cannot quietly take these with it.
+    assert {
+        "rr_planned",
+        "strategy_used",
+        "asset_class",
+        "day_of_week",
+        "trade_hash",
+    } <= SERVER_OWNED_TRADE_COLUMNS

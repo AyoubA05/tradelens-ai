@@ -590,6 +590,23 @@ class TradeUpdate(_Strict):
     notes: Optional[str] = None
     mistake_tags: Optional[str] = None
 
+    # The trade's own (lower-timeframe) bias and the five SMC evidence flags.
+    # Added deliberately, not by widening a rule: every autofill suggestion is
+    # offered to a trader for review, and a suggestion with no apply path
+    # spends their attention for nothing. These six are the fields that close
+    # that gap without touching derivation — each is a value the trader types
+    # on New Trade, none is computed from another column, and nothing else is
+    # computed from them (unlike the suggested prices, which feed `rr_planned`
+    # and `rr_realized`; making those patchable means re-deriving both inside
+    # the same atomic UPDATE, which is its own change, not a side effect of
+    # this one). `bias` is the `Trade` column behind the form's "LTF bias".
+    bias: Optional[str] = None
+    liquidity_sweep: Optional[Literal[0, 1]] = None
+    fvg_used: Optional[Literal[0, 1]] = None
+    order_block_used: Optional[Literal[0, 1]] = None
+    bos: Optional[Literal[0, 1]] = None
+    choch: Optional[Literal[0, 1]] = None
+
     @field_validator("asset")
     @classmethod
     def _asset_must_exist_when_sent(cls, value: Optional[str]) -> str:
@@ -676,7 +693,6 @@ SERVER_OWNED_TRADE_COLUMNS = frozenset(
         "strategy_id",
         "day_of_week",
         "asset_class",
-        "bias",
         "entry_price",
         "stop_price",
         "tp_price",
@@ -691,11 +707,6 @@ SERVER_OWNED_TRADE_COLUMNS = frozenset(
         "trade_process_notes",
         "ai_grade",
         "user_grade",
-        "liquidity_sweep",
-        "fvg_used",
-        "order_block_used",
-        "bos",
-        "choch",
         "confirmation_model",
         "entry_type",
     }

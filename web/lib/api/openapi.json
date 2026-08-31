@@ -3142,6 +3142,47 @@
             "title": "Asset",
             "type": "string"
           },
+          "bias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias"
+          },
+          "bos": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bos"
+          },
+          "choch": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Choch"
+          },
           "direction": {
             "anyOf": [
               {
@@ -3172,6 +3213,21 @@
             ],
             "title": "Followed Rules"
           },
+          "fvg_used": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fvg Used"
+          },
           "htf_bias": {
             "anyOf": [
               {
@@ -3194,6 +3250,21 @@
             ],
             "title": "Killzone"
           },
+          "liquidity_sweep": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Liquidity Sweep"
+          },
           "mistake_tags": {
             "anyOf": [
               {
@@ -3215,6 +3286,21 @@
               }
             ],
             "title": "Notes"
+          },
+          "order_block_used": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Block Used"
           },
           "pnl": {
             "anyOf": [
