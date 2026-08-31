@@ -23,6 +23,7 @@ import {
 import {
   abandonScreenshotUpload,
   attachScreenshot,
+  attachScreenshotUrl,
 } from "@/lib/app/screenshot-upload";
 import {
   buildTradeCreatePayload,
@@ -30,6 +31,8 @@ import {
   validateNewTrade,
   type NewTradeFormValues,
 } from "@/lib/app/new-trade";
+import { useDraftAutosave, draftStatusLabel } from "@/lib/app/draft-autosave";
+import { AutofillReview } from "@/components/app/new-trade/autofill-review";
 
 const inputClass =
   "w-full rounded-md border border-line bg-chart px-2 py-1.5 text-sm text-text outline-none focus:border-accent";
@@ -76,6 +79,10 @@ export function NewTradeForm() {
     tradeDate: todayIso(),
   }));
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
+  // Task D1: a link is an alternative source, never a second file — picking
+  // one clears the other (see the file picker's `disabled` above and the
+  // URL field's `disabled={... || !!file}`).
+  const [screenshotUrl, setScreenshotUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [duplicateOf, setDuplicateOf] = useState<number | null>(null);
@@ -88,10 +95,28 @@ export function NewTradeForm() {
   // A quarantine object left behind by a failed attach. Nothing else in the
   // system can name it, so abandoning it here is the only cleanup there is.
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  // `updated_at` from the create response, carried for the optional
+  // suggestions-review PATCH below (Task D2) — that endpoint's own
+  // conflict guard needs the stamp the trade was created with.
+  const [createdUpdatedAt, setCreatedUpdatedAt] = useState<string | null>(null);
+  // Set once a screenshot is attached — the id autofill needs (design
+  // decision #4: it keys on a screenshot, and one cannot exist before this
+  // point). `null` throughout a submit with no screenshot means the review
+  // step below never appears, exactly like today.
+  const [autofillScreenshotId, setAutofillScreenshotId] = useState<number | null>(null);
+  // Shown instead of navigating away immediately once a screenshot is
+  // attached, so the trader can review AI suggestions before leaving the
+  // page they can still act on them from (Task D2).
+  const [reviewingAutofill, setReviewingAutofill] = useState(false);
 
   function set<K extends keyof NewTradeFormValues>(key: K, value: NewTradeFormValues[K]) {
     setValues((v) => ({ ...v, [key]: value }));
   }
+
+  // Task D3. Debounced, skips an empty form, and a save failure only ever
+  // changes what this quiet indicator says — see the hook's own comment for
+  // why that can never reach `submitError` or block `handleSubmit`.
+  const draftStatus = useDraftAutosave(values, setValues, OTHER_ASSET);
 
   const { errors, warnings } = validateNewTrade(values, OTHER_ASSET);
 
@@ -103,21 +128,44 @@ export function NewTradeForm() {
    * create a second trade. (The server's fingerprint would refuse a
    * duplicate write anyway — but the UI must not offer a path that looks
    * like resubmitting the form.)
+   *
+   * Returns the attached screenshot's id, or `null` on any failure — the
+   * caller uses this (not a bare boolean) so it can also decide whether
+   * autofill review is possible.
    */
-  async function runUpload(tradeId: number, file: File): Promise<boolean> {
+  async function runUpload(tradeId: number, file: File): Promise<number | null> {
     setScreenshotProblem(null);
     const result = await attachScreenshot(tradeId, file, {
       onPhase: (phase, progress) => setUploadStatus({ kind: "busy", phase, progress }),
     });
+    return applyAttachResult(result);
+  }
+
+  /**
+   * The URL sibling of `runUpload` (Task D1). One relay call rather than
+   * three, so there is no `pendingKey` to abandon on failure — see
+   * `attachScreenshotUrl`'s own comment.
+   */
+  async function runUrlIngest(tradeId: number, url: string): Promise<number | null> {
+    setScreenshotProblem(null);
+    setUploadStatus({ kind: "busy", phase: "validating", progress: 1 });
+    const result = await attachScreenshotUrl(tradeId, url);
+    return applyAttachResult(result);
+  }
+
+  function applyAttachResult(
+    result: Awaited<ReturnType<typeof attachScreenshot>>,
+  ): number | null {
     if (result.status === "attached") {
       setPendingKey(null);
       setUploadStatus({ kind: "attached" });
-      return true;
+      setAutofillScreenshotId(result.screenshot.id);
+      return result.screenshot.id;
     }
     setPendingKey(result.pendingKey ?? null);
     setUploadStatus({ kind: "problem", message: result.message });
     setScreenshotProblem(result.message);
-    return false;
+    return null;
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -153,7 +201,11 @@ export function NewTradeForm() {
         setSubmitError(detail);
         return;
       }
-      const created = (await response.json()) as { id: number; duplicate_of: number | null };
+      const created = (await response.json()) as {
+        id: number;
+        duplicate_of: number | null;
+        updated_at?: string | null;
+      };
       if (created.duplicate_of !== null) {
         // Design decision #5: this is not an error. Nothing new was
         // created; the existing trade is shown rather than a second row.
@@ -166,9 +218,22 @@ export function NewTradeForm() {
       // trader back through create.
       createdTradeId = created.id;
       setSavedTradeId(created.id);
+      setCreatedUpdatedAt(created.updated_at ?? null);
+      let attachedScreenshotId: number | null = null;
       if (screenshotFile) {
-        const attached = await runUpload(created.id, screenshotFile);
-        if (!attached) return; // the partial-failure panel takes over
+        attachedScreenshotId = await runUpload(created.id, screenshotFile);
+        if (attachedScreenshotId === null) return; // the partial-failure panel takes over
+      } else if (screenshotUrl.trim()) {
+        attachedScreenshotId = await runUrlIngest(created.id, screenshotUrl.trim());
+        if (attachedScreenshotId === null) return; // the partial-failure panel takes over
+      }
+      if (attachedScreenshotId !== null) {
+        // A screenshot exists, so autofill can now run (design decision #4)
+        // — offer the review step instead of navigating away immediately.
+        // No screenshot means no suggestions are possible, so that case
+        // navigates exactly as it always did.
+        setReviewingAutofill(true);
+        return;
       }
       router.push(`/app/trades/${created.id}`);
     } catch {
@@ -219,11 +284,19 @@ export function NewTradeForm() {
         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
           <button
             type="button"
-            disabled={uploadStatus.kind === "busy" || !screenshotFile}
+            disabled={uploadStatus.kind === "busy" || (!screenshotFile && !screenshotUrl.trim())}
             onClick={async () => {
-              if (!screenshotFile) return;
-              // The existing trade id, never the form (Task D2).
-              if (await runUpload(savedTradeId, screenshotFile)) {
+              // The existing trade id, never the form — same rule for both
+              // sources (Task D1/D2). This recovery path goes straight to
+              // the trade on success, same as before Task D2: the AI
+              // suggestions review is offered on the main create path only
+              // (see `handleSubmit`), not on this already-once-failed retry.
+              const attached = screenshotFile
+                ? await runUpload(savedTradeId, screenshotFile)
+                : screenshotUrl.trim()
+                  ? await runUrlIngest(savedTradeId, screenshotUrl.trim())
+                  : null;
+              if (attached !== null) {
                 router.push(`/app/trades/${savedTradeId}`);
               }
             }}
@@ -280,6 +353,21 @@ export function NewTradeForm() {
     );
   }
 
+  // Task D2: the trade and its screenshot both already exist at this point
+  // — creation happened above, in `handleSubmit`. Reviewing suggestions here
+  // is strictly additive to that flow: skipping is always available and
+  // behaves exactly like the pre-Phase-4E "just navigate" path.
+  if (reviewingAutofill && savedTradeId !== null && autofillScreenshotId !== null) {
+    return (
+      <AutofillReview
+        tradeId={savedTradeId}
+        screenshotId={autofillScreenshotId}
+        expectedUpdatedAt={createdUpdatedAt}
+        onDone={() => router.push(`/app/trades/${savedTradeId}`)}
+      />
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
       {/* Screenshot */}
@@ -293,6 +381,13 @@ export function NewTradeForm() {
             file={screenshotFile}
             onSelect={(file) => {
               setScreenshotFile(file);
+              if (file) setScreenshotUrl("");
+              setUploadStatus({ kind: "idle" });
+              setScreenshotProblem(null);
+            }}
+            url={screenshotUrl}
+            onUrlChange={(url) => {
+              setScreenshotUrl(url);
               setUploadStatus({ kind: "idle" });
               setScreenshotProblem(null);
             }}
@@ -301,6 +396,11 @@ export function NewTradeForm() {
           />
         </div>
       </section>
+
+      {/* Draft status — Task D3, a quiet indicator, never a gate. */}
+      <p className="text-xs text-muted" aria-live="polite">
+        {draftStatusLabel(draftStatus)}
+      </p>
 
       {/* When and what */}
       <section className={sectionClass}>

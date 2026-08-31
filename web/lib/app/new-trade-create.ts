@@ -88,3 +88,24 @@ export async function abandonScreenshot(
     body: { key },
   });
 }
+
+/**
+ * Attach a chart image the server fetches from a link (Task D1).
+ *
+ * One call, unlike the presign/PUT/finalize sequence: `ingest-url` fetches,
+ * quarantines and finalizes server-side in a single request, through the
+ * same `finalize_upload` re-encode every browser upload goes through
+ * (design decision #1). The URL is attacker-controlled; `url_ingest`
+ * decides what may be connected to, not this function or its caller.
+ */
+export async function ingestScreenshotUrl(
+  sessionToken: string,
+  tradeId: number,
+  url: string,
+): Promise<ScreenshotDescriptor> {
+  return callApi<ScreenshotDescriptor>(
+    `/v1/trades/${tradeId}/screenshot/ingest-url`,
+    sessionToken,
+    { method: "POST", body: { url } },
+  );
+}

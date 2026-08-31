@@ -39,17 +39,26 @@ function formatSize(bytes: number): string {
 export function ScreenshotUpload({
   file,
   onSelect,
+  url,
+  onUrlChange,
   status,
   disabled = false,
 }: {
   file: File | null;
   onSelect: (file: File | null) => void;
+  /** The URL text field's value (Task D1). `undefined` hides the field
+   *  entirely — callers that have not adopted image-URL ingest yet see no
+   *  behaviour change. */
+  url?: string;
+  onUrlChange?: (url: string) => void;
   status: ScreenshotUploadStatus;
   disabled?: boolean;
 }) {
   const inputId = useId();
+  const urlInputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const busy = status.kind === "busy";
+  const urlEnabled = onUrlChange !== undefined;
 
   function clear() {
     onSelect(null);
@@ -99,10 +108,40 @@ export function ScreenshotUpload({
             <span className="font-mono text-text">{file.name}</span>
             <span> · {formatSize(file.size)}</span>
           </>
+        ) : url && url.trim() ? (
+          "One link, one screenshot — picking a file above replaces it."
         ) : (
           "No screenshot selected. That is fine — a trade without one is a complete record."
         )}
       </p>
+
+      {/* Beside the file picker, not replacing it (Task D1) — a trader can
+          paste a chart link instead of a local file. Hidden entirely when
+          the caller passes no `onUrlChange`, so a caller that has not
+          adopted URL ingest sees no behaviour change. */}
+      {urlEnabled && (
+        <label className="flex flex-col gap-1 text-xs text-muted">
+          Or paste a link to a chart image
+          <input
+            id={urlInputId}
+            type="url"
+            inputMode="url"
+            placeholder="https://…"
+            // `min-w-0`: a long unbroken URL must wrap inside the card at
+            // ~375px, never push the form sideways (same rule as the
+            // filename above; `break-all` lives on the input's own text via
+            // `break-words` since a text input cannot break mid-token on its
+            // own, but the wrapping guarantee here is about the CONTAINER
+            // never growing past the card — the value itself is invisible
+            // once typed past the visible width, which is standard input
+            // behaviour and not a layout defect).
+            value={url ?? ""}
+            disabled={disabled || busy || !!file}
+            onChange={(e) => onUrlChange?.(e.target.value)}
+            className="min-w-0 w-full rounded-md border border-line bg-chart px-2 py-1.5 text-sm text-text outline-none focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+          />
+        </label>
+      )}
 
       {busy && (
         <div>

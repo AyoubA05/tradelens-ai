@@ -11,6 +11,7 @@ import { ApiError } from "@/lib/api/client";
 import {
   abandonScreenshot,
   finalizeScreenshot,
+  ingestScreenshotUrl,
   presignScreenshot,
 } from "@/lib/app/new-trade-create";
 import {
@@ -48,6 +49,15 @@ const NO_STORE = {
   "Referrer-Policy": "no-referrer",
 };
 
+/** The backend's own user-facing message, when it sent one. */
+function detailFrom(body: unknown): string | undefined {
+  if (typeof body === "object" && body !== null && "detail" in body) {
+    const detail = (body as { detail: unknown }).detail;
+    if (typeof detail === "string") return detail;
+  }
+  return undefined;
+}
+
 /** See `app/api/trades/[id]/route.ts` for why this is a strict digit test. */
 function parseTradeId(raw: string): number | null {
   if (!/^[1-9]\d{0,15}$/.test(raw)) return null;
@@ -80,11 +90,36 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const tradeId = parseTradeId((await params).id);
   if (tradeId === null) return NextResponse.json({ ok: false }, { status: 404, headers: NO_STORE });
 
-  let body: { action?: unknown; content_type?: unknown; key?: unknown };
+  let body: { action?: unknown; content_type?: unknown; key?: unknown; url?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
     return NextResponse.json({ ok: false }, { status: 400, headers: NO_STORE });
+  }
+
+  if (body.action === "ingest-url") {
+    if (typeof body.url !== "string" || body.url === "") {
+      return NextResponse.json({ ok: false }, { status: 400, headers: NO_STORE });
+    }
+    try {
+      const screenshot = await ingestScreenshotUrl(auth.token, tradeId, body.url);
+      return NextResponse.json(screenshot, { status: 201, headers: NO_STORE });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        // Unlike the file-upload actions below, a rejected URL must read as
+        // a plain reason (global rule 3) — `url_ingest.UrlIngestError` and
+        // `UploadRejected` already produce one stable, safe phrase apiece
+        // (never a stack, a host, or an address), so forwarding it here is
+        // the fix for the exact defect Phase 4's create relay had: dropping
+        // `detail` and showing generic text instead.
+        const detail = detailFrom(err.body);
+        return NextResponse.json(
+          { ok: false, ...(detail ? { detail } : {}) },
+          { status: err.status, headers: NO_STORE },
+        );
+      }
+      return NextResponse.json({ ok: false }, { status: 502, headers: NO_STORE });
+    }
   }
 
   try {

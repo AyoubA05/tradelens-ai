@@ -173,9 +173,13 @@ describe("NewTradeForm — partial failure (Task D2)", () => {
       String(c[0]).endsWith("/api/trades/create"),
     ).length;
     expect(createCallsAfter).toBe(createCallsBefore);
-    // Every retry request named the trade that already exists.
-    for (const call of fetchMock.mock.calls.slice(1)) {
-      expect(String(call[0])).toBe("/api/trades/77/screenshot");
+    // Every retry request named the trade that already exists. The one
+    // exception is Task D3's draft-load `GET /api/trades/draft` on mount,
+    // which runs independently of and before this create/retry sequence.
+    for (const call of fetchMock.mock.calls) {
+      const url = String(call[0]);
+      if (url === "/api/trades/draft" || url === "/api/trades/create") continue;
+      expect(url).toBe("/api/trades/77/screenshot");
     }
   });
 
