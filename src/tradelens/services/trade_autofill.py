@@ -37,19 +37,19 @@ from src.tradelens.services.ai_autofill import (
 )
 from src.tradelens.services.ai_autofill import map_analysis_to_form
 from src.tradelens.services.ai_overlay import descriptive_section, parse_trade_overlay
+
+# The autocheck confidence policy: one rule, not a second copy of it. It
+# lives in services/autocheck_policy (not here, and not re-derived), and
+# ui/components/ai_autofill_review.py re-exports the same functions so the
+# Streamlit review panel and this service always agree on which fields
+# pre-check.
+from src.tradelens.services.autocheck_policy import should_autocheck
 from src.tradelens.services.ownership import require_user_id
 from src.tradelens.services.vision import (
     ScreenshotAnalysisError,
     analyze_screenshot_v3,
     check_screenshot_quality,
 )
-
-# The confidence policy is Streamlit's, reused rather than re-derived. The
-# module imports Streamlit lazily (inside its render helpers only), so this is
-# safe from a service and from the worker process. A second copy of this rule
-# is the actual hazard: the two surfaces would silently pre-check different
-# boxes at the same confidence.
-from src.tradelens.ui.components.ai_autofill_review import should_autocheck
 
 # One paid Opus vision call per request, so the same ceiling shape as
 # summaries: generous enough that a trader never feels it, bounded enough that

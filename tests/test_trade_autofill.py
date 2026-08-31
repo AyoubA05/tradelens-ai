@@ -355,3 +355,36 @@ def test_an_unreadable_screenshot_never_reaches_the_provider(
     with pytest.raises(trade_autofill.AutofillUnavailable):
         trade_autofill.suggest_from_screenshot(user_id, 1, on_usage=lambda u: None)
     assert calls == []
+
+
+def test_trade_autofill_imports_without_loading_streamlit():
+    """services/trade_autofill.py must not drag Streamlit into a service process.
+
+    `services/` is imported by the FastAPI container, which has no business
+    carrying a Streamlit runtime dependency. A same-process `sys.modules`
+    check would lie here: pytest's own conftest imports Streamlit (for
+    AppTest fixtures) before this test ever runs, and importing it earlier
+    in this repo would too. A fresh subprocess is the only check that can't
+    pass by accident — it starts with an empty `sys.modules` and fails loudly
+    if anything on the way to `trade_autofill` reaches into `ui/components`
+    (or any other Streamlit-importing module) again.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; import src.tradelens.services.trade_autofill; "
+            "sys.exit(1 if 'streamlit' in sys.modules else 0)",
+        ],
+        cwd=str(Path(__file__).resolve().parent.parent),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        "importing src.tradelens.services.trade_autofill loaded Streamlit "
+        f"(stdout={result.stdout!r} stderr={result.stderr!r})"
+    )

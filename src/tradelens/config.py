@@ -1,18 +1,31 @@
 import os
+import sys
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # On Streamlit Cloud, ANTHROPIC_API_KEY comes from st.secrets, not env vars.
 # Inject into os.environ before pydantic-settings reads it so the Settings
 # class picks it up without any structural changes.
-try:
-    import streamlit as st
+#
+# Gated on `"streamlit" in sys.modules` rather than a bare `import streamlit`:
+# this module is imported by db/session.py, which every services/ and api/
+# module reaches transitively through Settings. An unconditional import here
+# would drag Streamlit into every service and API process — exactly the
+# "NO streamlit imports inside services/ or db/" rule this file does not
+# live in but every one of those modules imports through. Checking
+# sys.modules first still finds the bridge inside the actual Streamlit app
+# (the `streamlit run` process has already imported the package by the time
+# any page reaches this import), it just stops a non-Streamlit process from
+# being the one that imports it for the first time.
+if "streamlit" in sys.modules:
+    try:
+        import streamlit as st
 
-    _cloud_key = st.secrets.get("ANTHROPIC_API_KEY", None)
-    if _cloud_key:
-        os.environ.setdefault("ANTHROPIC_API_KEY", str(_cloud_key))
-except Exception:
-    pass
+        _cloud_key = st.secrets.get("ANTHROPIC_API_KEY", None)
+        if _cloud_key:
+            os.environ.setdefault("ANTHROPIC_API_KEY", str(_cloud_key))
+    except Exception:
+        pass
 
 
 # The one Anthropic model TradeLens uses, everywhere. Screenshot analysis,
