@@ -25,6 +25,9 @@ from src.tradelens.api.deps import current_user
 from src.tradelens.api.routers.overview import _validated_period
 from src.tradelens.api.schemas.trades import (
     ScreenshotCleanupFailedResponse,
+    TradeAutofillJobAccepted,
+    TradeAutofillJobRequest,
+    TradeAutofillJobStatus,
     ScreenshotDescriptor,
     ScreenshotKeyRequest,
     ScreenshotPresignRequest,
@@ -44,6 +47,11 @@ from src.tradelens.api.schemas.trades import (
     TradeUpdate,
 )
 from src.tradelens.services import drafts, screenshot_service, url_ingest
+from src.tradelens.services.trade_autofill import (
+    AUTOFILL_WINDOW_HOURS,
+    JOB_KIND as AUTOFILL_JOB_KIND,
+    MAX_AUTOFILLS_PER_WINDOW,
+)
 from src.tradelens.services.assets import detect_asset_class
 from src.tradelens.services.sessions import KILLZONE_LABELS
 from src.tradelens.services.trade_service import (
@@ -368,6 +376,105 @@ def get_trade_summary_job(
         job_id=job.id,
         status=job.status,
         result=result,
+        error=job.error,
+    )
+
+
+@router.post("/trades/autofill", status_code=status.HTTP_202_ACCEPTED)
+def enqueue_trade_autofill(
+    payload: TradeAutofillJobRequest,
+    user_id: int = Depends(current_user),
+) -> TradeAutofillJobAccepted:
+    """Queue AI autofill for one of the caller's own finalized screenshots.
+
+    Ownership is settled FIRST, before anything is written and before any
+    billable work can be scheduled: a foreign screenshot must not enqueue a
+    job, because a queued job is spend and, on a poll, an existence oracle.
+    A screenshot that is not the caller's returns the same 404 as one that
+    does not exist.
+
+    The job reads the PROMOTED object, not an upload: `finalize_upload` has
+    already decoded, capped and re-encoded those bytes, so the model only ever
+    sees bytes we produced.
+
+    Nothing this endpoint starts can create a trade. The worker writes
+    suggestions onto the owner's draft, and creation stays with
+    `POST /v1/trades`.
+    """
+    if not storage.owns_screenshot(user_id, payload.screenshot_id):
+        raise _not_found()
+
+    key = f"{AUTOFILL_JOB_KIND}:{int(payload.screenshot_id)}"
+
+    # Checked BEFORE `enqueue`, exactly as the summary endpoint does it, so a
+    # refusal writes no `ai_jobs` row and never reaches the worker or
+    # Anthropic. The count is over the owner's autofill jobs in a rolling
+    # window and is deliberately blind to which screenshot, so re-uploading
+    # the same chart under new ids buys nothing.
+    if (
+        jobs.count_recent_jobs(
+            user_id,
+            AUTOFILL_JOB_KIND,
+            datetime.now(timezone.utc) - timedelta(hours=AUTOFILL_WINDOW_HOURS),
+        )
+        >= MAX_AUTOFILLS_PER_WINDOW
+    ):
+        # Being at the limit must never lock a trader out of a job they
+        # already have — including one that failed, which they are entitled to
+        # see rather than silently retry.
+        existing = jobs.get_owned_job_by_idempotency_key(
+            user_id, AUTOFILL_JOB_KIND, key
+        )
+        if existing is None:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"You've reached {MAX_AUTOFILLS_PER_WINDOW} AI autofills for "
+                    f"today. New autofills are available again "
+                    f"{AUTOFILL_WINDOW_HOURS} hours after your earliest one. "
+                    "You can still fill the form in yourself."
+                ),
+            )
+        return TradeAutofillJobAccepted(
+            job_id=int(existing.id), status=existing.status, created=False
+        )
+
+    # The idempotency key is the screenshot, so a double-click, a retry, and a
+    # resubmit after a failure all return the SAME job. A failed job therefore
+    # stays terminal instead of quietly re-spending.
+    job_id, created = jobs.enqueue(
+        user_id, AUTOFILL_JOB_KIND, key, {"screenshot_id": int(payload.screenshot_id)}
+    )
+    job = jobs.get_owned_job(job_id, user_id)
+    if job is None:  # Defensive: enqueue committed this exact owner-scoped row.
+        raise HTTPException(status_code=500, detail="autofill job unavailable")
+    return TradeAutofillJobAccepted(job_id=job_id, status=job.status, created=created)
+
+
+@router.get("/trades/autofill/{job_id}")
+def get_trade_autofill_job(
+    job_id: int,
+    user_id: int = Depends(current_user),
+) -> TradeAutofillJobStatus:
+    """Status for one owner-scoped autofill job; foreign and missing are identical.
+
+    The kind check is not decoration: without it this route would read any of
+    the owner's jobs, and a summary's result would be shaped into a suggestion
+    set. Suggestions are read back from the owner's own draft — the only place
+    the worker put them.
+    """
+    job = jobs.get_owned_job(job_id, user_id)
+    if job is None or job.kind != AUTOFILL_JOB_KIND:
+        raise HTTPException(status_code=404, detail="autofill job not found")
+
+    suggestions = None
+    if job.status == "succeeded":
+        draft = drafts.get_draft(user_id) or {}
+        suggestions = draft.get("ai_suggestions") or {}
+    return TradeAutofillJobStatus(
+        job_id=job.id,
+        status=job.status,
+        suggestions=suggestions,
         error=job.error,
     )
 

@@ -129,6 +129,51 @@ class TradeSummaryJobStatus(_Strict):
     error: Optional[str]
 
 
+class AutofillSuggestion(_Strict):
+    """One AI-suggested value for one draft field, with its confidence.
+
+    A suggestion is deliberately NOT the field's value. It is provenance-
+    tagged metadata that sits beside the draft, so an unreviewed suggestion
+    stays distinguishable from something the trader typed right up until they
+    accept it — which is the whole difference between assistive and
+    authoritative.
+
+    `autocheck` is not a second confidence policy: it is whatever
+    `ui.components.ai_autofill_review.should_autocheck` decided, carried on
+    the wire so the browser and Streamlit pre-check the same boxes.
+    """
+
+    value: Union[str, float, int, None] = None
+    confidence: Optional[float] = None
+    autocheck: bool = False
+
+
+class TradeAutofillJobRequest(_Strict):
+    """Which of the caller's own screenshots to read. Ownership is never input.
+
+    A screenshot id, not a key and not a URL: the bytes autofill analyses are
+    the promoted object `finalize_upload` produced, and this is the only
+    handle the browser has on one.
+    """
+
+    screenshot_id: int
+
+
+class TradeAutofillJobAccepted(_Strict):
+    job_id: int
+    status: Literal["queued", "running", "succeeded", "failed"]
+    created: bool
+
+
+class TradeAutofillJobStatus(_Strict):
+    """Poll response. `suggestions` is `None` until the job has succeeded."""
+
+    job_id: int
+    status: Literal["queued", "running", "succeeded", "failed"]
+    suggestions: Optional[Dict[str, AutofillSuggestion]]
+    error: Optional[str]
+
+
 class ScreenshotDescriptor(_Strict):
     """A screenshot with a short-lived presigned download URL.
 
@@ -318,25 +363,6 @@ class TradeCreate(_Strict):
         if value is not None and not math.isfinite(value):
             raise ValueError("numeric values must be finite")
         return value
-
-
-class AutofillSuggestion(_Strict):
-    """One AI-suggested value for one draft field, with its confidence.
-
-    A suggestion is deliberately NOT the field's value. It is provenance-
-    tagged metadata that sits beside the draft, so an unreviewed suggestion
-    stays distinguishable from something the trader typed right up until they
-    accept it — which is the whole difference between assistive and
-    authoritative.
-
-    `autocheck` is not a second confidence policy: it is whatever
-    `ui.components.ai_autofill_review.should_autocheck` decided, carried on
-    the wire so the browser and Streamlit pre-check the same boxes.
-    """
-
-    value: Union[str, float, int, None] = None
-    confidence: Optional[float] = None
-    autocheck: bool = False
 
 
 class TradeDraftPayload(_Strict):

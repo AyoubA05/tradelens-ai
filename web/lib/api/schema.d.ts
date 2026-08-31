@@ -114,6 +114,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/trades/autofill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enqueue Trade Autofill
+         * @description Queue AI autofill for one of the caller's own finalized screenshots.
+         *
+         *     Ownership is settled FIRST, before anything is written and before any
+         *     billable work can be scheduled: a foreign screenshot must not enqueue a
+         *     job, because a queued job is spend and, on a poll, an existence oracle.
+         *     A screenshot that is not the caller's returns the same 404 as one that
+         *     does not exist.
+         *
+         *     The job reads the PROMOTED object, not an upload: `finalize_upload` has
+         *     already decoded, capped and re-encoded those bytes, so the model only ever
+         *     sees bytes we produced.
+         *
+         *     Nothing this endpoint starts can create a trade. The worker writes
+         *     suggestions onto the owner's draft, and creation stays with
+         *     `POST /v1/trades`.
+         */
+        post: operations["enqueue_trade_autofill_v1_trades_autofill_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/trades/autofill/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trade Autofill Job
+         * @description Status for one owner-scoped autofill job; foreign and missing are identical.
+         *
+         *     The kind check is not decoration: without it this route would read any of
+         *     the owner's jobs, and a summary's result would be shaped into a suggestion
+         *     set. Suggestions are read back from the owner's own draft — the only place
+         *     the worker put them.
+         */
+        get: operations["get_trade_autofill_job_v1_trades_autofill__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/trades/draft": {
         parameters: {
             query?: never;
@@ -386,6 +445,31 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AutofillSuggestion
+         * @description One AI-suggested value for one draft field, with its confidence.
+         *
+         *     A suggestion is deliberately NOT the field's value. It is provenance-
+         *     tagged metadata that sits beside the draft, so an unreviewed suggestion
+         *     stays distinguishable from something the trader typed right up until they
+         *     accept it — which is the whole difference between assistive and
+         *     authoritative.
+         *
+         *     `autocheck` is not a second confidence policy: it is whatever
+         *     `ui.components.ai_autofill_review.should_autocheck` decided, carried on
+         *     the wire so the browser and Streamlit pre-check the same boxes.
+         */
+        AutofillSuggestion: {
+            /**
+             * Autocheck
+             * @default false
+             */
+            autocheck: boolean;
+            /** Confidence */
+            confidence?: number | null;
+            /** Value */
+            value?: string | number | null;
+        };
         /** BreakdownRow */
         BreakdownRow: {
             /** Label */
@@ -672,6 +756,49 @@ export interface components {
         ScreenshotUrlRequest: {
             /** Url */
             url: string;
+        };
+        /** TradeAutofillJobAccepted */
+        TradeAutofillJobAccepted: {
+            /** Created */
+            created: boolean;
+            /** Job Id */
+            job_id: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed";
+        };
+        /**
+         * TradeAutofillJobRequest
+         * @description Which of the caller's own screenshots to read. Ownership is never input.
+         *
+         *     A screenshot id, not a key and not a URL: the bytes autofill analyses are
+         *     the promoted object `finalize_upload` produced, and this is the only
+         *     handle the browser has on one.
+         */
+        TradeAutofillJobRequest: {
+            /** Screenshot Id */
+            screenshot_id: number;
+        };
+        /**
+         * TradeAutofillJobStatus
+         * @description Poll response. `suggestions` is `None` until the job has succeeded.
+         */
+        TradeAutofillJobStatus: {
+            /** Error */
+            error: string | null;
+            /** Job Id */
+            job_id: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed";
+            /** Suggestions */
+            suggestions: {
+                [key: string]: components["schemas"]["AutofillSuggestion"];
+            } | null;
         };
         /**
          * TradeConflictDetail
@@ -990,6 +1117,10 @@ export interface components {
          *     later without the contract test catching it.
          */
         TradeDraftPayload: {
+            /** Ai Suggestions */
+            ai_suggestions?: {
+                [key: string]: components["schemas"]["AutofillSuggestion"];
+            } | null;
             /** Asset */
             asset?: string | null;
             /** Bias */
@@ -1405,6 +1536,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TradeCreateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enqueue_trade_autofill_v1_trades_autofill_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeAutofillJobRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeAutofillJobAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_trade_autofill_job_v1_trades_autofill__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeAutofillJobStatus"];
                 };
             };
             /** @description Validation Error */

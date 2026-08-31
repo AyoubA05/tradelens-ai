@@ -1,6 +1,47 @@
 {
   "components": {
     "schemas": {
+      "AutofillSuggestion": {
+        "additionalProperties": false,
+        "description": "One AI-suggested value for one draft field, with its confidence.\n\nA suggestion is deliberately NOT the field's value. It is provenance-\ntagged metadata that sits beside the draft, so an unreviewed suggestion\nstays distinguishable from something the trader typed right up until they\naccept it \u2014 which is the whole difference between assistive and\nauthoritative.\n\n`autocheck` is not a second confidence policy: it is whatever\n`ui.components.ai_autofill_review.should_autocheck` decided, carried on\nthe wire so the browser and Streamlit pre-check the same boxes.",
+        "properties": {
+          "autocheck": {
+            "default": false,
+            "title": "Autocheck",
+            "type": "boolean"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "title": "AutofillSuggestion",
+        "type": "object"
+      },
       "BreakdownRow": {
         "additionalProperties": false,
         "properties": {
@@ -779,6 +820,104 @@
           "url"
         ],
         "title": "ScreenshotUrlRequest",
+        "type": "object"
+      },
+      "TradeAutofillJobAccepted": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "created"
+        ],
+        "title": "TradeAutofillJobAccepted",
+        "type": "object"
+      },
+      "TradeAutofillJobRequest": {
+        "additionalProperties": false,
+        "description": "Which of the caller's own screenshots to read. Ownership is never input.\n\nA screenshot id, not a key and not a URL: the bytes autofill analyses are\nthe promoted object `finalize_upload` produced, and this is the only\nhandle the browser has on one.",
+        "properties": {
+          "screenshot_id": {
+            "title": "Screenshot Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "screenshot_id"
+        ],
+        "title": "TradeAutofillJobRequest",
+        "type": "object"
+      },
+      "TradeAutofillJobStatus": {
+        "additionalProperties": false,
+        "description": "Poll response. `suggestions` is `None` until the job has succeeded.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "suggestions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/AutofillSuggestion"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestions"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "suggestions",
+          "error"
+        ],
+        "title": "TradeAutofillJobStatus",
         "type": "object"
       },
       "TradeConflictDetail": {
@@ -2216,6 +2355,20 @@
         "additionalProperties": false,
         "description": "`PUT /v1/trades/draft` body \u2014 a POSITIVE allowlist over draft-able fields.\n\nEvery field is optional because a draft is, by definition, incomplete \u2014\nthe trader may have filled in only the asset and a note so far. What is\nNOT optional is the allowlist discipline: `extra=\"forbid\"` refuses\nanything this contract does not name, exactly like `TradeCreate`.\n\nThe field set mirrors `TradeCreate` deliberately rather than being\nhand-maintained separately: `DRAFT_TRADE_FIELDS` below is checked by a\ntest to be a subset of `CREATABLE_TRADE_FIELDS` and disjoint from\n`SERVER_OWNED_ON_CREATE`, so a derived field (`session`, `killzone`,\n`strategy_used`, `asset_class`, or anything else the create endpoint\nitself derives) has no way into a draft \u2014 and no way to drift into one\nlater without the contract test catching it.",
         "properties": {
+          "ai_suggestions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/AutofillSuggestion"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Suggestions"
+          },
           "asset": {
             "anyOf": [
               {
@@ -3554,6 +3707,91 @@
           }
         },
         "summary": "Create Trade Route",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
+    "/v1/trades/autofill": {
+      "post": {
+        "description": "Queue AI autofill for one of the caller's own finalized screenshots.\n\nOwnership is settled FIRST, before anything is written and before any\nbillable work can be scheduled: a foreign screenshot must not enqueue a\njob, because a queued job is spend and, on a poll, an existence oracle.\nA screenshot that is not the caller's returns the same 404 as one that\ndoes not exist.\n\nThe job reads the PROMOTED object, not an upload: `finalize_upload` has\nalready decoded, capped and re-encoded those bytes, so the model only ever\nsees bytes we produced.\n\nNothing this endpoint starts can create a trade. The worker writes\nsuggestions onto the owner's draft, and creation stays with\n`POST /v1/trades`.",
+        "operationId": "enqueue_trade_autofill_v1_trades_autofill_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeAutofillJobRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeAutofillJobAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enqueue Trade Autofill",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
+    "/v1/trades/autofill/{job_id}": {
+      "get": {
+        "description": "Status for one owner-scoped autofill job; foreign and missing are identical.\n\nThe kind check is not decoration: without it this route would read any of\nthe owner's jobs, and a summary's result would be shaped into a suggestion\nset. Suggestions are read back from the owner's own draft \u2014 the only place\nthe worker put them.",
+        "operationId": "get_trade_autofill_job_v1_trades_autofill__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeAutofillJobStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Trade Autofill Job",
         "tags": [
           "trades"
         ]
