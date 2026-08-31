@@ -114,6 +114,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/trades/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trade Draft
+         * @description Return the authenticated owner's saved New Trade draft, if any.
+         *
+         *     Declared before `/trades/{trade_id}` so `"draft"` is never routed to that
+         *     handler's `int` path converter.
+         */
+        get: operations["get_trade_draft_v1_trades_draft_get"];
+        /**
+         * Put Trade Draft
+         * @description Save (or replace) the authenticated owner's one live draft.
+         *
+         *     This never touches `trades` — `services.drafts.save_draft` writes only to
+         *     `trade_drafts`, a table `POST /v1/trades` does not read from and cannot
+         *     be reached from. The body is `TradeDraftPayload`, a positive allowlist
+         *     with `extra="forbid"`: no derived field (`session`, `killzone`,
+         *     `strategy_used`, `asset_class`, ...) has anywhere to go, whatever the
+         *     request contains.
+         */
+        put: operations["put_trade_draft_v1_trades_draft_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/trades/summary": {
         parameters: {
             query?: never;
@@ -938,6 +972,96 @@ export interface components {
             /** User Grade */
             user_grade: string | null;
         };
+        /**
+         * TradeDraftPayload
+         * @description `PUT /v1/trades/draft` body — a POSITIVE allowlist over draft-able fields.
+         *
+         *     Every field is optional because a draft is, by definition, incomplete —
+         *     the trader may have filled in only the asset and a note so far. What is
+         *     NOT optional is the allowlist discipline: `extra="forbid"` refuses
+         *     anything this contract does not name, exactly like `TradeCreate`.
+         *
+         *     The field set mirrors `TradeCreate` deliberately rather than being
+         *     hand-maintained separately: `DRAFT_TRADE_FIELDS` below is checked by a
+         *     test to be a subset of `CREATABLE_TRADE_FIELDS` and disjoint from
+         *     `SERVER_OWNED_ON_CREATE`, so a derived field (`session`, `killzone`,
+         *     `strategy_used`, `asset_class`, or anything else the create endpoint
+         *     itself derives) has no way into a draft — and no way to drift into one
+         *     later without the contract test catching it.
+         */
+        TradeDraftPayload: {
+            /** Asset */
+            asset?: string | null;
+            /** Bias */
+            bias?: string | null;
+            /** Bos */
+            bos?: (0 | 1) | null;
+            /** Choch */
+            choch?: (0 | 1) | null;
+            /** Confirmation Model */
+            confirmation_model?: string | null;
+            /** Direction */
+            direction?: string | null;
+            /** Emotions After */
+            emotions_after?: string | null;
+            /** Emotions Before */
+            emotions_before?: string | null;
+            /** Emotions During */
+            emotions_during?: string | null;
+            /** Entry Price */
+            entry_price?: number | null;
+            /** Entry Time */
+            entry_time?: string | null;
+            /** Entry Type */
+            entry_type?: string | null;
+            /** Exit Price */
+            exit_price?: number | null;
+            /** Followed Rules */
+            followed_rules?: (0 | 1) | null;
+            /** Fvg Used */
+            fvg_used?: (0 | 1) | null;
+            /** Htf Bias */
+            htf_bias?: string | null;
+            /** Liquidity Sweep */
+            liquidity_sweep?: (0 | 1) | null;
+            /** Mistake Tags */
+            mistake_tags?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Order Block Used */
+            order_block_used?: (0 | 1) | null;
+            /** Pnl */
+            pnl?: number | null;
+            /** Position Size */
+            position_size?: number | null;
+            /** Result */
+            result?: ("Win" | "Loss" | "Breakeven") | null;
+            /** Reward Amount */
+            reward_amount?: number | null;
+            /** Risk Amount */
+            risk_amount?: number | null;
+            /** Rr Realized */
+            rr_realized?: number | null;
+            /** Setup Type */
+            setup_type?: string | null;
+            /** Stop Price */
+            stop_price?: number | null;
+            /** Timeframe */
+            timeframe?: string | null;
+            /** Tp Price */
+            tp_price?: number | null;
+            /** Trade Date */
+            trade_date?: string | null;
+            /** Trade Process Notes */
+            trade_process_notes?: string | null;
+        };
+        /**
+         * TradeDraftResponse
+         * @description `GET /v1/trades/draft` body. `draft` is `None` when the owner has none.
+         */
+        TradeDraftResponse: {
+            draft: components["schemas"]["TradeDraftPayload"] | null;
+        };
         /** TradeListResponse */
         TradeListResponse: {
             /** Limit */
@@ -1281,6 +1405,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TradeCreateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_trade_draft_v1_trades_draft_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeDraftResponse"];
+                };
+            };
+        };
+    };
+    put_trade_draft_v1_trades_draft_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeDraftPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeDraftResponse"];
                 };
             };
             /** @description Validation Error */

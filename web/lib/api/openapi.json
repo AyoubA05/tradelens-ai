@@ -2212,6 +2212,416 @@
         "title": "TradeDetail",
         "type": "object"
       },
+      "TradeDraftPayload": {
+        "additionalProperties": false,
+        "description": "`PUT /v1/trades/draft` body \u2014 a POSITIVE allowlist over draft-able fields.\n\nEvery field is optional because a draft is, by definition, incomplete \u2014\nthe trader may have filled in only the asset and a note so far. What is\nNOT optional is the allowlist discipline: `extra=\"forbid\"` refuses\nanything this contract does not name, exactly like `TradeCreate`.\n\nThe field set mirrors `TradeCreate` deliberately rather than being\nhand-maintained separately: `DRAFT_TRADE_FIELDS` below is checked by a\ntest to be a subset of `CREATABLE_TRADE_FIELDS` and disjoint from\n`SERVER_OWNED_ON_CREATE`, so a derived field (`session`, `killzone`,\n`strategy_used`, `asset_class`, or anything else the create endpoint\nitself derives) has no way into a draft \u2014 and no way to drift into one\nlater without the contract test catching it.",
+        "properties": {
+          "asset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset"
+          },
+          "bias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias"
+          },
+          "bos": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bos"
+          },
+          "choch": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Choch"
+          },
+          "confirmation_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation Model"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "emotions_after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emotions After"
+          },
+          "emotions_before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emotions Before"
+          },
+          "emotions_during": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emotions During"
+          },
+          "entry_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Price"
+          },
+          "entry_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Time"
+          },
+          "entry_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Type"
+          },
+          "exit_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Price"
+          },
+          "followed_rules": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Followed Rules"
+          },
+          "fvg_used": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fvg Used"
+          },
+          "htf_bias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Htf Bias"
+          },
+          "liquidity_sweep": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Liquidity Sweep"
+          },
+          "mistake_tags": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mistake Tags"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "order_block_used": {
+            "anyOf": [
+              {
+                "enum": [
+                  0,
+                  1
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Block Used"
+          },
+          "pnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnl"
+          },
+          "position_size": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Size"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "enum": [
+                  "Win",
+                  "Loss",
+                  "Breakeven"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "reward_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reward Amount"
+          },
+          "risk_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Amount"
+          },
+          "rr_realized": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rr Realized"
+          },
+          "setup_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Type"
+          },
+          "stop_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Price"
+          },
+          "timeframe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeframe"
+          },
+          "tp_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tp Price"
+          },
+          "trade_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Date"
+          },
+          "trade_process_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Process Notes"
+          }
+        },
+        "title": "TradeDraftPayload",
+        "type": "object"
+      },
+      "TradeDraftResponse": {
+        "additionalProperties": false,
+        "description": "`GET /v1/trades/draft` body. `draft` is `None` when the owner has none.",
+        "properties": {
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TradeDraftPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "draft"
+        ],
+        "title": "TradeDraftResponse",
+        "type": "object"
+      },
       "TradeListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -3144,6 +3554,68 @@
           }
         },
         "summary": "Create Trade Route",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
+    "/v1/trades/draft": {
+      "get": {
+        "description": "Return the authenticated owner's saved New Trade draft, if any.\n\nDeclared before `/trades/{trade_id}` so `\"draft\"` is never routed to that\nhandler's `int` path converter.",
+        "operationId": "get_trade_draft_v1_trades_draft_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeDraftResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Trade Draft",
+        "tags": [
+          "trades"
+        ]
+      },
+      "put": {
+        "description": "Save (or replace) the authenticated owner's one live draft.\n\nThis never touches `trades` \u2014 `services.drafts.save_draft` writes only to\n`trade_drafts`, a table `POST /v1/trades` does not read from and cannot\nbe reached from. The body is `TradeDraftPayload`, a positive allowlist\nwith `extra=\"forbid\"`: no derived field (`session`, `killzone`,\n`strategy_used`, `asset_class`, ...) has anywhere to go, whatever the\nrequest contains.",
+        "operationId": "put_trade_draft_v1_trades_draft_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeDraftPayload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeDraftResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Trade Draft",
         "tags": [
           "trades"
         ]

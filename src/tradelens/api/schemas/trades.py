@@ -307,6 +307,94 @@ class TradeCreate(_Strict):
         return value
 
 
+class TradeDraftPayload(_Strict):
+    """`PUT /v1/trades/draft` body — a POSITIVE allowlist over draft-able fields.
+
+    Every field is optional because a draft is, by definition, incomplete —
+    the trader may have filled in only the asset and a note so far. What is
+    NOT optional is the allowlist discipline: `extra="forbid"` refuses
+    anything this contract does not name, exactly like `TradeCreate`.
+
+    The field set mirrors `TradeCreate` deliberately rather than being
+    hand-maintained separately: `DRAFT_TRADE_FIELDS` below is checked by a
+    test to be a subset of `CREATABLE_TRADE_FIELDS` and disjoint from
+    `SERVER_OWNED_ON_CREATE`, so a derived field (`session`, `killzone`,
+    `strategy_used`, `asset_class`, or anything else the create endpoint
+    itself derives) has no way into a draft — and no way to drift into one
+    later without the contract test catching it.
+    """
+
+    trade_date: Optional[str] = None
+    asset: Optional[str] = None
+    entry_time: Optional[str] = None
+    direction: Optional[str] = None
+    bias: Optional[str] = None
+    setup_type: Optional[str] = None
+    timeframe: Optional[str] = None
+    htf_bias: Optional[str] = None
+    confirmation_model: Optional[str] = None
+    entry_type: Optional[str] = None
+
+    entry_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    tp_price: Optional[float] = None
+    exit_price: Optional[float] = None
+    position_size: Optional[float] = None
+    risk_amount: Optional[float] = None
+    reward_amount: Optional[float] = None
+    rr_realized: Optional[float] = None
+
+    result: Optional[TradeResult] = None
+    pnl: Optional[float] = None
+
+    liquidity_sweep: Optional[Literal[0, 1]] = None
+    fvg_used: Optional[Literal[0, 1]] = None
+    order_block_used: Optional[Literal[0, 1]] = None
+    bos: Optional[Literal[0, 1]] = None
+    choch: Optional[Literal[0, 1]] = None
+    followed_rules: Optional[Literal[0, 1]] = None
+    mistake_tags: Optional[str] = None
+
+    emotions_before: Optional[str] = None
+    emotions_during: Optional[str] = None
+    emotions_after: Optional[str] = None
+    notes: Optional[str] = None
+    trade_process_notes: Optional[str] = None
+
+    @field_validator(
+        "pnl",
+        "rr_realized",
+        "risk_amount",
+        "reward_amount",
+        "entry_price",
+        "stop_price",
+        "tp_price",
+        "exit_price",
+        "position_size",
+    )
+    @classmethod
+    def _numbers_must_be_finite(cls, value: Optional[float]) -> Optional[float]:
+        if value is not None and not math.isfinite(value):
+            raise ValueError("numeric values must be finite")
+        return value
+
+
+class TradeDraftResponse(_Strict):
+    """`GET /v1/trades/draft` body. `draft` is `None` when the owner has none."""
+
+    draft: Optional[TradeDraftPayload]
+
+
+# The draft write surface, derived from the model itself so it cannot drift
+# from `TradeDraftPayload`. `entry_time` is excluded from the comparison set
+# for the same reason `CREATABLE_TRADE_FIELDS` excludes it below: it is not a
+# `Trade` column, so "subset of the create allowlist" is about `Trade`
+# columns, not wire fields. A contract test pins this as a subset of
+# `CREATABLE_TRADE_FIELDS` and disjoint from `SERVER_OWNED_ON_CREATE` — see
+# `TradeDraftPayload`'s docstring.
+DRAFT_TRADE_FIELDS = frozenset(TradeDraftPayload.model_fields) - {"entry_time"}
+
+
 class TradeCreateResponse(TradeDetail):
     """`TradeDetail` plus whether this submit matched an existing trade.
 

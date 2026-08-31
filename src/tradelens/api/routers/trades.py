@@ -34,6 +34,8 @@ from src.tradelens.api.schemas.trades import (
     TradeCreate,
     TradeCreateResponse,
     TradeDetail,
+    TradeDraftPayload,
+    TradeDraftResponse,
     TradeListResponse,
     TradeSummary,
     TradeSummaryJobAccepted,
@@ -41,7 +43,7 @@ from src.tradelens.api.schemas.trades import (
     TradeSummaryJobStatus,
     TradeUpdate,
 )
-from src.tradelens.services import screenshot_service, url_ingest
+from src.tradelens.services import drafts, screenshot_service, url_ingest
 from src.tradelens.services.assets import detect_asset_class
 from src.tradelens.services.sessions import KILLZONE_LABELS
 from src.tradelens.services.trade_service import (
@@ -443,6 +445,39 @@ def _detail(trade, user_id: int) -> TradeDetail:
         updated_at=trade.updated_at,
         screenshots=screenshots,
     )
+
+
+@router.get("/trades/draft")
+def get_trade_draft(
+    user_id: int = Depends(current_user),
+) -> TradeDraftResponse:
+    """Return the authenticated owner's saved New Trade draft, if any.
+
+    Declared before `/trades/{trade_id}` so `"draft"` is never routed to that
+    handler's `int` path converter.
+    """
+    payload = drafts.get_draft(user_id)
+    if payload is None:
+        return TradeDraftResponse(draft=None)
+    return TradeDraftResponse(draft=TradeDraftPayload(**payload))
+
+
+@router.put("/trades/draft")
+def put_trade_draft(
+    payload: TradeDraftPayload,
+    user_id: int = Depends(current_user),
+) -> TradeDraftResponse:
+    """Save (or replace) the authenticated owner's one live draft.
+
+    This never touches `trades` — `services.drafts.save_draft` writes only to
+    `trade_drafts`, a table `POST /v1/trades` does not read from and cannot
+    be reached from. The body is `TradeDraftPayload`, a positive allowlist
+    with `extra="forbid"`: no derived field (`session`, `killzone`,
+    `strategy_used`, `asset_class`, ...) has anywhere to go, whatever the
+    request contains.
+    """
+    drafts.save_draft(user_id, payload.model_dump(exclude_unset=True))
+    return TradeDraftResponse(draft=payload)
 
 
 @router.get("/trades/{trade_id}")
