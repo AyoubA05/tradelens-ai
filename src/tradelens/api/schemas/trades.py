@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
-from typing import List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.json_schema import SkipJsonSchema
@@ -26,6 +26,19 @@ from src.tradelens.services.sessions import KILLZONE_LABELS, parse_time_input
 from src.tradelens.services.trade_validation import VALID_OUTCOMES
 
 TradeResult = Literal["Win", "Loss", "Breakeven"]
+
+
+def _suggestable_fields() -> frozenset:
+    """The autofill write allowlist, resolved lazily.
+
+    Imported inside the function rather than at module scope so this schema
+    module stays importable from anywhere in the service layer: the autofill
+    service is the one place the allowlist is *defined*, and a module-level
+    import here would make the two mutually dependent.
+    """
+    from src.tradelens.services.trade_autofill import AUTOFILL_SUGGESTION_FIELDS
+
+    return AUTOFILL_SUGGESTION_FIELDS
 
 
 class _Strict(BaseModel):
@@ -307,6 +320,25 @@ class TradeCreate(_Strict):
         return value
 
 
+class AutofillSuggestion(_Strict):
+    """One AI-suggested value for one draft field, with its confidence.
+
+    A suggestion is deliberately NOT the field's value. It is provenance-
+    tagged metadata that sits beside the draft, so an unreviewed suggestion
+    stays distinguishable from something the trader typed right up until they
+    accept it — which is the whole difference between assistive and
+    authoritative.
+
+    `autocheck` is not a second confidence policy: it is whatever
+    `ui.components.ai_autofill_review.should_autocheck` decided, carried on
+    the wire so the browser and Streamlit pre-check the same boxes.
+    """
+
+    value: Union[str, float, int, None] = None
+    confidence: Optional[float] = None
+    autocheck: bool = False
+
+
 class TradeDraftPayload(_Strict):
     """`PUT /v1/trades/draft` body — a POSITIVE allowlist over draft-able fields.
 
@@ -361,6 +393,23 @@ class TradeDraftPayload(_Strict):
     notes: Optional[str] = None
     trade_process_notes: Optional[str] = None
 
+    # Autofill output, beside the draft rather than in it. Keys are checked
+    # against the autofill allowlist below, so this is a second, wire-level
+    # copy of the same filter the service already applied: a suggestion for a
+    # derived field cannot round-trip even if something upstream let it be
+    # stored.
+    ai_suggestions: Optional[Dict[str, AutofillSuggestion]] = None
+
+    @field_validator("ai_suggestions")
+    @classmethod
+    def _suggestions_must_be_suggestable(cls, value):
+        if value is None:
+            return value
+        unknown = set(value) - _suggestable_fields()
+        if unknown:
+            raise ValueError("unsuggestable field")
+        return value
+
     @field_validator(
         "pnl",
         "rr_realized",
@@ -392,7 +441,12 @@ class TradeDraftResponse(_Strict):
 # columns, not wire fields. A contract test pins this as a subset of
 # `CREATABLE_TRADE_FIELDS` and disjoint from `SERVER_OWNED_ON_CREATE` — see
 # `TradeDraftPayload`'s docstring.
-DRAFT_TRADE_FIELDS = frozenset(TradeDraftPayload.model_fields) - {"entry_time"}
+DRAFT_TRADE_FIELDS = frozenset(TradeDraftPayload.model_fields) - {
+    "entry_time",
+    # Not a `Trade` column and never becomes one: it is the provenance
+    # sidecar the trader reviews, not a value the create path can accept.
+    "ai_suggestions",
+}
 
 
 class TradeCreateResponse(TradeDetail):

@@ -278,6 +278,72 @@ def presign_download(user_id: int, screenshot_id: int) -> Optional[str]:
     )
 
 
+def read_owned_final_object(user_id: int, screenshot_id: int) -> Optional[bytes]:
+    """The promoted bytes of one screenshot, or None if this owner may not read it.
+
+    The bytes returned here are the ones `finalize_upload` wrote: decoded,
+    dimension-capped and re-encoded by `imaging.validate_and_normalise`. That
+    is the entire reason autofill reads through this function rather than
+    anywhere else — the model only ever sees bytes we produced, so a crafted
+    container has no route to it.
+
+    Ownership resolves through the screenshot's trade, and the key is checked
+    against this owner's own final prefix, so a row whose `file_path` was
+    somehow corrupted cannot be turned into a read of another tenant's object.
+    None means "no such screenshot for you": missing and foreign are
+    indistinguishable.
+    """
+    owner = require_user_id(user_id)
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(Screenshot.file_path, Screenshot.trade_id)
+            .join(Trade, Trade.id == Screenshot.trade_id)
+            .filter(Screenshot.id == screenshot_id, Trade.user_id == owner)
+            .first()
+        )
+    finally:
+        db.close()
+    if row is None:
+        return None
+    if not _is_final_key(row[0], owner, row[1]):
+        return None
+
+    response = _client().get_object(Bucket=r2_config()["bucket"], Key=row[0])
+    body = response.get("Body")
+    if body is None:
+        return None
+    try:
+        # Bounded by the same ceiling the promote path enforces: this object
+        # was written by us, but a read with no limit is still a read with no
+        # limit.
+        return body.read(MAX_UPLOAD_BYTES + 1)[:MAX_UPLOAD_BYTES]
+    finally:
+        close = getattr(body, "close", None)
+        if callable(close):
+            close()
+
+
+def owns_screenshot(user_id: int, screenshot_id: int) -> bool:
+    """Whether one screenshot belongs to the authenticated owner.
+
+    Used to settle ownership *before* an autofill job is enqueued, so a
+    foreign id costs nothing and reveals nothing.
+    """
+    owner = require_user_id(user_id)
+    db = SessionLocal()
+    try:
+        return (
+            db.query(Screenshot.id)
+            .join(Trade, Trade.id == Screenshot.trade_id)
+            .filter(Screenshot.id == screenshot_id, Trade.user_id == owner)
+            .first()
+            is not None
+        )
+    finally:
+        db.close()
+
+
 def _discard_object(client, bucket: str, key: str) -> None:
     try:
         client.delete_object(Bucket=bucket, Key=key)
