@@ -103,7 +103,9 @@ def test_a_derived_field_is_dropped(derived):
 def test_the_filter_runs_before_anything_is_stored(website_session_handle):
     user_id, _ = website_session_handle
     save_suggestions_to_draft(
-        user_id, {"session": {"value": "NY AM"}, "asset": {"value": "NQ"}}
+        user_id,
+        {"session": {"value": "NY AM"}, "asset": {"value": "NQ"}},
+        screenshot_id=7,
     )
     stored = drafts.get_draft(user_id)["ai_suggestions"]
     assert "session" not in stored
@@ -146,7 +148,9 @@ def test_no_number_of_autofill_runs_creates_a_trades_row(website_session_handle)
     user_id, _ = website_session_handle
     before = _trades_row_count()
     for _ in range(5):
-        save_suggestions_to_draft(user_id, build_suggestions(_analysis()))
+        save_suggestions_to_draft(
+            user_id, build_suggestions(_analysis()), screenshot_id=7
+        )
     assert _trades_row_count() == before == 0
 
 
@@ -155,7 +159,7 @@ def test_suggestions_do_not_overwrite_the_trader_s_own_draft_values(
 ):
     user_id, _ = website_session_handle
     drafts.save_draft(user_id, {"asset": "MNQ", "notes": "mine"})
-    save_suggestions_to_draft(user_id, build_suggestions(_analysis()))
+    save_suggestions_to_draft(user_id, build_suggestions(_analysis()), screenshot_id=7)
     draft = drafts.get_draft(user_id)
     # The suggestion is provenance-tagged metadata; the trader's own values are
     # what the form shows until they accept one.
@@ -169,7 +173,7 @@ def test_a_saved_suggestion_set_survives_the_draft_contract(website_session_hand
     # `TradeDraftPayload`, which forbids extras — a suggestion shape it cannot
     # parse would turn every subsequent draft read into a 500.
     user_id, _ = website_session_handle
-    save_suggestions_to_draft(user_id, build_suggestions(_analysis()))
+    save_suggestions_to_draft(user_id, build_suggestions(_analysis()), screenshot_id=7)
     TradeDraftPayload(**drafts.get_draft(user_id))
 
 

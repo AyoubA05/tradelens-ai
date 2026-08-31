@@ -169,12 +169,24 @@ class TradeAutofillJobAccepted(_Strict):
 
 
 class TradeAutofillJobStatus(_Strict):
-    """Poll response. `suggestions` is `None` until the job has succeeded."""
+    """Poll response. `suggestions` is `None` until the job has succeeded.
+
+    `superseded` says the opposite of what `status` does, and both can be
+    true at once: this job succeeded, but the suggestions it produced are no
+    longer the ones stored on the draft because a later autofill run replaced
+    them. There is one draft per owner, so that is a normal outcome of
+    autofilling two screenshots — and answering such a poll with the newer
+    chart's readings would tell a trader a value came from a chart it did not.
+    When `superseded` is true, `suggestions` is `None`: a stale set is not
+    shown at all, because a suggestion whose provenance we cannot state is
+    exactly the one a trader must not act on.
+    """
 
     job_id: int
     status: Literal["queued", "running", "succeeded", "failed"]
     suggestions: Optional[Dict[str, AutofillSuggestion]]
     error: Optional[str]
+    superseded: bool = False
 
 
 class ScreenshotDescriptor(_Strict):
@@ -428,6 +440,12 @@ class TradeDraftPayload(_Strict):
     # derived field cannot round-trip even if something upstream let it be
     # stored.
     ai_suggestions: Optional[Dict[str, AutofillSuggestion]] = None
+    # Which screenshot the suggestions above were read from. Provenance, not
+    # content: the autofill poll compares it against the job it was asked
+    # about so a superseded set is never returned as if it described that
+    # job's chart. `services.trade_autofill.SUGGESTIONS_SOURCE_KEY` names the
+    # same key on the storage side.
+    ai_suggestions_screenshot_id: Optional[int] = None
 
     @field_validator("ai_suggestions")
     @classmethod
@@ -475,6 +493,9 @@ DRAFT_TRADE_FIELDS = frozenset(TradeDraftPayload.model_fields) - {
     # Not a `Trade` column and never becomes one: it is the provenance
     # sidecar the trader reviews, not a value the create path can accept.
     "ai_suggestions",
+    # Same: which screenshot those suggestions came from is metadata about
+    # the review, not a field a trade can be created with.
+    "ai_suggestions_screenshot_id",
 }
 
 

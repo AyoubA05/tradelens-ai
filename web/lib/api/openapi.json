@@ -3,7 +3,7 @@
     "schemas": {
       "AutofillSuggestion": {
         "additionalProperties": false,
-        "description": "One AI-suggested value for one draft field, with its confidence.\n\nA suggestion is deliberately NOT the field's value. It is provenance-\ntagged metadata that sits beside the draft, so an unreviewed suggestion\nstays distinguishable from something the trader typed right up until they\naccept it \u2014 which is the whole difference between assistive and\nauthoritative.\n\n`autocheck` is not a second confidence policy: it is whatever\n`ui.components.ai_autofill_review.should_autocheck` decided, carried on\nthe wire so the browser and Streamlit pre-check the same boxes.",
+        "description": "One AI-suggested value for one draft field, with its confidence.\n\nA suggestion is deliberately NOT the field's value. It is provenance-\ntagged metadata that sits beside the draft, so an unreviewed suggestion\nstays distinguishable from something the trader typed right up until they\naccept it \u2014 which is the whole difference between assistive and\nauthoritative.\n\n`autocheck` is not a second confidence policy: it is whatever\n`services.autocheck_policy.should_autocheck` decided, carried on the wire\nso the browser and Streamlit pre-check the same boxes. The policy lives in\n`services/` and not in `ui/components/ai_autofill_review.py`, which only\nre-exports it \u2014 naming the UI module here would teach the layering the\nopposite of what commit `abde2f0` fixed.",
         "properties": {
           "autocheck": {
             "default": false,
@@ -869,7 +869,7 @@
       },
       "TradeAutofillJobStatus": {
         "additionalProperties": false,
-        "description": "Poll response. `suggestions` is `None` until the job has succeeded.",
+        "description": "Poll response. `suggestions` is `None` until the job has succeeded.\n\n`superseded` says the opposite of what `status` does, and both can be\ntrue at once: this job succeeded, but the suggestions it produced are no\nlonger the ones stored on the draft because a later autofill run replaced\nthem. There is one draft per owner, so that is a normal outcome of\nautofilling two screenshots \u2014 and answering such a poll with the newer\nchart's readings would tell a trader a value came from a chart it did not.\nWhen `superseded` is true, `suggestions` is `None`: a stale set is not\nshown at all, because a suggestion whose provenance we cannot state is\nexactly the one a trader must not act on.",
         "properties": {
           "error": {
             "anyOf": [
@@ -909,6 +909,11 @@
               }
             ],
             "title": "Suggestions"
+          },
+          "superseded": {
+            "default": false,
+            "title": "Superseded",
+            "type": "boolean"
           }
         },
         "required": [
@@ -2369,6 +2374,17 @@
             ],
             "title": "Ai Suggestions"
           },
+          "ai_suggestions_screenshot_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Suggestions Screenshot Id"
+          },
           "asset": {
             "anyOf": [
               {
@@ -3756,7 +3772,7 @@
     },
     "/v1/trades/autofill/{job_id}": {
       "get": {
-        "description": "Status for one owner-scoped autofill job; foreign and missing are identical.\n\nThe kind check is not decoration: without it this route would read any of\nthe owner's jobs, and a summary's result would be shaped into a suggestion\nset. Suggestions are read back from the owner's own draft \u2014 the only place\nthe worker put them.",
+        "description": "Status for one owner-scoped autofill job; foreign and missing are identical.\n\nThe kind check is not decoration: without it this route would read any of\nthe owner's jobs, and a summary's result would be shaped into a suggestion\nset. Suggestions are read back from the owner's own draft \u2014 the only place\nthe worker put them.\n\nThe draft holds ONE suggestion set, so the set stored there may belong to\na later job than the one being polled. This route therefore answers with\nthe suggestions THIS job produced or with none at all: it compares the\nscreenshot the draft records against the screenshot this job was queued\nfor (the enqueue idempotency key is that screenshot, so per owner the two\nidentify the same job) and reports `superseded` rather than handing back\nanother chart's readings under this job's id. Guessing would misattribute\na value to a screenshot it was never read from, which is the one thing an\nassistive suggestion may not do.",
         "operationId": "get_trade_autofill_job_v1_trades_autofill__job_id__get",
         "parameters": [
           {

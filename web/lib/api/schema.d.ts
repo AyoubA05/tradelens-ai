@@ -163,6 +163,16 @@ export interface paths {
          *     the owner's jobs, and a summary's result would be shaped into a suggestion
          *     set. Suggestions are read back from the owner's own draft — the only place
          *     the worker put them.
+         *
+         *     The draft holds ONE suggestion set, so the set stored there may belong to
+         *     a later job than the one being polled. This route therefore answers with
+         *     the suggestions THIS job produced or with none at all: it compares the
+         *     screenshot the draft records against the screenshot this job was queued
+         *     for (the enqueue idempotency key is that screenshot, so per owner the two
+         *     identify the same job) and reports `superseded` rather than handing back
+         *     another chart's readings under this job's id. Guessing would misattribute
+         *     a value to a screenshot it was never read from, which is the one thing an
+         *     assistive suggestion may not do.
          */
         get: operations["get_trade_autofill_job_v1_trades_autofill__job_id__get"];
         put?: never;
@@ -456,8 +466,11 @@ export interface components {
          *     authoritative.
          *
          *     `autocheck` is not a second confidence policy: it is whatever
-         *     `ui.components.ai_autofill_review.should_autocheck` decided, carried on
-         *     the wire so the browser and Streamlit pre-check the same boxes.
+         *     `services.autocheck_policy.should_autocheck` decided, carried on the wire
+         *     so the browser and Streamlit pre-check the same boxes. The policy lives in
+         *     `services/` and not in `ui/components/ai_autofill_review.py`, which only
+         *     re-exports it — naming the UI module here would teach the layering the
+         *     opposite of what commit `abde2f0` fixed.
          */
         AutofillSuggestion: {
             /**
@@ -784,6 +797,16 @@ export interface components {
         /**
          * TradeAutofillJobStatus
          * @description Poll response. `suggestions` is `None` until the job has succeeded.
+         *
+         *     `superseded` says the opposite of what `status` does, and both can be
+         *     true at once: this job succeeded, but the suggestions it produced are no
+         *     longer the ones stored on the draft because a later autofill run replaced
+         *     them. There is one draft per owner, so that is a normal outcome of
+         *     autofilling two screenshots — and answering such a poll with the newer
+         *     chart's readings would tell a trader a value came from a chart it did not.
+         *     When `superseded` is true, `suggestions` is `None`: a stale set is not
+         *     shown at all, because a suggestion whose provenance we cannot state is
+         *     exactly the one a trader must not act on.
          */
         TradeAutofillJobStatus: {
             /** Error */
@@ -799,6 +822,11 @@ export interface components {
             suggestions: {
                 [key: string]: components["schemas"]["AutofillSuggestion"];
             } | null;
+            /**
+             * Superseded
+             * @default false
+             */
+            superseded: boolean;
         };
         /**
          * TradeConflictDetail
@@ -1121,6 +1149,8 @@ export interface components {
             ai_suggestions?: {
                 [key: string]: components["schemas"]["AutofillSuggestion"];
             } | null;
+            /** Ai Suggestions Screenshot Id */
+            ai_suggestions_screenshot_id?: number | null;
             /** Asset */
             asset?: string | null;
             /** Bias */

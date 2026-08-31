@@ -59,6 +59,12 @@ AUTOFILL_WINDOW_HOURS = 24
 
 JOB_KIND = "trade_autofill"
 
+# Which screenshot the draft's current suggestions were read from. One draft
+# per owner means the suggestion set is superseded by the next run, so the
+# poll needs to know whose readings these are; the enqueue idempotency key is
+# the screenshot, so per owner a screenshot id names exactly one job.
+SUGGESTIONS_SOURCE_KEY = "ai_suggestions_screenshot_id"
+
 # THE write allowlist. Every field here is one a chart screenshot can actually
 # evidence, and every one is a field `POST /v1/trades` itself accepts from a
 # human. Nothing derived is here, and nothing can be added by the model:
@@ -245,10 +251,14 @@ def suggest_from_screenshot(
         except OSError:  # pragma: no cover — best effort, never masks a result
             pass
 
-    return save_suggestions_to_draft(owner, build_suggestions(analysis))
+    return save_suggestions_to_draft(
+        owner, build_suggestions(analysis), screenshot_id=screenshot_id
+    )
 
 
-def save_suggestions_to_draft(user_id: int, suggestions: dict) -> dict:
+def save_suggestions_to_draft(
+    user_id: int, suggestions: dict, *, screenshot_id: int
+) -> dict:
     """Persist a suggestion set beside the owner's draft, and return it.
 
     Merged into the existing draft rather than replacing it: the trader may
@@ -260,10 +270,19 @@ def save_suggestions_to_draft(user_id: int, suggestions: dict) -> dict:
     Filtered again here even though `build_suggestions` already filtered: this
     is the function that touches storage, so this is where the guarantee has
     to hold.
+
+    `screenshot_id` is REQUIRED and is stored beside the suggestions, because
+    this function supersedes: there is one draft per owner, so a second
+    autofill run overwrites the first one's suggestions. Without the
+    provenance key, a poll of the first job would answer with the second
+    chart's readings and nothing would say so — a trader could not tell which
+    screenshot a value came from. `SUGGESTIONS_SOURCE_KEY` is what the poll
+    compares against the job it was actually asked about.
     """
     owner = require_user_id(user_id)
     kept = filter_suggestions(suggestions)
     draft = drafts.get_draft(owner) or {}
     draft["ai_suggestions"] = kept
+    draft[SUGGESTIONS_SOURCE_KEY] = int(screenshot_id)
     drafts.save_draft(owner, draft)
     return kept

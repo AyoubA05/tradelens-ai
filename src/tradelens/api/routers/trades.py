@@ -51,6 +51,7 @@ from src.tradelens.services.trade_autofill import (
     AUTOFILL_WINDOW_HOURS,
     JOB_KIND as AUTOFILL_JOB_KIND,
     MAX_AUTOFILLS_PER_WINDOW,
+    SUGGESTIONS_SOURCE_KEY as AUTOFILL_SUGGESTIONS_SOURCE_KEY,
 )
 from src.tradelens.services.assets import detect_asset_class
 from src.tradelens.services.sessions import KILLZONE_LABELS
@@ -462,21 +463,54 @@ def get_trade_autofill_job(
     the owner's jobs, and a summary's result would be shaped into a suggestion
     set. Suggestions are read back from the owner's own draft — the only place
     the worker put them.
+
+    The draft holds ONE suggestion set, so the set stored there may belong to
+    a later job than the one being polled. This route therefore answers with
+    the suggestions THIS job produced or with none at all: it compares the
+    screenshot the draft records against the screenshot this job was queued
+    for (the enqueue idempotency key is that screenshot, so per owner the two
+    identify the same job) and reports `superseded` rather than handing back
+    another chart's readings under this job's id. Guessing would misattribute
+    a value to a screenshot it was never read from, which is the one thing an
+    assistive suggestion may not do.
     """
     job = jobs.get_owned_job(job_id, user_id)
     if job is None or job.kind != AUTOFILL_JOB_KIND:
         raise HTTPException(status_code=404, detail="autofill job not found")
 
     suggestions = None
+    superseded = False
     if job.status == "succeeded":
         draft = drafts.get_draft(user_id) or {}
-        suggestions = draft.get("ai_suggestions") or {}
+        stored_for = draft.get(AUTOFILL_SUGGESTIONS_SOURCE_KEY)
+        if stored_for is not None and stored_for == _job_screenshot_id(job):
+            suggestions = draft.get("ai_suggestions") or {}
+        else:
+            # Includes the draft that has no provenance at all (cleared by an
+            # autosave, or written before this key existed). "We cannot say
+            # this came from your screenshot" is the same answer as "it did
+            # not"; both must not be presented as this job's reading.
+            superseded = True
     return TradeAutofillJobStatus(
         job_id=job.id,
         status=job.status,
         suggestions=suggestions,
         error=job.error,
+        superseded=superseded,
     )
+
+
+def _job_screenshot_id(job) -> Optional[int]:
+    """The screenshot one autofill job was queued for, or None if unreadable.
+
+    The payload is written by `enqueue_trade_autofill` above and is never user
+    text, but a job row that outlives a deploy is still parsed defensively:
+    None simply fails the provenance comparison, which is the safe direction.
+    """
+    try:
+        return int(json.loads(job.payload or "{}")["screenshot_id"])
+    except (ValueError, TypeError, KeyError):
+        return None
 
 
 def _not_found() -> HTTPException:

@@ -352,3 +352,87 @@ def test_a_queued_job_has_no_suggestions_yet(client, website_session_handle):
     assert r.status_code == 200
     assert r.json()["status"] == "queued"
     assert r.json()["suggestions"] is None
+
+
+def _stub_vision(monkeypatch, asset: str, entry_price: float) -> None:
+    """One deterministic reading, so two screenshots produce distinct values."""
+    monkeypatch.setattr(
+        trade_autofill.storage, "read_owned_final_object", lambda u, s: b"fake-png"
+    )
+    monkeypatch.setattr(
+        trade_autofill,
+        "check_screenshot_quality",
+        lambda p: type("Q", (), {"usable": True, "warnings": []})(),
+    )
+    monkeypatch.setattr(
+        trade_autofill,
+        "analyze_screenshot_v3",
+        lambda *a, **k: (
+            {
+                "descriptive": {"detected_asset": asset},
+                "trade_overlay": {
+                    "source": "visible_trade_box",
+                    "entry_price": entry_price,
+                    "confidence": {"entry_price": 0.9},
+                },
+            },
+            "usage",
+        ),
+    )
+
+
+def test_polling_the_first_job_never_returns_the_second_screenshot_s_readings(
+    client, website_session_handle, monkeypatch
+):
+    """Autofill screenshot A, then B, then poll A.
+
+    There is one draft per owner and `save_suggestions_to_draft` supersedes,
+    so B's suggestions are what is stored. A's job must not answer with them:
+    a value attributed to the wrong chart is exactly the misreading this
+    feature may not cause. The poll says `superseded` and returns nothing.
+    """
+    owner, handle = website_session_handle
+    first = _screenshot(owner)
+    second = _screenshot(owner)
+
+    _stub_vision(monkeypatch, "NQ", 20100.25)
+    job_a = _post(client, handle, {"screenshot_id": first}).json()["job_id"]
+    assert worker.run_once(worker.HANDLERS) is True
+
+    _stub_vision(monkeypatch, "ES", 5500.75)
+    job_b = _post(client, handle, {"screenshot_id": second}).json()["job_id"]
+    assert worker.run_once(worker.HANDLERS) is True
+    assert job_a != job_b
+
+    path_a = f"{PATH}/{job_a}"
+    stale = client.get(path_a, headers=_headers(handle, "GET", path_a))
+    assert stale.status_code == 200, stale.text
+    body = stale.json()
+    assert body["status"] == "succeeded"
+    assert body["superseded"] is True
+    assert body["suggestions"] is None
+    # The second chart's readings appear nowhere in the first job's answer.
+    assert "5500.75" not in stale.text
+
+    path_b = f"{PATH}/{job_b}"
+    current = client.get(path_b, headers=_headers(handle, "GET", path_b))
+    assert current.status_code == 200
+    assert current.json()["superseded"] is False
+    assert current.json()["suggestions"]["entry_price"]["value"] == 5500.75
+
+
+def test_a_current_job_s_suggestions_are_not_reported_superseded(
+    client, website_session_handle, monkeypatch
+):
+    """The guard must not swallow the ordinary single-screenshot case."""
+    owner, handle = website_session_handle
+    screenshot_id = _screenshot(owner)
+    _stub_vision(monkeypatch, "NQ", 20100.25)
+    job_id = _post(client, handle, {"screenshot_id": screenshot_id}).json()["job_id"]
+    assert worker.run_once(worker.HANDLERS) is True
+
+    path = f"{PATH}/{job_id}"
+    r = client.get(path, headers=_headers(handle, "GET", path))
+    assert r.status_code == 200
+    assert r.json()["superseded"] is False
+    assert r.json()["suggestions"]["entry_price"]["value"] == 20100.25
