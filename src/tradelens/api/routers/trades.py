@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
 from src.tradelens.api import imaging, jobs, storage
@@ -216,6 +217,7 @@ def create_trade_route(
         # relationships, so re-fetch through `get_trade` before `_detail`
         # touches `.screenshots`.
         response.status_code = status.HTTP_200_OK
+        _clear_draft(user_id)
         full = get_trade(existing.id, user_id)
         return TradeCreateResponse(
             **_detail(full, user_id).model_dump(), duplicate_of=existing.id
@@ -238,6 +240,7 @@ def create_trade_route(
         if existing is None:
             raise
         response.status_code = status.HTTP_200_OK
+        _clear_draft(user_id)
         full = get_trade(existing.id, user_id)
         return TradeCreateResponse(
             **_detail(full, user_id).model_dump(), duplicate_of=existing.id
@@ -249,6 +252,7 @@ def create_trade_route(
     # access on that instance (e.g. `.screenshots` inside `_detail`) would
     # raise DetachedInstanceError. Re-fetch through `get_trade`, which
     # eager-loads everything `_detail` touches.
+    _clear_draft(user_id)
     trade = get_trade(created.id, user_id)
     return TradeCreateResponse(
         **_detail(trade, user_id).model_dump(), duplicate_of=None
@@ -513,6 +517,35 @@ def _job_screenshot_id(job) -> Optional[int]:
         return None
 
 
+def _clear_draft(user_id: int) -> None:
+    """End the owner's draft now that the trade it described exists.
+
+    Called on every branch of create that answers with a trade — the freshly
+    created one and both "this already exists" ones — because in all three
+    the draft has become a journal entry and everything still in it is stale.
+    Without this the draft had no end of life at all: the browser's
+    mount-time prefill fills any field still at its empty default, so the
+    NEXT New Trade would open carrying the previous trade's asset, entry
+    time and prices, and a trader who did not notice would save a second
+    entry built from the first one's numbers.
+
+    Clearing on the server rather than only on navigate is deliberate: it is
+    the half that still holds when the browser never comes back — a closed
+    tab, a crash, a different device. The client half (suspending autosave
+    once the trade is durable, in `useDraftAutosave`) stops an in-flight
+    debounce from writing the draft straight back; neither half alone is
+    enough.
+
+    A failure here must never turn a durable trade into an error response:
+    the trade is already committed, and a stale draft is a nuisance, not a
+    loss.
+    """
+    try:
+        drafts.delete_draft(user_id)
+    except Exception:  # pragma: no cover — defensive; the trade is committed
+        _log.warning("could not clear draft after create", exc_info=True)
+
+
 def _not_found() -> HTTPException:
     """One refusal for both 'no such trade' and 'someone else's trade'.
 
@@ -596,11 +629,25 @@ def get_trade_draft(
 
     Declared before `/trades/{trade_id}` so `"draft"` is never routed to that
     handler's `int` path converter.
+
+    A stored draft is re-validated with a strict model (`extra="forbid"`) it
+    was not necessarily written under: any later removal or rename of a draft
+    field would otherwise turn EVERY already-stored draft into a 500 on read.
+    The relay swallows that into a null response, so the trader would see
+    autosave quietly stop working with nothing saying why, and the row would
+    stay poisoned. A draft that no longer fits the current model is therefore
+    answered as "no draft" — the same thing the trader sees on a fresh form,
+    and the next autosave replaces the row.
     """
     payload = drafts.get_draft(user_id)
     if payload is None:
         return TradeDraftResponse(draft=None)
-    return TradeDraftResponse(draft=TradeDraftPayload(**payload))
+    try:
+        draft = TradeDraftPayload(**payload)
+    except ValidationError:
+        _log.warning("discarding a stored draft that no longer validates")
+        return TradeDraftResponse(draft=None)
+    return TradeDraftResponse(draft=draft)
 
 
 @router.put("/trades/draft")

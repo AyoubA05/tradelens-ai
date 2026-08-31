@@ -20,6 +20,7 @@ from src.tradelens.api.schemas.trades import (
     DRAFT_TRADE_FIELDS,
     SERVER_OWNED_ON_CREATE,
 )
+from src.tradelens.api.routers.trades import _clear_draft
 from src.tradelens.api.security import sign_request
 from src.tradelens.db.models import Trade
 from src.tradelens.db.session import SessionLocal
@@ -283,3 +284,168 @@ def test_a_stored_derived_suggestion_cannot_round_trip_through_get(
     )
     r = client.get(DRAFT_PATH, headers=_get_headers(handle))
     assert r.status_code != 200 or "strategy_used" not in r.text
+
+
+# ------------------------------------------------- the draft's end of life (F1)
+
+
+def _create_headers(handle, body: bytes, *, path="/v1/trades"):
+    ts = str(int(time.time()))
+    sig = sign_request(SECRET, ts, "POST", path, "", body)
+    return {
+        "Content-Type": "application/json",
+        "X-TL-Signature": f"v1={ts}:{sig}",
+        "X-TL-Session-Handle": handle,
+    }
+
+
+def _create_body(**overrides) -> dict:
+    body = {
+        "trade_date": "2026-08-10",
+        "entry_time": "09:30",
+        "asset": "NQ",
+        "direction": "Long",
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "tp_price": 115.0,
+        "result": "Win",
+        "pnl": 250.0,
+    }
+    body.update(overrides)
+    return body
+
+
+def _create_trade(client, handle, body: dict):
+    payload = json.dumps(body, separators=(",", ":")).encode()
+    return client.post(
+        "/v1/trades", content=payload, headers=_create_headers(handle, payload)
+    )
+
+
+def test_journaling_a_trade_ends_the_draft(client, website_session_handle):
+    """A journaled trade leaves no draft behind for the next one to inherit.
+
+    Without `_clear_draft` in the create route the draft survives the create,
+    and the browser's mount-time prefill fills any still-empty field from it —
+    so the NEXT New Trade opens carrying this trade's asset, entry time and
+    prices. This asserts the sequence directly: save a draft, create the
+    trade, re-read the draft the next form would load.
+    """
+    owner, handle = website_session_handle
+    _put(
+        client,
+        handle,
+        {
+            "asset": "NQ",
+            "entry_time": "09:45",
+            "entry_price": 21000.0,
+            "stop_price": 20950.0,
+            "trade_process_notes": "waited for the sweep",
+        },
+    )
+    assert client.get(DRAFT_PATH, headers=_get_headers(handle)).json()["draft"]
+
+    created = _create_trade(client, handle, _create_body())
+    assert created.status_code == 201
+
+    # What the next New Trade form would load: nothing.
+    r = client.get(DRAFT_PATH, headers=_get_headers(handle))
+    assert r.status_code == 200
+    assert r.json() == {"draft": None}
+    assert drafts.get_draft(owner) is None
+
+
+def test_a_duplicate_submit_also_ends_the_draft(client, website_session_handle):
+    """The 200/`duplicate_of` branch clears too — that trade exists as well."""
+    _, handle = website_session_handle
+    body = _create_body(trade_date="2026-08-11")
+    assert _create_trade(client, handle, body).status_code == 201
+    _put(client, handle, {"asset": "NQ", "entry_price": 21000.0})
+
+    again = _create_trade(client, handle, body)
+    assert again.status_code == 200
+    assert again.json()["duplicate_of"] is not None
+    assert client.get(DRAFT_PATH, headers=_get_headers(handle)).json() == {
+        "draft": None
+    }
+
+
+def test_one_owner_s_create_does_not_clear_another_s_draft(client, two_users):
+    """Clearing is owner-scoped, like every other draft operation."""
+    trader_a, trader_b = two_users
+    drafts.save_draft(trader_a, {"asset": "NQ"})
+    drafts.save_draft(trader_b, {"asset": "ES", "entry_price": 5000.0})
+    _clear_draft(trader_a)
+    assert drafts.get_draft(trader_b) == {"asset": "ES", "entry_price": 5000.0}
+
+
+# ------------------------- an autosave may not destroy the worker's writes (F2)
+
+
+def test_an_autosave_cannot_clobber_written_suggestions(client, website_session_handle):
+    """The interleaving that made a paid vision reading unrecoverable.
+
+    Worker writes suggestions; a PUT that was already in flight (and, like
+    every autosave body, does not mention `ai_suggestions`) lands after it.
+    With a wholesale replace both the suggestions and their provenance key
+    vanish, the poll then answers `superseded` forever — the enqueue
+    idempotency key is the screenshot, so the same succeeded job comes back
+    on every retry and nothing can re-read that chart.
+    """
+    owner, handle = website_session_handle
+    drafts.save_draft(owner, {"asset": "NQ"})
+    drafts.save_draft(
+        owner,
+        {
+            "asset": "NQ",
+            "ai_suggestions": {
+                "direction": {"value": "Long", "confidence": 0.9, "autocheck": True}
+            },
+            "ai_suggestions_screenshot_id": 77,
+        },
+    )
+
+    # The in-flight autosave: the trader kept typing, no suggestion keys.
+    r = _put(client, handle, {"asset": "NQ", "notes": "typed while it ran"})
+    assert r.status_code == 200
+
+    stored = drafts.get_draft(owner)
+    assert stored["notes"] == "typed while it ran"
+    assert stored["ai_suggestions"]["direction"]["value"] == "Long"
+    assert stored["ai_suggestions_screenshot_id"] == 77
+
+
+def test_clearing_the_draft_still_clears_suggestions(client, website_session_handle):
+    """Preserving worker keys must not make them immortal.
+
+    `delete_draft` removes the row, so the merge above cannot resurrect a
+    suggestion set past the trade it belonged to.
+    """
+    owner, _ = website_session_handle
+    drafts.save_draft(
+        owner, {"asset": "NQ", "ai_suggestions_screenshot_id": 5, "ai_suggestions": {}}
+    )
+    drafts.delete_draft(owner)
+    drafts.save_draft(owner, {"asset": "ES"})
+    assert drafts.get_draft(owner) == {"asset": "ES"}
+
+
+# ------------------------------- a stored draft that no longer validates (F3)
+
+
+def test_a_stored_draft_the_model_no_longer_accepts_reads_as_no_draft(
+    client, website_session_handle
+):
+    """A renamed or removed draft field must not 500 every stored draft.
+
+    `TradeDraftPayload` is `extra="forbid"`, and a draft stored under an older
+    shape is re-validated with today's model on every read. Unguarded, that is
+    a 500 the relay swallows into nothing, so autosave appears to stop working
+    with no signal and the row stays poisoned forever. Degrading to "no draft"
+    lets the next autosave replace it.
+    """
+    owner, handle = website_session_handle
+    drafts.save_draft(owner, {"asset": "NQ", "a_field_this_model_removed": "x"})
+    r = client.get(DRAFT_PATH, headers=_get_headers(handle))
+    assert r.status_code == 200
+    assert r.json() == {"draft": None}
