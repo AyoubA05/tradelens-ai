@@ -123,11 +123,18 @@ async function relayPut(payload: TradeDraftPayload): Promise<boolean> {
  * hook ever runs, so "still blank" never true for it; a stale draft date
  * silently resurrecting itself over "today" would be a surprise, not a
  * convenience).
+ *
+ * `suspended` stops all further saving. The caller sets it once the trade is
+ * durable: `POST /v1/trades` clears the draft server-side (that is the half
+ * that holds when this browser never comes back), and this is the half that
+ * stops an in-flight debounce from writing the just-journaled values back
+ * into a new draft a moment later.
  */
 export function useDraftAutosave(
   values: NewTradeFormValues,
   setValues: (updater: (v: NewTradeFormValues) => NewTradeFormValues) => void,
   otherLabel: string,
+  suspended = false,
 ): DraftStatus {
   const [status, setStatus] = useState<DraftStatus>({ kind: "idle" });
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -166,6 +173,16 @@ export function useDraftAutosave(
     // pre-load state is at worst redundant, never wrong — it can only ever
     // be superseded by a later one, exactly like any other edit.
     if (timerRef.current) clearTimeout(timerRef.current);
+    // The trade these values became is durable, and the server has already
+    // ended the draft on create. A debounce scheduled a moment before the
+    // submit must not now write that finished trade straight back into a
+    // fresh draft — the next New Trade would open pre-filled with it.
+    // `savingRef` is bumped so a PUT already awaiting its response cannot
+    // move the status either.
+    if (suspended) {
+      savingRef.current += 1;
+      return;
+    }
     if (!isDraftWorthSaving(values, otherLabel)) return;
 
     timerRef.current = setTimeout(() => {
@@ -183,7 +200,7 @@ export function useDraftAutosave(
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [values, otherLabel]);
+  }, [values, otherLabel, suspended]);
 
   return status;
 }

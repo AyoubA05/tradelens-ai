@@ -13,9 +13,15 @@ import { OTHER_ASSET } from "@/lib/app/new-trade-fields";
  * only the quiet status indicator, and never something a real submit reads.
  */
 
-function Harness({ initial }: { initial: NewTradeFormValues }) {
+function Harness({
+  initial,
+  suspended = false,
+}: {
+  initial: NewTradeFormValues;
+  suspended?: boolean;
+}) {
   const [values, setValues] = useState(initial);
-  const status = useDraftAutosave(values, setValues, OTHER_ASSET);
+  const status = useDraftAutosave(values, setValues, OTHER_ASSET, suspended);
   return (
     <div>
       <p data-testid="status">{status.kind}</p>
@@ -110,6 +116,30 @@ describe("useDraftAutosave", () => {
     });
     // No throw reached React's error boundary path — `render` above would
     // have thrown synchronously/asynchronously into the test if it had.
+  }, 10000);
+
+  /**
+   * F1, browser half. Once the trade is durable the server has already
+   * ended the draft; a debounce scheduled a moment before the submit must
+   * not write the journaled values straight back, or the next New Trade
+   * opens pre-filled with the trade that was just saved.
+   */
+  it("saves nothing once the trade is durable and autosave is suspended", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (!init || init.method === "GET") {
+        return Promise.resolve({ ok: true, json: async () => ({ draft: null }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ draft: {} }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <Harness initial={{ ...emptyNewTradeFormValues(), asset: "NQ" }} suspended />,
+    );
+    await new Promise((r) => setTimeout(r, 2200));
+
+    const puts = fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT");
+    expect(puts).toHaveLength(0);
   }, 10000);
 
   it("a network failure during save also only changes the status indicator", async () => {

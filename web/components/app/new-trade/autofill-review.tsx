@@ -217,8 +217,22 @@ export function AutofillReview({
       (body as Record<string, unknown>)[field] = suggestion.value;
       any = true;
     }
-    if (!any || !expectedUpdatedAt) {
+    if (!any) {
+      // Nothing was ticked, so "apply" had nothing to do. Leaving is the
+      // honest outcome and needs no explanation.
       onDone();
+      return;
+    }
+    if (!expectedUpdatedAt) {
+      // The trade was created without the `updated_at` stamp the PATCH's own
+      // conflict guard requires, so these ticked suggestions cannot be sent.
+      // Saying so is the whole point: silently calling `onDone()` here
+      // navigated away as if the trader's choices had been applied, and they
+      // never were. The trade itself is untouched, and the wording says only
+      // that — it must not imply the trade is at risk.
+      setApplyError(
+        "These suggestions did not save. Your trade is unchanged — you can edit it from its own page instead.",
+      );
       return;
     }
     setApplying(true);

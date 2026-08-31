@@ -121,6 +121,74 @@ describe("AutofillReview", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  /**
+   * F4. With `expectedUpdatedAt` null the PATCH's conflict guard has no stamp
+   * to send, so nothing can be applied. The component used to call `onDone()`
+   * here — the trader ticked boxes, pressed "Apply accepted", was navigated
+   * away, and nothing had happened or said so.
+   */
+  it("says so plainly when accepted suggestions cannot be applied, instead of leaving silently", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/trades/autofill") return jsonResponse(202, { job_id: 5 });
+      return jsonResponse(200, {
+        job_id: 5,
+        status: "succeeded",
+        error: null,
+        suggestions: { asset: { value: "NQ", confidence: 0.95, autocheck: true } },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onDone = vi.fn();
+
+    render(
+      <AutofillReview tradeId={1} screenshotId={2} expectedUpdatedAt={null} onDone={onDone} />,
+    );
+    await startAndResolve(fetchMock);
+    await waitFor(() =>
+      expect(screen.getByTestId("autofill-suggestion-list")).toBeInTheDocument(),
+    );
+    expect(
+      (screen.getByLabelText(/accept suggested asset/i) as HTMLInputElement).checked,
+    ).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /apply accepted/i }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByRole("alert").textContent).toMatch(/did not save/i);
+    // The trader is told, not silently moved on.
+    expect(onDone).not.toHaveBeenCalled();
+    // And nothing was PATCHed.
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
+    ).toHaveLength(0);
+  });
+
+  it("still leaves quietly when nothing was ticked at all", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/trades/autofill") return jsonResponse(202, { job_id: 5 });
+      return jsonResponse(200, {
+        job_id: 5,
+        status: "succeeded",
+        error: null,
+        suggestions: { asset: { value: "NQ", confidence: 0.2, autocheck: false } },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onDone = vi.fn();
+
+    render(
+      <AutofillReview tradeId={1} screenshotId={2} expectedUpdatedAt={null} onDone={onDone} />,
+    );
+    await startAndResolve(fetchMock);
+    await waitFor(() =>
+      expect(screen.getByTestId("autofill-suggestion-list")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /apply accepted/i }));
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("PATCHes only the accepted, patchable fields when applying", async () => {
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/api/trades/autofill") return jsonResponse(202, { job_id: 5 });
