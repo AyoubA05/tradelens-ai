@@ -196,6 +196,15 @@ export interface paths {
          *
          *     Declared before `/trades/{trade_id}` so `"draft"` is never routed to that
          *     handler's `int` path converter.
+         *
+         *     A stored draft is re-validated with a strict model (`extra="forbid"`) it
+         *     was not necessarily written under: any later removal or rename of a draft
+         *     field would otherwise turn EVERY already-stored draft into a 500 on read.
+         *     The relay swallows that into a null response, so the trader would see
+         *     autosave quietly stop working with nothing saying why, and the row would
+         *     stay poisoned. A draft that no longer fits the current model is therefore
+         *     answered as "no draft" — the same thing the trader sees on a fresh form,
+         *     and the next autosave replaces the row.
          */
         get: operations["get_trade_draft_v1_trades_draft_get"];
         /**

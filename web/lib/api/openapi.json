@@ -3901,7 +3901,7 @@
     },
     "/v1/trades/draft": {
       "get": {
-        "description": "Return the authenticated owner's saved New Trade draft, if any.\n\nDeclared before `/trades/{trade_id}` so `\"draft\"` is never routed to that\nhandler's `int` path converter.",
+        "description": "Return the authenticated owner's saved New Trade draft, if any.\n\nDeclared before `/trades/{trade_id}` so `\"draft\"` is never routed to that\nhandler's `int` path converter.\n\nA stored draft is re-validated with a strict model (`extra=\"forbid\"`) it\nwas not necessarily written under: any later removal or rename of a draft\nfield would otherwise turn EVERY already-stored draft into a 500 on read.\nThe relay swallows that into a null response, so the trader would see\nautosave quietly stop working with nothing saying why, and the row would\nstay poisoned. A draft that no longer fits the current model is therefore\nanswered as \"no draft\" \u2014 the same thing the trader sees on a fresh form,\nand the next autosave replaces the row.",
         "operationId": "get_trade_draft_v1_trades_draft_get",
         "responses": {
           "200": {
