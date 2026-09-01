@@ -116,15 +116,20 @@ export function NewTradeForm() {
   // Task D3. Debounced, skips an empty form, and a save failure only ever
   // changes what this quiet indicator says — see the hook's own comment for
   // why that can never reach `submitError` or block `handleSubmit`.
-  // Suspended once the trade is durable: the server ends the draft on
-  // create, and this stops a debounce scheduled just before the submit from
-  // writing the journaled values back as a fresh draft the next New Trade
-  // would prefill from.
+  // Suspended the moment a submit starts, and thereafter once the trade is
+  // durable: the server ends the draft on create, and this stops a debounce
+  // scheduled just before the submit from writing the journaled values back
+  // as a fresh draft the next New Trade would prefill from. `submitting` is
+  // the half that matters for a debounce deadline falling *inside* the
+  // create POST — waiting for `savedTradeId` would let that timer fire and
+  // issue a PUT that cannot be cancelled, landing after the server cleared
+  // the draft. A failed create sets `submitting` back to false, so autosave
+  // resumes for a trade that is not journaled after all.
   const draftStatus = useDraftAutosave(
     values,
     setValues,
     OTHER_ASSET,
-    savedTradeId !== null,
+    submitting || savedTradeId !== null,
   );
 
   const { errors, warnings } = validateNewTrade(values, OTHER_ASSET);

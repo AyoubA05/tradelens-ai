@@ -91,6 +91,48 @@ describe("NewTradeForm", () => {
     expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
   });
 
+  it("a debounce deadline falling inside the create POST cannot resurrect the cleared draft", async () => {
+    // The residual race the draft's server-side clear alone does not close.
+    // `POST /v1/trades` ends the draft server-side, but a debounce armed a
+    // moment before the click comes due *while that POST is still in
+    // flight*. Suspending on `savedTradeId` waits for the response, by
+    // which time the PUT has already been issued and cannot be recalled —
+    // it lands after the server cleared the draft and writes the journaled
+    // asset, times and prices straight back, so the next New Trade opens
+    // pre-filled with the trade the trader just finished. Suspending on
+    // `submitting` clears the pending timer as the submit starts, before
+    // the deadline arrives.
+    const puts: RequestInit[] = [];
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/trades/create") {
+        // Outlasts DEBOUNCE_MS (1500ms) on purpose: this is what puts the
+        // deadline inside the POST window rather than after it.
+        return new Promise((resolve) =>
+          setTimeout(() => resolve({ ok: true, status: 200, json: async () => ({ id: 99, duplicate_of: null }) }), 2200),
+        );
+      }
+      if (init?.method === "PUT") {
+        puts.push(init);
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ draft: {} }) });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ draft: null }) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<NewTradeForm />);
+    // Arms the debounce, then submits immediately — the deadline is now
+    // ~1.5s away and the POST will not answer for ~2.2s.
+    fireEvent.change(screen.getByLabelText("Asset"), { target: { value: "NQ" } });
+    fireEvent.change(screen.getByPlaceholderText(/09:30/), { target: { value: "09:30" } });
+    fireEvent.click(screen.getByRole("button", { name: /save trade/i }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/app/trades/99"), { timeout: 6000 });
+    // And nothing arrives late, after the server-side clear.
+    await new Promise((r) => setTimeout(r, 1800));
+
+    expect(puts).toHaveLength(0);
+  }, 15000);
+
   it("renders the 422 detail the relay forwards, not generic copy", async () => {
     // `{ ok: false, detail }` is exactly what app/api/trades/create answers
     // on a 422 (see new-trade-create-route.test.ts). The trader must see the

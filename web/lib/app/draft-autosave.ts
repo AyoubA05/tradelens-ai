@@ -124,11 +124,14 @@ async function relayPut(payload: TradeDraftPayload): Promise<boolean> {
  * silently resurrecting itself over "today" would be a surprise, not a
  * convenience).
  *
- * `suspended` stops all further saving. The caller sets it once the trade is
- * durable: `POST /v1/trades` clears the draft server-side (that is the half
- * that holds when this browser never comes back), and this is the half that
- * stops an in-flight debounce from writing the just-journaled values back
- * into a new draft a moment later.
+ * `suspended` stops all further saving. The caller sets it as the submit
+ * starts and keeps it set once the trade is durable: `POST /v1/trades`
+ * clears the draft server-side (that is the half that holds when this
+ * browser never comes back), and this is the half that stops an in-flight
+ * debounce from writing the just-journaled values back into a new draft a
+ * moment later. It must go up at submit time rather than on the response —
+ * a deadline coming due inside the POST would otherwise issue a PUT that
+ * can no longer be cancelled.
  */
 export function useDraftAutosave(
   values: NewTradeFormValues,
