@@ -6782,7 +6782,8 @@ worktree-phase4e-autofill` confirms 4E contains that exact history — not a sta
 Phase 4 branch. No rebase or rewrite was performed. Local `main` is one unpushed doc commit ahead
 of `origin/main`; `origin/main` is its ancestor, so that is "ahead", not divergence.
 
-Closes the three New Trade items Phase 4 deferred. Not merged; Phase 5 not started.
+Closes the three New Trade items Phase 4 deferred. **Merged to `main` and pushed as `486514d`**
+after the final scoped re-review below. Phase 5 not started.
 
 ## The two findings this phase existed to fix
 
@@ -6858,9 +6859,44 @@ deliberately **not** expanded into a broader config refactor.
 
 ## Verification
 
-Python **3027 passed / 7 skipped**; ruff and black clean. Web **1384 passed / 79 files**; `tsc`
-clean; eslint 0 errors. Production build succeeded with every new route `ƒ` dynamic. OpenAPI/
-TypeScript drift gate clean. Single Alembic head `e1f2g3h4i5j6`, migration round-trips.
+Python **3027 passed / 7 skipped**; ruff and black clean on `src/ scripts/`. Web **1385 passed /
+79 files** (1384 before the residual fix's regression); `tsc` clean; eslint 0 errors, 2 pre-existing
+`modal-trap.ts` warnings. The production build succeeded with every new route dynamic. OpenAPI/
+TypeScript drift gate clean — regenerating produces no change. Single Alembic head `e1f2g3h4i5j6`,
+migration round-trips.
+
+`ruff check tests/` reports two findings (`F841` in `test_api_trades.py`, `F401` in
+`test_weekly.py`). Both are **pre-existing on `origin/main`**, untouched by this phase, and outside
+the project's stated lint gate, which is `ruff check src/ scripts/`. Recorded, not fixed here.
+
+## Final scoped re-review, and the residual it found
+
+The four final-review findings were fixed in `fbb4932`, `d1f6c2d`, `ad2d168`, and a scoped
+re-review of `859c0fc..1268832` verdicted **all four ADDRESSED**. Six mutations across the security
+spine were re-run after the fixes and each is still caught by a **named** test:
+`_resolve_public_addresses` skipping instead of refusing all-or-nothing; `filter_suggestions`
+passing every key through; dropping the `owns_screenshot` gate together with the poll's provenance
+comparison; `read_owned_final_object` dropping `_is_final_key`; `_clear_draft` as a no-op; and the
+merge-preserving carry-forward neutered. The `ad2d168` OpenAPI regeneration was verified to be
+**description text only** — strip `description`/`summary`/`title` and the two `openapi.json` files
+are byte-equal, with exactly one string differing.
+
+The re-review found **one residual**, fixed before merge in `5cbaffc`. The client-side autosave
+suspension rose on `savedTradeId`, which is only set *after* the create POST resolves. A debounce
+deadline coming due **inside** that POST therefore issued a PUT that could no longer be cancelled;
+it landed after the server's `_clear_draft` and wrote the journaled asset, times and prices back,
+so the next New Trade opened pre-filled with the trade just finished — F1's original harm, through
+a narrower window. Suspension is now `submitting || savedTradeId !== null`, clearing the pending
+timer as the submit starts. A failed create sets `submitting` back to false, so autosave resumes
+for a trade that is not journaled after all. The regression drives the real form with a create POST
+that outlasts the 1500ms debounce, so the deadline genuinely falls inside the request; it fails on
+the previous `savedTradeId`-only guard.
+
+Two cosmetic notes from the same review, deliberately not acted on: `put_trade_draft` echoes the
+incoming payload rather than the merged stored draft, so its response reports `ai_suggestions: null`
+while the store holds them (no consumer reads it — `relayPut` checks only `.ok`); and
+`get_trade_draft` catches `ValidationError` but a stored non-dict payload would raise `TypeError`,
+unreachable because `save_draft` only ever writes a dict.
 
 ## Carried forward
 
