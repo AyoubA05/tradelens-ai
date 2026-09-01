@@ -111,3 +111,49 @@ def test_an_oversized_upload_is_refused():
     oversized = _png(size=(1, 1)) + b"\x00" * (MAX_UPLOAD_BYTES + 1)
     with pytest.raises(ImageRejected):
         validate_and_normalise(oversized)
+
+
+# ------------------------------------------------------ sniff_content_type (A2)
+
+
+def test_sniff_names_the_format_the_bytes_claim():
+    import io
+
+    from PIL import Image
+
+    from src.tradelens.api.imaging import sniff_content_type
+
+    png = io.BytesIO()
+    Image.new("RGB", (2, 2), "teal").save(png, format="PNG")
+    jpeg = io.BytesIO()
+    Image.new("RGB", (2, 2), "teal").save(jpeg, format="JPEG")
+    webp = io.BytesIO()
+    Image.new("RGB", (2, 2), "teal").save(webp, format="WEBP")
+
+    assert sniff_content_type(png.getvalue()) == "image/png"
+    assert sniff_content_type(jpeg.getvalue()) == "image/jpeg"
+    assert sniff_content_type(webp.getvalue()) == "image/webp"
+
+
+def test_sniff_refuses_bytes_that_are_not_a_picture():
+    from src.tradelens.api.imaging import sniff_content_type
+
+    assert sniff_content_type(b"") is None
+    assert sniff_content_type(b"<html><script>x</script></html>") is None
+    assert sniff_content_type(b"<svg xmlns='http://www.w3.org/2000/svg'/>") is None
+    assert sniff_content_type(b"%PDF-1.7") is None
+    assert sniff_content_type(b"MZ\x90\x00") is None
+
+
+def test_sniff_does_not_mistake_another_riff_container_for_webp():
+    """RIFF is a container family, not a format: WAV and AVI share the magic.
+
+    Naming a `.webp` quarantine key for WAV bytes would hand
+    `validate_and_normalise` a claim it then refuses — a confusing 422 for a
+    file that was never an image — so the four bytes at offset 8 decide.
+    """
+    from src.tradelens.api.imaging import sniff_content_type
+
+    wav = b"RIFF" + b"\x24\x00\x00\x00" + b"WAVEfmt "
+    assert sniff_content_type(wav) is None
+    assert sniff_content_type(b"RIFF" + b"\x00" * 4 + b"WEBPVP8 ") == "image/webp"

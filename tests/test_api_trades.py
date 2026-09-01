@@ -2112,9 +2112,15 @@ class _FakeS3:
 
     def put_object(self, Bucket=None, Key=None, **kwargs):
         self.puts[Key] = kwargs
+        # A real bucket serves back what was just written. URL ingest PUTs to
+        # quarantine and `finalize_upload` immediately GETs it, so a double
+        # that only recorded the write would fail that round trip while the
+        # code under test was correct.
+        self.objects[Key] = kwargs.get("Body")
 
     def delete_object(self, Bucket=None, Key=None):
         self.deleted.append(Key)
+        self.objects.pop(Key, None)
 
 
 class _Body:
@@ -2795,3 +2801,335 @@ def test_abandon_rejects_a_body_carrying_anything_but_a_key(
 
     assert r.status_code == 422
     assert fake.deleted == []
+
+
+# ---------------------------------- POST /v1/trades/{id}/screenshot/ingest-url
+
+
+def _ingest_path(trade_id):
+    return f"/v1/trades/{trade_id}/screenshot/ingest-url"
+
+
+class _FakeFetcher:
+    """Stands in for the network. Records every URL it was asked to fetch, so a
+    test can assert the server made no outbound request at all."""
+
+    def __init__(self, payload=None, error=None):
+        self.payload = payload
+        self.error = error
+        self.calls = []
+
+    def __call__(self, url):
+        self.calls.append(url)
+        if self.error is not None:
+            raise self.error
+        return self.payload
+
+
+def _wire_ingest(monkeypatch, fetcher):
+    from src.tradelens.services import url_ingest
+
+    monkeypatch.setattr(url_ingest, "fetch_image_bytes", fetcher)
+
+
+def _decompression_bomb():
+    """A tiny PNG that decodes to more pixels than the validator allows.
+
+    Built at a real, enormous size rather than by patching a limit: the point
+    is that the guard the browser upload path relies on is the same one a
+    fetched image meets.
+    """
+    import io
+
+    from PIL import Image
+
+    from src.tradelens.api import imaging
+
+    buf = io.BytesIO()
+    side = imaging.MAX_DIMENSION + 1
+    Image.new("1", (side, 8)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_ingest_url_records_a_row_under_the_owners_final_prefix(
+    client, website_session_handle, monkeypatch
+):
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    fetcher = _FakeFetcher(payload=_png_bytes())
+    _wire_ingest(monkeypatch, fetcher)
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(
+        client, handle, _ingest_path(trade.id), {"url": "https://cdn.example/c.png"}
+    )
+
+    assert r.status_code == 201
+    body = r.json()
+    assert body["width"] == 3 and body["height"] == 2
+
+    rows = _screenshot_objects(trade.id)
+    assert len(rows) == 1
+    assert rows[0].id == body["id"]
+    assert rows[0].file_path.startswith(f"u/{user_id}/t/{trade.id}/")
+    assert rows[0].file_path.endswith(".png")
+
+
+def test_ingest_url_lands_in_quarantine_and_leaves_none_behind(
+    client, website_session_handle, monkeypatch
+):
+    """The fetched bytes enter through the SAME door a browser upload uses.
+
+    A quarantine PUT followed by a quarantine DELETE is the signature of
+    `finalize_upload` having run. An implementation that wrote a temp file, or
+    that PUT straight to the final prefix, has neither — and would silently
+    skip every guard promotion applies.
+    """
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    _wire_ingest(monkeypatch, _FakeFetcher(payload=_png_bytes()))
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(
+        client, handle, _ingest_path(trade.id), {"url": "https://cdn.example/c.png"}
+    )
+
+    assert r.status_code == 201
+    quarantined = [k for k in fake.puts if k.startswith("quarantine/")]
+    assert len(quarantined) == 1
+    assert quarantined[0].startswith(f"quarantine/u/{user_id}/t/{trade.id}/")
+    assert quarantined[0] in fake.deleted, "nothing untrusted stays in the bucket"
+
+
+def test_ingest_url_promotes_re_encoded_bytes_not_the_fetched_ones(
+    client, website_session_handle, monkeypatch
+):
+    """The bytes that reach the bucket are never the bytes that came off the wire.
+
+    A polyglot — a valid PNG with an appended payload — passes every header
+    check and does not survive being decoded and written out fresh. Asserting
+    the promoted body DIFFERS from what was fetched is what proves a re-encode
+    happened rather than a passthrough, which is precisely what the temp-file
+    URL path used to do.
+    """
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    fetched = _png_bytes() + b"<script>payload</script>"
+    _wire_ingest(monkeypatch, _FakeFetcher(payload=fetched))
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(
+        client, handle, _ingest_path(trade.id), {"url": "https://cdn.example/c.png"}
+    )
+
+    assert r.status_code == 201
+    promoted_key = _screenshot_objects(trade.id)[0].file_path
+    promoted = fake.puts[promoted_key]["Body"]
+    assert promoted != fetched, "promoted bytes identical to fetched means no re-encode"
+    assert b"<script>" not in promoted
+    assert fake.puts[promoted_key]["ContentType"] == "image/png"
+
+
+def test_ingest_url_refuses_a_decompression_bomb_served_over_http(
+    client, website_session_handle, monkeypatch
+):
+    """Exactly the refusal an uploaded bomb gets, from exactly the same guard."""
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    _wire_ingest(monkeypatch, _FakeFetcher(payload=_decompression_bomb()))
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(
+        client, handle, _ingest_path(trade.id), {"url": "https://cdn.example/c.png"}
+    )
+
+    assert r.status_code == 422
+    assert r.json() == {"detail": "not a supported image"}
+    assert _screenshot_objects(trade.id) == []
+    assert [k for k in fake.puts if not k.startswith("quarantine/")] == []
+
+
+def test_ingest_url_refuses_bytes_that_are_not_an_image(
+    client, website_session_handle, monkeypatch
+):
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    _wire_ingest(
+        monkeypatch,
+        _FakeFetcher(payload=b"<html><script>not a picture</script></html>"),
+    )
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(
+        client, handle, _ingest_path(trade.id), {"url": "https://cdn.example/page.html"}
+    )
+
+    assert r.status_code == 422
+    assert r.json() == {"detail": "not a supported image"}
+    assert fake.puts == {}, "unrecognised bytes never reach the bucket"
+    assert _screenshot_objects(trade.id) == []
+
+
+def test_ingest_url_reports_an_oversized_body_plainly(
+    client, website_session_handle, monkeypatch
+):
+    from src.tradelens.api import storage
+    from src.tradelens.services import url_ingest
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    _wire_ingest(
+        monkeypatch,
+        _FakeFetcher(error=url_ingest.UrlIngestError(url_ingest.TOO_LARGE_MSG)),
+    )
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(
+        client, handle, _ingest_path(trade.id), {"url": "https://cdn.example/big.png"}
+    )
+
+    assert r.status_code == 422
+    assert "too large" in r.json()["detail"]
+    assert fake.puts == {}
+
+
+def test_ingest_url_reports_a_refused_address_without_naming_it(
+    client, website_session_handle, monkeypatch
+):
+    """The refusal must not become a port scanner.
+
+    Whether an internal host exists, refuses or times out, the trader is told
+    the same thing — otherwise the response is a readout of the network the
+    server can see.
+    """
+    from src.tradelens.services import url_ingest
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    _wire_ingest(
+        monkeypatch,
+        _FakeFetcher(error=url_ingest.UrlIngestError(url_ingest.UNREACHABLE_MSG)),
+    )
+
+    r = _post_signed(
+        client, handle, _ingest_path(trade.id), {"url": "http://169.254.169.254/latest"}
+    )
+
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert "169.254" not in detail and "metadata" not in detail.lower()
+
+
+def test_ingest_url_on_another_owners_trade_fetches_nothing_and_calls_no_s3(
+    client, website_session_handle, two_users, monkeypatch
+):
+    """Ownership is settled before a single packet leaves the server.
+
+    The fetch is observable to whoever controls the URL, so issuing one for a
+    foreign trade would confirm that trade exists no matter what status came
+    back — a cross-tenant oracle the status code cannot take away. Asserting
+    only on the 404 would pass an implementation that fetched first and
+    refused afterwards, which is the whole defect.
+    """
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    theirs = _create(other)
+    fetcher = _FakeFetcher(payload=_png_bytes())
+    _wire_ingest(monkeypatch, fetcher)
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(
+        client, handle, _ingest_path(theirs.id), {"url": "https://cdn.example/c.png"}
+    )
+
+    assert r.status_code == 404
+    assert fetcher.calls == [], "a foreign trade must cause no outbound request"
+    assert fake.puts == {} and fake.gets == [] and fake.deleted == []
+    assert _screenshot_objects(theirs.id) == []
+
+
+def test_ingest_url_for_a_missing_trade_is_byte_identical_to_a_foreign_one(
+    client, website_session_handle, two_users, monkeypatch
+):
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    other = next(u for u in two_users if u != user_id)
+    theirs = _create(other)
+    _wire_ingest(monkeypatch, _FakeFetcher(payload=_png_bytes()))
+    monkeypatch.setattr(storage, "_client", lambda: _FakeS3())
+
+    foreign = _post_signed(
+        client, handle, _ingest_path(theirs.id), {"url": "https://cdn.example/c.png"}
+    )
+    missing = _post_signed(
+        client, handle, _ingest_path(999_999), {"url": "https://cdn.example/c.png"}
+    )
+
+    assert foreign.status_code == missing.status_code == 404
+    assert foreign.content == missing.content
+
+
+def test_ingest_url_rejects_a_client_supplied_key(
+    client, website_session_handle, monkeypatch
+):
+    """The server chooses where bytes land, here as everywhere else."""
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    fetcher = _FakeFetcher(payload=_png_bytes())
+    _wire_ingest(monkeypatch, fetcher)
+    fake = _FakeS3()
+    monkeypatch.setattr(storage, "_client", lambda: fake)
+
+    r = _post_signed(
+        client,
+        handle,
+        _ingest_path(trade.id),
+        {"url": "https://cdn.example/c.png", "key": f"u/{user_id}/t/1/x.png"},
+    )
+
+    assert r.status_code == 422
+    assert fetcher.calls == []
+    assert fake.puts == {}
+
+
+def test_ingest_url_is_unreachable_without_a_signature(
+    client, website_session_handle, monkeypatch
+):
+    from src.tradelens.api import storage
+
+    user_id, handle = website_session_handle
+    trade = _create(user_id)
+    fetcher = _FakeFetcher(payload=_png_bytes())
+    _wire_ingest(monkeypatch, fetcher)
+    monkeypatch.setattr(storage, "_client", lambda: _FakeS3())
+
+    r = client.post(
+        _ingest_path(trade.id),
+        json={"url": "https://cdn.example/c.png"},
+        headers={"X-TL-Session-Handle": handle},
+    )
+
+    assert r.status_code == 401
+    assert fetcher.calls == []

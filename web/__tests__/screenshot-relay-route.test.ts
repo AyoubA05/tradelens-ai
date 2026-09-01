@@ -10,17 +10,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * "the upload is gone."
  */
 
-const { presignScreenshot, finalizeScreenshot, abandonScreenshot, authenticateSessionToken } =
-  vi.hoisted(() => ({
-    presignScreenshot: vi.fn(),
-    finalizeScreenshot: vi.fn(),
-    abandonScreenshot: vi.fn(),
-    authenticateSessionToken: vi.fn(),
-  }));
+const {
+  presignScreenshot,
+  finalizeScreenshot,
+  abandonScreenshot,
+  ingestScreenshotUrl,
+  authenticateSessionToken,
+} = vi.hoisted(() => ({
+  presignScreenshot: vi.fn(),
+  finalizeScreenshot: vi.fn(),
+  abandonScreenshot: vi.fn(),
+  ingestScreenshotUrl: vi.fn(),
+  authenticateSessionToken: vi.fn(),
+}));
 
 vi.mock("@/lib/app/new-trade-create", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/app/new-trade-create")>();
-  return { ...actual, presignScreenshot, finalizeScreenshot, abandonScreenshot };
+  return { ...actual, presignScreenshot, finalizeScreenshot, abandonScreenshot, ingestScreenshotUrl };
 });
 
 vi.mock("@/lib/auth/session", async (importOriginal) => {
@@ -61,6 +67,7 @@ beforeEach(() => {
   presignScreenshot.mockReset();
   finalizeScreenshot.mockReset();
   abandonScreenshot.mockReset();
+  ingestScreenshotUrl.mockReset();
   authenticateSessionToken.mockReset().mockResolvedValue(eligibleUser);
   process.env.SITE_ORIGIN = "https://site.test";
 });
@@ -184,5 +191,68 @@ describe("POST /api/trades/{id}/screenshot", () => {
       req({ action: "presign", content_type: "image/png" }, { origin: "https://evil.test" }),
     );
     expect(forbidden.headers.get("cache-control")).toContain("no-store");
+  });
+});
+
+describe("POST /api/trades/{id}/screenshot — action: ingest-url (Task D1)", () => {
+  it("ingests with the trade id from the path and the URL from the body", async () => {
+    ingestScreenshotUrl.mockResolvedValue({
+      id: 9,
+      width: 10,
+      height: 10,
+      uploaded_at: null,
+      url: "https://r2.test/get",
+    });
+    const response = await callPost(req({ action: "ingest-url", url: "https://chart.test/a.png" }));
+    expect(response.status).toBe(201);
+    expect(ingestScreenshotUrl).toHaveBeenCalledWith(
+      "browser-token",
+      42,
+      "https://chart.test/a.png",
+    );
+  });
+
+  it("forwards the backend's own detail on 422, unlike finalize/presign's generic messages — this is the exact defect Phase 4's create relay had", async () => {
+    const { ApiError } = await import("@/lib/api/client");
+    ingestScreenshotUrl.mockRejectedValue(
+      new ApiError(422, { detail: "could not read an image from that link" }),
+    );
+    const response = await callPost(req({ action: "ingest-url", url: "https://chart.test/a.png" }));
+    expect(response.status).toBe(422);
+    expect((await response.json()).detail).toBe("could not read an image from that link");
+  });
+
+  it("forwards a 404 for another owner's trade rather than reshaping it", async () => {
+    const { ApiError } = await import("@/lib/api/client");
+    ingestScreenshotUrl.mockRejectedValue(new ApiError(404));
+    const response = await callPost(req({ action: "ingest-url", url: "https://chart.test/a.png" }));
+    expect(response.status).toBe(404);
+  });
+
+  it("answers 400 for a missing or empty url and never calls the backend", async () => {
+    expect((await callPost(req({ action: "ingest-url" }))).status).toBe(400);
+    expect((await callPost(req({ action: "ingest-url", url: "" }))).status).toBe(400);
+    expect(ingestScreenshotUrl).not.toHaveBeenCalled();
+  });
+
+  it("rejects a cross-site ingest-url POST without reaching the backend (fail-shut CSRF)", async () => {
+    const response = await callPost(
+      req({ action: "ingest-url", url: "https://chart.test/a.png" }, { origin: "https://evil.test" }),
+    );
+    expect(response.status).toBe(403);
+    expect(ingestScreenshotUrl).not.toHaveBeenCalled();
+  });
+
+  it("fails shut when SITE_ORIGIN is unset (fail-shut CSRF)", async () => {
+    delete process.env.SITE_ORIGIN;
+    const response = await callPost(req({ action: "ingest-url", url: "https://chart.test/a.png" }));
+    expect(response.status).toBe(403);
+    expect(ingestScreenshotUrl).not.toHaveBeenCalled();
+  });
+
+  it("uses 502 only for a fault that is not the backend's own status", async () => {
+    ingestScreenshotUrl.mockRejectedValue(new TypeError("fetch failed"));
+    const response = await callPost(req({ action: "ingest-url", url: "https://chart.test/a.png" }));
+    expect(response.status).toBe(502);
   });
 });

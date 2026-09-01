@@ -178,6 +178,44 @@ def _owns_trade(user_id: int, trade_id: int) -> bool:
         db.close()
 
 
+def owns_trade(user_id: int, trade_id: int) -> bool:
+    """Whether this trade is the caller's.
+
+    Public so a handler can refuse a foreign trade BEFORE it does anything
+    expensive or observable — for URL ingest that means before a single packet
+    leaves the server, which is a property no later check can restore.
+    """
+    return _owns_trade(require_user_id(user_id), trade_id)
+
+
+def put_quarantine_object(
+    user_id: int, trade_id: int, data: bytes, content_type: str
+) -> str:
+    """Put server-fetched bytes into this caller's quarantine and return the key.
+
+    URL ingest has no presigned PUT, so this is how those bytes enter the one
+    trusted image path instead of a temp file beside it. It is deliberately the
+    same namespace the browser uploads into: quarantine has no download path,
+    and `finalize_upload` is still the only thing that can promote anything out
+    of it — so URL bytes inherit the decode, the size and dimension caps and
+    the re-encode without a second implementation of any of them.
+
+    The key is built by `_build_quarantine_key`, so it is server-chosen and
+    owner-scoped exactly like a presigned one; nothing about the URL reaches it.
+    """
+    owner = require_user_id(user_id)
+    if not _owns_trade(owner, trade_id):
+        raise PermissionError("trade not found")
+    key = _build_quarantine_key(owner, trade_id, content_type)
+    _client().put_object(
+        Bucket=r2_config()["bucket"],
+        Key=key,
+        Body=data,
+        ContentType=content_type,
+    )
+    return key
+
+
 def presign_upload(user_id: int, trade_id: int, content_type: str) -> dict:
     """A short-lived PUT URL for one specific object.
 
@@ -238,6 +276,72 @@ def presign_download(user_id: int, screenshot_id: int) -> Optional[str]:
         Params={"Bucket": r2_config()["bucket"], "Key": row[0]},
         ExpiresIn=PRESIGN_TTL_SECONDS,
     )
+
+
+def read_owned_final_object(user_id: int, screenshot_id: int) -> Optional[bytes]:
+    """The promoted bytes of one screenshot, or None if this owner may not read it.
+
+    The bytes returned here are the ones `finalize_upload` wrote: decoded,
+    dimension-capped and re-encoded by `imaging.validate_and_normalise`. That
+    is the entire reason autofill reads through this function rather than
+    anywhere else — the model only ever sees bytes we produced, so a crafted
+    container has no route to it.
+
+    Ownership resolves through the screenshot's trade, and the key is checked
+    against this owner's own final prefix, so a row whose `file_path` was
+    somehow corrupted cannot be turned into a read of another tenant's object.
+    None means "no such screenshot for you": missing and foreign are
+    indistinguishable.
+    """
+    owner = require_user_id(user_id)
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(Screenshot.file_path, Screenshot.trade_id)
+            .join(Trade, Trade.id == Screenshot.trade_id)
+            .filter(Screenshot.id == screenshot_id, Trade.user_id == owner)
+            .first()
+        )
+    finally:
+        db.close()
+    if row is None:
+        return None
+    if not _is_final_key(row[0], owner, row[1]):
+        return None
+
+    response = _client().get_object(Bucket=r2_config()["bucket"], Key=row[0])
+    body = response.get("Body")
+    if body is None:
+        return None
+    try:
+        # Bounded by the same ceiling the promote path enforces: this object
+        # was written by us, but a read with no limit is still a read with no
+        # limit.
+        return body.read(MAX_UPLOAD_BYTES + 1)[:MAX_UPLOAD_BYTES]
+    finally:
+        close = getattr(body, "close", None)
+        if callable(close):
+            close()
+
+
+def owns_screenshot(user_id: int, screenshot_id: int) -> bool:
+    """Whether one screenshot belongs to the authenticated owner.
+
+    Used to settle ownership *before* an autofill job is enqueued, so a
+    foreign id costs nothing and reveals nothing.
+    """
+    owner = require_user_id(user_id)
+    db = SessionLocal()
+    try:
+        return (
+            db.query(Screenshot.id)
+            .join(Trade, Trade.id == Screenshot.trade_id)
+            .filter(Screenshot.id == screenshot_id, Trade.user_id == owner)
+            .first()
+            is not None
+        )
+    finally:
+        db.close()
 
 
 def _discard_object(client, bucket: str, key: str) -> None:

@@ -8,7 +8,7 @@ This is educational journaling only — not live trading advice.
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 from src.tradelens.services.ai_client import (
     AIUnavailable,
@@ -281,6 +281,7 @@ def analyze_screenshot_v3(
     image_path: Union[str, Path],
     trade_ctx: dict,
     strategy_profile: Optional[dict] = None,
+    on_usage: Optional[Callable[[Usage], None]] = None,
 ) -> tuple[dict, Usage]:
     """Post-trade screenshot analysis using the screenshot_v3 prompt.
 
@@ -329,6 +330,14 @@ def analyze_screenshot_v3(
         response_format={"type": "json_object"},
         demo_response=demo_resp,
     )
+
+    if on_usage is not None:
+        # Record spend the moment the provider answers. Everything below can
+        # raise — an unavailable provider, an unparseable body — and would
+        # discard this Usage with it, so logging any later means a call that
+        # was billed never appears in cost tracking. Cost tracking that goes
+        # silent exactly when something went wrong is worse than none.
+        on_usage(usage)
 
     if isinstance(raw, AIUnavailable):
         raise ScreenshotAnalysisError(raw.reason)

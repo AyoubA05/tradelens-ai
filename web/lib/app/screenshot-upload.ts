@@ -147,6 +147,82 @@ async function relay(
 }
 
 /**
+ * A courtesy check on the URL text field, run before anything leaves the
+ * browser (Task D1).
+ *
+ * This is NOT the gate. `url_ingest.fetch_image_bytes` decides whether the
+ * address may be connected to at all — DNS, scheme, and the private/loopback
+ * checks all live there, and none of that is duplicated here. The only thing
+ * this buys a trader is not submitting an obviously-empty or non-http(s)
+ * value and waiting on a round trip for a rejection the browser could see
+ * immediately.
+ */
+export function screenshotUrlPreflight(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return "Enter a link to a chart image.";
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return "That doesn't look like a valid link.";
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return "Only http:// and https:// links are accepted.";
+  }
+  return null;
+}
+
+/**
+ * Attach one screenshot to a trade that already exists, fetched by the
+ * server from a link rather than uploaded from the browser (Task D1).
+ *
+ * One relay call, not three: `POST /v1/trades/{id}/screenshot/ingest-url`
+ * fetches, quarantines, and finalizes in a single request, so there is no
+ * intermediate `key` this function could hold onto or abandon — unlike
+ * `attachScreenshot`, a failure here leaves nothing behind to clean up.
+ *
+ * A rejected URL must read as a plain reason (global rule 3): the relay
+ * forwards the backend's own `detail` string faithfully for every non-2xx
+ * status, and this function passes that string straight through rather than
+ * replacing it with a generic message the way `attachScreenshot`'s finalize
+ * branch does. Never a stack, a host, or an address — only what
+ * `url_ingest.UrlIngestError` or `UploadRejected` actually says.
+ */
+export async function attachScreenshotUrl(
+  tradeId: number,
+  url: string,
+  options: { fetchImpl?: typeof fetch } = {},
+): Promise<ScreenshotAttachResult> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+
+  const preflightError = screenshotUrlPreflight(url);
+  if (preflightError) return { status: "rejected", message: preflightError };
+
+  try {
+    const response = await relay(fetchImpl, tradeId, {
+      action: "ingest-url",
+      url: url.trim(),
+    });
+    if (response.ok) {
+      return { status: "attached", screenshot: (await response.json()) as ScreenshotDescriptor };
+    }
+    let detail: string | undefined;
+    try {
+      const body = (await response.json()) as { detail?: unknown };
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      // no body to read — fall through to the generic message
+    }
+    if (response.status === 422) {
+      return { status: "rejected", message: detail ?? REJECTED_MESSAGE };
+    }
+    return { status: "failed", message: detail ?? FAILED_MESSAGE };
+  } catch {
+    return { status: "failed", message: FAILED_MESSAGE };
+  }
+}
+
+/**
  * Best-effort cleanup of a quarantine object nobody will ever finalize.
  *
  * A quarantine object has no download path and no `screenshots` row, so

@@ -59,14 +59,16 @@ describe("New Trade field parity", () => {
 });
 
 describe("field contract honesty", () => {
-  it("declares the screenshot field as a file picker, not file-or-URL", () => {
-    // Image-URL ingest is deferred to Phase 4E and no URL input is rendered
-    // anywhere. A contract that overstates what ships becomes the record.
+  // Task D4: image-URL ingest now ships in the New Trade form (Task D1), so
+  // the contract flips to say so — the same test that pinned the deferral
+  // now pins that it no longer overstates what ships.
+  it("declares the screenshot field as file-or-URL, now that ingest ships", () => {
     const screenshot = NEW_TRADE_FIELDS.find((f) => f.name === "screenshot");
-    expect(screenshot?.type).toBe("file");
+    expect(screenshot?.type).toBe("file-or-url");
   });
 
-  it("has no field claiming URL ingest", () => {
-    expect(NEW_TRADE_FIELDS.some((f) => String(f.type).includes("url"))).toBe(false);
+  it("has exactly one field claiming URL ingest: screenshot", () => {
+    const claiming = NEW_TRADE_FIELDS.filter((f) => String(f.type).includes("url"));
+    expect(claiming.map((f) => f.name)).toEqual(["screenshot"]);
   });
 });

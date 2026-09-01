@@ -16,6 +16,10 @@ import time
 from src.tradelens.api.jobs import run_once
 from src.tradelens.api.config import validate_worker_runtime
 from src.tradelens.services.cost import log_ai_usage
+from src.tradelens.services.trade_autofill import (
+    JOB_KIND as AUTOFILL_JOB_KIND,
+    suggest_from_screenshot,
+)
 from src.tradelens.services.trade_summary import (
     generate_trade_summary,
     save_trade_summary_result,
@@ -44,7 +48,28 @@ def _trade_summary_handler(user_id: int, payload: dict) -> str:
     return f"trade_summary:{result_id}"
 
 
-HANDLERS: dict = {"trade_summary": _trade_summary_handler}
+def _trade_autofill_handler(user_id: int, payload: dict) -> str:
+    # Same usage discipline as the summary handler, and for the same reason:
+    # the callback is handed down to the provider call so a response that then
+    # fails to parse is still billed-and-visible.
+    #
+    # The handler writes suggestions onto the owner's draft and returns a
+    # pointer, never a trade. An exception here leaves the job `failed` and
+    # terminal — the enqueue idempotency key means a resubmit for the same
+    # screenshot returns that failed job instead of spending again.
+    screenshot_id = int(payload["screenshot_id"])
+    suggest_from_screenshot(
+        user_id,
+        screenshot_id,
+        on_usage=lambda usage: log_ai_usage("Trade Autofill", usage, user_id=user_id),
+    )
+    return f"{AUTOFILL_JOB_KIND}:{screenshot_id}"
+
+
+HANDLERS: dict = {
+    "trade_summary": _trade_summary_handler,
+    AUTOFILL_JOB_KIND: _trade_autofill_handler,
+}
 
 IDLE_SLEEP_SECONDS = 2.0
 

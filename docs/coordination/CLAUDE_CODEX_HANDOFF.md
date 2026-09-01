@@ -6771,3 +6771,112 @@ upload path until the live R2/browser lifecycle is exercised with two accounts a
 
 **Next owner:** merge and push this cleared Phase 4 branch. Keep Phase 4E separate and do not start
 it from this review turn.
+
+---
+
+# Phase 4E — Autofill, Draft Autosave, Image-URL Ingest (2026-08-29)
+
+Branch `worktree-phase4e-autofill`. **Ancestry verified before any work:** `origin/main` is exactly
+`569351f` (Phase 4, merged and pushed), and `git merge-base --is-ancestor 569351f
+worktree-phase4e-autofill` confirms 4E contains that exact history — not a stale or unmerged
+Phase 4 branch. No rebase or rewrite was performed. Local `main` is one unpushed doc commit ahead
+of `origin/main`; `origin/main` is its ancestor, so that is "ahead", not divergence.
+
+Closes the three New Trade items Phase 4 deferred. Not merged; Phase 5 not started.
+
+## The two findings this phase existed to fix
+
+**URL-fetched images never passed `imaging.validate_and_normalise`.** There was no reference to it
+anywhere in `ai_screenshot_service.py`: fetched bytes went to a temp file and straight to the
+vision model, bypassing the decompression-bomb guard, the dimension caps and the re-encode that
+every uploaded image gets. URL bytes now land in the existing R2 quarantine and promote through
+the existing `finalize_upload`, so there is **one trusted image path** and URL images inherit every
+guard rather than needing a parallel set that could drift.
+
+**The SSRF guard had a DNS-rebinding window.** `_is_public_url` resolved and validated the host,
+then `_download_image` re-checked it and called `urlopen`, which **resolved again independently** —
+so a hostile resolver could answer differently in between. The existing "defense-in-depth re-check"
+narrowed that window but could not close it. The fetcher now resolves once, validates **every**
+returned address all-or-nothing, connects to the approved address while leaving `conn.host` as the
+hostname so `Host`, SNI and certificate verification are unchanged, and re-checks the peer after
+connect. `urlopen`, `urllib.request`, `requests` and `httpx` are now absent from `src/tradelens/`
+entirely, so no second resolution exists anywhere. Redirects were already blocked by `_NoRedirect`
+— that half was sound and was left alone.
+
+## Structural guarantees
+
+**Drafts are their own table, not a flag on `trades`.** A flag would leave the guarantee at the
+mercy of every future `WHERE` clause; a separate table means no query, metric or export can pick a
+draft up. Verified as an observable: no number of autosaves or autofill runs creates a `trades`
+row.
+
+**Autofill is assistive by construction.** Suggestions live only in the review component's state,
+always inside a card carrying a text "Suggested" badge, and reach `trades` only through an explicit
+checkbox and Apply. The allowlist is a subset of `CREATABLE_TRADE_FIELDS` and disjoint from
+`SERVER_OWNED_ON_CREATE`, both directions pinned — and it admits **no free-text field**, so the
+model structurally cannot emit prose into the journal. Autofill passes `trade_ctx={}` and
+`strategy_profile=None`, so no trader-authored text reaches the prompt at all.
+
+**Analysis reads only the finalized object.** The model sees only bytes we produced.
+
+## Defects found and fixed during the phase
+
+Connect-time errors escaped as raw `OSError`, which was a 500 instead of a 422, a **status-code
+oracle** distinguishing "connect failed" from "policy refused" on public addresses, and a
+**regression in Streamlit** — `is_image_url` used to return `False` on any exception and had begun
+to traceback. Dropping `_is_final_key` from `read_owned_final_object` left ~3000 tests green while
+a `screenshots` row pointing at a **quarantine** key became readable for analysis — client-sent,
+undecoded, un-re-encoded bytes reaching the vision model. The autofill poll returned the *current
+draft's* suggestions rather than the polled job's, so polling an earlier job returned a different
+chart's readings. Suggestions were shown for fields `PATCH` could not apply. And the draft had **no
+end of life**: `delete_draft` was dead code, so a journaled trade's values prefilled the next New
+Trade — the mirror of this phase's own guarantee, and worse, because the resulting entry looks
+deliberate rather than half-finished. An in-flight autosave could also permanently destroy
+completed suggestions, unrecoverably, with the paid vision call spent.
+
+## Two record corrections
+
+**A falsely reported mutation result.** Group C's report claimed a rate-limit mutation ("threshold
+raised to `10**9`") was caught. It cannot have been run as described: the fixture inserts `MAX`
+rows, so that mutation attempts a billion inserts and hangs — a reviewer spent about sixteen
+minutes establishing this. The property **is** covered, by an equivalent mutation the reviewer ran
+itself, so nothing is undefended. But a reported result nobody observed is its own failure class,
+distinct from the eleven tests this project has caught passing against deliberately broken code,
+and it is recorded here rather than left in a report that reads as verified.
+
+**A controller diagnosis that was wrong, and the verified one that replaced it.** I attributed a
+Streamlit import leak to `services/trade_autofill.py` importing from `ui/components/`. That module's
+Streamlit imports are **lazy**, so the import was innocent. The real cause, found by verifying
+rather than accepting the diagnosis, was an **unconditional top-level `import streamlit` in
+`src/tradelens/config.py`** — a Streamlit Cloud secrets bridge dating to Week 4 — reachable from
+**every service** via `db/session.py`. So the whole service layer, and the FastAPI container, had
+been loading Streamlit all along. It is now gated on `"streamlit" in sys.modules`, and
+`resolve_anthropic_key()` independently re-checks `st.secrets` at call time, so Streamlit Cloud key
+resolution cannot break. A reviewer imported **every** module under `services/`, `db/` and `api/`
+in a fresh subprocess each: none loads Streamlit. This was pre-existing, not introduced here, and
+deliberately **not** expanded into a broader config refactor.
+
+## Verification
+
+Python **3027 passed / 7 skipped**; ruff and black clean. Web **1384 passed / 79 files**; `tsc`
+clean; eslint 0 errors. Production build succeeded with every new route `ƒ` dynamic. OpenAPI/
+TypeScript drift gate clean. Single Alembic head `e1f2g3h4i5j6`, migration round-trips.
+
+## Carried forward
+
+- **The six deployment gates remain open and are not this phase's to close**: live two-account
+  R2/browser smoke with real CORS and a real presigned PUT; Docker build/startup/health; broader
+  Python dependency audit; Anthropic live smoke; real PostgreSQL verification; proper 375px
+  browser verification.
+- No live smoke ran for this phase: no R2 credentials exist in this environment and no live
+  provider call was made — `DEMO_MODE` covers the tests, which means the XHR/presigned path and
+  real model output remain unexercised here.
+- The `autocheck` policy is inert on the web path: `AUTOCHECK_FIELDS` is `entry_price`/
+  `stop_price`, both excluded from `APPLIABLE_FIELDS`, so nothing is ever pre-checked. Correct
+  direction — nothing pre-accepted — but the wire field reads as if it does something there.
+- The four price fields are suggested but deliberately not rendered for review: they feed
+  `rr_planned`/`rr_realized`, which would need re-deriving inside the atomic UPDATE, and a
+  patchable price without that leaves a stale R-multiple.
+- `owns_screenshot` does not check `_is_final_key`, so a quarantine-keyed row can enqueue a job
+  that then fails at read time — costs a job slot, reads nothing, spends nothing.
+- No dedicated 375px overflow test for the new URL field and suggestion cards.

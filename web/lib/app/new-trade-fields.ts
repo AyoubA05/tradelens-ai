@@ -59,9 +59,13 @@ export type NewTradeFieldType =
   | "price-text"
   | "number"
   | "radio"
-  /** A file picker only. Image-URL ingest is deferred to Phase 4E; until it
-   *  ships, no URL input is rendered and this contract must not imply one. */
-  | "file";
+  /** A file picker with an alternative URL input beside it (Task D1/D4):
+   *  the trader can paste a link to a chart image instead of picking a
+   *  local file, and `POST /v1/trades/{id}/screenshot/ingest-url` fetches
+   *  and quarantines it through the same `finalize_upload` path a browser
+   *  upload goes through. Phase 4E ships this UI, so the contract now says
+   *  so — it must not lag what the form actually renders. */
+  | "file-or-url";
 
 export interface NewTradeFieldDef {
   /** The form's own vocabulary — matches `NewTradeFormValues` keys. */
@@ -178,7 +182,7 @@ export const MISTAKE_OPTIONS = [
  * step order (Screenshot, Context, Execution, Reflection).
  */
 export const NEW_TRADE_FIELDS: readonly NewTradeFieldDef[] = [
-  { name: "screenshot", label: "Screenshot", type: "file", clientValidation: "none — optional; type/size checked by the browser file picker only" },
+  { name: "screenshot", label: "Screenshot", type: "file-or-url", clientValidation: "none — optional; type/size checked client-side for a picked file, a basic http(s) shape check for a pasted URL, neither the actual gate" },
   { name: "asset", label: "Asset", type: "select-with-custom", clientValidation: "required, non-blank after trim" },
   { name: "trade_date", label: "Trade date", type: "date", clientValidation: "required; not after the browser's local today (courtesy mirror of the server's owner-timezone check)" },
   { name: "entry_time", label: "Entry time", type: "time-text", clientValidation: "required; must parse as HH:MM, H:MM AM/PM, HHMM, or H AM/PM" },

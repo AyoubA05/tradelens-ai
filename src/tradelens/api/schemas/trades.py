@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
-from typing import List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.json_schema import SkipJsonSchema
@@ -26,6 +26,19 @@ from src.tradelens.services.sessions import KILLZONE_LABELS, parse_time_input
 from src.tradelens.services.trade_validation import VALID_OUTCOMES
 
 TradeResult = Literal["Win", "Loss", "Breakeven"]
+
+
+def _suggestable_fields() -> frozenset:
+    """The autofill write allowlist, resolved lazily.
+
+    Imported inside the function rather than at module scope so this schema
+    module stays importable from anywhere in the service layer: the autofill
+    service is the one place the allowlist is *defined*, and a module-level
+    import here would make the two mutually dependent.
+    """
+    from src.tradelens.services.trade_autofill import AUTOFILL_SUGGESTION_FIELDS
+
+    return AUTOFILL_SUGGESTION_FIELDS
 
 
 class _Strict(BaseModel):
@@ -114,6 +127,66 @@ class TradeSummaryJobStatus(_Strict):
     status: Literal["queued", "running", "succeeded", "failed"]
     result: Optional[TradeSummaryResult]
     error: Optional[str]
+
+
+class AutofillSuggestion(_Strict):
+    """One AI-suggested value for one draft field, with its confidence.
+
+    A suggestion is deliberately NOT the field's value. It is provenance-
+    tagged metadata that sits beside the draft, so an unreviewed suggestion
+    stays distinguishable from something the trader typed right up until they
+    accept it — which is the whole difference between assistive and
+    authoritative.
+
+    `autocheck` is not a second confidence policy: it is whatever
+    `services.autocheck_policy.should_autocheck` decided, carried on the wire
+    so the browser and Streamlit pre-check the same boxes. The policy lives in
+    `services/` and not in `ui/components/ai_autofill_review.py`, which only
+    re-exports it — naming the UI module here would teach the layering the
+    opposite of what commit `abde2f0` fixed.
+    """
+
+    value: Union[str, float, int, None] = None
+    confidence: Optional[float] = None
+    autocheck: bool = False
+
+
+class TradeAutofillJobRequest(_Strict):
+    """Which of the caller's own screenshots to read. Ownership is never input.
+
+    A screenshot id, not a key and not a URL: the bytes autofill analyses are
+    the promoted object `finalize_upload` produced, and this is the only
+    handle the browser has on one.
+    """
+
+    screenshot_id: int
+
+
+class TradeAutofillJobAccepted(_Strict):
+    job_id: int
+    status: Literal["queued", "running", "succeeded", "failed"]
+    created: bool
+
+
+class TradeAutofillJobStatus(_Strict):
+    """Poll response. `suggestions` is `None` until the job has succeeded.
+
+    `superseded` says the opposite of what `status` does, and both can be
+    true at once: this job succeeded, but the suggestions it produced are no
+    longer the ones stored on the draft because a later autofill run replaced
+    them. There is one draft per owner, so that is a normal outcome of
+    autofilling two screenshots — and answering such a poll with the newer
+    chart's readings would tell a trader a value came from a chart it did not.
+    When `superseded` is true, `suggestions` is `None`: a stale set is not
+    shown at all, because a suggestion whose provenance we cannot state is
+    exactly the one a trader must not act on.
+    """
+
+    job_id: int
+    status: Literal["queued", "running", "succeeded", "failed"]
+    suggestions: Optional[Dict[str, AutofillSuggestion]]
+    error: Optional[str]
+    superseded: bool = False
 
 
 class ScreenshotDescriptor(_Strict):
@@ -307,6 +380,125 @@ class TradeCreate(_Strict):
         return value
 
 
+class TradeDraftPayload(_Strict):
+    """`PUT /v1/trades/draft` body — a POSITIVE allowlist over draft-able fields.
+
+    Every field is optional because a draft is, by definition, incomplete —
+    the trader may have filled in only the asset and a note so far. What is
+    NOT optional is the allowlist discipline: `extra="forbid"` refuses
+    anything this contract does not name, exactly like `TradeCreate`.
+
+    The field set mirrors `TradeCreate` deliberately rather than being
+    hand-maintained separately: `DRAFT_TRADE_FIELDS` below is checked by a
+    test to be a subset of `CREATABLE_TRADE_FIELDS` and disjoint from
+    `SERVER_OWNED_ON_CREATE`, so a derived field (`session`, `killzone`,
+    `strategy_used`, `asset_class`, or anything else the create endpoint
+    itself derives) has no way into a draft — and no way to drift into one
+    later without the contract test catching it.
+    """
+
+    trade_date: Optional[str] = None
+    asset: Optional[str] = None
+    entry_time: Optional[str] = None
+    direction: Optional[str] = None
+    bias: Optional[str] = None
+    setup_type: Optional[str] = None
+    timeframe: Optional[str] = None
+    htf_bias: Optional[str] = None
+    confirmation_model: Optional[str] = None
+    entry_type: Optional[str] = None
+
+    entry_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    tp_price: Optional[float] = None
+    exit_price: Optional[float] = None
+    position_size: Optional[float] = None
+    risk_amount: Optional[float] = None
+    reward_amount: Optional[float] = None
+    rr_realized: Optional[float] = None
+
+    result: Optional[TradeResult] = None
+    pnl: Optional[float] = None
+
+    liquidity_sweep: Optional[Literal[0, 1]] = None
+    fvg_used: Optional[Literal[0, 1]] = None
+    order_block_used: Optional[Literal[0, 1]] = None
+    bos: Optional[Literal[0, 1]] = None
+    choch: Optional[Literal[0, 1]] = None
+    followed_rules: Optional[Literal[0, 1]] = None
+    mistake_tags: Optional[str] = None
+
+    emotions_before: Optional[str] = None
+    emotions_during: Optional[str] = None
+    emotions_after: Optional[str] = None
+    notes: Optional[str] = None
+    trade_process_notes: Optional[str] = None
+
+    # Autofill output, beside the draft rather than in it. Keys are checked
+    # against the autofill allowlist below, so this is a second, wire-level
+    # copy of the same filter the service already applied: a suggestion for a
+    # derived field cannot round-trip even if something upstream let it be
+    # stored.
+    ai_suggestions: Optional[Dict[str, AutofillSuggestion]] = None
+    # Which screenshot the suggestions above were read from. Provenance, not
+    # content: the autofill poll compares it against the job it was asked
+    # about so a superseded set is never returned as if it described that
+    # job's chart. `services.trade_autofill.SUGGESTIONS_SOURCE_KEY` names the
+    # same key on the storage side.
+    ai_suggestions_screenshot_id: Optional[int] = None
+
+    @field_validator("ai_suggestions")
+    @classmethod
+    def _suggestions_must_be_suggestable(cls, value):
+        if value is None:
+            return value
+        unknown = set(value) - _suggestable_fields()
+        if unknown:
+            raise ValueError("unsuggestable field")
+        return value
+
+    @field_validator(
+        "pnl",
+        "rr_realized",
+        "risk_amount",
+        "reward_amount",
+        "entry_price",
+        "stop_price",
+        "tp_price",
+        "exit_price",
+        "position_size",
+    )
+    @classmethod
+    def _numbers_must_be_finite(cls, value: Optional[float]) -> Optional[float]:
+        if value is not None and not math.isfinite(value):
+            raise ValueError("numeric values must be finite")
+        return value
+
+
+class TradeDraftResponse(_Strict):
+    """`GET /v1/trades/draft` body. `draft` is `None` when the owner has none."""
+
+    draft: Optional[TradeDraftPayload]
+
+
+# The draft write surface, derived from the model itself so it cannot drift
+# from `TradeDraftPayload`. `entry_time` is excluded from the comparison set
+# for the same reason `CREATABLE_TRADE_FIELDS` excludes it below: it is not a
+# `Trade` column, so "subset of the create allowlist" is about `Trade`
+# columns, not wire fields. A contract test pins this as a subset of
+# `CREATABLE_TRADE_FIELDS` and disjoint from `SERVER_OWNED_ON_CREATE` — see
+# `TradeDraftPayload`'s docstring.
+DRAFT_TRADE_FIELDS = frozenset(TradeDraftPayload.model_fields) - {
+    "entry_time",
+    # Not a `Trade` column and never becomes one: it is the provenance
+    # sidecar the trader reviews, not a value the create path can accept.
+    "ai_suggestions",
+    # Same: which screenshot those suggestions came from is metadata about
+    # the review, not a field a trade can be created with.
+    "ai_suggestions_screenshot_id",
+}
+
+
 class TradeCreateResponse(TradeDetail):
     """`TradeDetail` plus whether this submit matched an existing trade.
 
@@ -398,6 +590,23 @@ class TradeUpdate(_Strict):
     notes: Optional[str] = None
     mistake_tags: Optional[str] = None
 
+    # The trade's own (lower-timeframe) bias and the five SMC evidence flags.
+    # Added deliberately, not by widening a rule: every autofill suggestion is
+    # offered to a trader for review, and a suggestion with no apply path
+    # spends their attention for nothing. These six are the fields that close
+    # that gap without touching derivation — each is a value the trader types
+    # on New Trade, none is computed from another column, and nothing else is
+    # computed from them (unlike the suggested prices, which feed `rr_planned`
+    # and `rr_realized`; making those patchable means re-deriving both inside
+    # the same atomic UPDATE, which is its own change, not a side effect of
+    # this one). `bias` is the `Trade` column behind the form's "LTF bias".
+    bias: Optional[str] = None
+    liquidity_sweep: Optional[Literal[0, 1]] = None
+    fvg_used: Optional[Literal[0, 1]] = None
+    order_block_used: Optional[Literal[0, 1]] = None
+    bos: Optional[Literal[0, 1]] = None
+    choch: Optional[Literal[0, 1]] = None
+
     @field_validator("asset")
     @classmethod
     def _asset_must_exist_when_sent(cls, value: Optional[str]) -> str:
@@ -484,7 +693,6 @@ SERVER_OWNED_TRADE_COLUMNS = frozenset(
         "strategy_id",
         "day_of_week",
         "asset_class",
-        "bias",
         "entry_price",
         "stop_price",
         "tp_price",
@@ -499,11 +707,6 @@ SERVER_OWNED_TRADE_COLUMNS = frozenset(
         "trade_process_notes",
         "ai_grade",
         "user_grade",
-        "liquidity_sweep",
-        "fvg_used",
-        "order_block_used",
-        "bos",
-        "choch",
         "confirmation_model",
         "entry_type",
     }
@@ -577,6 +780,19 @@ class ScreenshotPresignResponse(_Strict):
     key: str
     expires_in: int
     max_bytes: int
+
+
+class ScreenshotUrlRequest(_Strict):
+    """A link to a chart image the server will fetch on the trader's behalf.
+
+    Just the URL. It is untrusted in two separate ways and both are handled
+    elsewhere: `url_ingest` decides whether the address may be connected to at
+    all, and the bytes that come back are put through the same quarantine and
+    `finalize_upload` re-encode as any browser upload. Nothing here influences
+    where the object lands — the key is still server-chosen.
+    """
+
+    url: str
 
 
 class ScreenshotKeyRequest(_Strict):

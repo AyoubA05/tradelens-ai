@@ -45,6 +45,12 @@ _FORMAT_FOR_CONTENT_TYPE = {
 }
 
 
+_CONTENT_TYPE_FOR_FORMAT = {
+    format_name: content_type
+    for content_type, format_name in _FORMAT_FOR_CONTENT_TYPE.items()
+}
+
+
 class ImageRejected(ValueError):
     """The object is not an image we will process.
 
@@ -55,6 +61,29 @@ class ImageRejected(ValueError):
 
 def _looks_like_an_image(data: bytes) -> bool:
     return any(data.startswith(prefix) for prefix, _ in _MAGIC)
+
+
+def sniff_content_type(data: bytes) -> Optional[str]:
+    """The content type these bytes CLAIM to be, from magic alone, or None.
+
+    Only a claim, and deliberately so. It exists because a URL ingest has no
+    presigned Content-Type to name the quarantine key with, and the key's
+    extension is what `finalize_upload` later feeds back in as
+    `expected_content_type`. Whether the bytes really are that format is still
+    decided by `validate_and_normalise` decoding them — this only picks which
+    claim has to be corroborated.
+    """
+    if not isinstance(data, bytes):
+        return None
+    for prefix, format_name in _MAGIC:
+        if not data.startswith(prefix):
+            continue
+        # RIFF alone is a container family, not WebP: the four bytes at offset
+        # 8 are what distinguish it from WAV or AVI.
+        if format_name == "WEBP" and data[8:12] != b"WEBP":
+            return None
+        return _CONTENT_TYPE_FOR_FORMAT[format_name]
+    return None
 
 
 def validate_and_normalise(

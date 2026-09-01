@@ -114,6 +114,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/trades/autofill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enqueue Trade Autofill
+         * @description Queue AI autofill for one of the caller's own finalized screenshots.
+         *
+         *     Ownership is settled FIRST, before anything is written and before any
+         *     billable work can be scheduled: a foreign screenshot must not enqueue a
+         *     job, because a queued job is spend and, on a poll, an existence oracle.
+         *     A screenshot that is not the caller's returns the same 404 as one that
+         *     does not exist.
+         *
+         *     The job reads the PROMOTED object, not an upload: `finalize_upload` has
+         *     already decoded, capped and re-encoded those bytes, so the model only ever
+         *     sees bytes we produced.
+         *
+         *     Nothing this endpoint starts can create a trade. The worker writes
+         *     suggestions onto the owner's draft, and creation stays with
+         *     `POST /v1/trades`.
+         */
+        post: operations["enqueue_trade_autofill_v1_trades_autofill_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/trades/autofill/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trade Autofill Job
+         * @description Status for one owner-scoped autofill job; foreign and missing are identical.
+         *
+         *     The kind check is not decoration: without it this route would read any of
+         *     the owner's jobs, and a summary's result would be shaped into a suggestion
+         *     set. Suggestions are read back from the owner's own draft — the only place
+         *     the worker put them.
+         *
+         *     The draft holds ONE suggestion set, so the set stored there may belong to
+         *     a later job than the one being polled. This route therefore answers with
+         *     the suggestions THIS job produced or with none at all: it compares the
+         *     screenshot the draft records against the screenshot this job was queued
+         *     for (the enqueue idempotency key is that screenshot, so per owner the two
+         *     identify the same job) and reports `superseded` rather than handing back
+         *     another chart's readings under this job's id. Guessing would misattribute
+         *     a value to a screenshot it was never read from, which is the one thing an
+         *     assistive suggestion may not do.
+         */
+        get: operations["get_trade_autofill_job_v1_trades_autofill__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/trades/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trade Draft
+         * @description Return the authenticated owner's saved New Trade draft, if any.
+         *
+         *     Declared before `/trades/{trade_id}` so `"draft"` is never routed to that
+         *     handler's `int` path converter.
+         *
+         *     A stored draft is re-validated with a strict model (`extra="forbid"`) it
+         *     was not necessarily written under: any later removal or rename of a draft
+         *     field would otherwise turn EVERY already-stored draft into a 500 on read.
+         *     The relay swallows that into a null response, so the trader would see
+         *     autosave quietly stop working with nothing saying why, and the row would
+         *     stay poisoned. A draft that no longer fits the current model is therefore
+         *     answered as "no draft" — the same thing the trader sees on a fresh form,
+         *     and the next autosave replaces the row.
+         */
+        get: operations["get_trade_draft_v1_trades_draft_get"];
+        /**
+         * Put Trade Draft
+         * @description Save (or replace) the authenticated owner's one live draft.
+         *
+         *     This never touches `trades` — `services.drafts.save_draft` writes only to
+         *     `trade_drafts`, a table `POST /v1/trades` does not read from and cannot
+         *     be reached from. The body is `TradeDraftPayload`, a positive allowlist
+         *     with `extra="forbid"`: no derived field (`session`, `killzone`,
+         *     `strategy_used`, `asset_class`, ...) has anywhere to go, whatever the
+         *     request contains.
+         */
+        put: operations["put_trade_draft_v1_trades_draft_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/trades/summary": {
         parameters: {
             query?: never;
@@ -279,6 +391,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/trades/{trade_id}/screenshot/ingest-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest Screenshot Url
+         * @description Attach a chart image the server fetches from a link.
+         *
+         *     This is the only place bytes enter the system without a browser upload, and
+         *     it is deliberately not a second image path: the fetched bytes are PUT into
+         *     this caller's own quarantine key and then go through the same
+         *     `finalize_upload` — the same decode, the same size and dimension caps, the
+         *     same re-encode, the same row write — as anything a trader uploads. A temp
+         *     file handed to the model instead would inherit none of that.
+         *
+         *     Ownership is settled FIRST, before a single packet leaves the server. A
+         *     foreign trade must not cause an outbound request: the fetch is observable
+         *     to whoever controls the URL, so issuing one would turn this endpoint into a
+         *     cross-tenant existence oracle regardless of what status code came back.
+         *
+         *     The URL is attacker-controlled, so `fetch_image_bytes` — not this handler —
+         *     decides what may be connected to.
+         */
+        post: operations["ingest_screenshot_url_v1_trades__trade_id__screenshot_ingest_url_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/trades/{trade_id}/screenshot/presign": {
         parameters: {
             query?: never;
@@ -317,6 +464,34 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AutofillSuggestion
+         * @description One AI-suggested value for one draft field, with its confidence.
+         *
+         *     A suggestion is deliberately NOT the field's value. It is provenance-
+         *     tagged metadata that sits beside the draft, so an unreviewed suggestion
+         *     stays distinguishable from something the trader typed right up until they
+         *     accept it — which is the whole difference between assistive and
+         *     authoritative.
+         *
+         *     `autocheck` is not a second confidence policy: it is whatever
+         *     `services.autocheck_policy.should_autocheck` decided, carried on the wire
+         *     so the browser and Streamlit pre-check the same boxes. The policy lives in
+         *     `services/` and not in `ui/components/ai_autofill_review.py`, which only
+         *     re-exports it — naming the UI module here would teach the layering the
+         *     opposite of what commit `abde2f0` fixed.
+         */
+        AutofillSuggestion: {
+            /**
+             * Autocheck
+             * @default false
+             */
+            autocheck: boolean;
+            /** Confidence */
+            confidence?: number | null;
+            /** Value */
+            value?: string | number | null;
+        };
         /** BreakdownRow */
         BreakdownRow: {
             /** Label */
@@ -589,6 +764,78 @@ export interface components {
             max_bytes: number;
             /** Url */
             url: string;
+        };
+        /**
+         * ScreenshotUrlRequest
+         * @description A link to a chart image the server will fetch on the trader's behalf.
+         *
+         *     Just the URL. It is untrusted in two separate ways and both are handled
+         *     elsewhere: `url_ingest` decides whether the address may be connected to at
+         *     all, and the bytes that come back are put through the same quarantine and
+         *     `finalize_upload` re-encode as any browser upload. Nothing here influences
+         *     where the object lands — the key is still server-chosen.
+         */
+        ScreenshotUrlRequest: {
+            /** Url */
+            url: string;
+        };
+        /** TradeAutofillJobAccepted */
+        TradeAutofillJobAccepted: {
+            /** Created */
+            created: boolean;
+            /** Job Id */
+            job_id: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed";
+        };
+        /**
+         * TradeAutofillJobRequest
+         * @description Which of the caller's own screenshots to read. Ownership is never input.
+         *
+         *     A screenshot id, not a key and not a URL: the bytes autofill analyses are
+         *     the promoted object `finalize_upload` produced, and this is the only
+         *     handle the browser has on one.
+         */
+        TradeAutofillJobRequest: {
+            /** Screenshot Id */
+            screenshot_id: number;
+        };
+        /**
+         * TradeAutofillJobStatus
+         * @description Poll response. `suggestions` is `None` until the job has succeeded.
+         *
+         *     `superseded` says the opposite of what `status` does, and both can be
+         *     true at once: this job succeeded, but the suggestions it produced are no
+         *     longer the ones stored on the draft because a later autofill run replaced
+         *     them. There is one draft per owner, so that is a normal outcome of
+         *     autofilling two screenshots — and answering such a poll with the newer
+         *     chart's readings would tell a trader a value came from a chart it did not.
+         *     When `superseded` is true, `suggestions` is `None`: a stale set is not
+         *     shown at all, because a suggestion whose provenance we cannot state is
+         *     exactly the one a trader must not act on.
+         */
+        TradeAutofillJobStatus: {
+            /** Error */
+            error: string | null;
+            /** Job Id */
+            job_id: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed";
+            /** Suggestions */
+            suggestions: {
+                [key: string]: components["schemas"]["AutofillSuggestion"];
+            } | null;
+            /**
+             * Superseded
+             * @default false
+             */
+            superseded: boolean;
         };
         /**
          * TradeConflictDetail
@@ -889,6 +1136,102 @@ export interface components {
             /** User Grade */
             user_grade: string | null;
         };
+        /**
+         * TradeDraftPayload
+         * @description `PUT /v1/trades/draft` body — a POSITIVE allowlist over draft-able fields.
+         *
+         *     Every field is optional because a draft is, by definition, incomplete —
+         *     the trader may have filled in only the asset and a note so far. What is
+         *     NOT optional is the allowlist discipline: `extra="forbid"` refuses
+         *     anything this contract does not name, exactly like `TradeCreate`.
+         *
+         *     The field set mirrors `TradeCreate` deliberately rather than being
+         *     hand-maintained separately: `DRAFT_TRADE_FIELDS` below is checked by a
+         *     test to be a subset of `CREATABLE_TRADE_FIELDS` and disjoint from
+         *     `SERVER_OWNED_ON_CREATE`, so a derived field (`session`, `killzone`,
+         *     `strategy_used`, `asset_class`, or anything else the create endpoint
+         *     itself derives) has no way into a draft — and no way to drift into one
+         *     later without the contract test catching it.
+         */
+        TradeDraftPayload: {
+            /** Ai Suggestions */
+            ai_suggestions?: {
+                [key: string]: components["schemas"]["AutofillSuggestion"];
+            } | null;
+            /** Ai Suggestions Screenshot Id */
+            ai_suggestions_screenshot_id?: number | null;
+            /** Asset */
+            asset?: string | null;
+            /** Bias */
+            bias?: string | null;
+            /** Bos */
+            bos?: (0 | 1) | null;
+            /** Choch */
+            choch?: (0 | 1) | null;
+            /** Confirmation Model */
+            confirmation_model?: string | null;
+            /** Direction */
+            direction?: string | null;
+            /** Emotions After */
+            emotions_after?: string | null;
+            /** Emotions Before */
+            emotions_before?: string | null;
+            /** Emotions During */
+            emotions_during?: string | null;
+            /** Entry Price */
+            entry_price?: number | null;
+            /** Entry Time */
+            entry_time?: string | null;
+            /** Entry Type */
+            entry_type?: string | null;
+            /** Exit Price */
+            exit_price?: number | null;
+            /** Followed Rules */
+            followed_rules?: (0 | 1) | null;
+            /** Fvg Used */
+            fvg_used?: (0 | 1) | null;
+            /** Htf Bias */
+            htf_bias?: string | null;
+            /** Liquidity Sweep */
+            liquidity_sweep?: (0 | 1) | null;
+            /** Mistake Tags */
+            mistake_tags?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Order Block Used */
+            order_block_used?: (0 | 1) | null;
+            /** Pnl */
+            pnl?: number | null;
+            /** Position Size */
+            position_size?: number | null;
+            /** Result */
+            result?: ("Win" | "Loss" | "Breakeven") | null;
+            /** Reward Amount */
+            reward_amount?: number | null;
+            /** Risk Amount */
+            risk_amount?: number | null;
+            /** Rr Realized */
+            rr_realized?: number | null;
+            /** Setup Type */
+            setup_type?: string | null;
+            /** Stop Price */
+            stop_price?: number | null;
+            /** Timeframe */
+            timeframe?: string | null;
+            /** Tp Price */
+            tp_price?: number | null;
+            /** Trade Date */
+            trade_date?: string | null;
+            /** Trade Process Notes */
+            trade_process_notes?: string | null;
+        };
+        /**
+         * TradeDraftResponse
+         * @description `GET /v1/trades/draft` body. `draft` is `None` when the owner has none.
+         */
+        TradeDraftResponse: {
+            draft: components["schemas"]["TradeDraftPayload"] | null;
+        };
         /** TradeListResponse */
         TradeListResponse: {
             /** Limit */
@@ -1015,20 +1358,32 @@ export interface components {
         TradeUpdate: {
             /** Asset */
             asset?: string;
+            /** Bias */
+            bias?: string | null;
+            /** Bos */
+            bos?: (0 | 1) | null;
+            /** Choch */
+            choch?: (0 | 1) | null;
             /** Direction */
             direction?: string | null;
             /** Expected Updated At */
             expected_updated_at: string;
             /** Followed Rules */
             followed_rules?: (0 | 1) | null;
+            /** Fvg Used */
+            fvg_used?: (0 | 1) | null;
             /** Htf Bias */
             htf_bias?: string | null;
             /** Killzone */
             killzone?: string | null;
+            /** Liquidity Sweep */
+            liquidity_sweep?: (0 | 1) | null;
             /** Mistake Tags */
             mistake_tags?: string | null;
             /** Notes */
             notes?: string | null;
+            /** Order Block Used */
+            order_block_used?: (0 | 1) | null;
             /** Pnl */
             pnl?: number | null;
             /** Result */
@@ -1232,6 +1587,123 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TradeCreateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enqueue_trade_autofill_v1_trades_autofill_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeAutofillJobRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeAutofillJobAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_trade_autofill_job_v1_trades_autofill__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeAutofillJobStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_trade_draft_v1_trades_draft_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeDraftResponse"];
+                };
+            };
+        };
+    };
+    put_trade_draft_v1_trades_draft_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradeDraftPayload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradeDraftResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1467,6 +1939,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ScreenshotKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotDescriptor"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ingest_screenshot_url_v1_trades__trade_id__screenshot_ingest_url_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScreenshotUrlRequest"];
             };
         };
         responses: {

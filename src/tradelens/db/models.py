@@ -652,3 +652,33 @@ class TradeSummaryResult(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+
+
+class TradeDraft(Base):
+    """An in-progress New Trade form, saved before it is a journal entry.
+
+    Deliberately its own table rather than an `is_draft` flag on `trades`
+    (Decision 3): a flag puts the "never a journal entry" guarantee at the
+    mercy of every future query, filter, metric or export that touches
+    `trades`, while a separate table makes it structurally impossible for a
+    draft to be picked up by any of them.
+
+    `user_id` carries a unique constraint, not just an index: "one live draft
+    per owner, superseded on save" is enforced by the schema itself rather
+    than by application code remembering to delete-before-insert.
+    """
+
+    __tablename__ = "trade_drafts"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_trade_drafts_user"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )

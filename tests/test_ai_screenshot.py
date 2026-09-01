@@ -10,6 +10,7 @@ all without hitting the network.
 import pytest
 
 import src.tradelens.services.ai_screenshot_service as svc
+from src.tradelens.services import url_ingest
 from src.tradelens.services.vision import ScreenshotAnalysisError
 
 
@@ -33,21 +34,29 @@ def test_is_image_url_rejects_non_urls_and_pages():
 
 def test_is_image_url_blocks_private_host(monkeypatch):
     # SSRF: even a .png on a loopback/private host must be rejected.
-    monkeypatch.setattr(svc.socket, "getaddrinfo", _fake_getaddrinfo("127.0.0.1"))
+    monkeypatch.setattr(
+        url_ingest.socket, "getaddrinfo", _fake_getaddrinfo("127.0.0.1")
+    )
     assert not svc.is_image_url("http://localhost/chart.png")
-    monkeypatch.setattr(svc.socket, "getaddrinfo", _fake_getaddrinfo("169.254.169.254"))
+    monkeypatch.setattr(
+        url_ingest.socket, "getaddrinfo", _fake_getaddrinfo("169.254.169.254")
+    )
     assert not svc.is_image_url("http://metadata/latest.png")
-    monkeypatch.setattr(svc.socket, "getaddrinfo", _fake_getaddrinfo("10.0.0.5"))
+    monkeypatch.setattr(url_ingest.socket, "getaddrinfo", _fake_getaddrinfo("10.0.0.5"))
     assert not svc.is_image_url("http://internal/chart.png")
 
 
 def test_is_public_url_allows_public_ip(monkeypatch):
-    monkeypatch.setattr(svc.socket, "getaddrinfo", _fake_getaddrinfo("93.184.216.34"))
+    monkeypatch.setattr(
+        url_ingest.socket, "getaddrinfo", _fake_getaddrinfo("93.184.216.34")
+    )
     assert svc._is_public_url("https://example.com/x.png")
 
 
 def test_download_image_rejects_private_host(monkeypatch):
-    monkeypatch.setattr(svc.socket, "getaddrinfo", _fake_getaddrinfo("127.0.0.1"))
+    monkeypatch.setattr(
+        url_ingest.socket, "getaddrinfo", _fake_getaddrinfo("127.0.0.1")
+    )
     with pytest.raises(ScreenshotAnalysisError):
         svc._download_image("http://localhost/evil.png")
 

@@ -26,7 +26,7 @@
 - **404, never 403**, byte-identical to a genuine not-found, on every per-id route.
 - TradeLens is a post-trade reflection journal. Never a signal app, a bot, or financial advice — this binds every label, placeholder and error string, and binds what the autofill model is allowed to produce.
 - `src/tradelens/services/metrics.py` is parity-pinned. `prompts/` files are LOCKED — extend contracts, never rewrite.
-- Alembic for every schema change, with a working `downgrade()`.
+- Alembic for every schema change, with a working `downgrade()`. **Head is `d0e1f2g3h4i5`** — the drafts migration chains off it.
 - Python 3.9.6 floor: `from __future__ import annotations`, `Optional[X]`/`List[X]`, never `X | Y`.
 - **No new npm dependencies.**
 - Gates: `pytest tests/ -q`; `ruff check src/ scripts/`; `black --check src/ scripts/ tests/`; in `web/`: `npx vitest run`, `npx tsc --noEmit`, `npx eslint .`, `npm run build`.
@@ -89,7 +89,11 @@ The strongest available guarantee is structural: an incomplete draft is not in `
 `finalize_upload` promotes freshly re-encoded bytes. Running analysis on those means the model only ever sees bytes **we** produced, so a crafted container cannot reach it. It also means autofill needs no image path of its own — it reads the promoted object.
 
 **5. Autofill writes to the draft, never to `trades`, and never to a derived field.**
-Suggestions land in the draft with their confidence. The trader accepts or corrects them; creation still goes through `POST /v1/trades` unchanged, where the allowlist, the fingerprint and the server-side derivations all still apply. The autofill write allowlist is therefore a **subset** of the create allowlist with every derived field removed — `session`, `killzone`, `strategy_used`, `day_of_week`, `rr_planned`, `rr_realized`, `trade_hash`, and the ownership/metadata columns. A test pins that subset relationship so it cannot drift.
+Suggestions land in the draft with their confidence. The trader accepts or corrects them; creation still goes through `POST /v1/trades` unchanged, where the allowlist, the fingerprint and the server-side derivations all still apply.
+
+**Codex's Phase 4 review already removed the derived fields from the create allowlist** — it found `session`, `killzone`, `strategy_used` and `asset_class` were being *accepted from the browser* and persisted as forged values, and moved all four into `SERVER_OWNED_ON_CREATE`. `TradeCreate` now contains none of them (`CREATABLE_TRADE_FIELDS` is 31 fields). So the subtraction is already done upstream, and the test is simpler and stronger than originally written: **the autofill allowlist must be a subset of `CREATABLE_TRADE_FIELDS` and disjoint from `SERVER_OWNED_ON_CREATE`.** Pin both directions so neither can drift.
+
+**Also unchanged by this phase, and now stronger than when this plan was drafted:** Codex found concurrent identical creates were *not* idempotent — `find_by_fingerprint` followed by an unconstrained INSERT, with a barrier reproducing two `201`s and two rows. There is now a server-owned `trades.create_idempotency_key` with a unique `(user_id, create_idempotency_key)` constraint (migration `d0e1f2g3h4i5`). Drafts and autofill must never touch that column, never create a trade, and never introduce a second creation path.
 
 **6. Autofill is the phase's second AI consumer and gets Phase 3E's cost discipline.**
 Owner-scoped rate limit before any billable call, usage recorded the instant the provider returns (before validation, so a failed parse is still billed-and-visible), and a failed job that stays terminal rather than silently re-spending. Reuse `api/jobs.count_recent_jobs` and the `ai_jobs` queue rather than inventing a second mechanism.

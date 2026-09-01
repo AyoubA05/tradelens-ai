@@ -18,21 +18,28 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
-from src.tradelens.api import jobs, storage
+from src.tradelens.api import imaging, jobs, storage
 from src.tradelens.api.deps import current_user
 from src.tradelens.api.routers.overview import _validated_period
 from src.tradelens.api.schemas.trades import (
     ScreenshotCleanupFailedResponse,
+    TradeAutofillJobAccepted,
+    TradeAutofillJobRequest,
+    TradeAutofillJobStatus,
     ScreenshotDescriptor,
     ScreenshotKeyRequest,
     ScreenshotPresignRequest,
     ScreenshotPresignResponse,
+    ScreenshotUrlRequest,
     TradeConflictResponse,
     TradeCreate,
     TradeCreateResponse,
     TradeDetail,
+    TradeDraftPayload,
+    TradeDraftResponse,
     TradeListResponse,
     TradeSummary,
     TradeSummaryJobAccepted,
@@ -40,7 +47,13 @@ from src.tradelens.api.schemas.trades import (
     TradeSummaryJobStatus,
     TradeUpdate,
 )
-from src.tradelens.services import screenshot_service
+from src.tradelens.services import drafts, screenshot_service, url_ingest
+from src.tradelens.services.trade_autofill import (
+    AUTOFILL_WINDOW_HOURS,
+    JOB_KIND as AUTOFILL_JOB_KIND,
+    MAX_AUTOFILLS_PER_WINDOW,
+    SUGGESTIONS_SOURCE_KEY as AUTOFILL_SUGGESTIONS_SOURCE_KEY,
+)
 from src.tradelens.services.assets import detect_asset_class
 from src.tradelens.services.sessions import KILLZONE_LABELS
 from src.tradelens.services.trade_service import (
@@ -65,6 +78,11 @@ from src.tradelens.services.trade_validation import OutcomeMismatch
 _log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["trades"])
+
+# One phrase for every "these bytes are not a picture" refusal, matching what
+# `finalize_upload` surfaces, so a URL and an upload are indistinguishable to
+# anyone probing the validator.
+NOT_AN_IMAGE_DETAIL = "not a supported image"
 
 
 def _finite_or_none(value: Optional[float]) -> Optional[float]:
@@ -199,6 +217,7 @@ def create_trade_route(
         # relationships, so re-fetch through `get_trade` before `_detail`
         # touches `.screenshots`.
         response.status_code = status.HTTP_200_OK
+        _clear_draft(user_id)
         full = get_trade(existing.id, user_id)
         return TradeCreateResponse(
             **_detail(full, user_id).model_dump(), duplicate_of=existing.id
@@ -221,6 +240,7 @@ def create_trade_route(
         if existing is None:
             raise
         response.status_code = status.HTTP_200_OK
+        _clear_draft(user_id)
         full = get_trade(existing.id, user_id)
         return TradeCreateResponse(
             **_detail(full, user_id).model_dump(), duplicate_of=existing.id
@@ -232,6 +252,7 @@ def create_trade_route(
     # access on that instance (e.g. `.screenshots` inside `_detail`) would
     # raise DetachedInstanceError. Re-fetch through `get_trade`, which
     # eager-loads everything `_detail` touches.
+    _clear_draft(user_id)
     trade = get_trade(created.id, user_id)
     return TradeCreateResponse(
         **_detail(trade, user_id).model_dump(), duplicate_of=None
@@ -364,6 +385,167 @@ def get_trade_summary_job(
     )
 
 
+@router.post("/trades/autofill", status_code=status.HTTP_202_ACCEPTED)
+def enqueue_trade_autofill(
+    payload: TradeAutofillJobRequest,
+    user_id: int = Depends(current_user),
+) -> TradeAutofillJobAccepted:
+    """Queue AI autofill for one of the caller's own finalized screenshots.
+
+    Ownership is settled FIRST, before anything is written and before any
+    billable work can be scheduled: a foreign screenshot must not enqueue a
+    job, because a queued job is spend and, on a poll, an existence oracle.
+    A screenshot that is not the caller's returns the same 404 as one that
+    does not exist.
+
+    The job reads the PROMOTED object, not an upload: `finalize_upload` has
+    already decoded, capped and re-encoded those bytes, so the model only ever
+    sees bytes we produced.
+
+    Nothing this endpoint starts can create a trade. The worker writes
+    suggestions onto the owner's draft, and creation stays with
+    `POST /v1/trades`.
+    """
+    if not storage.owns_screenshot(user_id, payload.screenshot_id):
+        raise _not_found()
+
+    key = f"{AUTOFILL_JOB_KIND}:{int(payload.screenshot_id)}"
+
+    # Checked BEFORE `enqueue`, exactly as the summary endpoint does it, so a
+    # refusal writes no `ai_jobs` row and never reaches the worker or
+    # Anthropic. The count is over the owner's autofill jobs in a rolling
+    # window and is deliberately blind to which screenshot, so re-uploading
+    # the same chart under new ids buys nothing.
+    if (
+        jobs.count_recent_jobs(
+            user_id,
+            AUTOFILL_JOB_KIND,
+            datetime.now(timezone.utc) - timedelta(hours=AUTOFILL_WINDOW_HOURS),
+        )
+        >= MAX_AUTOFILLS_PER_WINDOW
+    ):
+        # Being at the limit must never lock a trader out of a job they
+        # already have — including one that failed, which they are entitled to
+        # see rather than silently retry.
+        existing = jobs.get_owned_job_by_idempotency_key(
+            user_id, AUTOFILL_JOB_KIND, key
+        )
+        if existing is None:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"You've reached {MAX_AUTOFILLS_PER_WINDOW} AI autofills for "
+                    f"today. New autofills are available again "
+                    f"{AUTOFILL_WINDOW_HOURS} hours after your earliest one. "
+                    "You can still fill the form in yourself."
+                ),
+            )
+        return TradeAutofillJobAccepted(
+            job_id=int(existing.id), status=existing.status, created=False
+        )
+
+    # The idempotency key is the screenshot, so a double-click, a retry, and a
+    # resubmit after a failure all return the SAME job. A failed job therefore
+    # stays terminal instead of quietly re-spending.
+    job_id, created = jobs.enqueue(
+        user_id, AUTOFILL_JOB_KIND, key, {"screenshot_id": int(payload.screenshot_id)}
+    )
+    job = jobs.get_owned_job(job_id, user_id)
+    if job is None:  # Defensive: enqueue committed this exact owner-scoped row.
+        raise HTTPException(status_code=500, detail="autofill job unavailable")
+    return TradeAutofillJobAccepted(job_id=job_id, status=job.status, created=created)
+
+
+@router.get("/trades/autofill/{job_id}")
+def get_trade_autofill_job(
+    job_id: int,
+    user_id: int = Depends(current_user),
+) -> TradeAutofillJobStatus:
+    """Status for one owner-scoped autofill job; foreign and missing are identical.
+
+    The kind check is not decoration: without it this route would read any of
+    the owner's jobs, and a summary's result would be shaped into a suggestion
+    set. Suggestions are read back from the owner's own draft — the only place
+    the worker put them.
+
+    The draft holds ONE suggestion set, so the set stored there may belong to
+    a later job than the one being polled. This route therefore answers with
+    the suggestions THIS job produced or with none at all: it compares the
+    screenshot the draft records against the screenshot this job was queued
+    for (the enqueue idempotency key is that screenshot, so per owner the two
+    identify the same job) and reports `superseded` rather than handing back
+    another chart's readings under this job's id. Guessing would misattribute
+    a value to a screenshot it was never read from, which is the one thing an
+    assistive suggestion may not do.
+    """
+    job = jobs.get_owned_job(job_id, user_id)
+    if job is None or job.kind != AUTOFILL_JOB_KIND:
+        raise HTTPException(status_code=404, detail="autofill job not found")
+
+    suggestions = None
+    superseded = False
+    if job.status == "succeeded":
+        draft = drafts.get_draft(user_id) or {}
+        stored_for = draft.get(AUTOFILL_SUGGESTIONS_SOURCE_KEY)
+        if stored_for is not None and stored_for == _job_screenshot_id(job):
+            suggestions = draft.get("ai_suggestions") or {}
+        else:
+            # Includes the draft that has no provenance at all (cleared by an
+            # autosave, or written before this key existed). "We cannot say
+            # this came from your screenshot" is the same answer as "it did
+            # not"; both must not be presented as this job's reading.
+            superseded = True
+    return TradeAutofillJobStatus(
+        job_id=job.id,
+        status=job.status,
+        suggestions=suggestions,
+        error=job.error,
+        superseded=superseded,
+    )
+
+
+def _job_screenshot_id(job) -> Optional[int]:
+    """The screenshot one autofill job was queued for, or None if unreadable.
+
+    The payload is written by `enqueue_trade_autofill` above and is never user
+    text, but a job row that outlives a deploy is still parsed defensively:
+    None simply fails the provenance comparison, which is the safe direction.
+    """
+    try:
+        return int(json.loads(job.payload or "{}")["screenshot_id"])
+    except (ValueError, TypeError, KeyError):
+        return None
+
+
+def _clear_draft(user_id: int) -> None:
+    """End the owner's draft now that the trade it described exists.
+
+    Called on every branch of create that answers with a trade — the freshly
+    created one and both "this already exists" ones — because in all three
+    the draft has become a journal entry and everything still in it is stale.
+    Without this the draft had no end of life at all: the browser's
+    mount-time prefill fills any field still at its empty default, so the
+    NEXT New Trade would open carrying the previous trade's asset, entry
+    time and prices, and a trader who did not notice would save a second
+    entry built from the first one's numbers.
+
+    Clearing on the server rather than only on navigate is deliberate: it is
+    the half that still holds when the browser never comes back — a closed
+    tab, a crash, a different device. The client half (suspending autosave
+    once the trade is durable, in `useDraftAutosave`) stops an in-flight
+    debounce from writing the draft straight back; neither half alone is
+    enough.
+
+    A failure here must never turn a durable trade into an error response:
+    the trade is already committed, and a stale draft is a nuisance, not a
+    loss.
+    """
+    try:
+        drafts.delete_draft(user_id)
+    except Exception:  # pragma: no cover — defensive; the trade is committed
+        _log.warning("could not clear draft after create", exc_info=True)
+
+
 def _not_found() -> HTTPException:
     """One refusal for both 'no such trade' and 'someone else's trade'.
 
@@ -437,6 +619,53 @@ def _detail(trade, user_id: int) -> TradeDetail:
         updated_at=trade.updated_at,
         screenshots=screenshots,
     )
+
+
+@router.get("/trades/draft")
+def get_trade_draft(
+    user_id: int = Depends(current_user),
+) -> TradeDraftResponse:
+    """Return the authenticated owner's saved New Trade draft, if any.
+
+    Declared before `/trades/{trade_id}` so `"draft"` is never routed to that
+    handler's `int` path converter.
+
+    A stored draft is re-validated with a strict model (`extra="forbid"`) it
+    was not necessarily written under: any later removal or rename of a draft
+    field would otherwise turn EVERY already-stored draft into a 500 on read.
+    The relay swallows that into a null response, so the trader would see
+    autosave quietly stop working with nothing saying why, and the row would
+    stay poisoned. A draft that no longer fits the current model is therefore
+    answered as "no draft" — the same thing the trader sees on a fresh form,
+    and the next autosave replaces the row.
+    """
+    payload = drafts.get_draft(user_id)
+    if payload is None:
+        return TradeDraftResponse(draft=None)
+    try:
+        draft = TradeDraftPayload(**payload)
+    except ValidationError:
+        _log.warning("discarding a stored draft that no longer validates")
+        return TradeDraftResponse(draft=None)
+    return TradeDraftResponse(draft=draft)
+
+
+@router.put("/trades/draft")
+def put_trade_draft(
+    payload: TradeDraftPayload,
+    user_id: int = Depends(current_user),
+) -> TradeDraftResponse:
+    """Save (or replace) the authenticated owner's one live draft.
+
+    This never touches `trades` — `services.drafts.save_draft` writes only to
+    `trade_drafts`, a table `POST /v1/trades` does not read from and cannot
+    be reached from. The body is `TradeDraftPayload`, a positive allowlist
+    with `extra="forbid"`: no derived field (`session`, `killzone`,
+    `strategy_used`, `asset_class`, ...) has anywhere to go, whatever the
+    request contains.
+    """
+    drafts.save_draft(user_id, payload.model_dump(exclude_unset=True))
+    return TradeDraftResponse(draft=payload)
 
 
 @router.get("/trades/{trade_id}")
@@ -630,6 +859,19 @@ def finalize_screenshot_upload(
         # failed hands them the shape of the validator.
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    return _attach_promoted(trade_id, promoted, user_id)
+
+
+def _attach_promoted(
+    trade_id: int, promoted: dict, user_id: int
+) -> ScreenshotDescriptor:
+    """Record the row for a just-promoted object, and sign it for the client.
+
+    Shared by finalize and URL ingest so both reach the bucket through exactly
+    one promote-then-record sequence. A second copy of this is how one of the
+    two would end up writing a promoted object with no row — an orphan nothing
+    can name, since `delete_trade_objects` resolves keys FROM the rows.
+    """
     try:
         screenshot_id, uploaded_at = screenshot_service.record_object_screenshot(
             trade_id,
@@ -681,6 +923,75 @@ def finalize_screenshot_upload(
         uploaded_at=uploaded_at,
         url=download_url,
     )
+
+
+@router.post(
+    "/trades/{trade_id}/screenshot/ingest-url",
+    status_code=status.HTTP_201_CREATED,
+)
+def ingest_screenshot_url(
+    trade_id: int,
+    payload: ScreenshotUrlRequest,
+    user_id: int = Depends(current_user),
+) -> ScreenshotDescriptor:
+    """Attach a chart image the server fetches from a link.
+
+    This is the only place bytes enter the system without a browser upload, and
+    it is deliberately not a second image path: the fetched bytes are PUT into
+    this caller's own quarantine key and then go through the same
+    `finalize_upload` — the same decode, the same size and dimension caps, the
+    same re-encode, the same row write — as anything a trader uploads. A temp
+    file handed to the model instead would inherit none of that.
+
+    Ownership is settled FIRST, before a single packet leaves the server. A
+    foreign trade must not cause an outbound request: the fetch is observable
+    to whoever controls the URL, so issuing one would turn this endpoint into a
+    cross-tenant existence oracle regardless of what status code came back.
+
+    The URL is attacker-controlled, so `fetch_image_bytes` — not this handler —
+    decides what may be connected to.
+    """
+    if not storage.owns_trade(user_id, trade_id):
+        raise _not_found()
+
+    try:
+        data = url_ingest.fetch_image_bytes(payload.url)
+    except url_ingest.UrlIngestError as exc:
+        # A plain sentence the trader can act on. It names no address and no
+        # check, so it is not a probe of the network the server can see.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # Which content type the bytes CLAIM, only so the quarantine key carries an
+    # extension. `finalize_upload` feeds that extension back in as the expected
+    # type and makes the decoder corroborate it, exactly as it does for the
+    # Content-Type a presigned upload was signed against.
+    content_type = imaging.sniff_content_type(data)
+    if content_type is None:
+        raise HTTPException(status_code=422, detail=NOT_AN_IMAGE_DETAIL)
+
+    try:
+        upload_key = storage.put_quarantine_object(
+            user_id, trade_id, data, content_type
+        )
+    except PermissionError:
+        raise _not_found() from None
+
+    try:
+        promoted = storage.finalize_upload(user_id, trade_id, upload_key)
+    except PermissionError:
+        raise _not_found() from None
+    except storage.UploadMissing as exc:
+        # The object was written moments ago by this same request, so this
+        # means the bucket lost it rather than a client sending a stale key.
+        raise HTTPException(
+            status_code=503, detail="the screenshot could not be attached"
+        ) from exc
+    except storage.UploadRejected as exc:
+        # A stable phrase, not a reason: a decompression bomb, a polyglot and a
+        # renamed executable all land here and are told the same thing.
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return _attach_promoted(trade_id, promoted, user_id)
 
 
 @router.post(

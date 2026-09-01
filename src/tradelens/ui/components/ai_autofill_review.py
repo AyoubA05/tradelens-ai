@@ -11,6 +11,11 @@ Layering:
   * build_form_writes / run_autofill are pure (no Streamlit) and unit-tested.
   * render_* helpers import Streamlit lazily (services/components stay importable
     without a Streamlit runtime, matching screenshot_analyzer.py).
+  * The autocheck confidence policy (AUTOCHECK_FIELDS / AUTOCHECK_MIN_CONFIDENCE /
+    should_autocheck) lives in services/autocheck_policy and is re-exported here,
+    the same pattern services/sample_policy.py uses for data_state.py — so
+    services/trade_autofill.py can use the same rule without importing this
+    Streamlit component.
 
 Reuses, unchanged:
   * services/ai_screenshot_service.analyze_source — local path OR direct image URL
@@ -36,6 +41,11 @@ from src.tradelens.services.ai_overlay import (
 )
 from src.tradelens.services.ai_screenshot_service import analyze_source
 from src.tradelens.services.assets import OTHER, normalize_symbol
+from src.tradelens.services.autocheck_policy import (  # noqa: F401 — re-exported
+    AUTOCHECK_FIELDS,
+    AUTOCHECK_MIN_CONFIDENCE,
+    should_autocheck,
+)
 from src.tradelens.services.vision import (
     ScreenshotAnalysisError,
     analyze_screenshot_v3,
@@ -79,9 +89,8 @@ _SRC_SIG_KEY = "_nt_ai_src_sig"  # last auto-analyzed source (Item 2 auto-trigge
 _OUTCOME_KEY = "_nt_ai_outcome"  # "accepted" | "rejected" — the trader's decision
 _EDITED_KEY = "_nt_ai_edited"  # set[str] of AI-applied fields edited afterwards
 
-# Entry/stop pre-check only when the model is confident; everything else opt-in.
-AUTOCHECK_FIELDS = ("entry_price", "stop_price")
-AUTOCHECK_MIN_CONFIDENCE = 0.70
+# AUTOCHECK_FIELDS / AUTOCHECK_MIN_CONFIDENCE / should_autocheck live in
+# services/autocheck_policy and are re-exported above.
 
 # Overlay price field -> nt_* widget key. Direction is intentionally absent —
 # it's display-only; the form infers direction from the applied entry/stop.
@@ -183,20 +192,6 @@ def entry_time_write_allowed(current_value) -> bool:
         return True
     s = str(current_value).strip()
     return not s or s == _ENTRY_TIME_DEFAULT
-
-
-def should_autocheck(field: str, confidence) -> bool:
-    """Default-checked state for a detected-markup checkbox.
-
-    Only entry/stop auto-check, and only at >= 0.70 confidence — below that the
-    trader must opt in explicitly. Junk/missing confidence never auto-checks.
-    """
-    if field not in AUTOCHECK_FIELDS:
-        return False
-    try:
-        return float(confidence) >= AUTOCHECK_MIN_CONFIDENCE
-    except (TypeError, ValueError):
-        return False
 
 
 def build_review_outcome(outcome, applied_fields, edited_fields) -> Optional[dict]:
