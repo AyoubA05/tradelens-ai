@@ -6916,3 +6916,164 @@ unreachable because `save_draft` only ever writes a dict.
 - `owns_screenshot` does not check `_is_final_key`, so a quarantine-keyed row can enqueue a job
   that then fails at read time — costs a job slot, reads nothing, spends nothing.
 - No dedicated 375px overflow test for the new URL field and suggestion cards.
+
+---
+
+# Phase 4E — Independent Codex Security & Engineering Review (2026-09-02)
+
+Reviewed the merged Phase 4E range `569351f..611f668` from clean `main`, including the approved
+plan, full history/diff, FastAPI/service/storage paths, Next.js relays and form behavior, generated
+contract, tests, and the previous Phase 4E record. The fix-forward implementation is commit
+`f95aac5`. Phase 5 was not started.
+
+## Findings, ordered by severity
+
+### Critical
+
+None found.
+
+### High — authenticated SSRF still admitted internal address classes
+
+`services/url_ingest.py::_is_public_address` used a negative property list. On the runtime used by
+the project, `100.64.0.1` (shared/CGNAT) is neither private nor global, `fec0::1` (deprecated IPv6
+site-local) is reported global, and `2002:7f00:1::` is globally classified 6to4 carrying
+`127.0.0.1`. All three reached the socket layer before the fix. An authenticated trader could
+therefore target infrastructure-routed internal services; if such a service returned a valid
+image, the normal website flow would attach it and return a presigned download URL, making this
+more than a blind timing probe. The policy now requires `is_global`, explicitly refuses IPv6
+site-local space, and validates embedded IPv4 destinations in mapped, 6to4 and Teredo addresses.
+Named tests prove no socket attempt occurs for CGNAT, site-local or the 6to4 loopback wrapper.
+
+### Medium — a successful create could still resurrect its draft
+
+The reported `submitting || savedTradeId !== null` fix stopped pending debounce timers, but could
+not cancel a PUT already waiting on the network. The server deleted the draft after create, so
+that old PUT could insert the completed values again. The duplicate-result branch also lowered
+`submitting` while `savedTradeId` remained null and restarted autosave. Finally, an older second
+tab could receive `409`, GET the newer tombstone revision, and blindly retry its stale values
+against it. All three reproduce the same correctness harm: the next New Trade silently prefilled
+from an already-journaled trade.
+
+The draft protocol now carries a monotonic revision. Create retires the row by clearing its payload,
+incrementing the revision and retaining a tombstone; browser PUT is one owner-and-revision
+conditional write. A new form may deliberately reactivate the tombstone only after loading that
+revision initially. An old mounted form does not retry when a conflict refresh returns
+`draft: null`. The form suspension is now
+`submitting || savedTradeId !== null || duplicateOf !== null`. The migration preserves existing
+draft JSON at revision 0 and cleanly downgrades. Real-form tests cover a debounce expiring inside
+POST, an already-in-flight PUT completing after POST, the duplicate panel, and the two-tab
+tombstone case.
+
+### Medium — AI suggestion provenance was forgeable/stale at two boundaries
+
+The browser PUT contract accepted `ai_suggestions` and screenshot provenance, so a caller could
+manufacture an otherwise-allowed value and have the UI label it as AI output. Separately, draft
+suggestions were last-completion-wins: if a newer screenshot finished first and an older provider
+call finished last, the old result replaced the new one. The write contract is now separate from
+the read/stored contract and excludes all worker-owned suggestion fields. Worker writes store both
+screenshot id and monotonic job id under a row lock, and refuse an older job after a newer job has
+landed. Polling requires both provenance values to match. Regression tests submit a forged allowed
+`asset` suggestion (not merely an invalid field) and execute newer-then-older completions through
+the real worker handler.
+
+### Medium — the rolling AI spend ceiling raced distinct requests
+
+Autofill performed `count_recent_jobs` and `enqueue` in different transactions. At `limit - 1`,
+many concurrent requests for different owned screenshots could all pass the count and enqueue
+separately billable work; screenshot-key idempotency does not help distinct screenshots. A new
+`enqueue_with_limit` performs existing-key lookup, rolling count and insert in one owner-serialized
+transaction (a user-row `FOR UPDATE` on PostgreSQL; `BEGIN IMMEDIATE` on SQLite). Autofill now uses
+it, and the pre-existing summary path was moved to the same shared boundary rather than retaining
+the same defect. True concurrent service and HTTP tests at 19/20 produce exactly one 202, one 429,
+and 20 rows. Changing the comparison from `>=` to `>` makes the named concurrency test fail.
+
+### Medium — the legacy URL analysis path still bypassed image normalization
+
+The website URL-ingest route correctly used quarantine/finalize, but
+`services/ai_screenshot_service.py::_download_image` still wrote fetched bytes unchanged to the
+vision temp file. A valid PNG with an appended `PROMPT-OVERRIDE-TRAILER` reached the model path
+byte-for-byte, contradicting the handoff's “only normalized images” statement. This path now uses
+the same decoder, size/dimension/decompression checks and pixel-only PNG re-encode before vision.
+The regression asserts the valid pixels survive while the appended payload does not.
+
+### Low — body downloads had only an inactivity timeout
+
+A peer could drip one byte before each socket timeout and keep a worker occupied indefinitely.
+The body reader now uses a 5-second monotonic wall-clock deadline, bounded chunks and a remaining
+socket timeout on each read while retaining the 10 MiB cap. Mutating the deadline beyond the test's
+elapsed time makes the slow-drip test fail. DNS resolution and response-header parsing still rely
+on the platform/socket inactivity timeout; an outbound proxy/egress policy remains the stronger
+production containment.
+
+### Hardening — frontend fixtures shared an impossible free-text contract
+
+Two component fixtures supplied `notes` and `setup_type` as model suggestions even though the
+Python allowlist cannot emit either. The component's apply list also included all patchable fields,
+not the narrower model-suggestible/PATCHable intersection. This was not reachable through the
+current strict backend response, but a future response-contract regression could have made model
+free text applyable while those shared-wrong tests stayed green. The client list is now the exact
+positive intersection, impossible fixtures use real fields, and a malformed response containing
+autochecked `notes` is neither rendered nor PATCHed. Re-adding `notes` makes that test fail.
+
+## Clean areas / verdicts
+
+- **Tenant isolation:** clear. Draft reads/writes/retirement are owner-filtered; screenshot enqueue
+  joins through the owned trade; worker image reads repeat ownership; job polling checks owner and
+  kind; foreign/missing resources remain byte-identical 404s. Browser-supplied owner aliases are
+  rejected. Removing the draft owner predicate and the screenshot ownership gate was caught by
+  the two-user tests.
+- **Assistive-only behavior:** clear. Autofill cannot call trade creation, suggestions remain
+  separate metadata, and only an explicit checkbox plus Apply reaches owner-scoped optimistic
+  PATCH. Free text and server-derived fields have no suggestion/apply path. React escapes rendered
+  values. The prompt receives the normalized image with `trade_ctx={}` and no strategy/profile or
+  trader-authored prose; image-borne prompt injection is contained to a normalized, allowlisted,
+  explicitly reviewed suggestion.
+- **URL/image boundary:** clear for deterministic code paths after the SSRF and legacy normalization
+  fixes. Resolution is single-use and pinned to the validated peer, all DNS answers must be public,
+  redirects are refused, schemes are HTTP(S)-only, URL components never enter object keys, bytes
+  are bounded, and the website route still goes through server-generated quarantine and the one
+  finalize/re-encode path.
+- **Idempotency/staleness:** clear after the job-id ordering and atomic-limit changes. One
+  `(user_id, idempotency_key)` still creates at most one job; failed jobs remain terminal; an older
+  result is reported superseded rather than misattributed; accepted values persist only through
+  the existing owner-and-`updated_at` conditional PATCH.
+
+## Mutation and adversarial evidence actually run
+
+The following deliberate breakages were each observed failing a named regression before being
+restored: remove `TradeDraft.user_id` filtering; make draft PUT unconditional; widen browser draft
+write to accept worker metadata; remove job ordering; remove the public-address requirement; pass
+raw downloaded bytes to vision; remove submit/duplicate autosave suspension; allow conflict retry
+through a null tombstone; extend the body deadline; change the AI ceiling from `>=` to `>`; and add
+`notes` back to the client apply set. Manual URL probes also covered integer/hex/octal IPv4 host
+spellings, userinfo/backslash parsing, encoded hosts, encoded path separators, `+`, malformed
+percent escapes and redirect targets; safety remains based on the resolved peer, not URL spelling.
+
+## Verification actually run on the final code
+
+- Python: **3039 passed / 7 skipped / 0 failed**.
+- Web: **1389 passed / 79 files / 0 failed**.
+- Focused draft, autofill, URL-ingest, imaging, storage and migration runs passed, including true
+  concurrent SQLite service and HTTP cases.
+- TypeScript clean; ESLint **0 errors** with the same 2 pre-existing `modal-trap.ts` warnings.
+- Ruff clean on `src/ scripts/` and all changed tests; Black **292 files unchanged**.
+- Next.js 16.3.0 production build passed; all Phase 4E app/API routes are dynamic.
+- OpenAPI and TypeScript regeneration was deterministic (identical diff SHA-256
+  `4d3c4c7dab825fd303c2613dcb1b3a46f7c862b1dcfe698a46df20e77f6bd614`); all 3 drift tests passed.
+- One Alembic head, `f2g3h4i5j6k7`; blank upgrade, one-step downgrade/re-upgrade, and preservation
+  of an existing draft were exercised.
+- `npm audit --omit=dev --audit-level=high`: **0 vulnerabilities**.
+
+## Remaining limitations and clearance
+
+No live R2/browser lifecycle ran: real bucket privacy/CORS, presigned PUT behavior, XHR, and
+two-account cleanup remain a hard pre-deployment gate. No Anthropic live smoke ran. No disposable
+PostgreSQL URL was available, so PostgreSQL migration behavior and the production `FOR UPDATE`
+concurrency path remain unexecuted here (the SQLite concurrency path passed). Docker is not
+installed. The broader Python dependency audit and proper 375px browser verification also remain
+open. URL DNS/header phases do not yet have an independent absolute wall-clock watchdog, so
+production egress restrictions remain recommended defense in depth.
+
+**Phase 4E is cleared to proceed to Phase 5 after `f95aac5`.** This is development clearance, not
+deployment clearance; the live R2, PostgreSQL, Docker, Anthropic, dependency and narrow-viewport
+gates above remain mandatory. Do not treat this review as having started Phase 5.
