@@ -91,6 +91,42 @@ describe("NewTradeForm", () => {
     expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
   });
 
+  it("does not recreate the cleared draft while a duplicate result is being shown", async () => {
+    const puts: RequestInit[] = [];
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/trades/create") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ id: 7, duplicate_of: 7 }),
+        });
+      }
+      if (url === "/api/trades/draft" && init?.method === "PUT") {
+        puts.push(init);
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ draft: {}, revision: 1 }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ draft: null, revision: 0 }),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<NewTradeForm />);
+    fireEvent.change(screen.getByLabelText("Asset"), { target: { value: "NQ" } });
+    fireEvent.change(screen.getByPlaceholderText(/09:30/), { target: { value: "09:30" } });
+    fireEvent.click(screen.getByRole("button", { name: /save trade/i }));
+
+    await waitFor(() => expect(screen.getByText(/already logged/i)).toBeInTheDocument());
+    await new Promise((resolve) => setTimeout(resolve, 1900));
+    expect(puts).toHaveLength(0);
+  }, 10000);
+
   it("a debounce deadline falling inside the create POST cannot resurrect the cleared draft", async () => {
     // The residual race the draft's server-side clear alone does not close.
     // `POST /v1/trades` ends the draft server-side, but a debounce armed a
@@ -132,6 +168,68 @@ describe("NewTradeForm", () => {
 
     expect(puts).toHaveLength(0);
   }, 15000);
+
+  it("a draft PUT already in flight when submit starts cannot resurrect the cleared draft", async () => {
+    let revision = 0;
+    let serverDraft: Record<string, unknown> | null = null;
+    const pendingPut: { finish?: () => void } = {};
+
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/trades/draft" && (!init || init.method === "GET")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ draft: serverDraft, revision }),
+        });
+      }
+      if (url === "/api/trades/draft" && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return new Promise((resolve) => {
+          pendingPut.finish = () => {
+            const expected = body.expected_revision;
+            // The legacy flat body was unconditional; the hardened body is a
+            // conditional write against the revision loaded before submit.
+            if (expected === undefined || expected === revision) {
+              serverDraft = body;
+              revision += 1;
+              resolve({ ok: true, status: 200, json: async () => ({ draft: body, revision }) });
+            } else {
+              resolve({ ok: false, status: 409, json: async () => ({ ok: false }) });
+            }
+          };
+        });
+      }
+      if (url === "/api/trades/create") {
+        // The server makes the old revision terminal when the trade commits.
+        serverDraft = null;
+        revision += 1;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ id: 101, duplicate_of: null }),
+        });
+      }
+      throw new Error(`unexpected request: ${String(url)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<NewTradeForm />);
+    fireEvent.change(screen.getByLabelText("Asset"), { target: { value: "NQ" } });
+    fireEvent.change(screen.getByPlaceholderText(/09:30/), { target: { value: "09:30" } });
+
+    await waitFor(() => expect(pendingPut.finish).toBeDefined(), { timeout: 5000 });
+    fireEvent.click(screen.getByRole("button", { name: /save trade/i }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/app/trades/101"));
+
+    pendingPut.finish?.();
+    await waitFor(() => {
+      const completedPut = fetchMock.mock.results.find(
+        (_result, index) => fetchMock.mock.calls[index]?.[1]?.method === "PUT",
+      );
+      expect(completedPut).toBeDefined();
+    });
+    expect(serverDraft).toBeNull();
+  }, 10000);
 
   it("renders the 422 detail the relay forwards, not generic copy", async () => {
     // `{ ok: false, detail }` is exactly what app/api/trades/create answers

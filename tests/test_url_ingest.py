@@ -96,6 +96,7 @@ def _wire(monkeypatch, *, resolves_to, connects_to=None, response=None, port=80)
         "127.0.0.1",  # loopback
         "10.0.0.5",  # private
         "169.254.169.254",  # link-local: the cloud metadata endpoint
+        "100.64.0.1",  # shared/CGNAT space: non-global, often internally routed
         "240.0.0.1",  # reserved
         "224.0.0.1",  # multicast
         "0.0.0.0",  # unspecified
@@ -137,6 +138,26 @@ def test_a_host_that_resolves_to_a_mix_of_public_and_private_is_refused(monkeypa
         "create_connection",
         lambda *a, **k: calls.append(a) or _FakeSocket(_response(), PUBLIC_IP),
     )
+
+    with pytest.raises(UrlIngestError):
+        fetch_image_bytes("http://chart.example/x.png")
+
+    assert calls == []
+
+
+def test_6to4_cannot_wrap_a_non_public_ipv4_destination(monkeypatch):
+    """A globally-classified transition address must not wrap loopback."""
+    calls, _ = _wire(monkeypatch, resolves_to="2002:7f00:1::")
+
+    with pytest.raises(UrlIngestError):
+        fetch_image_bytes("http://chart.example/x.png")
+
+    assert calls == []
+
+
+def test_deprecated_ipv6_site_local_space_is_never_connected_to(monkeypatch):
+    """`ipaddress.is_global` alone still classifies fec0::/10 as global."""
+    calls, _ = _wire(monkeypatch, resolves_to="fec0::1")
 
     with pytest.raises(UrlIngestError):
         fetch_image_bytes("http://chart.example/x.png")
@@ -251,6 +272,16 @@ def test_a_body_over_the_cap_is_refused(monkeypatch):
         fetch_image_bytes("http://chart.example/x.png")
 
     assert "too large" in str(exc.value)
+
+
+def test_a_slow_drip_cannot_extend_the_body_download_past_its_deadline(monkeypatch):
+    """Socket inactivity timeouts alone reset on every tiny chunk."""
+    _wire(monkeypatch, resolves_to=PUBLIC_IP, response=_response(body=b"png"))
+    ticks = iter((100.0, 106.0))
+    monkeypatch.setattr(url_ingest, "_monotonic", lambda: next(ticks), raising=False)
+
+    with pytest.raises(UrlIngestError):
+        fetch_image_bytes("http://chart.example/x.png")
 
 
 def test_a_non_200_is_refused(monkeypatch):

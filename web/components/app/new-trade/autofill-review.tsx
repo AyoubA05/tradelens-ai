@@ -34,8 +34,11 @@ type AutofillSuggestion = components["schemas"]["AutofillSuggestion"];
 type TradeUpdate = components["schemas"]["TradeUpdate"];
 
 /**
- * Suggested fields this component can actually apply — every field
+ * The positive intersection of fields the model may suggest and fields
  * `PATCH /v1/trades/{id}` accepts, in the component's own vocabulary.
+ * Keeping this narrower than the PATCH contract is intentional: fields such
+ * as `notes` are human-editable but are not model-suggestible, so even a
+ * malformed relay response cannot turn model prose into a journal edit.
  *
  * A suggestion that cannot be applied is NOT rendered. An earlier version
  * showed those as read-only cards, which reads as generosity and is not:
@@ -57,20 +60,12 @@ export const APPLIABLE_FIELDS = [
   "bos",
   "choch",
   "direction",
-  "followed_rules",
   "fvg_used",
   "htf_bias",
   "liquidity_sweep",
-  "mistake_tags",
-  "notes",
   "order_block_used",
   "pnl",
-  "result",
-  "risk_amount",
-  "rr_realized",
-  "setup_type",
   "timeframe",
-  "trade_date",
 ] as const satisfies readonly (keyof TradeUpdate)[];
 
 type AppliableField = (typeof APPLIABLE_FIELDS)[number];

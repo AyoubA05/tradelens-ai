@@ -211,9 +211,9 @@ export interface paths {
          * Put Trade Draft
          * @description Save (or replace) the authenticated owner's one live draft.
          *
-         *     This never touches `trades` — `services.drafts.save_draft` writes only to
+         *     This never touches `trades` — `services.drafts.save_form_draft` writes only to
          *     `trade_drafts`, a table `POST /v1/trades` does not read from and cannot
-         *     be reached from. The body is `TradeDraftPayload`, a positive allowlist
+         *     be reached from. The body is `TradeDraftWritePayload`, a positive allowlist
          *     with `extra="forbid"`: no derived field (`session`, `killzone`,
          *     `strategy_used`, `asset_class`, ...) has anywhere to go, whatever the
          *     request contains.
@@ -1138,26 +1138,19 @@ export interface components {
         };
         /**
          * TradeDraftPayload
-         * @description `PUT /v1/trades/draft` body — a POSITIVE allowlist over draft-able fields.
+         * @description Stored/read draft including worker-owned suggestion provenance.
          *
-         *     Every field is optional because a draft is, by definition, incomplete —
-         *     the trader may have filled in only the asset and a note so far. What is
-         *     NOT optional is the allowlist discipline: `extra="forbid"` refuses
-         *     anything this contract does not name, exactly like `TradeCreate`.
-         *
-         *     The field set mirrors `TradeCreate` deliberately rather than being
-         *     hand-maintained separately: `DRAFT_TRADE_FIELDS` below is checked by a
-         *     test to be a subset of `CREATABLE_TRADE_FIELDS` and disjoint from
-         *     `SERVER_OWNED_ON_CREATE`, so a derived field (`session`, `killzone`,
-         *     `strategy_used`, `asset_class`, or anything else the create endpoint
-         *     itself derives) has no way into a draft — and no way to drift into one
-         *     later without the contract test catching it.
+         *     These three fields are deliberately absent from ``TradeDraftWritePayload``:
+         *     a browser may save its form, but it may not manufacture values that the UI
+         *     labels as AI output.  The worker writes them through the draft service.
          */
         TradeDraftPayload: {
             /** Ai Suggestions */
             ai_suggestions?: {
                 [key: string]: components["schemas"]["AutofillSuggestion"];
             } | null;
+            /** Ai Suggestions Job Id */
+            ai_suggestions_job_id?: number | null;
             /** Ai Suggestions Screenshot Id */
             ai_suggestions_screenshot_id?: number | null;
             /** Asset */
@@ -1231,6 +1224,80 @@ export interface components {
          */
         TradeDraftResponse: {
             draft: components["schemas"]["TradeDraftPayload"] | null;
+            /** Revision */
+            revision: number;
+        };
+        /**
+         * TradeDraftWritePayload
+         * @description Browser autosave with an optimistic-concurrency precondition.
+         */
+        TradeDraftWritePayload: {
+            /** Asset */
+            asset?: string | null;
+            /** Bias */
+            bias?: string | null;
+            /** Bos */
+            bos?: (0 | 1) | null;
+            /** Choch */
+            choch?: (0 | 1) | null;
+            /** Confirmation Model */
+            confirmation_model?: string | null;
+            /** Direction */
+            direction?: string | null;
+            /** Emotions After */
+            emotions_after?: string | null;
+            /** Emotions Before */
+            emotions_before?: string | null;
+            /** Emotions During */
+            emotions_during?: string | null;
+            /** Entry Price */
+            entry_price?: number | null;
+            /** Entry Time */
+            entry_time?: string | null;
+            /** Entry Type */
+            entry_type?: string | null;
+            /** Exit Price */
+            exit_price?: number | null;
+            /** Expected Revision */
+            expected_revision: number;
+            /** Followed Rules */
+            followed_rules?: (0 | 1) | null;
+            /** Fvg Used */
+            fvg_used?: (0 | 1) | null;
+            /** Htf Bias */
+            htf_bias?: string | null;
+            /** Liquidity Sweep */
+            liquidity_sweep?: (0 | 1) | null;
+            /** Mistake Tags */
+            mistake_tags?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Order Block Used */
+            order_block_used?: (0 | 1) | null;
+            /** Pnl */
+            pnl?: number | null;
+            /** Position Size */
+            position_size?: number | null;
+            /** Result */
+            result?: ("Win" | "Loss" | "Breakeven") | null;
+            /** Reward Amount */
+            reward_amount?: number | null;
+            /** Risk Amount */
+            risk_amount?: number | null;
+            /** Rr Realized */
+            rr_realized?: number | null;
+            /** Setup Type */
+            setup_type?: string | null;
+            /** Stop Price */
+            stop_price?: number | null;
+            /** Timeframe */
+            timeframe?: string | null;
+            /** Tp Price */
+            tp_price?: number | null;
+            /** Trade Date */
+            trade_date?: string | null;
+            /** Trade Process Notes */
+            trade_process_notes?: string | null;
         };
         /** TradeListResponse */
         TradeListResponse: {
@@ -1693,7 +1760,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TradeDraftPayload"];
+                "application/json": components["schemas"]["TradeDraftWritePayload"];
             };
         };
         responses: {

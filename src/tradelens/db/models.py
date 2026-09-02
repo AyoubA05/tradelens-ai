@@ -676,6 +676,15 @@ class TradeDraft(Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    # Monotonic optimistic-concurrency token for browser autosaves.  Create
+    # retires (rather than deletes) the row and increments this value, so a PUT
+    # that was already in flight cannot recreate the completed trade's draft.
+    revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    retired_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

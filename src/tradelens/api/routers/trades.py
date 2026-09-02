@@ -40,6 +40,7 @@ from src.tradelens.api.schemas.trades import (
     TradeDetail,
     TradeDraftPayload,
     TradeDraftResponse,
+    TradeDraftWritePayload,
     TradeListResponse,
     TradeSummary,
     TradeSummaryJobAccepted,
@@ -52,6 +53,7 @@ from src.tradelens.services.trade_autofill import (
     AUTOFILL_WINDOW_HOURS,
     JOB_KIND as AUTOFILL_JOB_KIND,
     MAX_AUTOFILLS_PER_WINDOW,
+    SUGGESTIONS_JOB_KEY as AUTOFILL_SUGGESTIONS_JOB_KEY,
     SUGGESTIONS_SOURCE_KEY as AUTOFILL_SUGGESTIONS_SOURCE_KEY,
 )
 from src.tradelens.services.assets import detect_asset_class
@@ -316,36 +318,27 @@ def enqueue_trade_summary(
     # legitimately distinct — and separately billable — Opus job. The count is
     # therefore over the owner's `trade_summary` jobs in a rolling window and
     # is deliberately blind to filters, so no filter permutation escapes it.
-    # Checked here, before `enqueue`, so a refusal writes no `ai_jobs` row and
-    # never reaches the worker or Anthropic. It is checked *after* the period
-    # and floor validation above so a malformed or too-small request still
-    # gets its 422.
-    if (
-        jobs.count_recent_jobs(
-            user_id,
-            "trade_summary",
-            datetime.now(timezone.utc) - timedelta(hours=SUMMARY_WINDOW_HOURS),
+    # Count, existing-key lookup and insert are one owner-serialized
+    # transaction. A separate count-before-enqueue lets concurrent distinct
+    # selections all observe limit-1 and buy work beyond the ceiling.
+    job_id, created = jobs.enqueue_with_limit(
+        user_id,
+        "trade_summary",
+        key,
+        job_payload,
+        since=datetime.now(timezone.utc) - timedelta(hours=SUMMARY_WINDOW_HOURS),
+        limit=MAX_SUMMARIES_PER_WINDOW,
+    )
+    if job_id is None:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"You've reached {MAX_SUMMARIES_PER_WINDOW} AI summaries for "
+                f"today. New summaries are available again "
+                f"{SUMMARY_WINDOW_HOURS} hours after your earliest one. "
+                "Summaries you've already generated are still available."
+            ),
         )
-        >= MAX_SUMMARIES_PER_WINDOW
-    ):
-        # Being at the limit must never lock a trader out of a summary they
-        # already have. Only work that would create a *new* job is refused.
-        existing = jobs.get_owned_job_by_idempotency_key(user_id, "trade_summary", key)
-        if existing is None:
-            raise HTTPException(
-                status_code=429,
-                detail=(
-                    f"You've reached {MAX_SUMMARIES_PER_WINDOW} AI summaries for "
-                    f"today. New summaries are available again "
-                    f"{SUMMARY_WINDOW_HOURS} hours after your earliest one. "
-                    "Summaries you've already generated are still available."
-                ),
-            )
-        return TradeSummaryJobAccepted(
-            job_id=int(existing.id), status=existing.status, created=False
-        )
-
-    job_id, created = jobs.enqueue(user_id, "trade_summary", key, job_payload)
     job = jobs.get_owned_job(job_id, user_id)
     if job is None:  # Defensive: enqueue committed this exact owner-scoped row.
         raise HTTPException(status_code=500, detail="summary job unavailable")
@@ -411,45 +404,28 @@ def enqueue_trade_autofill(
 
     key = f"{AUTOFILL_JOB_KIND}:{int(payload.screenshot_id)}"
 
-    # Checked BEFORE `enqueue`, exactly as the summary endpoint does it, so a
-    # refusal writes no `ai_jobs` row and never reaches the worker or
-    # Anthropic. The count is over the owner's autofill jobs in a rolling
-    # window and is deliberately blind to which screenshot, so re-uploading
-    # the same chart under new ids buys nothing.
-    if (
-        jobs.count_recent_jobs(
-            user_id,
-            AUTOFILL_JOB_KIND,
-            datetime.now(timezone.utc) - timedelta(hours=AUTOFILL_WINDOW_HOURS),
-        )
-        >= MAX_AUTOFILLS_PER_WINDOW
-    ):
-        # Being at the limit must never lock a trader out of a job they
-        # already have — including one that failed, which they are entitled to
-        # see rather than silently retry.
-        existing = jobs.get_owned_job_by_idempotency_key(
-            user_id, AUTOFILL_JOB_KIND, key
-        )
-        if existing is None:
-            raise HTTPException(
-                status_code=429,
-                detail=(
-                    f"You've reached {MAX_AUTOFILLS_PER_WINDOW} AI autofills for "
-                    f"today. New autofills are available again "
-                    f"{AUTOFILL_WINDOW_HOURS} hours after your earliest one. "
-                    "You can still fill the form in yourself."
-                ),
-            )
-        return TradeAutofillJobAccepted(
-            job_id=int(existing.id), status=existing.status, created=False
-        )
-
-    # The idempotency key is the screenshot, so a double-click, a retry, and a
-    # resubmit after a failure all return the SAME job. A failed job therefore
-    # stays terminal instead of quietly re-spending.
-    job_id, created = jobs.enqueue(
-        user_id, AUTOFILL_JOB_KIND, key, {"screenshot_id": int(payload.screenshot_id)}
+    # The idempotency key is the screenshot, so a double-click, retry, and
+    # resubmit after a failure all return the SAME job. The owner-serialized
+    # transaction also makes the rolling ceiling real under concurrent
+    # requests for different screenshots.
+    job_id, created = jobs.enqueue_with_limit(
+        user_id,
+        AUTOFILL_JOB_KIND,
+        key,
+        {"screenshot_id": int(payload.screenshot_id)},
+        since=datetime.now(timezone.utc) - timedelta(hours=AUTOFILL_WINDOW_HOURS),
+        limit=MAX_AUTOFILLS_PER_WINDOW,
     )
+    if job_id is None:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"You've reached {MAX_AUTOFILLS_PER_WINDOW} AI autofills for "
+                f"today. New autofills are available again "
+                f"{AUTOFILL_WINDOW_HOURS} hours after your earliest one. "
+                "You can still fill the form in yourself."
+            ),
+        )
     job = jobs.get_owned_job(job_id, user_id)
     if job is None:  # Defensive: enqueue committed this exact owner-scoped row.
         raise HTTPException(status_code=500, detail="autofill job unavailable")
@@ -485,9 +461,14 @@ def get_trade_autofill_job(
     suggestions = None
     superseded = False
     if job.status == "succeeded":
-        draft = drafts.get_draft(user_id) or {}
+        draft = drafts.get_worker_draft(user_id) or {}
         stored_for = draft.get(AUTOFILL_SUGGESTIONS_SOURCE_KEY)
-        if stored_for is not None and stored_for == _job_screenshot_id(job):
+        stored_job = draft.get(AUTOFILL_SUGGESTIONS_JOB_KEY)
+        if (
+            stored_for is not None
+            and stored_for == _job_screenshot_id(job)
+            and stored_job == int(job.id)
+        ):
             suggestions = draft.get("ai_suggestions") or {}
         else:
             # Includes the draft that has no provenance at all (cleared by an
@@ -541,7 +522,7 @@ def _clear_draft(user_id: int) -> None:
     loss.
     """
     try:
-        drafts.delete_draft(user_id)
+        drafts.retire_draft(user_id)
     except Exception:  # pragma: no cover — defensive; the trade is committed
         _log.warning("could not clear draft after create", exc_info=True)
 
@@ -639,33 +620,45 @@ def get_trade_draft(
     answered as "no draft" — the same thing the trader sees on a fresh form,
     and the next autosave replaces the row.
     """
-    payload = drafts.get_draft(user_id)
+    snapshot = drafts.get_draft_snapshot(user_id)
+    payload = snapshot.payload
     if payload is None:
-        return TradeDraftResponse(draft=None)
+        return TradeDraftResponse(draft=None, revision=snapshot.revision)
     try:
         draft = TradeDraftPayload(**payload)
-    except ValidationError:
+    except (ValidationError, TypeError):
         _log.warning("discarding a stored draft that no longer validates")
-        return TradeDraftResponse(draft=None)
-    return TradeDraftResponse(draft=draft)
+        return TradeDraftResponse(draft=None, revision=snapshot.revision)
+    return TradeDraftResponse(draft=draft, revision=snapshot.revision)
 
 
 @router.put("/trades/draft")
 def put_trade_draft(
-    payload: TradeDraftPayload,
+    payload: TradeDraftWritePayload,
     user_id: int = Depends(current_user),
 ) -> TradeDraftResponse:
     """Save (or replace) the authenticated owner's one live draft.
 
-    This never touches `trades` — `services.drafts.save_draft` writes only to
+    This never touches `trades` — `services.drafts.save_form_draft` writes only to
     `trade_drafts`, a table `POST /v1/trades` does not read from and cannot
-    be reached from. The body is `TradeDraftPayload`, a positive allowlist
+    be reached from. The body is `TradeDraftWritePayload`, a positive allowlist
     with `extra="forbid"`: no derived field (`session`, `killzone`,
     `strategy_used`, `asset_class`, ...) has anywhere to go, whatever the
     request contains.
     """
-    drafts.save_draft(user_id, payload.model_dump(exclude_unset=True))
-    return TradeDraftResponse(draft=payload)
+    fields = payload.model_dump(exclude_unset=True)
+    expected_revision = fields.pop("expected_revision")
+    revision = drafts.save_form_draft(
+        user_id, fields, expected_revision=expected_revision
+    )
+    if revision is None:
+        raise HTTPException(status_code=409, detail="stale draft")
+
+    # Return the merged stored state, not the incoming body: an autofill worker
+    # may have written suggestions between browser edits and those remain part
+    # of the owner's draft even though the browser cannot submit them itself.
+    stored = drafts.get_draft(user_id) or {}
+    return TradeDraftResponse(draft=TradeDraftPayload(**stored), revision=revision)
 
 
 @router.get("/trades/{trade_id}")

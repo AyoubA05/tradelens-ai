@@ -298,6 +298,63 @@ def test_phase4_idempotency_migration_preserves_legacy_duplicate_hashes_and_down
         assert "create_idempotency_key" not in _columns_of(conn, "trades")
 
 
+def test_phase4e_draft_lifecycle_migration_preserves_existing_drafts_and_downgrades(
+    tmp_path,
+):
+    """Existing in-progress forms survive the revision/tombstone rollout."""
+    database_url = f"sqlite:///{tmp_path / 'phase4e-drafts.db'}"
+    assert _run_alembic(["upgrade", "e1f2g3h4i5j6"], database_url).returncode == 0
+
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO users (username, password_hash) "
+                "VALUES ('draft-owner', 'hash')"
+            )
+        )
+        owner = conn.execute(
+            text("SELECT id FROM users WHERE username = 'draft-owner'")
+        ).scalar_one()
+        conn.execute(
+            text(
+                "INSERT INTO trade_drafts "
+                "(user_id, payload_json, created_at, updated_at) "
+                "VALUES (:owner, :payload, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            ),
+            {"owner": owner, "payload": '{"asset":"NQ"}'},
+        )
+    engine.dispose()
+
+    upgraded = _run_alembic(["upgrade", "head"], database_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        assert {"revision", "retired_at"} <= _columns_of(conn, "trade_drafts")
+        row = conn.execute(
+            text(
+                "SELECT payload_json, revision, retired_at FROM trade_drafts "
+                "WHERE user_id = :owner"
+            ),
+            {"owner": owner},
+        ).one()
+        assert row == ('{"asset":"NQ"}', 0, None)
+    engine.dispose()
+
+    downgraded = _run_alembic(["downgrade", "e1f2g3h4i5j6"], database_url)
+    assert downgraded.returncode == 0, downgraded.stderr
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        assert {"revision", "retired_at"}.isdisjoint(_columns_of(conn, "trade_drafts"))
+        assert (
+            conn.execute(
+                text("SELECT payload_json FROM trade_drafts WHERE user_id = :owner"),
+                {"owner": owner},
+            ).scalar_one()
+            == '{"asset":"NQ"}'
+        )
+
+
 def test_full_trade_schema_migration_creates_missing_historical_base_tables(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'historical-base.db'}")
     mig = _load_mig("8383cf3ef6e7_add_full_trade_schema.py")

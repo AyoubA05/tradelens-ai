@@ -83,16 +83,38 @@ def _download_image(url: str) -> Path:
     through `POST /trades/{id}/screenshot/ingest-url` instead, which promotes
     through `finalize_upload` and its re-encode.
     """
-    ext = Path(urlparse(url).path).suffix.lower()
-    if ext not in _IMAGE_EXTS:
-        ext = ".png"
     try:
         data = url_ingest.fetch_image_bytes(url)
     except url_ingest.UrlIngestError as exc:
         raise ScreenshotAnalysisError(str(exc)) from exc
-    fd, tmp = tempfile.mkstemp(suffix=ext)
+
+    # This legacy Streamlit caller does not have a trade id with which to use
+    # R2 quarantine, but it must still have the same byte trust boundary as
+    # the website ingest route.  Decode, dimension-check and re-encode before
+    # staging anything for vision; a polyglot/trailing payload, EXIF, animation
+    # or decompression bomb therefore cannot reach the model through this
+    # older URL entry point.
+    from src.tradelens.api.imaging import (
+        ImageRejected,
+        sniff_content_type,
+        validate_and_normalise,
+    )
+
+    claimed_type = sniff_content_type(data)
+    if claimed_type is None:
+        raise ScreenshotAnalysisError(NOT_AN_IMAGE_MSG)
+    try:
+        normalized, _content_type, _width, _height = validate_and_normalise(
+            data, expected_content_type=claimed_type
+        )
+    except ImageRejected as exc:
+        raise ScreenshotAnalysisError(NOT_AN_IMAGE_MSG) from exc
+
+    # The normalizer always emits PNG; keeping the source extension after a
+    # re-encode would make MIME inference disagree with the bytes.
+    fd, tmp = tempfile.mkstemp(suffix=".png")
     with os.fdopen(fd, "wb") as fh:
-        fh.write(data)
+        fh.write(normalized)
     return Path(tmp)
 
 

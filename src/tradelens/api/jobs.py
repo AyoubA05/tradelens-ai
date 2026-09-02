@@ -21,7 +21,7 @@ from typing import Callable, Dict, Optional, Tuple
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from src.tradelens.db.models import AIJob
+from src.tradelens.db.models import AIJob, User
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services.corrections import corrections_scope
 from src.tradelens.services.ownership import require_user_id
@@ -66,6 +66,98 @@ def enqueue(
             .one()
         )
         return int(existing.id), False
+    finally:
+        db.close()
+
+
+def enqueue_with_limit(
+    user_id: int,
+    kind: str,
+    idempotency_key: str,
+    payload: dict,
+    *,
+    since: datetime,
+    limit: int,
+) -> Tuple[Optional[int], bool]:
+    """Idempotently enqueue without racing an owner-scoped rolling limit.
+
+    Returns ``(None, False)`` only when a *new* key would cross the limit.
+    Existing work is returned even at the ceiling, so rate limiting never
+    hides a terminal job the trader already paid for.
+
+    PostgreSQL serializes this tiny count/insert transaction on the owner's
+    user row. SQLite ignores ``FOR UPDATE``, so the test/development dialect
+    takes an immediate write transaction before reading instead. The lock is
+    acquired before both the idempotency lookup and count; separating either
+    read from the insert recreates a window where many distinct screenshots
+    can all observe ``limit - 1`` and enqueue billable work together.
+    """
+    owner = require_user_id(user_id)
+    if isinstance(limit, bool) or limit <= 0:
+        raise ValueError("limit must be positive")
+
+    db = SessionLocal()
+    try:
+        if db.get_bind().dialect.name == "sqlite":
+            db.execute(text("BEGIN IMMEDIATE"))
+        else:
+            # The authenticated owner row always exists. Locking that stable
+            # row avoids a separate quota table and works even when there are
+            # currently zero jobs to lock.
+            db.query(User.id).filter(User.id == owner).with_for_update().one()
+
+        existing = (
+            db.query(AIJob)
+            .filter(
+                AIJob.user_id == owner,
+                AIJob.kind == kind,
+                AIJob.idempotency_key == idempotency_key,
+            )
+            .first()
+        )
+        if existing is not None:
+            db.commit()
+            return int(existing.id), False
+
+        recent = (
+            db.query(AIJob)
+            .filter(
+                AIJob.user_id == owner,
+                AIJob.kind == kind,
+                AIJob.created_at >= since,
+            )
+            .count()
+        )
+        if recent >= limit:
+            db.rollback()
+            return None, False
+
+        job = AIJob(
+            user_id=owner,
+            kind=kind,
+            idempotency_key=idempotency_key,
+            payload=json.dumps(payload),
+            status="queued",
+            created_at=_now(),
+        )
+        db.add(job)
+        try:
+            db.commit()
+        except IntegrityError:
+            # Defence against a caller that still uses the legacy enqueue
+            # path for this same key. The database constraint remains the
+            # final idempotency authority.
+            db.rollback()
+            existing = (
+                db.query(AIJob)
+                .filter(
+                    AIJob.user_id == owner,
+                    AIJob.idempotency_key == idempotency_key,
+                )
+                .one()
+            )
+            return int(existing.id), False
+        return int(job.id), True
     finally:
         db.close()
 

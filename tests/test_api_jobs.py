@@ -1,6 +1,7 @@
 import pytest
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from threading import Barrier
 
 from src.tradelens.api import jobs
@@ -56,6 +57,42 @@ def test_one_users_key_does_not_block_another(two_users):
     _, created_a = jobs.enqueue(a, "grading", "shared", {})
     _, created_b = jobs.enqueue(b, "grading", "shared", {})
     assert created_a and created_b
+
+
+def test_concurrent_distinct_enqueues_cannot_cross_an_owner_rate_limit(two_users):
+    """The count and insert must share one owner-serialized transaction."""
+    owner, _ = two_users
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    for index in range(19):
+        jobs.enqueue(owner, "trade_autofill", f"existing-{index}", {})
+
+    gate = Barrier(2)
+
+    def submit(index: int):
+        gate.wait()
+        return jobs.enqueue_with_limit(
+            owner,
+            "trade_autofill",
+            f"new-{index}",
+            {},
+            since=since,
+            limit=20,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(submit, range(2)))
+
+    assert sorted(job_id is None for job_id, _created in results) == [False, True]
+    db = SessionLocal()
+    try:
+        assert (
+            db.query(AIJob)
+            .filter(AIJob.user_id == owner, AIJob.kind == "trade_autofill")
+            .count()
+            == 20
+        )
+    finally:
+        db.close()
 
 
 def test_enqueue_requires_a_real_owner():

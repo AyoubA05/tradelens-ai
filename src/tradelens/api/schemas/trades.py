@@ -380,8 +380,8 @@ class TradeCreate(_Strict):
         return value
 
 
-class TradeDraftPayload(_Strict):
-    """`PUT /v1/trades/draft` body — a POSITIVE allowlist over draft-able fields.
+class _TradeDraftFormFields(_Strict):
+    """Human-entered, draft-able fields shared by read and write contracts.
 
     Every field is optional because a draft is, by definition, incomplete —
     the trader may have filled in only the asset and a note so far. What is
@@ -434,29 +434,6 @@ class TradeDraftPayload(_Strict):
     notes: Optional[str] = None
     trade_process_notes: Optional[str] = None
 
-    # Autofill output, beside the draft rather than in it. Keys are checked
-    # against the autofill allowlist below, so this is a second, wire-level
-    # copy of the same filter the service already applied: a suggestion for a
-    # derived field cannot round-trip even if something upstream let it be
-    # stored.
-    ai_suggestions: Optional[Dict[str, AutofillSuggestion]] = None
-    # Which screenshot the suggestions above were read from. Provenance, not
-    # content: the autofill poll compares it against the job it was asked
-    # about so a superseded set is never returned as if it described that
-    # job's chart. `services.trade_autofill.SUGGESTIONS_SOURCE_KEY` names the
-    # same key on the storage side.
-    ai_suggestions_screenshot_id: Optional[int] = None
-
-    @field_validator("ai_suggestions")
-    @classmethod
-    def _suggestions_must_be_suggestable(cls, value):
-        if value is None:
-            return value
-        unknown = set(value) - _suggestable_fields()
-        if unknown:
-            raise ValueError("unsuggestable field")
-        return value
-
     @field_validator(
         "pnl",
         "rr_realized",
@@ -475,10 +452,40 @@ class TradeDraftPayload(_Strict):
         return value
 
 
+class TradeDraftPayload(_TradeDraftFormFields):
+    """Stored/read draft including worker-owned suggestion provenance.
+
+    These three fields are deliberately absent from ``TradeDraftWritePayload``:
+    a browser may save its form, but it may not manufacture values that the UI
+    labels as AI output.  The worker writes them through the draft service.
+    """
+
+    ai_suggestions: Optional[Dict[str, AutofillSuggestion]] = None
+    ai_suggestions_screenshot_id: Optional[int] = None
+    ai_suggestions_job_id: Optional[int] = None
+
+    @field_validator("ai_suggestions")
+    @classmethod
+    def _suggestions_must_be_suggestable(cls, value):
+        if value is None:
+            return value
+        unknown = set(value) - _suggestable_fields()
+        if unknown:
+            raise ValueError("unsuggestable field")
+        return value
+
+
+class TradeDraftWritePayload(_TradeDraftFormFields):
+    """Browser autosave with an optimistic-concurrency precondition."""
+
+    expected_revision: int = Field(ge=0)
+
+
 class TradeDraftResponse(_Strict):
     """`GET /v1/trades/draft` body. `draft` is `None` when the owner has none."""
 
     draft: Optional[TradeDraftPayload]
+    revision: int = Field(ge=0)
 
 
 # The draft write surface, derived from the model itself so it cannot drift
@@ -488,14 +495,8 @@ class TradeDraftResponse(_Strict):
 # columns, not wire fields. A contract test pins this as a subset of
 # `CREATABLE_TRADE_FIELDS` and disjoint from `SERVER_OWNED_ON_CREATE` — see
 # `TradeDraftPayload`'s docstring.
-DRAFT_TRADE_FIELDS = frozenset(TradeDraftPayload.model_fields) - {
+DRAFT_TRADE_FIELDS = frozenset(_TradeDraftFormFields.model_fields) - {
     "entry_time",
-    # Not a `Trade` column and never becomes one: it is the provenance
-    # sidecar the trader reviews, not a value the create path can accept.
-    "ai_suggestions",
-    # Same: which screenshot those suggestions came from is metadata about
-    # the review, not a field a trade can be created with.
-    "ai_suggestions_screenshot_id",
 }
 
 

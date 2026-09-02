@@ -157,4 +157,51 @@ describe("useDraftAutosave", () => {
       timeout: 5000,
     });
   }, 10000);
+
+  it("an old tab cannot retry through a tombstone created by another tab", async () => {
+    let gets = 0;
+    const puts: RequestInit[] = [];
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (!init || init.method === "GET") {
+        gets += 1;
+        if (gets === 1) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({ draft: { asset: "NQ" }, revision: 7 }),
+          });
+        }
+        // Another tab journaled the trade while this tab's PUT was in
+        // flight. The null draft at a newer revision is the server's
+        // terminal tombstone, not an invitation to retry stale values.
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ draft: null, revision: 8 }),
+        });
+      }
+      puts.push(init);
+      if (puts.length === 1) {
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          json: async () => ({ detail: "stale draft" }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ draft: { asset: "NQ" }, revision: 9 }),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<Harness initial={emptyNewTradeFormValues()} />);
+
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("error"), {
+      timeout: 6000,
+    });
+    expect(gets).toBe(2);
+    expect(puts).toHaveLength(1);
+  }, 10000);
 });

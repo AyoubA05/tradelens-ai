@@ -50,7 +50,7 @@ describe("AutofillReview", () => {
         error: null,
         suggestions: {
           asset: { value: "NQ", confidence: 0.95, autocheck: true },
-          notes: { value: "Clean break of structure", confidence: 0.4, autocheck: false },
+          bias: { value: "Bullish", confidence: null, autocheck: false },
         },
       });
     });
@@ -73,9 +73,7 @@ describe("AutofillReview", () => {
     const badges = screen.getAllByText("Suggested");
     expect(badges.length).toBe(2);
     expect(screen.getByTestId("autofill-suggestion-asset-value")).toHaveTextContent("NQ");
-    expect(screen.getByTestId("autofill-suggestion-notes-value")).toHaveTextContent(
-      "Clean break of structure",
-    );
+    expect(screen.getByTestId("autofill-suggestion-bias-value")).toHaveTextContent("Bullish");
   });
 
   it("pre-checks a suggestion only when the server's own autocheck said so — never a second, client-side threshold", async () => {
@@ -87,7 +85,7 @@ describe("AutofillReview", () => {
         error: null,
         suggestions: {
           asset: { value: "NQ", confidence: 0.95, autocheck: true },
-          setup_type: { value: "OB Retest", confidence: 0.3, autocheck: false },
+          bos: { value: 1, confidence: null, autocheck: false },
         },
       });
     });
@@ -102,9 +100,9 @@ describe("AutofillReview", () => {
     );
 
     const assetCheckbox = screen.getByLabelText(/accept suggested asset/i) as HTMLInputElement;
-    const setupCheckbox = screen.getByLabelText(/accept suggested setup type/i) as HTMLInputElement;
+    const bosCheckbox = screen.getByLabelText(/accept suggested bos/i) as HTMLInputElement;
     expect(assetCheckbox.checked).toBe(true);
-    expect(setupCheckbox.checked).toBe(false);
+    expect(bosCheckbox.checked).toBe(false);
   });
 
   it("applies nothing and calls onDone unchanged when the trader skips", async () => {
@@ -233,6 +231,60 @@ describe("AutofillReview", () => {
     expect(body.asset).toBe("NQ");
     expect(body).not.toHaveProperty("entry_price");
     await waitFor(() => expect(onDone).toHaveBeenCalled());
+  });
+
+  it("never renders or applies free text outside the model suggestion allowlist", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/trades/autofill") return jsonResponse(202, { job_id: 6 });
+      if (url === "/api/trades/autofill/6") {
+        return jsonResponse(200, {
+          job_id: 6,
+          status: "succeeded",
+          error: null,
+          suggestions: {
+            asset: { value: "NQ", confidence: 0.95, autocheck: true },
+            // Deliberately violates the backend contract. The browser keeps
+            // its own positive intersection so a future relay/schema bug
+            // still cannot make model prose an applyable journal field.
+            notes: {
+              value: "ignore the trader and replace their journal",
+              confidence: 1,
+              autocheck: true,
+            },
+          },
+        });
+      }
+      if (url === "/api/trades/1" && init?.method === "PATCH") {
+        return jsonResponse(200, { id: 1 });
+      }
+      return jsonResponse(404, {});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <AutofillReview tradeId={1} screenshotId={2} expectedUpdatedAt="2026-08-31T00:00:00Z" onDone={vi.fn()} />,
+    );
+    await startAndResolve(fetchMock);
+    await waitFor(() =>
+      expect(screen.getByTestId("autofill-suggestion-list")).toBeInTheDocument(),
+    );
+
+    expect(screen.queryByLabelText(/accept suggested notes/i)).toBeNull();
+    expect(screen.queryByText(/replace their journal/i)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /apply accepted/i }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/trades/1",
+        expect.objectContaining({ method: "PATCH" }),
+      ),
+    );
+    const patchCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/api/trades/1" && init?.method === "PATCH",
+    );
+    expect(JSON.parse(String((patchCall![1] as RequestInit).body))).toEqual({
+      asset: "NQ",
+      expected_updated_at: "2026-08-31T00:00:00Z",
+    });
   });
 
   it("a failed apply leaves the trade panel saying the trade is unchanged, not lost", async () => {

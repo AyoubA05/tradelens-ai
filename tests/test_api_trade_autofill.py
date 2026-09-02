@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from threading import Barrier
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,7 +26,7 @@ from src.tradelens.api.schemas.trades import (
 from src.tradelens.api.security import sign_request
 from src.tradelens.db.models import AIJob, Screenshot, Trade
 from src.tradelens.db.session import SessionLocal
-from src.tradelens.services import trade_autofill, trade_service
+from src.tradelens.services import drafts, trade_autofill, trade_service
 from src.tradelens.services.trade_autofill import (
     AUTOFILL_TRADE_FIELDS,
     AUTOFILL_WINDOW_HOURS,
@@ -243,6 +245,26 @@ def test_owner_at_the_limit_is_refused_without_creating_a_billable_job(
     assert str(AUTOFILL_WINDOW_HOURS) in detail
 
 
+def test_concurrent_distinct_screenshots_cannot_cross_the_rate_limit(
+    client, website_session_handle
+):
+    """The observable endpoint must use the atomic count/enqueue boundary."""
+    owner, handle = website_session_handle
+    screenshot_ids = [_screenshot(owner), _screenshot(owner)]
+    _fill_window(owner, MAX_AUTOFILLS_PER_WINDOW - 1)
+    gate = Barrier(2)
+
+    def submit(screenshot_id: int):
+        gate.wait()
+        return _post(client, handle, {"screenshot_id": screenshot_id})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(submit, screenshot_ids))
+
+    assert sorted(response.status_code for response in responses) == [202, 429]
+    assert _job_count(owner) == MAX_AUTOFILLS_PER_WINDOW
+
+
 def test_the_rate_limit_is_checked_before_any_provider_work(
     client, website_session_handle, monkeypatch
 ):
@@ -424,6 +446,60 @@ def test_polling_the_first_job_never_returns_the_second_screenshot_s_readings(
     assert current.status_code == 200
     assert current.json()["superseded"] is False
     assert current.json()["suggestions"]["entry_price"]["value"] == 5500.75
+
+
+def test_an_older_job_finishing_last_cannot_replace_the_newer_job_s_suggestions(
+    client, website_session_handle, monkeypatch
+):
+    """Request order, not worker completion order, decides what is current."""
+    owner, handle = website_session_handle
+    older_screenshot = _screenshot(owner)
+    newer_screenshot = _screenshot(owner)
+    older_job = _post(client, handle, {"screenshot_id": older_screenshot}).json()[
+        "job_id"
+    ]
+    newer_job = _post(client, handle, {"screenshot_id": newer_screenshot}).json()[
+        "job_id"
+    ]
+    assert newer_job > older_job
+
+    readings = iter((("ES", 5500.75), ("NQ", 20100.25)))
+    monkeypatch.setattr(
+        trade_autofill.storage,
+        "read_owned_final_object",
+        lambda _user_id, _screenshot_id: b"fake-png",
+    )
+    monkeypatch.setattr(
+        trade_autofill,
+        "check_screenshot_quality",
+        lambda _path: type("Q", (), {"usable": True, "warnings": []})(),
+    )
+
+    def _analysis(*_args, **_kwargs):
+        asset, price = next(readings)
+        return (
+            {
+                "descriptive": {"detected_asset": asset},
+                "trade_overlay": {
+                    "source": "visible_trade_box",
+                    "entry_price": price,
+                    "confidence": {"entry_price": 0.9},
+                },
+            },
+            "usage",
+        )
+
+    monkeypatch.setattr(trade_autofill, "analyze_screenshot_v3", _analysis)
+
+    # Simulate two workers: the newer request completes first, then the older
+    # provider call returns late. Calling the real handlers keeps filtering
+    # and persistence in the test.
+    worker._trade_autofill_handler(owner, {"screenshot_id": newer_screenshot})
+    worker._trade_autofill_handler(owner, {"screenshot_id": older_screenshot})
+
+    stored = drafts.get_draft(owner)
+    assert stored["ai_suggestions_screenshot_id"] == newer_screenshot
+    assert stored["ai_suggestions"]["entry_price"]["value"] == 5500.75
 
 
 def test_a_current_job_s_suggestions_are_not_reported_superseded(

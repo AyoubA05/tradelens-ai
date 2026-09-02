@@ -16,7 +16,7 @@ import type { components } from "@/lib/api/schema";
  * `trade_drafts`, a table `POST /v1/trades` cannot read from. This module
  * does not add a second way to reach that table; it is the one bridge.
  */
-export type TradeDraftPayload = components["schemas"]["TradeDraftPayload"];
+export type TradeDraftWritePayload = components["schemas"]["TradeDraftWritePayload"];
 export type TradeDraftResponse = components["schemas"]["TradeDraftResponse"];
 
 export async function getDraft(sessionToken: string): Promise<TradeDraftResponse> {
@@ -25,7 +25,7 @@ export async function getDraft(sessionToken: string): Promise<TradeDraftResponse
 
 export async function saveDraft(
   sessionToken: string,
-  payload: TradeDraftPayload,
+  payload: TradeDraftWritePayload,
 ): Promise<TradeDraftResponse> {
   return callApi<TradeDraftResponse>("/v1/trades/draft", sessionToken, {
     method: "PUT",

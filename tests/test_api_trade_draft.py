@@ -59,6 +59,11 @@ def _put_headers(handle, body: bytes, *, path=DRAFT_PATH):
 
 
 def _put(client, handle, body: dict):
+    body = dict(body)
+    if "expected_revision" not in body:
+        current = client.get(DRAFT_PATH, headers=_get_headers(handle))
+        assert current.status_code == 200
+        body["expected_revision"] = current.json()["revision"]
     payload = json.dumps(body, separators=(",", ":")).encode()
     return client.put(
         DRAFT_PATH, content=payload, headers=_put_headers(handle, payload)
@@ -91,15 +96,21 @@ def test_get_without_a_session_is_refused(client):
 
 def test_put_unsigned_request_is_refused(client, website_session_handle):
     _, handle = website_session_handle
-    body = json.dumps({"asset": "NQ"}, separators=(",", ":")).encode()
+    body = json.dumps(
+        {"asset": "NQ", "expected_revision": 0}, separators=(",", ":")
+    ).encode()
     r = client.put(DRAFT_PATH, content=body, headers={"X-TL-Session-Handle": handle})
     assert r.status_code == 401
 
 
 def test_put_a_tampered_body_fails_the_signature(client, website_session_handle):
     _, handle = website_session_handle
-    signed = json.dumps({"asset": "NQ"}, separators=(",", ":")).encode()
-    tampered = json.dumps({"asset": "MNQ"}, separators=(",", ":")).encode()
+    signed = json.dumps(
+        {"asset": "NQ", "expected_revision": 0}, separators=(",", ":")
+    ).encode()
+    tampered = json.dumps(
+        {"asset": "MNQ", "expected_revision": 0}, separators=(",", ":")
+    ).encode()
     r = client.put(DRAFT_PATH, content=tampered, headers=_put_headers(handle, signed))
     assert r.status_code == 401
 
@@ -125,7 +136,8 @@ def test_owner_with_no_draft_gets_null(client, website_session_handle):
     _, handle = website_session_handle
     r = client.get(DRAFT_PATH, headers=_get_headers(handle))
     assert r.status_code == 200
-    assert r.json() == {"draft": None}
+    assert r.json()["draft"] is None
+    assert r.json()["revision"] == 0
 
 
 def test_saving_twice_supersedes(client, website_session_handle):
@@ -184,7 +196,7 @@ def test_a_second_owner_s_draft_is_invisible(client, two_users):
     drafts_service.save_draft(user_a, {"asset": "NQ"})
 
     r = client.get(DRAFT_PATH, headers=_get_headers(handle_b))
-    assert r.json() == {"draft": None}
+    assert r.json()["draft"] is None
 
 
 def test_no_number_of_draft_saves_creates_a_trades_row(client, website_session_handle):
@@ -217,9 +229,12 @@ def test_derived_fields_are_rejected(client, website_session_handle):
 
 def test_body_tampered_request_fails_lock_1(client, website_session_handle):
     _, handle = website_session_handle
-    signed = json.dumps({"asset": "NQ"}, separators=(",", ":")).encode()
+    signed = json.dumps(
+        {"asset": "NQ", "expected_revision": 0}, separators=(",", ":")
+    ).encode()
     tampered = json.dumps(
-        {"asset": "NQ", "notes": "sneaky"}, separators=(",", ":")
+        {"asset": "NQ", "notes": "sneaky", "expected_revision": 0},
+        separators=(",", ":"),
     ).encode()
     r = client.put(DRAFT_PATH, content=tampered, headers=_put_headers(handle, signed))
     assert r.status_code == 401
@@ -256,6 +271,26 @@ def test_a_derived_field_cannot_be_suggested_on_the_wire(
         client, handle, {"asset": "NQ", "ai_suggestions": {"strategy_used": suggestion}}
     )
     assert r.status_code == 422
+
+
+def test_the_browser_cannot_forge_worker_owned_suggestion_metadata(
+    client, website_session_handle
+):
+    """An allowed key proves provenance, not the suggestion allowlist."""
+    _, handle = website_session_handle
+    suggestion = {"value": "ES", "confidence": 0.99, "autocheck": True}
+
+    response = _put(
+        client,
+        handle,
+        {
+            "asset": "NQ",
+            "ai_suggestions": {"asset": suggestion},
+            "ai_suggestions_screenshot_id": 123,
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_a_stored_derived_suggestion_cannot_round_trip_through_get(
@@ -351,8 +386,56 @@ def test_journaling_a_trade_ends_the_draft(client, website_session_handle):
     # What the next New Trade form would load: nothing.
     r = client.get(DRAFT_PATH, headers=_get_headers(handle))
     assert r.status_code == 200
-    assert r.json() == {"draft": None}
+    assert r.json()["draft"] is None
     assert drafts.get_draft(owner) is None
+
+
+def test_a_stale_autosave_cannot_recreate_a_draft_after_create(
+    client, website_session_handle
+):
+    """A PUT already in flight when submit begins must lose to create."""
+    _, handle = website_session_handle
+    first = _put(client, handle, {"asset": "NQ", "entry_time": "09:30"})
+    assert first.status_code == 200
+    stale_revision = first.json().get("revision")
+    assert isinstance(stale_revision, int)
+
+    created = _create_trade(client, handle, _create_body())
+    assert created.status_code == 201
+
+    late = _put(
+        client,
+        handle,
+        {
+            "asset": "NQ",
+            "entry_time": "09:30",
+            "expected_revision": stale_revision,
+        },
+    )
+    assert late.status_code == 409
+    after = client.get(DRAFT_PATH, headers=_get_headers(handle)).json()
+    assert after["draft"] is None
+    assert after["revision"] > stale_revision
+
+
+def test_a_new_form_can_save_after_the_previous_draft_was_retired(
+    client, website_session_handle
+):
+    """The tombstone blocks old writes without locking out a new form."""
+    _, handle = website_session_handle
+    first = _put(client, handle, {"asset": "NQ"})
+    assert first.status_code == 200
+    assert _create_trade(client, handle, _create_body()).status_code == 201
+
+    empty = client.get(DRAFT_PATH, headers=_get_headers(handle)).json()
+    assert empty["draft"] is None
+    replacement = _put(
+        client,
+        handle,
+        {"asset": "ES", "expected_revision": empty["revision"]},
+    )
+    assert replacement.status_code == 200
+    assert replacement.json()["draft"]["asset"] == "ES"
 
 
 def test_a_duplicate_submit_also_ends_the_draft(client, website_session_handle):
@@ -365,9 +448,7 @@ def test_a_duplicate_submit_also_ends_the_draft(client, website_session_handle):
     again = _create_trade(client, handle, body)
     assert again.status_code == 200
     assert again.json()["duplicate_of"] is not None
-    assert client.get(DRAFT_PATH, headers=_get_headers(handle)).json() == {
-        "draft": None
-    }
+    assert client.get(DRAFT_PATH, headers=_get_headers(handle)).json()["draft"] is None
 
 
 def test_one_owner_s_create_does_not_clear_another_s_draft(client, two_users):
@@ -448,4 +529,4 @@ def test_a_stored_draft_the_model_no_longer_accepts_reads_as_no_draft(
     drafts.save_draft(owner, {"asset": "NQ", "a_field_this_model_removed": "x"})
     r = client.get(DRAFT_PATH, headers=_get_headers(handle))
     assert r.status_code == 200
-    assert r.json() == {"draft": None}
+    assert r.json()["draft"] is None

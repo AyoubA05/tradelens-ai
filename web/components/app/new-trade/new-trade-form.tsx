@@ -129,7 +129,7 @@ export function NewTradeForm() {
     values,
     setValues,
     OTHER_ASSET,
-    submitting || savedTradeId !== null,
+    submitting || savedTradeId !== null || duplicateOf !== null,
   );
 
   const { errors, warnings } = validateNewTrade(values, OTHER_ASSET);

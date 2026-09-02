@@ -8,7 +8,7 @@ import {
 } from "@/lib/auth/session";
 import { isSameOriginRequest } from "@/lib/security/redirect";
 import { ApiError } from "@/lib/api/client";
-import { getDraft, saveDraft, type TradeDraftPayload } from "@/lib/app/trade-draft";
+import { getDraft, saveDraft, type TradeDraftWritePayload } from "@/lib/app/trade-draft";
 
 /**
  * The one bridge the New Trade draft-autosave hook has to
@@ -83,7 +83,7 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const saved = await saveDraft(auth.token, body as TradeDraftPayload);
+    const saved = await saveDraft(auth.token, body as TradeDraftWritePayload);
     return NextResponse.json(saved, { status: 200, headers: NO_STORE });
   } catch (err) {
     if (err instanceof ApiError) {

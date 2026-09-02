@@ -64,6 +64,7 @@ JOB_KIND = "trade_autofill"
 # poll needs to know whose readings these are; the enqueue idempotency key is
 # the screenshot, so per owner a screenshot id names exactly one job.
 SUGGESTIONS_SOURCE_KEY = "ai_suggestions_screenshot_id"
+SUGGESTIONS_JOB_KEY = "ai_suggestions_job_id"
 
 # THE write allowlist. Every field here is one a chart screenshot can actually
 # evidence, and every one is a field `POST /v1/trades` itself accepts from a
@@ -222,6 +223,7 @@ def suggest_from_screenshot(
     user_id: int,
     screenshot_id: int,
     *,
+    job_id: int,
     on_usage: Callable[[object], None],
 ) -> dict:
     """Run autofill for one owned screenshot and save the suggestions.
@@ -252,12 +254,15 @@ def suggest_from_screenshot(
             pass
 
     return save_suggestions_to_draft(
-        owner, build_suggestions(analysis), screenshot_id=screenshot_id
+        owner,
+        build_suggestions(analysis),
+        screenshot_id=screenshot_id,
+        job_id=job_id,
     )
 
 
 def save_suggestions_to_draft(
-    user_id: int, suggestions: dict, *, screenshot_id: int
+    user_id: int, suggestions: dict, *, screenshot_id: int, job_id: int
 ) -> dict:
     """Persist a suggestion set beside the owner's draft, and return it.
 
@@ -281,8 +286,10 @@ def save_suggestions_to_draft(
     """
     owner = require_user_id(user_id)
     kept = filter_suggestions(suggestions)
-    draft = drafts.get_draft(owner) or {}
-    draft["ai_suggestions"] = kept
-    draft[SUGGESTIONS_SOURCE_KEY] = int(screenshot_id)
-    drafts.save_draft(owner, draft)
+    drafts.save_autofill_suggestions(
+        owner,
+        kept,
+        screenshot_id=screenshot_id,
+        job_id=job_id,
+    )
     return kept

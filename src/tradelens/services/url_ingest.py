@@ -31,6 +31,7 @@ import http.client
 import ipaddress
 import socket
 import ssl
+import time
 from typing import List, Optional, Tuple, Union
 from urllib.parse import urlparse, urlunparse
 
@@ -39,6 +40,8 @@ _TIMEOUT = 5  # seconds
 _MAX_BYTES = 10 * 1024 * 1024  # 10 MB, matching storage.MAX_UPLOAD_BYTES
 _USER_AGENT = "TradeLens/1.0"
 _DEFAULT_PORTS = {"http": 80, "https": 443}
+_READ_CHUNK_BYTES = 64 * 1024
+_monotonic = time.monotonic
 
 # One phrase for every refusal reason. Telling a caller which check they failed
 # hands a prober the shape of the policy; the trader's next step is the same
@@ -58,14 +61,43 @@ _IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
 
 
 def _is_public_address(ip: _IPAddress) -> bool:
-    return not (
-        ip.is_private
+    # A negative list is not equivalent to Internet-routable.  Python marks
+    # shared/CGNAT space (100.64.0.0/10), for example, as neither private nor
+    # global; accepting it would expose internally-routed carrier/cloud
+    # services.  `is_global` is the fail-closed property this policy means.
+    if (
+        not ip.is_global
+        or ip.is_multicast
+        or ip.is_unspecified
         or ip.is_loopback
         or ip.is_link_local
         or ip.is_reserved
-        or ip.is_unspecified
-        or ip.is_multicast
-    )
+        or ip.is_private
+    ):
+        return False
+
+    if isinstance(ip, ipaddress.IPv6Address):
+        # `ipaddress` deliberately reports the deprecated fec0::/10
+        # site-local range as global.  It is still an internal-routing class
+        # and therefore not a destination an attacker-controlled URL may
+        # select, regardless of whether a particular network deploys it.
+        if ip.is_site_local:
+            return False
+        # IPv6 transition formats can carry an IPv4 destination which has a
+        # different routability classification from the outer address.  In
+        # particular 2002:7f00:1:: is globally-classified 6to4 wrapping
+        # 127.0.0.1.  Apply the same policy to every embedded destination.
+        embedded = []
+        if ip.ipv4_mapped is not None:
+            embedded.append(ip.ipv4_mapped)
+        if ip.sixtofour is not None:
+            embedded.append(ip.sixtofour)
+        if ip.teredo is not None:
+            embedded.extend(ip.teredo)
+        if any(not address.is_global for address in embedded):
+            return False
+
+    return True
 
 
 def _resolve_public_addresses(hostname: str, port: Optional[int]) -> List[Tuple]:
@@ -219,6 +251,7 @@ def fetch_image_bytes(url: str) -> bytes:
     browser upload goes through. This function's only job is to make the
     network request safe to have made.
     """
+    deadline = _monotonic() + _TIMEOUT
     conn, parsed = _open_for(url)
     try:
         conn.request(
@@ -231,7 +264,24 @@ def fetch_image_bytes(url: str) -> bytes:
         # connect to a host this policy never examined.
         if response.status != 200:
             raise UrlIngestError(UNREACHABLE_MSG)
-        data = response.read(_MAX_BYTES + 1)
+        chunks = []
+        received = 0
+        read_once = getattr(response, "read1", response.read)
+        while received <= _MAX_BYTES:
+            remaining = deadline - _monotonic()
+            if remaining <= 0:
+                raise UrlIngestError(UNREACHABLE_MSG)
+            # `http.client`'s configured timeout is an inactivity timeout; a
+            # hostile server can reset it forever by dripping one byte just
+            # before it expires.  Replacing it with the remaining wall-clock
+            # budget on every one-read chunk makes the body deadline real.
+            conn.sock.settimeout(remaining)
+            chunk = read_once(min(_READ_CHUNK_BYTES, _MAX_BYTES + 1 - received))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            received += len(chunk)
+        data = b"".join(chunks)
     except UrlIngestError:
         raise
     except (OSError, http.client.HTTPException) as exc:

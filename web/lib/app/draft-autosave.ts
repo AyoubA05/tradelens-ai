@@ -26,6 +26,7 @@ import type { components } from "@/lib/api/schema";
  *    `NewTradeForm` never reads `status` and cannot be affected by it.
  */
 export type TradeDraftPayload = components["schemas"]["TradeDraftPayload"];
+export type TradeDraftWritePayload = components["schemas"]["TradeDraftWritePayload"];
 export type TradeDraftResponse = components["schemas"]["TradeDraftResponse"];
 
 export type DraftStatus =
@@ -85,7 +86,7 @@ export function isDraftWorthSaving(values: NewTradeFormValues, otherLabel: strin
 export function toDraftPayload(
   values: NewTradeFormValues,
   otherLabel: string,
-): TradeDraftPayload {
+): Omit<TradeDraftWritePayload, "expected_revision"> {
   return buildTradeCreatePayload(values, otherLabel);
 }
 
@@ -99,16 +100,27 @@ async function relayGet(): Promise<TradeDraftResponse | null> {
   }
 }
 
-async function relayPut(payload: TradeDraftPayload): Promise<boolean> {
+type PutOutcome =
+  | { kind: "saved"; revision: number }
+  | { kind: "conflict" }
+  | { kind: "error" };
+
+async function relayPut(
+  payload: Omit<TradeDraftWritePayload, "expected_revision">,
+  expectedRevision: number,
+): Promise<PutOutcome> {
   try {
     const response = await fetch("/api/trades/draft", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, expected_revision: expectedRevision }),
     });
-    return response.ok;
+    if (response.status === 409) return { kind: "conflict" };
+    if (!response.ok) return { kind: "error" };
+    const saved = (await response.json()) as TradeDraftResponse;
+    return { kind: "saved", revision: saved.revision };
   } catch {
-    return false;
+    return { kind: "error" };
   }
 }
 
@@ -140,8 +152,10 @@ export function useDraftAutosave(
   suspended = false,
 ): DraftStatus {
   const [status, setStatus] = useState<DraftStatus>({ kind: "idle" });
+  const [loaded, setLoaded] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(0);
+  const revisionRef = useRef(0);
 
   // Load once. Deliberately not re-run on `values` change — this is a
   // mount-time prefill, not a sync loop.
@@ -149,19 +163,23 @@ export function useDraftAutosave(
     let cancelled = false;
     void (async () => {
       const draft = await relayGet();
-      if (cancelled || !draft?.draft) return;
-      const d = draft.draft;
-      setValues((v) => ({
-        ...v,
-        asset: v.asset || d.asset || v.asset,
-        entryTime: v.entryTime || d.entry_time || v.entryTime,
-        confirmationModel: v.confirmationModel || d.confirmation_model || v.confirmationModel,
-        entryPrice: v.entryPrice || (d.entry_price != null ? String(d.entry_price) : v.entryPrice),
-        stopPrice: v.stopPrice || (d.stop_price != null ? String(d.stop_price) : v.stopPrice),
-        tpPrice: v.tpPrice || (d.tp_price != null ? String(d.tp_price) : v.tpPrice),
-        exitPrice: v.exitPrice || (d.exit_price != null ? String(d.exit_price) : v.exitPrice),
-        processNotes: v.processNotes || d.trade_process_notes || v.processNotes,
-      }));
+      if (cancelled) return;
+      if (draft) revisionRef.current = draft.revision;
+      if (draft?.draft) {
+        const d = draft.draft;
+        setValues((v) => ({
+          ...v,
+          asset: v.asset || d.asset || v.asset,
+          entryTime: v.entryTime || d.entry_time || v.entryTime,
+          confirmationModel: v.confirmationModel || d.confirmation_model || v.confirmationModel,
+          entryPrice: v.entryPrice || (d.entry_price != null ? String(d.entry_price) : v.entryPrice),
+          stopPrice: v.stopPrice || (d.stop_price != null ? String(d.stop_price) : v.stopPrice),
+          tpPrice: v.tpPrice || (d.tp_price != null ? String(d.tp_price) : v.tpPrice),
+          exitPrice: v.exitPrice || (d.exit_price != null ? String(d.exit_price) : v.exitPrice),
+          processNotes: v.processNotes || d.trade_process_notes || v.processNotes,
+        }));
+      }
+      setLoaded(true);
     })();
     return () => {
       cancelled = true;
@@ -186,24 +204,58 @@ export function useDraftAutosave(
       savingRef.current += 1;
       return;
     }
+    // A tombstone revision is returned even when there is no payload. Saving
+    // before that GET resolves would fall back to revision 0 and either race
+    // an old tab or create a write that cannot be ordered against submit.
+    if (!loaded) return;
     if (!isDraftWorthSaving(values, otherLabel)) return;
 
     timerRef.current = setTimeout(() => {
       const attempt = ++savingRef.current;
       setStatus({ kind: "saving" });
-      void relayPut(toDraftPayload(values, otherLabel)).then((ok) => {
+      const payload = toDraftPayload(values, otherLabel);
+      void (async () => {
+        let outcome = await relayPut(payload, revisionRef.current);
         // A newer save superseded this one — its own status update is the
         // one that should win, so a slow, stale response must not clobber
         // it (neither "saved" from an old attempt nor "error" from one).
         if (attempt !== savingRef.current) return;
-        setStatus({ kind: ok ? "saved" : "error" });
-      });
+
+        if (outcome.kind === "conflict") {
+          // The latest local edit gets one fresh conditional attempt. An old
+          // request never retries: `attempt` above makes it stop here, so a
+          // stale response cannot overwrite a newer save that already won.
+          const current = await relayGet();
+          if (attempt !== savingRef.current) return;
+          // `draft: null` at a newer revision is the create endpoint's
+          // tombstone.  This mounted form predates it, so retrying against
+          // that fresh revision would resurrect the completed trade's
+          // values (most visibly from another still-open tab). A genuinely
+          // new form loads the tombstone revision before it ever schedules a
+          // PUT and can therefore reactivate it normally without coming
+          // through this stale-conflict branch.
+          if (!current || current.draft === null) {
+            setStatus({ kind: "error" });
+            return;
+          }
+          revisionRef.current = current.revision;
+          outcome = await relayPut(payload, revisionRef.current);
+          if (attempt !== savingRef.current) return;
+        }
+
+        if (outcome.kind === "saved") {
+          revisionRef.current = outcome.revision;
+          setStatus({ kind: "saved" });
+        } else {
+          setStatus({ kind: "error" });
+        }
+      })();
     }, DEBOUNCE_MS);
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [values, otherLabel, suspended]);
+  }, [values, otherLabel, suspended, loaded]);
 
   return status;
 }

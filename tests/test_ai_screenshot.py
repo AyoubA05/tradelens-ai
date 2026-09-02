@@ -7,7 +7,10 @@ down URL-vs-local routing, the non-image-URL rejection, and the SSRF host check 
 all without hitting the network.
 """
 
+import io
+
 import pytest
+from PIL import Image
 
 import src.tradelens.services.ai_screenshot_service as svc
 from src.tradelens.services import url_ingest
@@ -51,6 +54,26 @@ def test_is_public_url_allows_public_ip(monkeypatch):
         url_ingest.socket, "getaddrinfo", _fake_getaddrinfo("93.184.216.34")
     )
     assert svc._is_public_url("https://example.com/x.png")
+
+
+def test_downloaded_url_image_is_reencoded_before_the_vision_model(monkeypatch):
+    """A valid image's trailing payload must not reach the model."""
+    image = Image.new("RGB", (2, 2), color=(10, 20, 30))
+    encoded = io.BytesIO()
+    image.save(encoded, format="PNG")
+    fetched = encoded.getvalue() + b"PROMPT-OVERRIDE-TRAILER"
+
+    monkeypatch.setattr(svc.url_ingest, "fetch_image_bytes", lambda _url: fetched)
+    path = svc._download_image("https://charts.example/trade.png")
+    try:
+        normalized = path.read_bytes()
+        assert normalized != fetched
+        assert b"PROMPT-OVERRIDE-TRAILER" not in normalized
+        with Image.open(path) as reopened:
+            assert reopened.format == "PNG"
+            assert reopened.size == (2, 2)
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def test_download_image_rejects_private_host(monkeypatch):

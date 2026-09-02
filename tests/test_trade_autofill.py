@@ -106,6 +106,7 @@ def test_the_filter_runs_before_anything_is_stored(website_session_handle):
         user_id,
         {"session": {"value": "NY AM"}, "asset": {"value": "NQ"}},
         screenshot_id=7,
+        job_id=1,
     )
     stored = drafts.get_draft(user_id)["ai_suggestions"]
     assert "session" not in stored
@@ -149,7 +150,7 @@ def test_no_number_of_autofill_runs_creates_a_trades_row(website_session_handle)
     before = _trades_row_count()
     for _ in range(5):
         save_suggestions_to_draft(
-            user_id, build_suggestions(_analysis()), screenshot_id=7
+            user_id, build_suggestions(_analysis()), screenshot_id=7, job_id=1
         )
     assert _trades_row_count() == before == 0
 
@@ -159,7 +160,9 @@ def test_suggestions_do_not_overwrite_the_trader_s_own_draft_values(
 ):
     user_id, _ = website_session_handle
     drafts.save_draft(user_id, {"asset": "MNQ", "notes": "mine"})
-    save_suggestions_to_draft(user_id, build_suggestions(_analysis()), screenshot_id=7)
+    save_suggestions_to_draft(
+        user_id, build_suggestions(_analysis()), screenshot_id=7, job_id=1
+    )
     draft = drafts.get_draft(user_id)
     # The suggestion is provenance-tagged metadata; the trader's own values are
     # what the form shows until they accept one.
@@ -173,7 +176,9 @@ def test_a_saved_suggestion_set_survives_the_draft_contract(website_session_hand
     # `TradeDraftPayload`, which forbids extras — a suggestion shape it cannot
     # parse would turn every subsequent draft read into a 500.
     user_id, _ = website_session_handle
-    save_suggestions_to_draft(user_id, build_suggestions(_analysis()), screenshot_id=7)
+    save_suggestions_to_draft(
+        user_id, build_suggestions(_analysis()), screenshot_id=7, job_id=1
+    )
     TradeDraftPayload(**drafts.get_draft(user_id))
 
 
@@ -357,7 +362,9 @@ def test_an_unreadable_screenshot_never_reaches_the_provider(
         trade_autofill, "analyze_screenshot_v3", lambda *a, **k: calls.append(1)
     )
     with pytest.raises(trade_autofill.AutofillUnavailable):
-        trade_autofill.suggest_from_screenshot(user_id, 1, on_usage=lambda u: None)
+        trade_autofill.suggest_from_screenshot(
+            user_id, 1, job_id=1, on_usage=lambda u: None
+        )
     assert calls == []
 
 

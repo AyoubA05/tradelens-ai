@@ -14,6 +14,7 @@ import logging
 import time
 
 from src.tradelens.api.jobs import run_once
+from src.tradelens.api import jobs
 from src.tradelens.api.config import validate_worker_runtime
 from src.tradelens.services.cost import log_ai_usage
 from src.tradelens.services.trade_autofill import (
@@ -58,9 +59,14 @@ def _trade_autofill_handler(user_id: int, payload: dict) -> str:
     # terminal — the enqueue idempotency key means a resubmit for the same
     # screenshot returns that failed job instead of spending again.
     screenshot_id = int(payload["screenshot_id"])
+    key = f"{AUTOFILL_JOB_KIND}:{screenshot_id}"
+    job = jobs.get_owned_job_by_idempotency_key(user_id, AUTOFILL_JOB_KIND, key)
+    if job is None:
+        raise RuntimeError("autofill job unavailable")
     suggest_from_screenshot(
         user_id,
         screenshot_id,
+        job_id=int(job.id),
         on_usage=lambda usage: log_ai_usage("Trade Autofill", usage, user_id=user_id),
     )
     return f"{AUTOFILL_JOB_KIND}:{screenshot_id}"
