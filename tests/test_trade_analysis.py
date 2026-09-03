@@ -372,3 +372,458 @@ def test_the_input_version_refuses_a_bogus_owner():
     """Owner identity is validated here, not assumed by every caller."""
     with pytest.raises(ValueError):
         ta.ai_input_version(0)
+
+
+# =========================================================================
+# Task A4 — the conditional result write: ordering guard and confirmation
+# lock. See design decision 3 for why the lock is absolute.
+# =========================================================================
+
+
+def _insert_trade(user_id):
+    """One `trades` row for `user_id`, straight through SQL.
+
+    Same style as `_insert_correction` / `_insert_strategy` above: the write
+    guard cares only that a trade with this owner exists, and there is no
+    shared factory module in this repo to reuse.
+    """
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        result = db.execute(
+            sa_text("INSERT INTO trades (user_id, asset) VALUES (:u, 'NQ')"),
+            {"u": user_id},
+        )
+        db.commit()
+        return int(result.lastrowid)
+    finally:
+        db.close()
+
+
+def _analysis_usage():
+    """A `Usage` for the store call. Named apart from every helper above."""
+    from src.tradelens.services.ai_client import Usage
+
+    return Usage("claude-opus-5", 10, 20, 30, 0.01, 0.5)
+
+
+def _analysis_row(trade_id):
+    from src.tradelens.db.models import AIAnalysis
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).first()
+    finally:
+        db.close()
+
+
+def _confirm_labels(trade_id, **fields):
+    """Simulate Task C1's confirm, for tests that only need its effect."""
+    import json
+
+    from src.tradelens.db.models import AIAnalysis
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        row = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).one()
+        for name, value in fields.items():
+            setattr(row, name, value)
+        row.confirmed_at = "2026-09-01T09:30:00+00:00"
+        row.confirmed_fields_json = json.dumps(sorted(fields))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _set_confirmed_json(trade_id, raw):
+    from src.tradelens.db.models import AIAnalysis
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        row = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).one()
+        row.confirmed_fields_json = raw
+        db.commit()
+    finally:
+        db.close()
+
+
+@pytest.fixture()
+def owned_trade(two_users):
+    """One user with one trade, in the isolated tmp database. (user, trade)."""
+    owner, _other = two_users
+    return owner, _insert_trade(owner)
+
+
+@pytest.fixture()
+def two_users_with_trades(two_users):
+    """Two users, one trade each. Returns ((u1, t1), (u2, t2))."""
+    first, second = two_users
+    return (first, _insert_trade(first)), (second, _insert_trade(second))
+
+
+# --- rule 1: ordering ----------------------------------------------------
+
+
+def test_a_newer_job_replaces_an_older_job_s_result(owned_trade):
+    """The ordinary re-run: the trader asked for a fresh read and gets one."""
+    user_id, trade_id = owned_trade
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=1,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+    outcome = ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=2,
+        vision_result={"bias": "bearish"},
+        usage=_analysis_usage(),
+    )
+    assert outcome.written is True
+    assert _analysis_row(trade_id).bias == "bearish"
+
+
+def test_a_stale_job_cannot_land_on_top_of_a_newer_result(owned_trade):
+    """Two jobs in flight; the slow older one finishes last.
+
+    Without the conditional write it wins purely by being slow, and the
+    trader sees the reading they did not ask for with nothing saying so.
+    """
+    user_id, trade_id = owned_trade
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=9,
+        vision_result={"bias": "bearish"},
+        usage=_analysis_usage(),
+    )
+    outcome = ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=4,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+    assert outcome.written is False
+    assert outcome.superseded is True
+    assert _analysis_row(trade_id).bias == "bearish"
+    assert _analysis_row(trade_id).analysis_job_id == 9
+
+
+def test_a_job_replaying_its_own_id_does_not_write_twice(owned_trade):
+    """`<` not `<=`: a redelivered job is not newer than itself."""
+    user_id, trade_id = owned_trade
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=5,
+        vision_result={"bias": "bearish"},
+        usage=_analysis_usage(),
+    )
+    outcome = ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=5,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+    assert outcome.written is False
+    assert _analysis_row(trade_id).bias == "bearish"
+
+
+# --- rule 2: the confirmation lock ---------------------------------------
+
+
+def test_a_job_enqueued_before_a_confirmation_cannot_replace_it(owned_trade):
+    """The obvious half of the lock: the job was reading a stale world."""
+    user_id, trade_id = owned_trade
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=1,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+    _confirm_labels(trade_id, bias="neutral")
+
+    outcome = ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=2,
+        vision_result={"bias": "bearish", "trade_quality": 8},
+        usage=_analysis_usage(),
+    )
+
+    assert outcome.written is True
+    assert outcome.locked == frozenset({"bias"})
+    # The confirmed field is untouched; every unconfirmed field still updates.
+    assert _analysis_row(trade_id).bias == "neutral"
+    assert _analysis_row(trade_id).trade_quality == 8
+
+
+def test_a_job_started_after_a_confirmation_STILL_cannot_replace_it(owned_trade):
+    """THE decided rule, and the one that reverses the first draft.
+
+    Clicking re-analyse asks for analysis — usually because a better
+    screenshot was attached. It is not a request to discard the trader's own
+    judgement, and it says nothing about labels. A confirmed value stays
+    until the trader changes it, whatever the job ordering.
+
+    Asserted against a job whose every plausible "enqueued at" reading is
+    LATER than the confirmation: the highest job id on the row and a real
+    clock reading taken after `confirmed_at`. A rule that consulted timing at
+    all would let this write land, so this test fails against the design
+    that was turned down, not merely against a broken implementation.
+    """
+    import datetime as _dt2
+
+    user_id, trade_id = owned_trade
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=1,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+    _confirm_labels(trade_id, bias="neutral")
+
+    # Every clock says this job is newer than the confirmation.
+    now = _dt2.datetime.now(_dt2.timezone.utc).isoformat()
+    assert now > _analysis_row(trade_id).confirmed_at
+
+    outcome = ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=99,
+        vision_result={"bias": "bearish"},
+        usage=_analysis_usage(),
+    )
+    assert outcome.written is True
+    assert outcome.locked == frozenset({"bias"})
+    assert _analysis_row(trade_id).bias == "neutral"
+
+
+def test_store_analysis_takes_no_enqueue_timestamp_at_all(owned_trade):
+    """The rejected design needed a job timestamp; this one must not have one.
+
+    Pins the shape of the decision as well as its effect: there is no
+    parameter through which a caller could reintroduce a timing comparison,
+    and no `confirmed_at` read on the write path.
+    """
+    import inspect
+
+    signature = inspect.signature(ta.store_analysis)
+    assert "enqueued_at" not in signature.parameters
+    assert not any(
+        "enqueued" in name or "created_at" in name for name in signature.parameters
+    )
+    source = inspect.getsource(ta.store_analysis)
+    assert "confirmed_at" not in source
+
+
+def test_the_locked_field_s_new_reading_is_still_recorded_for_the_trader(owned_trade):
+    """Locked means "not applied", never "hidden"."""
+    import json
+
+    user_id, trade_id = owned_trade
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=1,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+    _confirm_labels(trade_id, bias="neutral")
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=2,
+        vision_result={"bias": "bearish"},
+        usage=_analysis_usage(),
+    )
+    assert json.loads(_analysis_row(trade_id).raw_response_json)["bias"] == "bearish"
+
+
+def test_raw_response_json_stays_current_even_when_it_is_itself_confirmed(owned_trade):
+    """`raw_response_json` is not a label, so it is never lockable.
+
+    Task D3's one-click adopt reads it, so a stored list naming it must not
+    freeze the newest model output out of the row.
+    """
+    import json
+
+    user_id, trade_id = owned_trade
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=1,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+    _set_confirmed_json(trade_id, json.dumps(["bias", "raw_response_json"]))
+    outcome = ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=2,
+        vision_result={"bias": "bearish"},
+        usage=_analysis_usage(),
+    )
+    assert "raw_response_json" not in outcome.locked
+    assert json.loads(_analysis_row(trade_id).raw_response_json)["bias"] == "bearish"
+
+
+def test_a_confirmed_field_survives_any_number_of_re_runs(owned_trade):
+    """The lock is a property, not a one-shot guard."""
+    user_id, trade_id = owned_trade
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=1,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+    _confirm_labels(trade_id, bias="neutral")
+    for job_id in range(2, 8):
+        ta.store_analysis(
+            user_id,
+            trade_id,
+            job_id=job_id,
+            vision_result={"bias": "bearish"},
+            usage=_analysis_usage(),
+        )
+    assert _analysis_row(trade_id).bias == "neutral"
+
+
+def test_an_unparseable_confirmed_field_list_locks_nothing(owned_trade):
+    """Fail toward a refreshable row, not a permanently frozen one."""
+    user_id, trade_id = owned_trade
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=1,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+    _set_confirmed_json(trade_id, "{not json")
+    outcome = ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=2,
+        vision_result={"bias": "bearish"},
+        usage=_analysis_usage(),
+    )
+    assert outcome.locked == frozenset()
+    assert _analysis_row(trade_id).bias == "bearish"
+
+
+def test_a_confirmed_name_that_is_not_a_writable_column_is_ignored(owned_trade):
+    """The lock list is data, and data is never a column name."""
+    import json
+
+    user_id, trade_id = owned_trade
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=1,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+    _set_confirmed_json(trade_id, json.dumps(["detected_setup", "journal_entry_md"]))
+    outcome = ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=2,
+        vision_result={"bias": "bearish"},
+        usage=_analysis_usage(),
+    )
+    assert outcome.written is True
+    assert outcome.locked == frozenset()
+    assert _analysis_row(trade_id).analysis_job_id == 2
+    assert _analysis_row(trade_id).bias == "bearish"
+
+
+def test_the_stored_lock_list_can_never_name_the_job_id_column(owned_trade):
+    """A hostile entry must not be able to freeze the ordering guard itself.
+
+    If `analysis_job_id` were lockable, one stored string would stop the row
+    ever advancing and every later job would read as stale forever.
+    """
+    import json
+
+    user_id, trade_id = owned_trade
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=1,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+    _set_confirmed_json(trade_id, json.dumps(["analysis_job_id", "cost_usd"]))
+    outcome = ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=2,
+        vision_result={"bias": "bearish"},
+        usage=_analysis_usage(),
+    )
+    assert outcome.written is True
+    assert _analysis_row(trade_id).analysis_job_id == 2
+
+
+def test_confirmed_fields_reads_the_stored_list(owned_trade):
+    """The helper Task C1 and the panel both read, pinned on its own."""
+    import json
+
+    user_id, trade_id = owned_trade
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=1,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+    assert ta.confirmed_fields(None) == frozenset()
+    assert ta.confirmed_fields(_analysis_row(trade_id)) == frozenset()
+    _set_confirmed_json(trade_id, json.dumps(["bias", "trade_quality"]))
+    assert ta.confirmed_fields(_analysis_row(trade_id)) == frozenset(
+        {"bias", "trade_quality"}
+    )
+    _set_confirmed_json(trade_id, json.dumps({"bias": True}))
+    assert ta.confirmed_fields(_analysis_row(trade_id)) == frozenset()
+
+
+# --- ownership -----------------------------------------------------------
+
+
+def test_another_owner_s_trade_is_never_written(two_users_with_trades):
+    """Ownership resolves through the trade join; aianalysis has no user_id."""
+    (owner, _owner_trade), (_other, other_trade) = two_users_with_trades
+    with pytest.raises(ValueError):
+        ta.store_analysis(
+            owner,
+            other_trade,
+            job_id=1,
+            vision_result={"bias": "bullish"},
+            usage=_analysis_usage(),
+        )
+    assert _analysis_row(other_trade) is None
+
+
+def test_a_bogus_owner_is_refused_before_any_write(owned_trade):
+    """Owner identity is validated here, not assumed by the caller."""
+    _user_id, trade_id = owned_trade
+    with pytest.raises(ValueError):
+        ta.store_analysis(
+            0,
+            trade_id,
+            job_id=1,
+            vision_result={"bias": "bullish"},
+            usage=_analysis_usage(),
+        )
+    assert _analysis_row(trade_id) is None

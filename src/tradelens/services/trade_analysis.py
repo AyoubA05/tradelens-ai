@@ -6,9 +6,11 @@ Three properties the happy path does not show:
    one trade can be in flight, and the one that finishes last is not
    necessarily the one the trader started last. Every write is an UPDATE
    predicated on the stored job id being older, with `rowcount` checked.
-2. **A confirmation is a fence.** A job enqueued before the trader confirmed
-   a label may not replace that label. Being newest is not enough; it has to
-   be newer than the trader's own decision.
+2. **A confirmation is an absolute fence.** A label the trader confirmed is
+   never written by any job, whatever the ordering — there is no timestamp
+   comparison on the write path at all. Being the newest job is not enough,
+   because clicking re-analyse asks for analysis, not for the trader's own
+   judgement to be discarded. Unlocking is an explicit PATCH.
 3. **The idempotency key is a fingerprint of the inputs.** An unchanged
    re-request is the same job — including a failed one, which stays terminal.
    A genuinely edited trade is a different key and a different job. There is
@@ -20,12 +22,16 @@ No Streamlit imports here.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, update
 
 from src.tradelens.config import ANTHROPIC_MODEL_ID, settings
-from src.tradelens.db.models import Correction, Strategy
+from src.tradelens.db.models import AIAnalysis, Correction, Strategy, Trade
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services.ownership import require_user_id
 
@@ -212,3 +218,151 @@ def grade_key(
         GRADE_PROMPT_VERSION,
         ai_input_version(user_id),
     )
+
+
+# The AI-owned label columns on `aianalysis` that an analysis job writes,
+# mapped from the vision result. Anything not here is not an analysis output.
+# Task C1's confirm endpoint reads this same list, so the write and the
+# confirm can never disagree about what a label is.
+_ANALYSIS_LABEL_FIELDS = ("bias", "trade_quality", "matched_strategy")
+
+
+@dataclass(frozen=True)
+class WriteOutcome:
+    """What happened to one worker's attempt to store its result.
+
+    `superseded` is not an error: being overtaken by a newer job is a normal
+    outcome of a queue, and a job that reports it did its work correctly.
+
+    `locked` names the fields this write deliberately did not touch because
+    the trader has confirmed them. Reported rather than inferred, so the
+    panel can say "your bias was kept" instead of leaving the trader to
+    notice that one value did not move.
+    """
+
+    written: bool
+    superseded: bool
+    locked: frozenset = frozenset()
+
+
+def confirmed_fields(analysis) -> frozenset:
+    """Which label fields the trader has confirmed, from the stored JSON.
+
+    Parsed defensively: a row that outlives a deploy, or one written before
+    this column existed, yields the empty set — which fences nothing and lets
+    the normal write through. That is the safe direction, because the
+    alternative is a stored value nobody can ever refresh.
+    """
+    if analysis is None:
+        return frozenset()
+    try:
+        parsed = json.loads(analysis.confirmed_fields_json or "[]")
+    except (ValueError, TypeError):
+        return frozenset()
+    if not isinstance(parsed, list):
+        return frozenset()
+    return frozenset(str(item) for item in parsed)
+
+
+def _owned_trade_id(db, trade_id: int, owner: int) -> Optional[int]:
+    row = (
+        db.query(Trade.id).filter(Trade.id == trade_id, Trade.user_id == owner).first()
+    )
+    return None if row is None else int(row[0])
+
+
+def store_analysis(
+    user_id: int,
+    trade_id: int,
+    *,
+    job_id: int,
+    vision_result: dict,
+    usage,
+) -> WriteOutcome:
+    """Store one analysis result under the ordering guard and the lock.
+
+    Two rules, and they are independent:
+
+    * **Ordering.** The job-id predicate lives in the UPDATE's WHERE clause,
+      so a slow older job writes zero rows rather than landing on a newer
+      result. Deliberately not a read-then-write: between a SELECT and an
+      UPDATE the other job commits, which is precisely the race this exists
+      to lose safely. `<` and not `<=`, so a redelivered job does not rewrite
+      its own result.
+    * **The confirmation lock.** A field the trader has confirmed is dropped
+      from the write, whenever this job was enqueued. There is no timestamp
+      comparison anywhere on this path, on purpose: "the trader's value
+      stands until the trader changes it" is a rule with no window in which
+      it fails, and ordering was never a good reason to discard a human
+      judgement. See design decision 3 for why the first draft of this plan
+      had it the other way round, and why that was wrong. Unlocking is an
+      explicit PATCH (Task C1), never a race.
+
+    The locked field's fresh reading is still stored in `raw_response_json`,
+    which always holds the newest complete model output. Locked means "not
+    applied", never "hidden": the panel offers the new proposal for one-click
+    adoption (Task D3).
+
+    Raises `ValueError` when the trade is not this owner's: `aianalysis` has
+    no `user_id`, so the trade join is the only ownership statement there is.
+    """
+    owner = require_user_id(user_id)
+    now = datetime.now(timezone.utc).isoformat()
+    db = SessionLocal()
+    try:
+        if _owned_trade_id(db, trade_id, owner) is None:
+            raise ValueError("trade not found")
+
+        existing = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).first()
+
+        values = {
+            "model": getattr(usage, "model", None),
+            "prompt_version": ANALYSIS_PROMPT_VERSION,
+            "bias": vision_result.get("bias"),
+            "zones_json": json.dumps(vision_result.get("key_zones", [])),
+            "matched_strategy": vision_result.get("matched_strategy"),
+            "mistakes_json": json.dumps(vision_result.get("possible_mistakes", [])),
+            "missed_opps_json": json.dumps(
+                vision_result.get("missed_opportunities", [])
+            ),
+            "trade_quality": vision_result.get("trade_quality"),
+            "raw_response_json": json.dumps(vision_result),
+            "tokens_input": getattr(usage, "tokens_in", None),
+            "tokens_output": getattr(usage, "tokens_out", None),
+            "cost_usd": getattr(usage, "estimated_cost_usd", None),
+            "analysis_job_id": job_id,
+            "updated_at": now,
+        }
+
+        if existing is None:
+            db.add(AIAnalysis(trade_id=trade_id, created_at=now, **values))
+            db.commit()
+            return WriteOutcome(written=True, superseded=False)
+
+        # The confirmation lock. Intersected with `values` first, so a stored
+        # name that is not one of this write's own keys — a stray entry, a
+        # renamed column, a hostile string — can never make an unrelated
+        # column unwritable. `raw_response_json` is deliberately NOT lockable:
+        # it is the newest model output, and keeping it current is what lets
+        # the panel offer the locked field's fresh proposal.
+        locked = frozenset(confirmed_fields(existing)) & set(values)
+        locked -= {"raw_response_json", "analysis_job_id", "updated_at"}
+        for field in locked:
+            values.pop(field, None)
+
+        written = db.execute(
+            update(AIAnalysis)
+            .where(
+                AIAnalysis.trade_id == trade_id,
+                (AIAnalysis.analysis_job_id.is_(None))
+                | (AIAnalysis.analysis_job_id < job_id),
+            )
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        db.commit()
+        if written.rowcount != 1:
+            return WriteOutcome(written=False, superseded=True, locked=locked)
+        return WriteOutcome(written=True, superseded=False, locked=locked)
+    finally:
+        db.close()
