@@ -1,5 +1,7 @@
 """Phase 5 service layer: fingerprints, write guards, output validation."""
 
+import datetime as _dt
+
 import pytest
 from sqlalchemy import text as sa_text
 
@@ -253,31 +255,117 @@ def test_a_new_correction_moves_that_owner_s_own_input_version(
     assert ta.ai_input_version(first) != before
 
 
-def test_the_input_version_never_raises_when_the_database_is_unhappy(monkeypatch):
-    """A digest that throws would take down enqueue for every kind.
+def test_the_input_version_refuses_rather_than_guessing_when_a_lookup_fails(
+    monkeypatch,
+):
+    """The fingerprint is a correctness boundary, so it fails CLOSED.
 
-    Degrading to a constant is safe in the only direction that matters: it
-    can make two different states share a key (a stale result), never make
-    one owner read another's. It is logged rather than silent.
+    An earlier draft degraded to a constant on any lookup error, reasoning
+    that a raising digest would take enqueue down. That trade was wrong: a
+    constant makes every un-fingerprintable context share one identity, and
+    the key IS the cache. Refusing costs a retry; guessing serves a result
+    computed under a different Strategy Profile or a different set of the
+    trader's own corrections, with nothing anywhere saying so.
     """
 
     def boom(_uid):
         raise RuntimeError("db down")
 
     monkeypatch.setattr(ta, "_corrections_fingerprint", boom)
-    assert isinstance(ta.ai_input_version(U), str)
+    with pytest.raises(ta.AIInputVersionUnavailable):
+        ta.ai_input_version(U)
 
 
-def test_the_input_version_logs_when_it_degrades(monkeypatch, caplog):
-    """Degrading silently would hide a database problem behind stale results."""
+def test_a_failing_lookup_stops_every_key_not_just_the_digest(monkeypatch):
+    """The refusal has to reach the callers, or it protects nothing."""
+
+    def boom(_uid):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(ta, "_strategy_fingerprint", boom)
+    for build in (
+        lambda: analysis_key(U, 7, 12, "t"),
+        lambda: journal_key(U, 7, "t", "a"),
+        lambda: grade_key(U, 7, "t", "a"),
+    ):
+        with pytest.raises(ta.AIInputVersionUnavailable):
+            build()
+
+
+def test_the_input_version_logs_when_a_lookup_fails(monkeypatch, caplog):
+    """Failing closed silently would hide a database problem behind retries."""
 
     def boom(_uid):
         raise RuntimeError("db down")
 
     monkeypatch.setattr(ta, "_corrections_fingerprint", boom)
     with caplog.at_level("ERROR"):
-        ta.ai_input_version(U)
-    assert any("ai_input_version degraded" in r.message for r in caplog.records)
+        with pytest.raises(ta.AIInputVersionUnavailable):
+            ta.ai_input_version(U)
+    assert any("ai_input_version unavailable" in r.message for r in caplog.records)
+
+
+def test_two_materially_different_contexts_never_share_a_cached_job_across_a_failure(
+    two_users,
+):
+    """THE regression: a transient lookup failure must not collapse two
+    genuinely different AI contexts onto one reusable job.
+
+    Walks the real sequence. The owner corrects the AI between the two
+    requests, so the second request would legitimately produce a different
+    answer. With the old constant fallback both requests keyed to the same
+    `unavailable` digest, and `enqueue_with_limit` handed the second one the
+    FIRST job — a finished result computed under the earlier correction set,
+    returned as though it were the new one's.
+
+    Cross-tenant was never the risk here: `ai_jobs` is unique on
+    `(user_id, idempotency_key)`. The collapse is entirely inside one
+    trader's own account, which is exactly where it is hardest to notice.
+    """
+    from src.tradelens.api import jobs
+
+    owner, _other = two_users
+    _insert_correction(owner)
+
+    first_key = analysis_key(owner, 7, 12, "t")
+    first_id, created = jobs.enqueue_with_limit(
+        owner,
+        ta.ANALYSIS_JOB_KIND,
+        first_key,
+        {"trade_id": 7, "screenshot_id": 12, "key": first_key},
+        since=_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=24),
+        limit=ta.MAX_ANALYSES_PER_WINDOW,
+    )
+    assert created is True
+
+    # The trader corrects the AI. The next analysis is genuinely a different
+    # question, and must not be answered with the previous one's job.
+    _insert_correction(owner)
+
+    # ...and the fingerprint lookup is transiently unavailable right then.
+    import unittest.mock as _mock
+
+    with _mock.patch.object(
+        ta, "_corrections_fingerprint", side_effect=RuntimeError("db down")
+    ):
+        with pytest.raises(ta.AIInputVersionUnavailable):
+            analysis_key(owner, 7, 12, "t")
+
+    # Nothing was enqueued during the outage, so nothing can be mistakenly
+    # reused. Once the lookup recovers the changed context gets its own key.
+    recovered_key = analysis_key(owner, 7, 12, "t")
+    assert recovered_key != first_key
+
+    second_id, created_again = jobs.enqueue_with_limit(
+        owner,
+        ta.ANALYSIS_JOB_KIND,
+        recovered_key,
+        {"trade_id": 7, "screenshot_id": 12, "key": recovered_key},
+        since=_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=24),
+        limit=ta.MAX_ANALYSES_PER_WINDOW,
+    )
+    assert created_again is True
+    assert second_id != first_id
 
 
 def test_the_input_version_refuses_a_bogus_owner():

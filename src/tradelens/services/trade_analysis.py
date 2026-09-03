@@ -105,6 +105,15 @@ def _corrections_fingerprint(user_id: int) -> str:
     return f"{int(count or 0)}:{int(newest or 0)}"
 
 
+class AIInputVersionUnavailable(Exception):
+    """Raised when the AI context cannot be fingerprinted right now.
+
+    Not a failure of the AI — a refusal to guess at cache identity. Callers
+    must decline to enqueue and tell the trader to try again; they must
+    never substitute a placeholder digest.
+    """
+
+
 def ai_input_version(user_id: int) -> str:
     """Everything OTHER than the trade that can change an AI answer.
 
@@ -112,12 +121,25 @@ def ai_input_version(user_id: int) -> str:
     Collapsed into one short digest so each key stays readable and so a
     future input is added in exactly one place.
 
-    Degrades to a constant rather than raising: a digest that throws would
-    take enqueue down for all three kinds. The failure direction is safe —
-    it can make two different states share a key, which serves a stale
-    result, but it can never make one owner read another's work, because
-    `ai_jobs` is unique on `(user_id, idempotency_key)` regardless of what
-    this returns. It is logged, not swallowed silently.
+    **Fails closed.** An earlier draft degraded to a constant on any lookup
+    error, on the reasoning that a raising digest takes enqueue down for all
+    three kinds. That trade was wrong, and the reasoning that excused it —
+    "it can never make one owner read another's work" — answered a question
+    nobody was asking. Cross-tenant reuse was never the risk: `ai_jobs` is
+    unique on `(user_id, idempotency_key)`. The risk is entirely inside one
+    trader's own account, which is where it is hardest to notice.
+
+    Concretely, with a constant: the trader corrects the AI, the lookup is
+    briefly unavailable, and the new request keys to the same `unavailable`
+    digest as an earlier one. `enqueue_with_limit` then returns that earlier
+    job — a finished result computed under the previous Strategy Profile or
+    the previous correction set — presented as the answer to the new
+    question. The key IS the cache here; there is no second layer that would
+    catch it, and nothing anywhere says the answer is stale.
+
+    So this raises, and every key built from it raises with it. Refusing
+    costs the trader a retry. Guessing costs them a wrong answer they have
+    no way to detect.
     """
     owner = require_user_id(user_id)
     try:
@@ -125,9 +147,9 @@ def ai_input_version(user_id: int) -> str:
             _strategy_fingerprint(owner),
             _corrections_fingerprint(owner),
         )
-    except Exception as exc:  # noqa: BLE001 — see the docstring's trade-off
-        _log.error("ai_input_version degraded (%s)", type(exc).__name__)
-        state = ("unavailable", "unavailable")
+    except Exception as exc:  # noqa: BLE001 — re-raised as a typed refusal
+        _log.error("ai_input_version unavailable (%s)", type(exc).__name__)
+        raise AIInputVersionUnavailable("the AI context could not be read") from exc
     return hashlib.sha256(
         "|".join(
             (

@@ -136,6 +136,10 @@ The rule the key has to satisfy is exact: **two requests share a job only if the
 
 These are collapsed into one `ai_input_version(user_id)` digest so each key stays short and there is a single place to extend when a future input appears. Owner separation needs no term: `ai_jobs` is unique on `(user_id, idempotency_key)`, so two traders cannot share a row even with an identical digest.
 
+**The digest fails closed.** An earlier draft of this decision degraded to a constant when the strategy or corrections lookup raised, reasoning that a throwing digest would take enqueue down for all three kinds, and that the failure direction was safe because it could never make one owner read another's work. That excuse answered a question nobody was asking — cross-tenant reuse is already impossible from the unique constraint — while the actual hazard sits inside one trader's account, where it is hardest to notice: the trader corrects the AI, the lookup is briefly unavailable, the new request keys to the same `unavailable` digest as an earlier one, and `enqueue_with_limit` returns that earlier job. A finished result computed under the previous Strategy Profile or the previous correction set is then presented as the answer to the new question. **The key is the cache**; there is no second layer to catch it and nothing says the answer is stale.
+
+So `ai_input_version` raises `AIInputVersionUnavailable`, every key built from it raises with it, and the enqueue routes map that to a plain `503` having created no job and spent nothing. Refusing costs a retry; guessing costs a wrong answer the trader cannot detect. The same reasoning applies to the strategy term's `is_active` filter: the digest must select the row `get_active_strategy` selects, or it describes a profile the model was never given.
+
 An unchanged re-request returns the existing job, including a failed one, which stays terminal. Any changed input produces a new key and a new job. That is a cache with no cache: the queue row *is* the cache entry.
 
 **5. Untrusted text is bounded and fenced on the way in, and the output is validated on the way out.**
@@ -765,12 +769,9 @@ def ai_input_version(user_id: int) -> str:
     Collapsed into one short digest so each key stays readable and so a
     future input is added in exactly one place.
 
-    Degrades to a constant rather than raising: a digest that throws would
-    take enqueue down for all three kinds. The failure direction is safe —
-    it can make two different states share a key, which serves a stale
-    result, but it can never make one owner read another's work, because
-    `ai_jobs` is unique on `(user_id, idempotency_key)` regardless of what
-    this returns. It is logged, not swallowed silently.
+    **Fails closed** — see design decision 4. A placeholder digest would
+    let two genuinely different AI contexts share one cached job inside a
+    single trader's account.
     """
     owner = require_user_id(user_id)
     try:
@@ -778,9 +779,11 @@ def ai_input_version(user_id: int) -> str:
             _strategy_fingerprint(owner),
             _corrections_fingerprint(owner),
         )
-    except Exception as exc:  # noqa: BLE001 — see the docstring's trade-off
-        _log.error("ai_input_version degraded (%s)", type(exc).__name__)
-        state = ("unavailable", "unavailable")
+    except Exception as exc:  # noqa: BLE001 — re-raised as a typed refusal
+        _log.error("ai_input_version unavailable (%s)", type(exc).__name__)
+        raise AIInputVersionUnavailable(
+            "the AI context could not be read"
+        ) from exc
     return hashlib.sha256(
         "|".join(
             (
@@ -1819,9 +1822,18 @@ def enqueue_trade_analysis(
     if trade is None or not storage.owns_screenshot(user_id, payload.screenshot_id):
         raise _not_found()
 
-    key = analysis_key(
-        user_id, trade_id, int(payload.screenshot_id), trade.updated_at
-    )
+    # The fingerprint fails closed (design decision 4). Refuse rather than
+    # enqueue under a placeholder identity that could collide with an earlier
+    # job computed under different AI context. Nothing is created or spent.
+    try:
+        key = analysis_key(
+            user_id, trade_id, int(payload.screenshot_id), trade.updated_at
+        )
+    except AIInputVersionUnavailable:
+        raise HTTPException(
+            status_code=503,
+            detail="We could not start this just now. Please try again.",
+        )
     job_id, created = jobs.enqueue_with_limit(
         user_id,
         ANALYSIS_JOB_KIND,
@@ -2593,7 +2605,13 @@ def _enqueue_derived(
             detail="Run the screenshot analysis first — this builds on it.",
         )
 
-    key = key_fn(user_id, trade_id, trade.updated_at, analysis.updated_at)
+    try:
+        key = key_fn(user_id, trade_id, trade.updated_at, analysis.updated_at)
+    except AIInputVersionUnavailable:
+        raise HTTPException(
+            status_code=503,
+            detail="We could not start this just now. Please try again.",
+        )
     job_id, created = jobs.enqueue_with_limit(
         user_id,
         kind,
@@ -4107,9 +4125,9 @@ Expected: `LEAKS: none`. A fresh subprocess per module — importing them all in
 
 - [ ] **Step 4: Re-run every mutation from Groups A–D and record the catching test**
 
-Thirty-four in total. The three owner-mandated invariants carry twenty-two of them, and those are the ones to run first:
+Thirty-six in total. The three owner-mandated invariants carry twenty-four of them, and those are the ones to run first:
 
-**Fingerprint completeness (A3) — 7:** the kind namespace; each of model id, effort, demo mode, strategy fingerprint and corrections fingerprint dropped from `ai_input_version`; and `ai_input_version` ignoring its owner argument.
+**Fingerprint completeness (A3) — 9:** the kind namespace; each of model id, effort, demo mode, strategy fingerprint and corrections fingerprint dropped from `ai_input_version`; `ai_input_version` ignoring its owner argument; the strategy term dropping its `is_active == 1` filter; and `ai_input_version` degrading to a constant instead of raising.
 
 **Prompt boundary (C2, C3) — 4:** `_prompt_safe` stripping removed; the relocation reverted so the block returns to the system role; the block placed in *both* roles; and the per-field bound removed.
 
