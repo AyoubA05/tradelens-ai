@@ -688,3 +688,55 @@ def test_trade_model_declares_the_same_non_null_timestamp_invariant():
         CreateTable(Trade.__table__).compile(dialect=postgresql.dialect())
     )
     assert "DEFAULT CAST(CURRENT_TIMESTAMP AS VARCHAR) NOT NULL" in postgres_ddl
+
+
+def test_ai_analysis_job_guard_columns_round_trip(tmp_path):
+    """The five Phase 5 guard columns arrive by migration and leave by downgrade."""
+    database_url = f"sqlite:///{tmp_path / 'phase5-guards.db'}"
+    assert _run_alembic(["upgrade", "f2g3h4i5j6k7"], database_url).returncode == 0
+
+    guards = {
+        "analysis_job_id",
+        "journal_job_id",
+        "grading_job_id",
+        "confirmed_at",
+        "confirmed_fields_json",
+    }
+
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        assert guards.isdisjoint(_columns_of(conn, "aianalysis"))
+    engine.dispose()
+
+    upgraded = _run_alembic(["upgrade", "head"], database_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        columns = {c["name"]: c for c in inspect(conn).get_columns("aianalysis")}
+        assert guards <= set(columns)
+        for name in guards:
+            assert columns[name]["nullable"] is True
+    engine.dispose()
+
+    downgraded = _run_alembic(["downgrade", "-1"], database_url)
+    assert downgraded.returncode == 0, downgraded.stderr
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        assert guards.isdisjoint(_columns_of(conn, "aianalysis"))
+    engine.dispose()
+
+    assert _run_alembic(["upgrade", "head"], database_url).returncode == 0
+
+
+def test_ai_analysis_model_declares_the_same_guard_columns():
+    """A fresh metadata-built database must match the migration head."""
+    from src.tradelens.db.models import AIAnalysis
+
+    for name in (
+        "analysis_job_id",
+        "journal_job_id",
+        "grading_job_id",
+        "confirmed_at",
+        "confirmed_fields_json",
+    ):
+        assert AIAnalysis.__table__.c[name].nullable is True
