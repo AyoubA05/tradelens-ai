@@ -43,9 +43,17 @@ Groups, not per-task gates — the model that has worked since Phase 2.
 |---|---|
 | A — the analysis job and its stale-write guard | **Deepest in the phase.** The vision path, the monotonic write guard, and the one place a stale job could destroy confirmed labels. |
 | B — journal and grading jobs | **Deep.** Output validation, the injection surface, and the post-trade-only boundary. |
-| C — confirmation, corrections and personalization | **Deep.** Trader-authored text entering a system prompt; ownership on a table whose rows are reachable by two ids. |
-| D — the Trade Detail AI panel | Light at the group boundary. |
-| E — verification and handoff | Final phase boundary. |
+| C — confirmation, corrections and personalization | **Deep.** Trader-authored text and its prompt role; the only path that unlocks a confirmed field; ownership on a table whose rows are reachable by two ids. |
+| D — the Trade Detail AI panel | Light at the group boundary — presentation, with one exception: the locked-field adopt/release affordance is the trader's only route out of a lock, so review that part as behaviour, not decoration. |
+| E — verification and handoff | Final phase boundary, plus a browser smoke of the three job flows. |
+
+**The three owner-mandated invariants, and where each is pinned.** Named here so a reviewer can check them without reading the whole plan:
+
+| Invariant | Decision | Tasks | Mutations |
+|---|---|---|---|
+| Fingerprints cover **every** effective AI input | design decision 4 | A3 | 7 |
+| Trader correction text is untrusted, bounded, escaped, and **never system-role** | design decision 6 | C2, C3 | 4 |
+| Result writes are atomic, ordered, and confirmation-fenced | design decision 3 | A4, C1 | 11 |
 
 **Mutation-test every guard.** Across Phases 3, 3E, 4 and 4E, **eleven** tests were proven to pass against deliberately broken code, and one reported mutation result turned out never to have been run. Three shapes recur: asserting a value the implementation echoes back rather than an observable outcome; being refused by a *downstream* gate so the guard under test is never exercised; and a shadowed test helper silently disabling assertions. For every guard in this phase: break it, confirm a **named** test fails, restore, and record the test name. A guard with no failing mutation is not defended. A mutation you could not actually run is a mutation you did not run — say so rather than reporting it as caught.
 
@@ -98,21 +106,54 @@ UPDATE aianalysis SET ... WHERE trade_id = :trade AND (analysis_job_id IS NULL O
 
 with `rowcount` checked. A stale job writes zero rows and reports that it was superseded; it does not raise, because being overtaken is a normal outcome, not a failure. Read-then-write is forbidden here for exactly the reason it was forbidden in Phase 3's PATCH.
 
-**3. A confirmation is a fence a job enqueued before it cannot cross.**
-The monotonic guard alone still lets this happen: the trader starts a re-analysis, confirms `bias` while it runs, and the job — genuinely the newest — replaces the confirmation. So `aianalysis` also gains `confirmed_at`, set when the trader confirms labels, and a job carries its own `created_at` in the payload. A job whose enqueue predates `confirmed_at` writes the AI columns it owns but **not** the fields the trader confirmed. A re-run started *after* a confirmation is the trader deliberately asking for new labels, and is allowed to replace them.
+**3. A confirmed label is LOCKED until the trader changes it — job ordering does not unlock it.**
 
-**4. The idempotency key is a fingerprint of the inputs, so caching and re-running are the same mechanism.**
+The owner asked for this to be decided explicitly rather than left implicit, so here is the decision and the reasoning, including why the earlier draft was wrong.
+
+The draft said a job enqueued *after* a confirmation could replace it, on the theory that clicking "re-analyse" means "give me new labels". That is the weaker reading. Clicking re-analyse asks for **analysis** — usually because a better screenshot was attached — and it is not a request to discard the trader's own judgement. A trader who corrected `bias` to bearish, then re-ran to get cleaner zones, would lose their correction to a control that says nothing about labels. Silently replacing a value the trader personally asserted is the exact harm the fence exists to prevent; whether the clock happened to favour the job is not a principle.
+
+It also contradicts the posture the rest of this codebase already takes. `get_smc_prefill` says it outright: *the user's existing trade value always takes priority; only when it is unset do we fall back to the AI's proposal*. Phase 4E's `save_draft` carries the trader's typing forward across an autosave. `run_grade` refuses to touch `user_grade`. A journal is the trader's own record, and a stale AI label is a much smaller cost than a lost human judgement.
+
+**So: `store_analysis` drops every confirmed field from its write, unconditionally.** No timestamp comparison, no ordering subtlety — the rule is one sentence and there is no window in which it does not hold. A new analysis still writes every *unconfirmed* field, so re-running remains useful. `raw_response_json` always holds the newest complete model output, so the panel can show what the latest run *would* have said for a locked field and let the trader adopt it in one click — the value is never hidden, only never applied behind their back.
+
+Unlocking is explicit and is the same action as confirming: PATCH the field to a new value (which re-confirms it), or send it in `release` to hand it back to the AI. Both are deliberate, both are one click, and both are the trader's decision rather than a race's.
+
+`confirmed_at` is still stored, now purely so the panel can say *when* the trader confirmed. It is no longer load-bearing for the write rule, which is a simplification: the guard that matters is the field set, and it does not depend on any clock.
+
+**4. The idempotency key fingerprints EVERY effective AI input, not just the obvious ones.**
 Phase 4E keyed autofill on the screenshot id, which is correct there because a screenshot is immutable. Analysis is not: the trader edits the trade and legitimately wants a fresh read. Keying on the screenshot alone would make re-analysis impossible; keying on a nonce would make every double-click a second bill.
 
-The key is therefore `sha256` over the inputs that actually change the answer — for analysis, the screenshot id and the trade's `updated_at` and the prompt version; for journal and grading, the trade's `updated_at`, the analysis row's `updated_at`, and the prompt version. An unchanged re-request returns the existing job, including a failed one, which stays terminal. A genuinely changed trade produces a new key and a new job. That is a cache with no cache: the queue row *is* the cache entry.
+The rule the key has to satisfy is exact: **two requests share a job only if they would produce the same answer.** Anything capable of changing the output must therefore be in the digest, and a fingerprint that covers only the visible inputs is a cache that silently serves stale results. Concretely, all of:
+
+- the **job kind**, so journal and grading — which share every other input — cannot collide and hand one feature's job to the other;
+- the **trade** (`id` and `updated_at`) and, for analysis, the **screenshot id**;
+- the **analysis row's `updated_at`** for journal and grading, since a re-analysis genuinely makes both stale;
+- the **prompt version** — the `prompts/` file each kind loads;
+- the **model id and effort**, from `config.ANTHROPIC_MODEL_ID` and `settings.effort_default`: a model change changes the answer, and a cached job from the previous model is a wrong answer with a fresh timestamp;
+- **`DEMO_MODE`**, because it replaces the output entirely and a demo-mode job must never be served to a live request or the reverse;
+- the **Strategy Profile**, which `generate_journal` and `grade_trade` both take and which the trader edits in Settings — a journal graded against last week's rules is not the journal the trader asked for;
+- the **correction state**, because `<past_corrections>` steers every call. Corrections are append-only, so `(count, max(id))` for the owner is an exact and cheap monotonic fingerprint of that block. This is what makes "correct the AI, then re-run" work at all: without it, the re-run returns the cached job the correction was meant to change.
+
+These are collapsed into one `ai_input_version(user_id)` digest so each key stays short and there is a single place to extend when a future input appears. Owner separation needs no term: `ai_jobs` is unique on `(user_id, idempotency_key)`, so two traders cannot share a row even with an identical digest.
+
+An unchanged re-request returns the existing job, including a failed one, which stays terminal. Any changed input produces a new key and a new job. That is a cache with no cache: the queue row *is* the cache entry.
 
 **5. Untrusted text is bounded and fenced on the way in, and the output is validated on the way out.**
 Trade notes, the three emotion fields and correction reasons are trader-typed; chart text is model-read from an image. All of it is data. Every such value is truncated to `MAX_PROMPT_TEXT_CHARS` and wrapped in a delimited block that the prompt already treats as data. This does not "prevent prompt injection" — nothing does — but it bounds the blast radius and it removes the unbounded-length lever.
 
 The real defence is on the output: journal markdown must carry all eight ordered headings *and* pass `_reject_forward_looking`; grading JSON must carry all four top-level keys and all five rubric dimensions, and every free-text note in it must pass the same rejection. An output that fails either check fails the job. A journal that tells the trader what to buy next session is the single worst thing this product could emit, so it is checked, not trusted.
 
-**6. `<past_corrections>` is trader-authored text inside a system prompt, and is capped as such.**
-`ai_client._corrections_block` calls `build_correction_few_shot`, which builds lines from `user_value` and `user_reason` — free text the trader typed — and `_build_system` appends the result to the **system** message. The existing `_FEWSHOT_TOKEN_BUDGET` of 800 bounds the total, but no single field is bounded and nothing strips a line that tries to close the block. Phase 5 adds per-field truncation and strips angle brackets from the interpolated values, so a correction cannot forge a `</past_corrections>` boundary. This is a small change to an existing function, not a redesign, and it is in scope because this phase is the one that makes corrections steer three paid calls.
+**6. Trader-authored correction text leaves the system role entirely, and is bounded and escaped as well.**
+`ai_client._corrections_block` calls `build_correction_few_shot`, which builds lines from `user_value` and `user_reason` — free text the trader typed — and `_build_system` appends the result to the **system** message. That gives user-authored text system authority, which is the strongest position a prompt has, and it is granted to the one string in the call that a person types freely.
+
+Two changes, and the second is the real one:
+
+- **Bound and escape.** The existing `_FEWSHOT_TOKEN_BUDGET` of 800 caps the total, but no single field is bounded and nothing strips a line that tries to close the block early. Per-field truncation plus angle-bracket stripping means one correction cannot consume the whole budget and cannot forge a `</past_corrections>` boundary.
+- **Relocate.** The block moves out of the system message and into the **user** message, as a leading data section. Escaping reduces what user text can do inside the system role; moving it means user text is never in the system role at all. Defence that removes the capability beats defence that filters it.
+
+The relocation is contained: no service passes `few_shot` explicitly — it is always the auto-injected corrections block — so `_complete` is the only assembly point, and `tests/test_correction_injection.py` already pins the current placement in five assertions that simply invert. It also *improves* prompt caching, because the system message becomes stable across traders instead of varying with each one's correction history.
+
+This is in scope because Phase 5 is what makes corrections steer three more paid calls per trade.
 
 **7. Rate limits are per kind, and that is deliberate.**
 `enqueue_with_limit` counts by `(user_id, kind, created_at >= since)`. Three kinds means three ceilings rather than one shared budget. A shared budget would need a different counting primitive and would let a burst of journals block analysis, which is worse for the trader and no better against abuse: each ceiling independently bounds spend, and the sum is bounded too. The numbers live in one place per kind, beside the existing `MAX_AUTOFILLS_PER_WINDOW`.
@@ -453,7 +494,7 @@ git commit -m "feat(ai): one bounded-and-fenced text rule for every AI consumer"
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
-- Produces: `ANALYSIS_JOB_KIND = "trade_analysis"`, `JOURNAL_JOB_KIND = "trade_journal"`, `GRADE_JOB_KIND = "trade_grade"`, `ANALYSIS_PROMPT_VERSION = "screenshot_v3"`, `JOURNAL_PROMPT_VERSION = "journal_v1"`, `GRADE_PROMPT_VERSION = "grade_v1"`, `MAX_ANALYSES_PER_WINDOW = 20`, `MAX_JOURNALS_PER_WINDOW = 20`, `MAX_GRADES_PER_WINDOW = 20`, `ANALYSIS_WINDOW_HOURS = 24`, and `analysis_key(trade_id, screenshot_id, trade_updated_at) -> str`, `journal_key(trade_id, trade_updated_at, analysis_updated_at) -> str`, `grade_key(trade_id, trade_updated_at, analysis_updated_at) -> str`.
+- Produces: `ANALYSIS_JOB_KIND = "trade_analysis"`, `JOURNAL_JOB_KIND = "trade_journal"`, `GRADE_JOB_KIND = "trade_grade"`, `ANALYSIS_PROMPT_VERSION = "screenshot_v3"`, `JOURNAL_PROMPT_VERSION = "journal_v1"`, `GRADE_PROMPT_VERSION = "grade_v1"`, `MAX_ANALYSES_PER_WINDOW = 20`, `MAX_JOURNALS_PER_WINDOW = 20`, `MAX_GRADES_PER_WINDOW = 20`, `ANALYSIS_WINDOW_HOURS = 24`, `ai_input_version(user_id) -> str`, and `analysis_key(user_id, trade_id, screenshot_id, trade_updated_at) -> str`, `journal_key(user_id, trade_id, trade_updated_at, analysis_updated_at) -> str`, `grade_key(user_id, trade_id, trade_updated_at, analysis_updated_at) -> str`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -462,6 +503,9 @@ Create `tests/test_trade_analysis.py`:
 ```python
 """Phase 5 service layer: fingerprints, write guards, output validation."""
 
+import pytest
+
+from src.tradelens.services import trade_analysis as ta
 from src.tradelens.services.trade_analysis import (
     ANALYSIS_JOB_KIND,
     GRADE_JOB_KIND,
@@ -471,45 +515,140 @@ from src.tradelens.services.trade_analysis import (
     journal_key,
 )
 
+U = 1  # one owner for every key test; owner separation is the DB constraint's job
 
-def test_an_unchanged_trade_produces_the_same_analysis_key():
+
+def test_an_unchanged_trade_produces_the_same_analysis_key(frozen_input_version):
     """The same request twice is one job, so a double-click is one bill."""
-    first = analysis_key(7, 12, "2026-09-01T10:00:00+00:00")
-    second = analysis_key(7, 12, "2026-09-01T10:00:00+00:00")
+    first = analysis_key(U, 7, 12, "2026-09-01T10:00:00+00:00")
+    second = analysis_key(U, 7, 12, "2026-09-01T10:00:00+00:00")
     assert first == second
 
 
-def test_editing_the_trade_produces_a_different_analysis_key():
+def test_editing_the_trade_produces_a_different_analysis_key(frozen_input_version):
     """A changed trade genuinely deserves a fresh read — that is not a retry."""
-    before = analysis_key(7, 12, "2026-09-01T10:00:00+00:00")
-    after = analysis_key(7, 12, "2026-09-01T11:30:00+00:00")
+    before = analysis_key(U, 7, 12, "2026-09-01T10:00:00+00:00")
+    after = analysis_key(U, 7, 12, "2026-09-01T11:30:00+00:00")
     assert before != after
 
 
-def test_a_different_screenshot_produces_a_different_analysis_key():
-    assert analysis_key(7, 12, "t") != analysis_key(7, 13, "t")
+def test_a_different_screenshot_produces_a_different_analysis_key(frozen_input_version):
+    assert analysis_key(U, 7, 12, "t") != analysis_key(U, 7, 13, "t")
 
 
-def test_a_different_trade_produces_a_different_analysis_key():
-    """Two traders' trade 7 are different rows; two trades are different keys."""
-    assert analysis_key(7, 12, "t") != analysis_key(8, 12, "t")
+def test_a_different_trade_produces_a_different_analysis_key(frozen_input_version):
+    assert analysis_key(U, 7, 12, "t") != analysis_key(U, 8, 12, "t")
 
 
-def test_every_key_is_namespaced_by_its_kind():
+def test_every_key_is_namespaced_by_its_kind(frozen_input_version):
     """A journal key must never collide with a grade key for the same inputs.
 
     They share every input, so without the kind prefix one enqueue would
     return the other's job and the trader would poll a grade for a journal.
     """
-    assert journal_key(7, "t", "a") != grade_key(7, "t", "a")
-    assert journal_key(7, "t", "a").startswith(JOURNAL_JOB_KIND)
-    assert grade_key(7, "t", "a").startswith(GRADE_JOB_KIND)
-    assert analysis_key(7, 1, "t").startswith(ANALYSIS_JOB_KIND)
+    assert journal_key(U, 7, "t", "a") != grade_key(U, 7, "t", "a")
+    assert journal_key(U, 7, "t", "a").startswith(JOURNAL_JOB_KIND)
+    assert grade_key(U, 7, "t", "a").startswith(GRADE_JOB_KIND)
+    assert analysis_key(U, 7, 1, "t").startswith(ANALYSIS_JOB_KIND)
 
 
-def test_a_regenerated_journal_after_new_analysis_is_a_new_key():
+def test_a_regenerated_journal_after_new_analysis_is_a_new_key(frozen_input_version):
     """Re-analysis moves the analysis row, so the journal is genuinely stale."""
-    assert journal_key(7, "t", "a1") != journal_key(7, "t", "a2")
+    assert journal_key(U, 7, "t", "a1") != journal_key(U, 7, "t", "a2")
+
+
+# --- every OTHER effective input is in the digest too --------------------
+#
+# Each of these is a way the answer changes without any visible input
+# changing. A key that ignores one of them is a cache that serves a stale
+# result under a fresh timestamp, which is worse than no cache.
+
+
+def test_a_model_change_produces_a_different_key(monkeypatch, frozen_input_version):
+    """A job cached under the previous model is a wrong answer, not a saving."""
+    before = analysis_key(U, 7, 12, "t")
+    monkeypatch.setattr(ta, "ANTHROPIC_MODEL_ID", "claude-something-else")
+    assert analysis_key(U, 7, 12, "t") != before
+
+
+def test_an_effort_change_produces_a_different_key(monkeypatch, frozen_input_version):
+    before = analysis_key(U, 7, 12, "t")
+    monkeypatch.setattr(ta.settings, "effort_default", "high")
+    assert analysis_key(U, 7, 12, "t") != before
+
+
+def test_demo_mode_never_shares_a_job_with_a_live_request(
+    monkeypatch, frozen_input_version
+):
+    """DEMO_MODE replaces the output wholesale, in both directions."""
+    live = analysis_key(U, 7, 12, "t")
+    monkeypatch.setattr(ta.settings, "demo_mode", True)
+    assert analysis_key(U, 7, 12, "t") != live
+
+
+def test_editing_the_strategy_profile_produces_a_different_key(monkeypatch):
+    """`generate_journal` and `grade_trade` both take the profile.
+
+    A journal graded against last week's rules is not the journal the trader
+    asked for after editing them.
+    """
+    monkeypatch.setattr(ta, "_strategy_fingerprint", lambda uid: "profile-v1")
+    before = journal_key(U, 7, "t", "a")
+    monkeypatch.setattr(ta, "_strategy_fingerprint", lambda uid: "profile-v2")
+    assert journal_key(U, 7, "t", "a") != before
+
+
+def test_a_new_correction_produces_a_different_key(monkeypatch):
+    """THE one that makes 'correct the AI, then re-run' work at all.
+
+    Without the correction state in the digest the re-run returns the cached
+    job the correction was meant to change, and the trader's correction
+    appears to do nothing.
+    """
+    monkeypatch.setattr(ta, "_corrections_fingerprint", lambda uid: "3:41")
+    before = journal_key(U, 7, "t", "a")
+    monkeypatch.setattr(ta, "_corrections_fingerprint", lambda uid: "4:52")
+    assert journal_key(U, 7, "t", "a") != before
+
+
+def test_one_owner_s_corrections_do_not_change_another_owner_s_key(
+    two_owners_with_corrections
+):
+    """The digest is owner-scoped: my corrections are not in your fingerprint."""
+    first, second = two_owners_with_corrections
+    before = ta.ai_input_version(second)
+    ta.record_correction_for_test(first)
+    assert ta.ai_input_version(second) == before
+
+
+def test_the_input_version_never_raises_when_the_database_is_unhappy(monkeypatch):
+    """A digest that throws would take down enqueue for every kind.
+
+    Degrading to a constant is safe in the only direction that matters: it
+    can make two different states share a key (a stale result), never make
+    one owner read another's. It is logged rather than silent.
+    """
+
+    def boom(_uid):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(ta, "_corrections_fingerprint", boom)
+    assert isinstance(ta.ai_input_version(U), str)
+```
+
+Add the fixture (a name used nowhere else in this file):
+
+```python
+@pytest.fixture()
+def frozen_input_version(monkeypatch):
+    """Pin the owner-state half of the digest so pure-input tests stay pure.
+
+    Without this every key test would also depend on whatever corrections and
+    strategy rows the database happens to hold, and a failure would not say
+    which half moved.
+    """
+    monkeypatch.setattr(ta, "_strategy_fingerprint", lambda uid: "s")
+    monkeypatch.setattr(ta, "_corrections_fingerprint", lambda uid: "c")
 ```
 
 - [ ] **Step 2: Run it and watch it fail**
@@ -566,6 +705,94 @@ MAX_GRADES_PER_WINDOW = 20
 ANALYSIS_WINDOW_HOURS = 24
 
 
+import logging
+
+from sqlalchemy import func
+
+from src.tradelens.config import ANTHROPIC_MODEL_ID, settings
+from src.tradelens.db.models import Correction, Strategy
+from src.tradelens.db.session import SessionLocal
+from src.tradelens.services.ownership import require_user_id
+
+_log = logging.getLogger(__name__)
+
+
+def _strategy_fingerprint(user_id: int) -> str:
+    """A stable digest of the owner's active Strategy Profile.
+
+    `generate_journal` and `grade_trade` both take this profile, so editing
+    it in Settings genuinely changes the answer. Its `updated_at` is enough:
+    every write path goes through `upsert_strategy_profile`, which sets it.
+    """
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(Strategy.id, Strategy.updated_at)
+            .filter(Strategy.user_id == user_id)
+            .first()
+        )
+    finally:
+        db.close()
+    return "none" if row is None else f"{row[0]}:{row[1]}"
+
+
+def _corrections_fingerprint(user_id: int) -> str:
+    """A stable digest of the owner's correction memory.
+
+    Corrections are append-only — `record_correction` only ever INSERTs — so
+    `(count, max(id))` moves whenever the `<past_corrections>` block would
+    change, and never otherwise. Two numbers, one query, no block to render.
+
+    This term is what makes "correct the AI, then re-run" work: without it
+    the re-run matches the cached job the correction was meant to change.
+    """
+    db = SessionLocal()
+    try:
+        count, newest = (
+            db.query(func.count(Correction.id), func.max(Correction.id))
+            .filter(Correction.user_id == user_id)
+            .one()
+        )
+    finally:
+        db.close()
+    return f"{int(count or 0)}:{int(newest or 0)}"
+
+
+def ai_input_version(user_id: int) -> str:
+    """Everything OTHER than the trade that can change an AI answer.
+
+    Model, effort, demo mode, the Strategy Profile and the correction memory.
+    Collapsed into one short digest so each key stays readable and so a
+    future input is added in exactly one place.
+
+    Degrades to a constant rather than raising: a digest that throws would
+    take enqueue down for all three kinds. The failure direction is safe —
+    it can make two different states share a key, which serves a stale
+    result, but it can never make one owner read another's work, because
+    `ai_jobs` is unique on `(user_id, idempotency_key)` regardless of what
+    this returns. It is logged, not swallowed silently.
+    """
+    owner = require_user_id(user_id)
+    try:
+        state = (
+            _strategy_fingerprint(owner),
+            _corrections_fingerprint(owner),
+        )
+    except Exception as exc:  # noqa: BLE001 — see the docstring's trade-off
+        _log.error("ai_input_version degraded (%s)", type(exc).__name__)
+        state = ("unavailable", "unavailable")
+    return hashlib.sha256(
+        "|".join(
+            (
+                ANTHROPIC_MODEL_ID,
+                str(settings.effort_default),
+                str(bool(settings.demo_mode)),
+                *state,
+            )
+        ).encode("utf-8")
+    ).hexdigest()[:16]
+
+
 def _fingerprint(kind: str, *parts) -> str:
     """A stable key over the inputs that actually change the answer.
 
@@ -579,35 +806,46 @@ def _fingerprint(kind: str, *parts) -> str:
     return f"{kind}:{digest}"
 
 
-def analysis_key(trade_id: int, screenshot_id: int, trade_updated_at) -> str:
+def analysis_key(
+    user_id: int, trade_id: int, screenshot_id: int, trade_updated_at
+) -> str:
     return _fingerprint(
         ANALYSIS_JOB_KIND,
         trade_id,
         screenshot_id,
         trade_updated_at,
         ANALYSIS_PROMPT_VERSION,
+        ai_input_version(user_id),
     )
 
 
-def journal_key(trade_id: int, trade_updated_at, analysis_updated_at) -> str:
+def journal_key(
+    user_id: int, trade_id: int, trade_updated_at, analysis_updated_at
+) -> str:
     return _fingerprint(
         JOURNAL_JOB_KIND,
         trade_id,
         trade_updated_at,
         analysis_updated_at,
         JOURNAL_PROMPT_VERSION,
+        ai_input_version(user_id),
     )
 
 
-def grade_key(trade_id: int, trade_updated_at, analysis_updated_at) -> str:
+def grade_key(
+    user_id: int, trade_id: int, trade_updated_at, analysis_updated_at
+) -> str:
     return _fingerprint(
         GRADE_JOB_KIND,
         trade_id,
         trade_updated_at,
         analysis_updated_at,
         GRADE_PROMPT_VERSION,
+        ai_input_version(user_id),
     )
 ```
+
+Also add a tiny helper the ownership test uses, kept in the test file rather than the service — `record_correction_for_test(user_id)` inserts one `Correction` row for that owner directly. Do not add a production function that exists only for a test.
 
 - [ ] **Step 4: Run the tests**
 
@@ -620,7 +858,24 @@ Change `_fingerprint` to drop the kind from the digest input **and** the prefix 
 Run: `.venv/bin/pytest tests/test_trade_analysis.py -v`
 Expected: FAIL at `test_every_key_is_namespaced_by_its_kind`. Restore, re-run, confirm PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Mutate each term of the input version and confirm a named test catches each**
+
+Five separate mutations, applied and restored one at a time. Every one of these is a way a cache serves a stale answer under a fresh timestamp, so every one needs its own failing test:
+
+| Mutation | Expected failing test |
+|---|---|
+| Drop `ANTHROPIC_MODEL_ID` from the `ai_input_version` digest | `test_a_model_change_produces_a_different_key` |
+| Drop `settings.effort_default` | `test_an_effort_change_produces_a_different_key` |
+| Drop `settings.demo_mode` | `test_demo_mode_never_shares_a_job_with_a_live_request` |
+| Drop `_strategy_fingerprint` from `state` | `test_editing_the_strategy_profile_produces_a_different_key` |
+| Drop `_corrections_fingerprint` from `state` | `test_a_new_correction_produces_a_different_key` |
+
+Then a sixth: make `ai_input_version` ignore its argument by hardcoding `owner = 1`.
+Expected: FAIL at `test_one_owner_s_corrections_do_not_change_another_owner_s_key`.
+
+Restore after each, and confirm `git diff` is empty before moving on.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/tradelens/services/trade_analysis.py tests/test_trade_analysis.py
@@ -629,7 +884,7 @@ git commit -m "feat(analysis): input-fingerprint idempotency keys for the three 
 
 ---
 
-### Task A4: The conditional result write — the stale-job guard
+### Task A4: The conditional result write — ordering guard and confirmation lock
 
 **Files:**
 - Modify: `src/tradelens/services/trade_analysis.py`
@@ -637,7 +892,12 @@ git commit -m "feat(analysis): input-fingerprint idempotency keys for the three 
 
 **Interfaces:**
 - Consumes: `analysis_key` and the constants from A3; `AIAnalysis` columns from A1.
-- Produces: `class WriteOutcome` with `.written: bool` and `.superseded: bool`; `store_analysis(user_id, trade_id, *, job_id, vision_result, usage, enqueued_at) -> WriteOutcome`; `confirmed_fields(analysis) -> frozenset`.
+- Produces: `class WriteOutcome` with `.written: bool`, `.superseded: bool` and `.locked: frozenset`; `store_analysis(user_id, trade_id, *, job_id, vision_result, usage) -> WriteOutcome`; `confirmed_fields(analysis) -> frozenset`.
+
+**The two rules this task implements, stated once so the tests below can be read against them:**
+
+1. **Ordering.** A write lands only if its `job_id` is greater than the one already stored. A slow older job writes zero rows and reports `superseded`. Not a read-then-write: the predicate is in the UPDATE.
+2. **Confirmation lock.** A field the trader has confirmed is **never** written by any job, whenever that job was enqueued. Unlocking is an explicit PATCH (Task C1), not a matter of timing. The newest model output stays in `raw_response_json` so the panel can offer the locked field's new proposal for one-click adoption.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -666,51 +926,48 @@ def _row(trade_id):
         db.close()
 
 
+def _confirm(trade_id, **fields):
+    """Simulate Task C1's confirm, for tests that only need its effect."""
+    db = SessionLocal()
+    try:
+        row = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).one()
+        for name, value in fields.items():
+            setattr(row, name, value)
+        row.confirmed_at = "2026-09-01T09:30:00+00:00"
+        row.confirmed_fields_json = json.dumps(sorted(fields))
+        db.commit()
+    finally:
+        db.close()
+
+
+# --- rule 1: ordering ----------------------------------------------------
+
+
 def test_a_newer_job_replaces_an_older_job_s_result(owned_trade):
     """The ordinary re-run: the trader asked for a fresh read and gets one."""
     user_id, trade_id = owned_trade
     store_analysis(
-        user_id,
-        trade_id,
-        job_id=1,
-        vision_result={"bias": "bullish"},
-        usage=_usage(),
-        enqueued_at="2026-09-01T09:00:00+00:00",
+        user_id, trade_id, job_id=1, vision_result={"bias": "bullish"}, usage=_usage()
     )
     outcome = store_analysis(
-        user_id,
-        trade_id,
-        job_id=2,
-        vision_result={"bias": "bearish"},
-        usage=_usage(),
-        enqueued_at="2026-09-01T10:00:00+00:00",
+        user_id, trade_id, job_id=2, vision_result={"bias": "bearish"}, usage=_usage()
     )
     assert outcome.written is True
     assert _row(trade_id).bias == "bearish"
 
 
 def test_a_stale_job_cannot_land_on_top_of_a_newer_result(owned_trade):
-    """THE guard. Two jobs in flight; the slow older one finishes last.
+    """Two jobs in flight; the slow older one finishes last.
 
     Without the conditional write it wins purely by being slow, and the
     trader sees the reading they did not ask for with nothing saying so.
     """
     user_id, trade_id = owned_trade
     store_analysis(
-        user_id,
-        trade_id,
-        job_id=9,
-        vision_result={"bias": "bearish"},
-        usage=_usage(),
-        enqueued_at="2026-09-01T10:00:00+00:00",
+        user_id, trade_id, job_id=9, vision_result={"bias": "bearish"}, usage=_usage()
     )
     outcome = store_analysis(
-        user_id,
-        trade_id,
-        job_id=4,
-        vision_result={"bias": "bullish"},
-        usage=_usage(),
-        enqueued_at="2026-09-01T09:00:00+00:00",
+        user_id, trade_id, job_id=4, vision_result={"bias": "bullish"}, usage=_usage()
     )
     assert outcome.written is False
     assert outcome.superseded is True
@@ -718,31 +975,33 @@ def test_a_stale_job_cannot_land_on_top_of_a_newer_result(owned_trade):
     assert _row(trade_id).analysis_job_id == 9
 
 
-def test_a_job_enqueued_before_a_confirmation_cannot_replace_it(owned_trade):
-    """Being newest is not enough — it must be newer than the trader.
+def test_a_job_replaying_its_own_id_does_not_write_twice(owned_trade):
+    """`<` not `<=`: a redelivered job is not newer than itself.
 
-    The trader starts a re-analysis, then confirms `bias` while it runs. The
-    job is genuinely the newest job, so the job-id guard alone lets it
-    through, and the trader's own correction vanishes.
+    `run_once` can be re-entered for one job after a worker restart, and the
+    idempotency key means a resubmit returns that same job id.
     """
     user_id, trade_id = owned_trade
     store_analysis(
-        user_id,
-        trade_id,
-        job_id=1,
-        vision_result={"bias": "bullish"},
-        usage=_usage(),
-        enqueued_at="2026-09-01T09:00:00+00:00",
+        user_id, trade_id, job_id=5, vision_result={"bias": "bearish"}, usage=_usage()
     )
-    db = SessionLocal()
-    try:
-        row = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).one()
-        row.bias = "neutral"
-        row.confirmed_at = "2026-09-01T09:30:00+00:00"
-        row.confirmed_fields_json = json.dumps(["bias"])
-        db.commit()
-    finally:
-        db.close()
+    outcome = store_analysis(
+        user_id, trade_id, job_id=5, vision_result={"bias": "bullish"}, usage=_usage()
+    )
+    assert outcome.written is False
+    assert _row(trade_id).bias == "bearish"
+
+
+# --- rule 2: the confirmation lock ---------------------------------------
+
+
+def test_a_job_enqueued_before_a_confirmation_cannot_replace_it(owned_trade):
+    """The obvious half of the lock: the job was reading a stale world."""
+    user_id, trade_id = owned_trade
+    store_analysis(
+        user_id, trade_id, job_id=1, vision_result={"bias": "bullish"}, usage=_usage()
+    )
+    _confirm(trade_id, bias="neutral")
 
     outcome = store_analysis(
         user_id,
@@ -750,45 +1009,121 @@ def test_a_job_enqueued_before_a_confirmation_cannot_replace_it(owned_trade):
         job_id=2,
         vision_result={"bias": "bearish", "trade_quality": 8},
         usage=_usage(),
-        enqueued_at="2026-09-01T09:15:00+00:00",
     )
 
     assert outcome.written is True
-    # The confirmed field is untouched; everything else still updates.
+    assert outcome.locked == frozenset({"bias"})
+    # The confirmed field is untouched; every unconfirmed field still updates.
     assert _row(trade_id).bias == "neutral"
     assert _row(trade_id).trade_quality == 8
 
 
-def test_a_re_run_started_after_a_confirmation_may_replace_it(owned_trade):
-    """The trader deliberately asked for new labels — respect that."""
+def test_a_job_started_after_a_confirmation_STILL_cannot_replace_it(owned_trade):
+    """THE decided rule, and the one that reverses the first draft.
+
+    Clicking re-analyse asks for analysis — usually because a better
+    screenshot was attached. It is not a request to discard the trader's own
+    judgement, and it says nothing about labels. A confirmed value stays
+    until the trader changes it, whatever the job ordering.
+    """
     user_id, trade_id = owned_trade
     store_analysis(
-        user_id,
-        trade_id,
-        job_id=1,
-        vision_result={"bias": "bullish"},
-        usage=_usage(),
-        enqueued_at="2026-09-01T09:00:00+00:00",
+        user_id, trade_id, job_id=1, vision_result={"bias": "bullish"}, usage=_usage()
+    )
+    _confirm(trade_id, bias="neutral")
+
+    # Enqueued long after the confirmation, and genuinely the newest job.
+    outcome = store_analysis(
+        user_id, trade_id, job_id=99, vision_result={"bias": "bearish"}, usage=_usage()
+    )
+    assert outcome.written is True
+    assert _row(trade_id).bias == "neutral"
+
+
+def test_the_locked_field_s_new_reading_is_still_recorded_for_the_trader(owned_trade):
+    """Locked means "not applied", never "hidden".
+
+    The panel offers the newest proposal for a one-click adopt, so the
+    trader can see what the fresh run said without it landing behind them.
+    """
+    user_id, trade_id = owned_trade
+    store_analysis(
+        user_id, trade_id, job_id=1, vision_result={"bias": "bullish"}, usage=_usage()
+    )
+    _confirm(trade_id, bias="neutral")
+    store_analysis(
+        user_id, trade_id, job_id=2, vision_result={"bias": "bearish"}, usage=_usage()
+    )
+    assert json.loads(_row(trade_id).raw_response_json)["bias"] == "bearish"
+
+
+def test_a_confirmed_field_survives_any_number_of_re_runs(owned_trade):
+    """The lock is a property, not a one-shot guard."""
+    user_id, trade_id = owned_trade
+    store_analysis(
+        user_id, trade_id, job_id=1, vision_result={"bias": "bullish"}, usage=_usage()
+    )
+    _confirm(trade_id, bias="neutral")
+    for job_id in range(2, 8):
+        store_analysis(
+            user_id,
+            trade_id,
+            job_id=job_id,
+            vision_result={"bias": "bearish"},
+            usage=_usage(),
+        )
+    assert _row(trade_id).bias == "neutral"
+
+
+def test_an_unparseable_confirmed_field_list_locks_nothing(owned_trade):
+    """Fail toward a refreshable row, not a permanently frozen one.
+
+    A row written by an older deploy has no list at all. Treating that as
+    "everything is locked" would leave a trade nobody can ever re-analyse,
+    which is worse than a label they can simply re-confirm.
+    """
+    user_id, trade_id = owned_trade
+    store_analysis(
+        user_id, trade_id, job_id=1, vision_result={"bias": "bullish"}, usage=_usage()
     )
     db = SessionLocal()
     try:
         row = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).one()
-        row.bias = "neutral"
-        row.confirmed_at = "2026-09-01T09:30:00+00:00"
-        row.confirmed_fields_json = json.dumps(["bias"])
+        row.confirmed_fields_json = "{not json"
         db.commit()
     finally:
         db.close()
-
     store_analysis(
-        user_id,
-        trade_id,
-        job_id=2,
-        vision_result={"bias": "bearish"},
-        usage=_usage(),
-        enqueued_at="2026-09-01T10:00:00+00:00",
+        user_id, trade_id, job_id=2, vision_result={"bias": "bearish"}, usage=_usage()
     )
     assert _row(trade_id).bias == "bearish"
+
+
+def test_a_confirmed_name_that_is_not_a_writable_column_is_ignored(owned_trade):
+    """The lock list is data, and data is never a column name.
+
+    A stored list is filtered against the write's own key set, so a stray or
+    hostile entry cannot make an unrelated column unwritable.
+    """
+    user_id, trade_id = owned_trade
+    store_analysis(
+        user_id, trade_id, job_id=1, vision_result={"bias": "bullish"}, usage=_usage()
+    )
+    db = SessionLocal()
+    try:
+        row = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).one()
+        row.confirmed_fields_json = json.dumps(["analysis_job_id", "cost_usd"])
+        db.commit()
+    finally:
+        db.close()
+    outcome = store_analysis(
+        user_id, trade_id, job_id=2, vision_result={"bias": "bearish"}, usage=_usage()
+    )
+    assert outcome.written is True
+    assert _row(trade_id).analysis_job_id == 2
+
+
+# --- ownership -----------------------------------------------------------
 
 
 def test_another_owner_s_trade_is_never_written(two_users_with_trades):
@@ -801,7 +1136,6 @@ def test_another_owner_s_trade_is_never_written(two_users_with_trades):
             job_id=1,
             vision_result={"bias": "bullish"},
             usage=_usage(),
-            enqueued_at="2026-09-01T09:00:00+00:00",
         )
     assert _row(other_trade) is None
 ```
@@ -862,10 +1196,16 @@ class WriteOutcome:
 
     `superseded` is not an error: being overtaken by a newer job is a normal
     outcome of a queue, and a job that reports it did its work correctly.
+
+    `locked` names the fields this write deliberately did not touch because
+    the trader has confirmed them. Reported rather than inferred, so the
+    panel can say "your bias was kept" instead of leaving the trader to
+    notice that one value did not move.
     """
 
     written: bool
     superseded: bool
+    locked: frozenset = frozenset()
 
 
 def confirmed_fields(analysis) -> frozenset:
@@ -903,19 +1243,29 @@ def store_analysis(
     job_id: int,
     vision_result: dict,
     usage,
-    enqueued_at,
 ) -> WriteOutcome:
-    """Store one analysis result, only if it is not already stale.
+    """Store one analysis result under the ordering guard and the lock.
 
-    Two guards, and both are needed:
+    Two rules, and they are independent:
 
-    * The **job-id guard** is in the UPDATE's WHERE clause, so a slow older
-      job writes zero rows rather than landing on a newer result. It is not a
-      read-then-write: between a SELECT and an UPDATE the other job commits,
-      which is precisely the race this exists to lose safely.
-    * The **confirmation fence** drops the fields the trader confirmed after
-      this job was enqueued. The job may be the newest job and still be
-      reading a world the trader has since corrected.
+    * **Ordering.** The job-id predicate lives in the UPDATE's WHERE clause,
+      so a slow older job writes zero rows rather than landing on a newer
+      result. Deliberately not a read-then-write: between a SELECT and an
+      UPDATE the other job commits, which is precisely the race this exists
+      to lose safely. `<` and not `<=`, so a redelivered job does not rewrite
+      its own result.
+    * **The confirmation lock.** A field the trader has confirmed is dropped
+      from the write — whenever this job was enqueued. There is no timestamp
+      comparison here on purpose: "the trader's value stands until the
+      trader changes it" is a rule with no window in which it fails, and
+      ordering was never a good reason to discard a human judgement. See
+      design decision 3 for why the first draft of this plan had it the
+      other way round, and why that was wrong.
+
+    The locked field's fresh reading is still stored in `raw_response_json`,
+    which always holds the newest complete model output. Locked means "not
+    applied", never "hidden": the panel offers the new proposal for one-click
+    adoption (Task D3).
 
     Raises `ValueError` when the trade is not this owner's: `aianalysis` has
     no `user_id`, so the trade join is the only ownership statement there is.
@@ -957,11 +1307,16 @@ def store_analysis(
             db.commit()
             return WriteOutcome(written=True, superseded=False)
 
-        # The trader confirmed these AFTER this job was queued, so this job
-        # never saw them. Drop them from the write; keep everything else.
-        if existing.confirmed_at and str(enqueued_at) < str(existing.confirmed_at):
-            for field in confirmed_fields(existing):
-                values.pop(field, None)
+        # The confirmation lock. Intersected with `values` first, so a stored
+        # name that is not one of this write's own keys — a stray entry, a
+        # renamed column, a hostile string — can never make an unrelated
+        # column unwritable. `raw_response_json` is deliberately NOT lockable:
+        # it is the newest model output, and keeping it current is what lets
+        # the panel offer the locked field's fresh proposal.
+        locked = frozenset(confirmed_fields(existing)) & set(values)
+        locked -= {"raw_response_json"}
+        for field in locked:
+            values.pop(field, None)
 
         written = db.execute(
             update(AIAnalysis)
@@ -975,13 +1330,13 @@ def store_analysis(
         )
         db.commit()
         if written.rowcount != 1:
-            return WriteOutcome(written=False, superseded=True)
-        return WriteOutcome(written=True, superseded=False)
+            return WriteOutcome(written=False, superseded=True, locked=locked)
+        return WriteOutcome(written=True, superseded=False, locked=locked)
     finally:
         db.close()
 ```
 
-Add `_ANALYSIS_LABEL_FIELDS` usage in Task C1 (the confirm endpoint validates against it); it is defined here so both live in one module.
+`_ANALYSIS_LABEL_FIELDS` is used by Task C1's confirm endpoint; it is defined here so the write and the confirm read one list.
 
 - [ ] **Step 4: Run the tests**
 
@@ -994,11 +1349,26 @@ Remove the `analysis_job_id` disjunction from the `.where(...)`, leaving only `A
 Run: `.venv/bin/pytest tests/test_trade_analysis.py -v`
 Expected: FAIL at `test_a_stale_job_cannot_land_on_top_of_a_newer_result`. Restore and confirm PASS.
 
-- [ ] **Step 6: Mutate the confirmation fence and confirm a named test catches it**
+- [ ] **Step 5b: Mutate the ordering predicate's strictness and confirm a named test catches it**
 
-Change `if existing.confirmed_at and str(enqueued_at) < str(existing.confirmed_at):` to `if False:`.
-Run: `.venv/bin/pytest tests/test_trade_analysis.py -v`
-Expected: FAIL at `test_a_job_enqueued_before_a_confirmation_cannot_replace_it`. Restore and confirm PASS.
+Change `AIAnalysis.analysis_job_id < job_id` to `<= job_id`.
+Expected: FAIL at `test_a_job_replaying_its_own_id_does_not_write_twice`. Restore and confirm PASS.
+
+- [ ] **Step 6: Mutate the confirmation lock and confirm a named test catches it**
+
+Four mutations, one at a time, because the lock has four separable properties:
+
+| Mutation | Expected failing test |
+|---|---|
+| `locked = frozenset()` — drop the lock entirely | `test_a_job_enqueued_before_a_confirmation_cannot_replace_it` |
+| Re-introduce the rejected timing rule: add an `enqueued_at` parameter and lock only when `str(enqueued_at) < str(existing.confirmed_at)`, passing the job's `created_at` from the handler | `test_a_job_started_after_a_confirmation_STILL_cannot_replace_it` |
+| Drop the `& set(values)` intersection | `test_a_confirmed_name_that_is_not_a_writable_column_is_ignored` |
+| Drop `locked -= {"raw_response_json"}` and add `raw_response_json` to a confirmed list | `test_the_locked_field_s_new_reading_is_still_recorded_for_the_trader` |
+
+The second is worth running even though the code no longer contains it: it is the decision this task reversed, and a test that does not fail against the rejected design is not pinning the decision.
+
+Also mutate `confirmed_fields` to `return frozenset(["bias"])` on a parse error.
+Expected: FAIL at `test_an_unparseable_confirmed_field_list_locks_nothing`. Restore and confirm PASS.
 
 - [ ] **Step 7: Mutate the ownership check and confirm a named test catches it**
 
@@ -1024,7 +1394,7 @@ git commit -m "feat(analysis): conditional result write with a confirmation fenc
 
 **Interfaces:**
 - Consumes: `store_analysis` (A4); `storage.read_owned_final_object`; `vision.analyze_screenshot_v3`; `vision.check_screenshot_quality`.
-- Produces: `class AnalysisUnavailable(Exception)`; `run_analysis(user_id, trade_id, screenshot_id, *, job_id, enqueued_at, on_usage) -> WriteOutcome`.
+- Produces: `class AnalysisUnavailable(Exception)`; `run_analysis(user_id, trade_id, screenshot_id, *, job_id, on_usage) -> WriteOutcome`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1060,7 +1430,6 @@ def test_analysis_reads_the_promoted_object_and_nothing_else(
         trade_id,
         44,
         job_id=1,
-        enqueued_at="2026-09-01T09:00:00+00:00",
         on_usage=lambda usage: None,
     )
     assert seen["args"] == (user_id, 44)
@@ -1083,7 +1452,6 @@ def test_an_unreadable_screenshot_fails_terminally_and_costs_nothing(
             trade_id,
             44,
             job_id=1,
-            enqueued_at="2026-09-01T09:00:00+00:00",
             on_usage=lambda usage: None,
         )
     assert calls == []
@@ -1109,7 +1477,6 @@ def test_usage_is_recorded_even_when_the_response_fails_to_parse(
             trade_id,
             44,
             job_id=1,
-            enqueued_at="2026-09-01T09:00:00+00:00",
             on_usage=logged.append,
         )
     assert len(logged) == 1
@@ -1185,7 +1552,6 @@ def run_analysis(
     screenshot_id: int,
     *,
     job_id: int,
-    enqueued_at,
     on_usage,
 ) -> WriteOutcome:
     """Analyse one owned screenshot and store the result under the guards.
@@ -1221,7 +1587,6 @@ def run_analysis(
         job_id=job_id,
         vision_result=descriptive,
         usage=captured.get("usage"),
-        enqueued_at=enqueued_at,
     )
 ```
 
@@ -1236,6 +1601,23 @@ from src.tradelens.services.trade_analysis import (
 )
 
 
+def _phase5_job_id(user_id: int, kind: str, payload: dict) -> int:
+    """The id of the job now running, resolved from its own payload.
+
+    `run_once` hands a handler `(user_id, payload)` and not the job row, and
+    every Phase 5 write is ordered by job id, so the handler has to recover
+    it. The idempotency key is written into the payload at enqueue time
+    rather than re-derived here: `ai_input_version` moves whenever the owner
+    corrects something, so a handler that recomputed the key could fail to
+    find its own job. Owner-scoped lookup, so a payload cannot name another
+    tenant's row.
+    """
+    job = jobs.get_owned_job_by_idempotency_key(user_id, kind, payload["key"])
+    if job is None:
+        raise RuntimeError("job unavailable")
+    return int(job.id)
+
+
 def _trade_analysis_handler(user_id: int, payload: dict) -> str:
     # Same usage discipline as the summary and autofill handlers: the
     # callback is handed down to the provider call so a response that then
@@ -1244,8 +1626,7 @@ def _trade_analysis_handler(user_id: int, payload: dict) -> str:
         user_id,
         int(payload["trade_id"]),
         int(payload["screenshot_id"]),
-        job_id=int(payload["job_id"]),
-        enqueued_at=payload["enqueued_at"],
+        job_id=_phase5_job_id(user_id, ANALYSIS_JOB_KIND, payload),
         on_usage=lambda usage: log_ai_usage("Trade Analysis", usage, user_id=user_id),
     )
     return f"{ANALYSIS_JOB_KIND}:{payload['trade_id']}:{'stored' if outcome.written else 'superseded'}"
@@ -1438,8 +1819,9 @@ def enqueue_trade_analysis(
     if trade is None or not storage.owns_screenshot(user_id, payload.screenshot_id):
         raise _not_found()
 
-    enqueued_at = datetime.now(timezone.utc).isoformat()
-    key = analysis_key(trade_id, int(payload.screenshot_id), trade.updated_at)
+    key = analysis_key(
+        user_id, trade_id, int(payload.screenshot_id), trade.updated_at
+    )
     job_id, created = jobs.enqueue_with_limit(
         user_id,
         ANALYSIS_JOB_KIND,
@@ -1447,7 +1829,10 @@ def enqueue_trade_analysis(
         {
             "trade_id": int(trade_id),
             "screenshot_id": int(payload.screenshot_id),
-            "enqueued_at": enqueued_at,
+            # Carried, not re-derived: `ai_input_version` moves when the owner
+            # corrects something, so a worker recomputing this key could fail
+            # to find the very job it is running.
+            "key": key,
         },
         since=datetime.now(timezone.utc) - timedelta(hours=ANALYSIS_WINDOW_HOURS),
         limit=MAX_ANALYSES_PER_WINDOW,
@@ -1804,7 +2189,7 @@ def _trade_journal_handler(user_id: int, payload: dict) -> str:
     outcome = run_journal(
         user_id,
         int(payload["trade_id"]),
-        job_id=int(payload["job_id"]),
+        job_id=_phase5_job_id(user_id, JOURNAL_JOB_KIND, payload),
         on_usage=lambda usage: log_ai_usage("AI Journal", usage, user_id=user_id),
     )
     return f"{JOURNAL_JOB_KIND}:{payload['trade_id']}:{'stored' if outcome.written else 'superseded'}"
@@ -2077,7 +2462,7 @@ def _trade_grade_handler(user_id: int, payload: dict) -> str:
     outcome = run_grade(
         user_id,
         int(payload["trade_id"]),
-        job_id=int(payload["job_id"]),
+        job_id=_phase5_job_id(user_id, GRADE_JOB_KIND, payload),
         on_usage=lambda usage: log_ai_usage("Trade Grading", usage, user_id=user_id),
     )
     return f"{GRADE_JOB_KIND}:{payload['trade_id']}:{'stored' if outcome.written else 'superseded'}"
@@ -2208,11 +2593,12 @@ def _enqueue_derived(
             detail="Run the screenshot analysis first — this builds on it.",
         )
 
+    key = key_fn(user_id, trade_id, trade.updated_at, analysis.updated_at)
     job_id, created = jobs.enqueue_with_limit(
         user_id,
         kind,
-        key_fn(trade_id, trade.updated_at, analysis.updated_at),
-        {"trade_id": int(trade_id)},
+        key,
+        {"trade_id": int(trade_id), "key": key},
         since=datetime.now(timezone.utc) - timedelta(hours=ANALYSIS_WINDOW_HOURS),
         limit=limit,
     )
@@ -2294,7 +2680,9 @@ git commit -m "feat(api): enqueue journal and grading jobs for one trade"
 
 **Interfaces:**
 - Consumes: `corrections.record_correction`; `ai_analysis_service.update_analysis_fields`, `save_user_grade`; `confirmed_fields` (A4).
-- Produces: `CONFIRMABLE_LABEL_FIELDS: frozenset`; `confirm_labels(user_id, trade_id, values: dict, *, user_grade=..., ) -> dict`; `PATCH /v1/trades/{trade_id}/analysis` → `AIAnalysisLabels`.
+- Produces: `CONFIRMABLE_LABEL_FIELDS: frozenset`; `confirm_labels(user_id, trade_id, values: dict, *, release=()) -> dict`; `PATCH /v1/trades/{trade_id}/analysis` → `AIAnalysisLabels`.
+
+Because A4 locks a confirmed field against every job, this route is the **only** way a locked field ever changes. It therefore carries both directions: setting a value confirms (and re-locks) it, and naming a field in `release` hands it back to the AI. Both are the trader's explicit act, which is the whole point of the decision in design decision 3.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2352,6 +2740,81 @@ def test_confirming_on_another_owner_s_trade_is_a_404(client, two_users, analyse
     assert response.status_code == 404
 
 
+def test_releasing_a_field_lets_the_next_analysis_write_it_again(
+    client, one_user, analysed_api
+):
+    """The unlock half of the decision. Without it a confirmed field is
+    frozen forever and the trader has no way back to the AI's reading."""
+    analysed_api(one_user.trade_id, bias="bullish")
+    client.patch(
+        f"/v1/trades/{one_user.trade_id}/analysis",
+        json={"bias": "bearish"},
+        headers=one_user.headers,
+    )
+    released = client.patch(
+        f"/v1/trades/{one_user.trade_id}/analysis",
+        json={"release": ["bias"]},
+        headers=one_user.headers,
+    )
+    assert released.status_code == 200
+    assert released.json()["confirmed_fields"] == []
+
+
+def test_releasing_a_field_does_not_change_its_current_value(
+    client, one_user, analysed_api
+):
+    """Release means "the AI may write this again", not "discard my value".
+
+    Nothing is lost at the moment of release; the next analysis is what
+    changes it, and the trader chose that.
+    """
+    analysed_api(one_user.trade_id, bias="bullish")
+    client.patch(
+        f"/v1/trades/{one_user.trade_id}/analysis",
+        json={"bias": "bearish"},
+        headers=one_user.headers,
+    )
+    body = client.patch(
+        f"/v1/trades/{one_user.trade_id}/analysis",
+        json={"release": ["bias"]},
+        headers=one_user.headers,
+    ).json()
+    assert body["bias"] == "bearish"
+
+
+def test_releasing_a_field_outside_the_allowlist_is_refused(
+    client, one_user, analysed_api
+):
+    """`release` is a field-name list from a browser, so it is allowlisted too.
+
+    A write allowlist that only guards the values half is not an allowlist.
+    """
+    analysed_api(one_user.trade_id)
+    response = client.patch(
+        f"/v1/trades/{one_user.trade_id}/analysis",
+        json={"release": ["analysis_job_id"]},
+        headers=one_user.headers,
+    )
+    assert response.status_code == 422
+
+
+def test_confirming_and_releasing_the_same_field_at_once_is_refused(
+    client, one_user, analysed_api
+):
+    """Two opposite instructions in one request have no correct resolution.
+
+    Picking one silently would make the outcome depend on implementation
+    order, which is exactly the class of surprise this phase exists to remove.
+    """
+    analysed_api(one_user.trade_id)
+    response = client.patch(
+        f"/v1/trades/{one_user.trade_id}/analysis",
+        json={"bias": "bearish", "release": ["bias"]},
+        headers=one_user.headers,
+    )
+    assert response.status_code == 422
+
+
 def test_a_grade_override_never_touches_the_ai_grade(client, one_user, graded_api):
     graded_api(one_user.trade_id, ai_grade="B")
     client.patch(
@@ -2386,16 +2849,19 @@ CONFIRMABLE_LABEL_FIELDS = frozenset(
 )
 
 
-def confirm_labels(user_id: int, trade_id: int, values: dict) -> dict:
-    """Store the trader's confirmed labels and raise the confirmation fence.
+def confirm_labels(user_id: int, trade_id: int, values: dict, *, release=()) -> dict:
+    """Store the trader's confirmed labels, and lock or release them.
 
     Two things happen together, and they must:
 
     * A `Correction` row is written for each field whose value actually
       changed — that is what personalization learns from, and
       `record_correction` already refuses to write a no-op.
-    * `confirmed_at` and `confirmed_fields_json` are set, so an analysis job
-      enqueued before this instant cannot replace what the trader just said.
+    * `confirmed_fields_json` gains each confirmed field, which locks it
+      against every future job (A4), and loses each field named in
+      `release`. This route is the only thing that moves that set, which is
+      what makes "your value stands until you change it" true rather than
+      merely usual.
 
     Filtered against `CONFIRMABLE_LABEL_FIELDS` here, at the storage boundary,
     even though the schema already refuses unknown keys: this is the function
@@ -2403,6 +2869,7 @@ def confirm_labels(user_id: int, trade_id: int, values: dict) -> dict:
     """
     owner = require_user_id(user_id)
     kept = {k: v for k, v in values.items() if k in CONFIRMABLE_LABEL_FIELDS}
+    freed = {f for f in release if f in CONFIRMABLE_LABEL_FIELDS}
     now = datetime.now(timezone.utc).isoformat()
 
     db = SessionLocal()
@@ -2438,7 +2905,9 @@ def confirm_labels(user_id: int, trade_id: int, values: dict) -> dict:
             .where(AIAnalysis.trade_id == trade_id)
             .values(
                 confirmed_at=now,
-                confirmed_fields_json=json.dumps(sorted(already | set(kept))),
+                confirmed_fields_json=json.dumps(
+                    sorted((already | set(kept)) - freed)
+                ),
                 updated_at=now,
                 **kept,
             )
@@ -2461,7 +2930,7 @@ def confirm_labels(user_id: int, trade_id: int, values: dict) -> dict:
     finally:
         db.close()
 
-    return {**kept, "confirmed_fields": sorted(already | set(kept))}
+    return {**kept, "confirmed_fields": sorted((already | set(kept)) - freed)}
 ```
 
 - [ ] **Step 4: Implement the schema and route**
@@ -2482,6 +2951,25 @@ class AIAnalysisLabelPatch(_Strict):
     trade_quality: Optional[int] = None
     matched_strategy: Optional[str] = None
     user_grade: Optional[str] = None
+    # Fields to hand back to the AI. A `Literal` list, not free strings: this
+    # is a field-name list arriving from a browser, and an allowlist that
+    # guards only the values half is not an allowlist.
+    release: List[
+        Literal["bias", "detected_setup", "trade_quality", "matched_strategy"]
+    ] = []
+
+    @model_validator(mode="after")
+    def _no_field_both_set_and_released(self):
+        """One request may not both confirm and release the same field.
+
+        There is no correct resolution, and picking one silently would make
+        the outcome depend on implementation order.
+        """
+        sent = self.model_dump(exclude_unset=True)
+        clash = set(self.release) & (set(sent) - {"release"})
+        if clash:
+            raise ValueError(f"cannot both set and release: {sorted(clash)}")
+        return self
 
 
 class AIAnalysisLabels(_Strict):
@@ -2514,10 +3002,13 @@ def patch_trade_analysis(
     """
     sent = payload.model_dump(exclude_unset=True)
     grade_override = sent.pop("user_grade", _UNSET_GRADE)
+    release = sent.pop("release", [])
     try:
-        result = confirm_labels(user_id, trade_id, sent) if sent else {
-            "confirmed_fields": []
-        }
+        result = (
+            confirm_labels(user_id, trade_id, sent, release=release)
+            if (sent or release)
+            else {"confirmed_fields": []}
+        )
         if grade_override is not _UNSET_GRADE:
             save_user_grade(trade_id, grade_override, user_id=user_id)
     except ValueError:
@@ -2549,10 +3040,17 @@ Expected: PASS.
 Change `kept = {k: v for k, v in values.items() if k in CONFIRMABLE_LABEL_FIELDS}` to `kept = dict(values)` **and** change the schema's `model_config` to `extra="ignore"`.
 Expected: FAIL at `test_a_field_outside_the_allowlist_is_refused`. Restore both and confirm PASS.
 
-- [ ] **Step 7: Mutate the confirmation fence write and confirm a named test catches it**
+- [ ] **Step 7: Mutate the lock bookkeeping and confirm named tests catch each**
 
-Remove `confirmed_at=now` and `confirmed_fields_json=...` from the `.values(...)`, then run the **Group A** suite too.
-Expected: FAIL at `test_confirming_a_label_records_a_correction_and_fences_future_jobs`. Restore and confirm PASS.
+| Mutation | Expected failing test |
+|---|---|
+| Remove `confirmed_fields_json=...` from the `.values(...)` | `test_confirming_a_label_records_a_correction_and_fences_future_jobs` |
+| Drop `- freed`, so release never unlocks | `test_releasing_a_field_lets_the_next_analysis_write_it_again` |
+| Drop the `if f in CONFIRMABLE_LABEL_FIELDS` filter on `release` **and** widen the schema's `release` to `List[str]` | `test_releasing_a_field_outside_the_allowlist_is_refused` |
+| Delete `_no_field_both_set_and_released` | `test_confirming_and_releasing_the_same_field_at_once_is_refused` |
+| Make release also blank the value | `test_releasing_a_field_does_not_change_its_current_value` |
+
+Restore after each and run the **Group A** suite as well — C1 and A4 share the `confirmed_fields_json` contract, so a mutation here can only be judged against both.
 
 - [ ] **Step 8: Commit**
 
@@ -2563,7 +3061,7 @@ git commit -m "feat(analysis): confirm labels, record the correction, raise the 
 
 ---
 
-### Task C2: Harden the corrections block that enters the system prompt
+### Task C2: Bound and escape every field of the corrections block
 
 **Files:**
 - Modify: `src/tradelens/services/corrections.py:145-210`
@@ -2674,12 +3172,153 @@ Expected: FAIL at both `test_a_correction_cannot_forge_the_end_of_the_past_corre
 
 ```bash
 git add src/tradelens/services/corrections.py tests/test_ai_text_guard.py
-git commit -m "fix(corrections): bound and neutralize trader text entering the system prompt"
+git commit -m "fix(corrections): bound and neutralize trader-authored correction text"
 ```
 
 ---
 
-### Task C3: Serving the stored analysis to the page
+### Task C3: Take trader-authored text out of the system role
+
+**Files:**
+- Modify: `src/tradelens/services/ai_client.py:240-260` (`_complete`) and `_build_system`
+- Test: `tests/test_correction_injection.py`
+
+**Interfaces:**
+- Consumes: `build_correction_few_shot` as hardened in C2.
+- Produces: no signature change. `chat`, `vision` and `converse` keep their `few_shot` parameter; only where the block is placed changes.
+
+Escaping (C2) limits what trader text can do inside the system role. This removes the capability instead: user-authored text is never in the system role at all. Both ship — the owner asked for bounding *and* escaping, and preferably relocation, and relocation is strictly the stronger of the two.
+
+The change is contained. No service passes `few_shot` explicitly — grep confirms `build_correction_few_shot` is referenced only from `ai_client` — so `_complete` is the single assembly point, and the current placement is already pinned by five assertions in `tests/test_correction_injection.py` that simply invert.
+
+- [ ] **Step 1: Invert the five existing assertions**
+
+In `tests/test_correction_injection.py`, add a user-message reader beside the existing `_system_blob`:
+
+```python
+def _user_blob(client) -> str:
+    """Every text part of the outgoing user message, concatenated."""
+    messages = client.messages.create.call_args[1]["messages"]
+    parts = []
+    for message in messages:
+        content = message["content"]
+        if isinstance(content, str):
+            parts.append(content)
+            continue
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block["text"])
+    return "\n".join(parts)
+```
+
+Change each of the five `assert "<past_corrections>" in _system_blob(captured_client)` assertions to the pair:
+
+```python
+    # Correction memory is trader-authored text. It reaches the model as
+    # DATA in the user turn, never as system-role instruction, so a
+    # correction cannot acquire the authority of the prompt itself.
+    assert "<past_corrections>" in _user_blob(captured_client)
+    assert "<past_corrections>" not in _system_blob(captured_client)
+```
+
+Then add one test that pins the relocation as a property rather than five times over:
+
+```python
+def test_a_system_prompt_is_identical_for_two_traders_with_different_corrections(
+    captured_client, monkeypatch
+):
+    """The system message no longer varies with who is asking.
+
+    That is the observable consequence of the relocation, and it is also why
+    it improves prompt caching: the cacheable prefix stops being per-trader.
+    """
+    monkeypatch.setattr(
+        "src.tradelens.services.ai_client._corrections_block",
+        lambda scope=None: "<past_corrections>\n- bias: prefer 'a' over 'b'\n</past_corrections>",
+    )
+    chat("question", "SYSTEM RULES")
+    first = _system_blob(captured_client)
+
+    monkeypatch.setattr(
+        "src.tradelens.services.ai_client._corrections_block",
+        lambda scope=None: "<past_corrections>\n- setup: prefer 'x' over 'y'\n</past_corrections>",
+    )
+    chat("question", "SYSTEM RULES")
+    assert _system_blob(captured_client) == first
+```
+
+- [ ] **Step 2: Run them and watch them fail**
+
+Run: `.venv/bin/pytest tests/test_correction_injection.py -v`
+Expected: FAIL on all six — the block is still in the system message and absent from the user turn.
+
+- [ ] **Step 3: Move the block into the user turn**
+
+In `src/tradelens/services/ai_client.py`, replace the assembly in `_complete`:
+
+```python
+    # Correction memory: inject the trader's past overrides into EVERY call.
+    # Deterministic + DB-only (no API), so it runs even in DEMO_MODE.
+    #
+    # It goes in the USER turn, not the system message, and that placement is
+    # a security property rather than a formatting choice. These lines are
+    # built from `user_value` and `user_reason` — free text a person typed —
+    # and the system role is the strongest authority a prompt has. Text the
+    # trader wrote is data about their preferences; it is never an
+    # instruction to the model about what it is. C2 also bounds and escapes
+    # each field, but escaping filters a capability while this removes it.
+    corrections = _corrections_block()
+    combined_few_shot = "\n\n".join(p for p in (few_shot, corrections) if p) or None
+    system = _build_system(system_message, None, cache_system)
+    messages = _with_leading_context(messages, combined_few_shot)
+```
+
+and add, beside `_build_system`:
+
+```python
+def _with_leading_context(messages: list, block: Optional[str]) -> list:
+    """Prepend a data block to the first user turn, without mutating the input.
+
+    Prepended rather than appended so the trader's actual question stays the
+    last thing the model reads, and handled structurally so an image-carrying
+    vision message keeps its blocks intact.
+    """
+    if not block or not messages:
+        return messages
+    head, rest = messages[0], messages[1:]
+    content = head.get("content")
+    if isinstance(content, str):
+        merged = f"{block}\n\n{content}"
+    else:
+        merged = [{"type": "text", "text": block}, *content]
+    return [{**head, "content": merged}, *rest]
+```
+
+`_build_system` keeps its `few_shot` parameter and its behaviour — passing `None` is the only change at the call site, so nothing else that calls it is affected.
+
+- [ ] **Step 4: Run the whole AI-client surface**
+
+Run: `.venv/bin/pytest tests/test_correction_injection.py tests/test_ai_client.py tests/test_partner.py tests/test_weekly.py tests/test_debrief.py tests/test_demo.py tests/test_model_routing.py tests/test_failure_paths.py tests/test_corrections.py -v`
+Expected: PASS. Every AI consumer in the app goes through `_complete`, so this set is the real blast radius — run it rather than the one file that changed.
+
+- [ ] **Step 5: Mutate the relocation and confirm named tests catch it**
+
+Restore the old assembly — `system = _build_system(system_message, combined_few_shot, cache_system)` with the messages left untouched.
+Expected: FAIL at every inverted assertion **and** at `test_a_system_prompt_is_identical_for_two_traders_with_different_corrections`. Restore and confirm PASS.
+
+Then a second mutation: keep the relocation but ALSO leave the block in the system message.
+Expected: FAIL at the `not in _system_blob` half of the inverted assertions — the half that exists precisely because "it is in the user turn" is not the same claim as "it is not in the system turn".
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/tradelens/services/ai_client.py tests/test_correction_injection.py
+git commit -m "fix(ai): correction memory is user-turn data, never system authority"
+```
+
+---
+
+### Task C4: Serving the stored analysis to the page
 
 **Files:**
 - Modify: `src/tradelens/api/schemas/trades.py`
@@ -2709,6 +3348,21 @@ def test_the_analysis_response_never_carries_cost_or_raw_model_output(
     ).json()
     for leaked in ("cost_usd", "tokens_input", "tokens_output", "raw_response_json"):
         assert leaked not in body
+
+
+def test_latest_proposals_carries_only_confirmable_fields(
+    client, one_user, analysed_api
+):
+    """The raw response is unvalidated model output with keys we never
+    promised. Projecting onto the allowlist is what keeps this a contract."""
+    analysed_api(
+        one_user.trade_id,
+        raw_response_json='{"bias": "bullish", "notes_to_user": "hi", "invented": 1}',
+    )
+    proposals = client.get(
+        f"/v1/trades/{one_user.trade_id}/analysis", headers=one_user.headers
+    ).json()["latest_proposals"]
+    assert proposals == {"bias": "bullish"}
 
 
 def test_a_trade_with_no_analysis_is_a_404_not_an_empty_object(client, one_user):
@@ -2775,6 +3429,12 @@ class AIAnalysisDetail(_Strict):
     ai_grade: Optional[str]
     user_grade: Optional[str]
     confirmed_fields: List[str]
+    # What the NEWEST run read for each confirmable field, whether or not it
+    # was applied. A field the trader has locked keeps its own value, and
+    # this is how the panel can still show what the fresh analysis said and
+    # offer it in one click (Task D3). Derived from `raw_response_json`;
+    # the raw blob itself never crosses the wire.
+    latest_proposals: Dict[str, Optional[str]]
     updated_at: Optional[str]
 ```
 
@@ -2809,8 +3469,30 @@ def get_trade_analysis(
         ai_grade=trade.ai_grade,
         user_grade=trade.user_grade,
         confirmed_fields=sorted(confirmed_fields(analysis)),
+        latest_proposals=_latest_proposals(analysis.raw_response_json),
         updated_at=analysis.updated_at,
     )
+
+
+def _latest_proposals(raw) -> Dict[str, Optional[str]]:
+    """What the newest model output read for each confirmable field.
+
+    Projected onto `CONFIRMABLE_LABEL_FIELDS` and stringified, so the raw
+    response — unvalidated model output with keys we never promised — cannot
+    reach the browser through this door. Unparseable is an empty dict, which
+    the panel renders as "no newer reading".
+    """
+    try:
+        parsed = json.loads(raw or "{}")
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {
+        field: (None if parsed.get(field) is None else str(parsed[field]))
+        for field in sorted(CONFIRMABLE_LABEL_FIELDS)
+        if field in parsed
+    }
 
 
 def _json_list(raw) -> List[str]:
@@ -2858,10 +3540,13 @@ def _grading_or_none(raw):
 Run: `.venv/bin/pytest tests/test_api_trade_analysis.py -v`
 Expected: PASS.
 
-- [ ] **Step 5: Mutate the response shape and confirm a named test catches it**
+- [ ] **Step 5: Mutate the response shape and confirm named tests catch each**
 
 Add `cost_usd: Optional[float]` to `AIAnalysisDetail` and populate it from the row.
 Expected: FAIL at `test_the_analysis_response_never_carries_cost_or_raw_model_output`. Restore and confirm PASS.
+
+Then make `_latest_proposals` return the parsed blob unfiltered.
+Expected: FAIL at `test_latest_proposals_carries_only_confirmable_fields`. Restore and confirm PASS.
 
 - [ ] **Step 6: Regenerate and commit**
 
@@ -3265,6 +3950,53 @@ describe("AILabelReview", () => {
     expect(body).not.toHaveProperty("trade_quality");
   });
 
+  it("offers the newest reading for a locked field instead of applying it", async () => {
+    // A4 locks a confirmed field against every job, so the fresh run's value
+    // has nowhere to land. It must still be visible and one click away —
+    // locked means "not applied", never "hidden".
+    render(
+      <AILabelReview
+        analysis={
+          {
+            ...ANALYSIS,
+            bias: "bearish",
+            confirmed_fields: ["bias"],
+            latest_proposals: { bias: "bullish" },
+          } as never
+        }
+        tradeId={7}
+        onConfirmed={() => {}}
+      />,
+    );
+    expect(screen.getByText(/latest analysis read this as bullish/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /use the AI's reading/i })).toBeInTheDocument();
+    // And it has NOT been applied behind the trader.
+    expect(screen.getByLabelText(/bias/i)).toHaveValue("bearish");
+  });
+
+  it("hands a field back to the AI through release, not by blanking it", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ...ANALYSIS, confirmed_fields: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <AILabelReview
+        analysis={{ ...ANALYSIS, confirmed_fields: ["bias"] } as never}
+        tradeId={7}
+        onConfirmed={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /let the AI update this/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({
+      release: ["bias"],
+    });
+  });
+
   it("says plainly when a save fails, and keeps the trader's typing", async () => {
     vi.stubGlobal(
       "fetch",
@@ -3290,7 +4022,14 @@ Expected: FAIL — module not found.
 
 - [ ] **Step 3: Implement**
 
-Create the component. It renders one control per confirmable field (`bias`, `detected_setup`, `trade_quality`, `matched_strategy`) plus the grade override, labels each as the AI's reading or as confirmed by the trader, sends **only** changed fields with `exclude_unset` semantics on the wire, and on failure keeps every edit in place and says the save did not go through without implying the trade is at risk.
+Create the component. It renders one control per confirmable field (`bias`, `detected_setup`, `trade_quality`, `matched_strategy`) plus the grade override, and:
+
+- labels each field as the AI's reading or as confirmed by the trader;
+- sends **only** changed fields, with `exclude_unset` semantics on the wire;
+- for a **locked** field whose latest run proposed something different, shows what that run read and offers a one-click **Use the AI's reading** (which PATCHes the value, re-confirming it) and a **Let the AI update this** (which PATCHes `release`). Locked never means hidden;
+- on failure keeps every edit in place and says the save did not go through, without implying the trade is at risk.
+
+`latest_proposals` is Task C4's field: the panel reads it from the analysis response, which derives it from `raw_response_json` — the newest complete model output, kept current even for locked fields by A4.
 
 - [ ] **Step 4: Run everything**
 
@@ -3368,9 +4107,23 @@ Expected: `LEAKS: none`. A fresh subprocess per module — importing them all in
 
 - [ ] **Step 4: Re-run every mutation from Groups A–D and record the catching test**
 
-Twelve in total: the fence (A2), the key namespace (A3), the job-id guard, the confirmation fence and the ownership check (A4), the image source (A5), the screenshot ownership check and the kind check (A6), the forward-looking rejection and the journal job-id guard (B1), the rubric-note check and the user-grade protection (B2), the trade ownership check (B3), the confirm allowlist and the fence write (C1), the corrections stripping (C2), the response shape (C3), the relay fail-shut (D1), the superseded branch (D2), and the changed-fields filter (D3).
+Thirty-four in total. The three owner-mandated invariants carry twenty-two of them, and those are the ones to run first:
+
+**Fingerprint completeness (A3) — 7:** the kind namespace; each of model id, effort, demo mode, strategy fingerprint and corrections fingerprint dropped from `ai_input_version`; and `ai_input_version` ignoring its owner argument.
+
+**Prompt boundary (C2, C3) — 4:** `_prompt_safe` stripping removed; the relocation reverted so the block returns to the system role; the block placed in *both* roles; and the per-field bound removed.
+
+**Atomic ordered write and the lock (A4, C1) — 11:** the job-id predicate removed; `<` widened to `<=`; the lock dropped entirely; the rejected timing rule re-introduced; the `& set(values)` intersection dropped; `raw_response_json` made lockable; `confirmed_fields` locking on a parse error; the `confirmed_fields_json` write removed; `- freed` dropped; the `release` allowlist widened; and `_no_field_both_set_and_released` deleted.
+
+**The rest — 12:** the fence (A2); the ownership check (A4); the image source (A5); the screenshot ownership and kind checks (A6); the forward-looking rejection and journal job-id guard (B1); the rubric-note check and user-grade protection (B2); the trade ownership check (B3); the response shape and `_latest_proposals` projection (C4); the relay fail-shut (D1); the superseded branch (D2); the changed-fields filter (D3).
 
 For each: apply, run, record the **named** failing test, restore, and confirm `git diff` is empty at the end. A mutation you could not actually run is a mutation you did not run — say so rather than reporting it as caught.
+
+- [ ] **Step 4b: Browser smoke of the three job flows**
+
+With the dev server and a worker running, walk one trade through analysis → confirm a label → journal → grade in the browser, at desktop width and at 375px. Confirm by observation, not by inference: the running state disables its own button; a confirmed label survives a re-analysis and the panel offers the newer reading rather than applying it; a released field is written by the next run; failure and 429 read as calm sentences with no trace. Screenshot the panel in both widths.
+
+This is a **presentation** smoke and does not touch the six deployment gates: `DEMO_MODE` serves the model output, so no live provider call is made and gate 5 stays exactly as open as it was.
 
 - [ ] **Step 5: Write the handoff section**
 
@@ -3407,6 +4160,9 @@ git commit -m "docs(handoff): Phase 5 record"
 | post-trade only, no live/future recommendations | A2, B1, B2 |
 | billable limits atomic under concurrency | A6, B3 via `enqueue_with_limit` |
 | stale jobs never overwrite newer state | A4, B1, B2, D2 |
+| fingerprint covers all effective AI inputs (kind, strategy, corrections, model/config) | A3, design decision 4 |
+| correction text bounded, escaped, and out of the system role | C2, C3, design decision 6 |
+| the confirmation rule decided explicitly and tested both ways | A4 (lock), C1 (the only unlock), design decision 3 |
 | tests prove observable behavior and survive mutation | every task's mutation step; E1 re-runs all |
 | pre-deployment gates tracked separately | Scope section, E1 Step 5 |
 
@@ -3423,5 +4179,10 @@ No gap found.
 - B3's `label` parameter produced "journal entrys" in user-facing copy. Fixed at the source: the two call sites now pass complete plurals.
 
 - A6's poll test carried a `queued_analysis(other := None) if False else ...` placeholder from drafting — exactly the kind of line that survives into a test that then asserts nothing. Rewritten against a stated fixture contract, and the fixture note now says what each fixture must do, including that quota fixtures insert rows directly rather than spending the budget through the endpoint.
+
+**Two things the clarifications changed, recorded so a reviewer sees the delta rather than a clean surface:**
+
+- The confirmation rule is **reversed** from the approved draft. It said a job enqueued after a confirmation could replace it; it now says a confirmed field is locked until the trader explicitly changes or releases it, regardless of ordering. That decision made `enqueued_at` dead — it is gone from the payload, the handler and `store_analysis` — and made Task C1's `release` path load-bearing rather than a convenience, since it is now the only way out of a lock. `test_a_job_started_after_a_confirmation_STILL_cannot_replace_it` and the mutation that re-introduces the rejected timing rule exist specifically to pin the reversal, not just the behaviour.
+- Threading the owner into every key surfaced a defect the draft had hidden: the worker handlers read `payload["job_id"]`, but `run_once` hands a handler only `(user_id, payload)`. Every Phase 5 write is ordered by job id, so this would have failed at the first job. Fixed by writing the idempotency key into the payload at enqueue and resolving the job from it — deliberately not by recomputing the key in the worker, since `ai_input_version` moves whenever the owner corrects something and a recomputing handler could fail to find its own job.
 
 **One thing worth the reviewer's attention, stated rather than hidden:** `_reject_forward_looking` is a regex heuristic. It will not catch every forward-looking sentence a model can write, and it will occasionally refuse a legitimate retrospective — the `_REFLECTIVE` escape hatch exists because that already happened once in Phase 3E. Reusing it here is the right call because one definition beats two, but it is a filter, not a proof, and the handoff should say so rather than implying journal output is guaranteed safe.
