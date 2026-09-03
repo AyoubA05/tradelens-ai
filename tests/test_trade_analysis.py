@@ -149,6 +149,72 @@ def test_editing_the_strategy_profile_produces_a_different_key(monkeypatch):
     assert journal_key(U, 7, "t", "a") != before
 
 
+def _insert_strategy(user_id, *, name, is_active, updated_at):
+    """One `strategies` row, straight through SQL, like `_insert_correction`."""
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        db.execute(
+            sa_text(
+                "INSERT INTO strategies (user_id, name, is_active, updated_at) "
+                "VALUES (:u, :n, :a, :t)"
+            ),
+            {"u": user_id, "n": name, "a": is_active, "t": updated_at},
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_switching_the_active_strategy_profile_moves_the_input_version(two_users):
+    """Against a REAL database, not a patched fingerprint.
+
+    An owner may hold several profiles, and `generate_journal` / `grade_trade`
+    read whichever is active — `strategy.get_active_strategy` filters on
+    `is_active == 1`. A fingerprint that took an arbitrary row would sit
+    still while the AI's actual input changed, and the cached job would come
+    back carrying the other profile's reasoning.
+
+    Every other strategy test patches `_strategy_fingerprint` wholesale, so
+    this is the only one that can see which row the query really selects.
+    """
+    owner, _other = two_users
+    _insert_strategy(owner, name="A", is_active=1, updated_at="2026-09-01T09:00:00")
+    _insert_strategy(owner, name="B", is_active=0, updated_at="2026-09-01T09:00:00")
+    before = ta.ai_input_version(owner)
+
+    # Swap which profile is active. Nothing else about either row changes,
+    # so an `updated_at`-only digest would not notice this at all.
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        db.execute(sa_text("UPDATE strategies SET is_active = 0 WHERE name = 'A'"))
+        db.execute(sa_text("UPDATE strategies SET is_active = 1 WHERE name = 'B'"))
+        db.commit()
+    finally:
+        db.close()
+
+    assert ta.ai_input_version(owner) != before
+
+
+def test_the_strategy_fingerprint_reads_the_same_row_get_active_strategy_does(
+    two_users,
+):
+    """The two must agree on 'the profile', or the digest describes a
+    different profile than the one the model is actually given."""
+    from src.tradelens.services.strategy import get_active_strategy
+
+    owner, _other = two_users
+    _insert_strategy(owner, name="inactive", is_active=0, updated_at="t")
+    _insert_strategy(owner, name="active", is_active=1, updated_at="t")
+
+    active = get_active_strategy(owner)
+    assert active is not None
+    assert ta._strategy_fingerprint(owner).startswith(f"{active['id']}:")
+
+
 def test_a_new_correction_produces_a_different_key(monkeypatch):
     """THE one that makes 'correct the AI, then re-run' work at all.
 

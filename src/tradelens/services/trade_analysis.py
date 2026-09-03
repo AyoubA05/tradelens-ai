@@ -53,17 +53,29 @@ _log = logging.getLogger(__name__)
 
 
 def _strategy_fingerprint(user_id: int) -> str:
-    """A stable digest of the owner's active Strategy Profile.
+    """A stable digest of the owner's ACTIVE Strategy Profile.
 
     `generate_journal` and `grade_trade` both take this profile, so editing
-    it in Settings genuinely changes the answer. Its `updated_at` is enough:
-    every write path goes through the profile upsert, which sets it.
+    it in Settings genuinely changes the answer. Its `updated_at` is enough
+    to catch an edit: the profile upsert sets it on every write.
+
+    The `is_active == 1` filter mirrors `strategy.get_active_strategy`, which
+    is what actually feeds those two calls, and it is load-bearing rather
+    than tidy. An owner may hold several profiles. Without it this function
+    takes an arbitrary row, so *switching which profile is active* — a real
+    change of AI input — could leave the digest still, and the cached job
+    would be served back carrying the other profile's reasoning. Two
+    requests may share a job only if they would produce the same answer, and
+    selecting a different row than the caller does breaks exactly that.
+
+    Both columns are included: `id` moves when the active profile changes,
+    `updated_at` when the active one is edited in place.
     """
     db = SessionLocal()
     try:
         row = (
             db.query(Strategy.id, Strategy.updated_at)
-            .filter(Strategy.user_id == user_id)
+            .filter(Strategy.user_id == user_id, Strategy.is_active == 1)
             .first()
         )
     finally:
