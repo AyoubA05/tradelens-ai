@@ -187,6 +187,26 @@ def test_a_foreign_screenshot_never_enqueues_billable_work(
     assert _jobs_of(owner) == 0
 
 
+def test_a_screenshot_from_another_of_the_caller_s_own_trades_is_refused(
+    client, website_session_handle
+):
+    """Owning both trades is not permission to analyse one with the other's chart.
+
+    No isolation break — same tenant throughout — which is exactly why an
+    owner-only check misses it. The reading would be written onto trade A's
+    row while describing trade B's chart, and nothing in the result would
+    say so.
+    """
+    owner, handle = website_session_handle
+    trade_a, _shot_a = _trade_with_screenshot(owner)
+    _trade_b, shot_b = _trade_with_screenshot(owner)
+
+    response = _enqueue_analysis(client, handle, trade_a, shot_b)
+
+    assert response.status_code == 404
+    assert _jobs_of(owner) == 0
+
+
 # ------------------------------------------------------------ idempotency
 
 
@@ -287,6 +307,25 @@ def test_polling_a_job_of_another_kind_is_a_404(client, website_session_handle):
     summary_job = _insert_job(owner, "trade_summary", "trade_summary:mine")
 
     assert _poll(client, handle, summary_job).status_code == 404
+
+
+def test_polling_another_phase5_kind_on_this_route_is_also_a_404(
+    client, website_session_handle
+):
+    """Cross-kind is a 404 even for a sibling Phase 5 kind.
+
+    A shared poll would let a journal id answer here with `kind` set
+    correctly — honest, but it makes the id's existence and category
+    observable from the wrong endpoint. Groups B and C get their own routes.
+    """
+    owner, handle = website_session_handle
+    journal_job = _insert_job(owner, "trade_journal", "trade_journal:mine")
+
+    missing = _poll(client, handle, 99999999)
+    response = _poll(client, handle, journal_job)
+
+    assert response.status_code == missing.status_code == 404
+    assert response.content == missing.content
 
 
 def test_a_queued_job_reports_its_kind_and_status(client, website_session_handle):

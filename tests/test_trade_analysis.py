@@ -18,7 +18,7 @@ from src.tradelens.services.trade_analysis import (
 U = 1  # one owner for every key test; owner separation is the DB constraint's job
 
 
-def _insert_correction(user_id):
+def _insert_correction(user_id, user_value="bearish"):
     """Insert one `Correction` row for `user_id`, straight through SQL.
 
     Kept in the test file on purpose: `record_correction` needs a real trade
@@ -35,10 +35,10 @@ def _insert_correction(user_id):
                 "INSERT INTO corrections "
                 "(trade_id, ai_analysis_id, field, ai_value, user_value, "
                 " user_reason, created_at, user_id) "
-                "VALUES (1, 1, 'bias', 'bullish', 'bearish', NULL, "
+                "VALUES (1, 1, 'bias', 'bullish', :v, NULL, "
                 "'2026-09-01T10:00:00+00:00', :u)"
             ),
-            {"u": user_id},
+            {"u": user_id, "v": user_value},
         )
         db.commit()
     finally:
@@ -229,6 +229,50 @@ def test_a_new_correction_produces_a_different_key(monkeypatch):
     before = journal_key(U, 7, "t", "a")
     monkeypatch.setattr(ta, "_corrections_fingerprint", lambda uid: "4:52")
     assert journal_key(U, 7, "t", "a") != before
+
+
+def test_deleting_corrections_and_recording_another_changes_the_digest(two_users):
+    """The collision a `(count, max(id))` proxy could not see.
+
+    Corrections are NOT append-only: clearing all trades deletes them, and
+    account deletion does too. On SQLite the rowid is then reused, so an
+    owner's first correction and their post-delete replacement can share the
+    same `(1, 1)` pair while carrying completely different text. Under that
+    proxy the two states keyed identically, and the re-run served the job
+    computed against a `<past_corrections>` block that no longer existed.
+
+    Digesting the rendered block makes it impossible to express: different
+    text, different key.
+    """
+    from src.tradelens.db.session import SessionLocal
+
+    owner, _other = two_users
+    _insert_correction(owner, user_value="bearish")
+    before = ta.ai_input_version(owner)
+
+    db = SessionLocal()
+    try:
+        db.execute(sa_text("DELETE FROM corrections"))
+        db.commit()
+    finally:
+        db.close()
+
+    _insert_correction(owner, user_value="bullish")
+    assert ta.ai_input_version(owner) != before
+
+
+def test_two_histories_rendering_the_same_block_may_share_a_job(two_users):
+    """The other half of the rule, and it must NOT be over-strict.
+
+    Sharing a job is correct exactly when the prompt text is identical.
+    Keying on row identity instead of content would force a fresh paid call
+    for a block the model cannot tell apart.
+    """
+    owner, _other = two_users
+    _insert_correction(owner, user_value="bearish")
+    first = ta.ai_input_version(owner)
+    second = ta.ai_input_version(owner)
+    assert first == second
 
 
 def test_one_owner_s_corrections_do_not_change_another_owner_s_key(

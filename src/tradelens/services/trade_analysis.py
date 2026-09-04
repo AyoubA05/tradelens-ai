@@ -30,12 +30,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import func, update
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 
 from src.tradelens.api import storage
 from src.tradelens.config import ANTHROPIC_MODEL_ID, settings
-from src.tradelens.db.models import AIAnalysis, Correction, Strategy, Trade
+from src.tradelens.db.models import AIAnalysis, Strategy, Trade
 from src.tradelens.db.session import SessionLocal
+from src.tradelens.services.corrections import build_correction_few_shot
 from src.tradelens.services.ownership import require_user_id
 from src.tradelens.services.vision import (
     ScreenshotAnalysisError,
@@ -98,25 +100,28 @@ def _strategy_fingerprint(user_id: int) -> str:
 
 
 def _corrections_fingerprint(user_id: int) -> str:
-    """A stable digest of the owner's correction memory.
+    """A digest of the exact `<past_corrections>` block this owner's calls get.
 
-    Corrections are append-only — `record_correction` only ever INSERTs — so
-    `(count, max(id))` moves whenever the `<past_corrections>` block would
-    change, and never otherwise. Two numbers, one query, no block to render.
+    Fingerprints the rendered block rather than a proxy for it. An earlier
+    version used `(count, max(id))` and justified it as "corrections are
+    append-only". That premise is false: `trade_service.delete_all_trades`
+    and `account` deletion both bulk-DELETE `Correction` rows, so the count
+    falls. And on SQLite a rowid is reused once the highest row is gone — so
+    deleting an owner's only correction and recording another returns the
+    same `(1, 1)` pair for a genuinely different block. The proxy could
+    collide exactly, which is the one thing a cache key may not do.
+
+    Digesting the block itself makes the term exact by construction: two
+    states share a key only when the text injected into the prompt is
+    byte-identical, which is precisely when they would produce the same
+    answer. Budget truncation is included for free — if two histories render
+    the same truncated block, the prompts really are the same.
 
     This term is what makes "correct the AI, then re-run" work: without it
     the re-run matches the cached job the correction was meant to change.
     """
-    db = SessionLocal()
-    try:
-        count, newest = (
-            db.query(func.count(Correction.id), func.max(Correction.id))
-            .filter(Correction.user_id == user_id)
-            .one()
-        )
-    finally:
-        db.close()
-    return f"{int(count or 0)}:{int(newest or 0)}"
+    block = build_correction_few_shot(user_id=user_id) or ""
+    return hashlib.sha256(block.encode("utf-8")).hexdigest()[:16]
 
 
 class AIInputVersionUnavailable(Exception):
@@ -343,9 +348,19 @@ def store_analysis(
         }
 
         if existing is None:
-            db.add(AIAnalysis(trade_id=trade_id, created_at=now, **values))
-            db.commit()
-            return WriteOutcome(written=True, superseded=False)
+            # The only write on this path without a predicate, because there
+            # is no row yet to predicate on. Two first-ever jobs for one
+            # trade both see None; the `trade_id` unique constraint decides,
+            # and the loser reports `superseded` rather than failing a job
+            # over a race it handled correctly. Caught, not pre-checked —
+            # between a SELECT and an INSERT the other job commits.
+            try:
+                db.add(AIAnalysis(trade_id=trade_id, created_at=now, **values))
+                db.commit()
+                return WriteOutcome(written=True, superseded=False)
+            except IntegrityError:
+                db.rollback()
+                return WriteOutcome(written=False, superseded=True)
 
         # The confirmation lock. Intersected with `values` first, so a stored
         # name that is not one of this write's own keys — a stray entry, a

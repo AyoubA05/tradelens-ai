@@ -55,8 +55,6 @@ from src.tradelens.services import drafts, screenshot_service, url_ingest
 from src.tradelens.services.trade_analysis import (
     ANALYSIS_JOB_KIND,
     ANALYSIS_WINDOW_HOURS,
-    GRADE_JOB_KIND,
-    JOURNAL_JOB_KIND,
     MAX_ANALYSES_PER_WINDOW,
     AIInputVersionUnavailable,
     analysis_key,
@@ -673,8 +671,6 @@ def put_trade_draft(
     return TradeDraftResponse(draft=TradeDraftPayload(**stored), revision=revision)
 
 
-_PHASE5_KINDS = (ANALYSIS_JOB_KIND, JOURNAL_JOB_KIND, GRADE_JOB_KIND)
-
 _FINGERPRINT_UNAVAILABLE = "We could not start this just now. Please try again."
 
 
@@ -690,9 +686,18 @@ def _accepted(job_id: int, user_id: int, created: bool) -> AIJobAccepted:
     return AIJobAccepted(job_id=job_id, status=job.status, created=created)
 
 
-def _phase5_job_status(job_id: int, user_id: int) -> AIJobStatus:
+def _phase5_job_status(job_id: int, user_id: int, kind: str) -> AIJobStatus:
+    """One Phase 5 job, only for its own owner and only on its own route.
+
+    Gated to a SINGLE kind rather than the Phase 5 set. A shared poll would
+    let a journal id answer on the analysis route with `kind` set correctly
+    — honest, but it makes the id's existence and category observable from
+    the wrong endpoint. Cross-kind is a 404 byte-identical to a missing job,
+    the same rule every other per-id route here follows. Groups B and C add
+    their own poll routes rather than widening this one.
+    """
     job = jobs.get_owned_job(job_id, user_id)
-    if job is None or job.kind not in _PHASE5_KINDS:
+    if job is None or job.kind != kind:
         raise HTTPException(status_code=404, detail="job not found")
     superseded = job.status == "succeeded" and str(job.result_ref or "").endswith(
         ":superseded"
@@ -724,7 +729,9 @@ def enqueue_trade_analysis(
     ever sees bytes we produced.
     """
     trade = _owned_trade_or_none(trade_id, user_id)
-    if trade is None or not storage.owns_screenshot(user_id, payload.screenshot_id):
+    if trade is None or not storage.screenshot_belongs_to_trade(
+        user_id, payload.screenshot_id, trade_id
+    ):
         raise _not_found()
 
     # The fingerprint fails closed (design decision 4). Refuse rather than
@@ -773,7 +780,7 @@ def get_trade_analysis_job(
     the owner's jobs, and a summary's or an autofill's row would be reported
     as an analysis.
     """
-    return _phase5_job_status(job_id, user_id)
+    return _phase5_job_status(job_id, user_id, ANALYSIS_JOB_KIND)
 
 
 @router.get("/trades/{trade_id}")

@@ -324,6 +324,36 @@ def read_owned_final_object(user_id: int, screenshot_id: int) -> Optional[bytes]
             close()
 
 
+def screenshot_belongs_to_trade(
+    user_id: int, screenshot_id: int, trade_id: int
+) -> bool:
+    """Whether one screenshot is this owner's AND belongs to this trade.
+
+    `owns_screenshot` answers only the tenant question, which is not enough
+    for a per-trade analysis: a caller may legitimately own both trade A and
+    trade B, and analysing A with B's chart writes a reading of the wrong
+    chart onto A's `aianalysis` row. No isolation break — same tenant
+    throughout — but `raw_response_json` would then describe a chart the
+    trade never had, and the trader has no way to see that from the result.
+    """
+    owner = require_user_id(user_id)
+    db = SessionLocal()
+    try:
+        return (
+            db.query(Screenshot.id)
+            .join(Trade, Trade.id == Screenshot.trade_id)
+            .filter(
+                Screenshot.id == screenshot_id,
+                Screenshot.trade_id == trade_id,
+                Trade.user_id == owner,
+            )
+            .first()
+            is not None
+        )
+    finally:
+        db.close()
+
+
 def owns_screenshot(user_id: int, screenshot_id: int) -> bool:
     """Whether one screenshot belongs to the authenticated owner.
 
