@@ -25,6 +25,9 @@ from src.tradelens.api import imaging, jobs, storage
 from src.tradelens.api.deps import current_user
 from src.tradelens.api.routers.overview import _validated_period
 from src.tradelens.api.schemas.trades import (
+    AIAnalysisJobRequest,
+    AIJobAccepted,
+    AIJobStatus,
     ScreenshotCleanupFailedResponse,
     TradeAutofillJobAccepted,
     TradeAutofillJobRequest,
@@ -49,6 +52,15 @@ from src.tradelens.api.schemas.trades import (
     TradeUpdate,
 )
 from src.tradelens.services import drafts, screenshot_service, url_ingest
+from src.tradelens.services.trade_analysis import (
+    ANALYSIS_JOB_KIND,
+    ANALYSIS_WINDOW_HOURS,
+    GRADE_JOB_KIND,
+    JOURNAL_JOB_KIND,
+    MAX_ANALYSES_PER_WINDOW,
+    AIInputVersionUnavailable,
+    analysis_key,
+)
 from src.tradelens.services.trade_autofill import (
     AUTOFILL_WINDOW_HOURS,
     JOB_KIND as AUTOFILL_JOB_KIND,
@@ -659,6 +671,109 @@ def put_trade_draft(
     # of the owner's draft even though the browser cannot submit them itself.
     stored = drafts.get_draft(user_id) or {}
     return TradeDraftResponse(draft=TradeDraftPayload(**stored), revision=revision)
+
+
+_PHASE5_KINDS = (ANALYSIS_JOB_KIND, JOURNAL_JOB_KIND, GRADE_JOB_KIND)
+
+_FINGERPRINT_UNAVAILABLE = "We could not start this just now. Please try again."
+
+
+def _owned_trade_or_none(trade_id: int, user_id: int):
+    """The trade, only if it is this owner's. `get_trade` already filters."""
+    return get_trade(trade_id, user_id)
+
+
+def _accepted(job_id: int, user_id: int, created: bool) -> AIJobAccepted:
+    job = jobs.get_owned_job(job_id, user_id)
+    if job is None:  # Defensive: enqueue committed this exact owner-scoped row.
+        raise HTTPException(status_code=500, detail="job unavailable")
+    return AIJobAccepted(job_id=job_id, status=job.status, created=created)
+
+
+def _phase5_job_status(job_id: int, user_id: int) -> AIJobStatus:
+    job = jobs.get_owned_job(job_id, user_id)
+    if job is None or job.kind not in _PHASE5_KINDS:
+        raise HTTPException(status_code=404, detail="job not found")
+    superseded = job.status == "succeeded" and str(job.result_ref or "").endswith(
+        ":superseded"
+    )
+    return AIJobStatus(
+        job_id=job.id,
+        kind=job.kind,
+        status=job.status,
+        error=job.error,
+        superseded=superseded,
+    )
+
+
+@router.post("/trades/{trade_id}/analysis", status_code=status.HTTP_202_ACCEPTED)
+def enqueue_trade_analysis(
+    trade_id: int,
+    payload: AIAnalysisJobRequest,
+    user_id: int = Depends(current_user),
+) -> AIJobAccepted:
+    """Queue AI analysis of one of the caller's own screenshots for one trade.
+
+    Ownership of BOTH the trade and the screenshot is settled first, before
+    anything is written and before any billable work is scheduled: a queued
+    job is spend and, on a poll, an existence oracle. Foreign and missing are
+    the same 404.
+
+    The job reads the PROMOTED object, not an upload: `finalize_upload` has
+    already decoded, capped and re-encoded those bytes, so the model only
+    ever sees bytes we produced.
+    """
+    trade = _owned_trade_or_none(trade_id, user_id)
+    if trade is None or not storage.owns_screenshot(user_id, payload.screenshot_id):
+        raise _not_found()
+
+    # The fingerprint fails closed (design decision 4). Refuse rather than
+    # enqueue under a placeholder identity that could collide with an earlier
+    # job computed under different AI context. Nothing is created or spent.
+    try:
+        key = analysis_key(
+            user_id, trade_id, int(payload.screenshot_id), trade.updated_at
+        )
+    except AIInputVersionUnavailable:
+        raise HTTPException(status_code=503, detail=_FINGERPRINT_UNAVAILABLE)
+
+    job_id, created = jobs.enqueue_with_limit(
+        user_id,
+        ANALYSIS_JOB_KIND,
+        key,
+        {
+            "trade_id": int(trade_id),
+            "screenshot_id": int(payload.screenshot_id),
+            "key": key,
+        },
+        since=datetime.now(timezone.utc) - timedelta(hours=ANALYSIS_WINDOW_HOURS),
+        limit=MAX_ANALYSES_PER_WINDOW,
+    )
+    if job_id is None:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"You've reached {MAX_ANALYSES_PER_WINDOW} AI analyses for "
+                f"today. New analyses are available again "
+                f"{ANALYSIS_WINDOW_HOURS} hours after your earliest one. "
+                "Your journal and your own notes are unaffected."
+            ),
+        )
+    return _accepted(job_id, user_id, created)
+
+
+@router.get("/trades/analysis/{job_id}")
+def get_trade_analysis_job(
+    job_id: int,
+    user_id: int = Depends(current_user),
+) -> AIJobStatus:
+    """Status for one owner-scoped Phase 5 job; foreign and missing are identical.
+
+    The kind check is not decoration: without it this route would read any of
+    the owner's jobs, and a summary's or an autofill's row would be reported
+    as an analysis.
+    """
+    return _phase5_job_status(job_id, user_id)
 
 
 @router.get("/trades/{trade_id}")

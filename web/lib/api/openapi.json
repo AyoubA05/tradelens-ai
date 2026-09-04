@@ -1,6 +1,104 @@
 {
   "components": {
     "schemas": {
+      "AIAnalysisJobRequest": {
+        "additionalProperties": false,
+        "description": "Which of the caller's own screenshots to analyse for this trade.\n\nA screenshot id, not a key and not a URL: the bytes analysed are the\npromoted object `finalize_upload` produced, and this is the only handle\nthe browser has on one. Ownership is never input.",
+        "properties": {
+          "screenshot_id": {
+            "title": "Screenshot Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "screenshot_id"
+        ],
+        "title": "AIAnalysisJobRequest",
+        "type": "object"
+      },
+      "AIJobAccepted": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "created"
+        ],
+        "title": "AIJobAccepted",
+        "type": "object"
+      },
+      "AIJobStatus": {
+        "additionalProperties": false,
+        "description": "Poll response shared by all three Phase 5 kinds.\n\n`superseded` says the opposite of what `status` does, and both can be\ntrue at once: this job succeeded, but a newer job's result occupies the\nrow. Reporting `succeeded` alone would tell the trader their re-run\nlanded when it did not.\n\nDeliberately carries no result payload: cost, token counts and the raw\nmodel output live on `aianalysis` and are served by the analysis read\nroute, never by a job poll.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "trade_analysis",
+              "trade_journal",
+              "trade_grade"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "superseded": {
+            "title": "Superseded",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "job_id",
+          "kind",
+          "status",
+          "error",
+          "superseded"
+        ],
+        "title": "AIJobStatus",
+        "type": "object"
+      },
       "AutofillSuggestion": {
         "additionalProperties": false,
         "description": "One AI-suggested value for one draft field, with its confidence.\n\nA suggestion is deliberately NOT the field's value. It is provenance-\ntagged metadata that sits beside the draft, so an unreviewed suggestion\nstays distinguishable from something the trader typed right up until they\naccept it \u2014 which is the whole difference between assistive and\nauthoritative.\n\n`autocheck` is not a second confidence policy: it is whatever\n`services.autocheck_policy.should_autocheck` decided, carried on the wire\nso the browser and Streamlit pre-check the same boxes. The policy lives in\n`services/` and not in `ui/components/ai_autofill_review.py`, which only\nre-exports it \u2014 naming the UI module here would teach the layering the\nopposite of what commit `abde2f0` fixed.",
@@ -4228,6 +4326,49 @@
         ]
       }
     },
+    "/v1/trades/analysis/{job_id}": {
+      "get": {
+        "description": "Status for one owner-scoped Phase 5 job; foreign and missing are identical.\n\nThe kind check is not decoration: without it this route would read any of\nthe owner's jobs, and a summary's or an autofill's row would be reported\nas an analysis.",
+        "operationId": "get_trade_analysis_job_v1_trades_analysis__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIJobStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Trade Analysis Job",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
     "/v1/trades/autofill": {
       "post": {
         "description": "Queue AI autofill for one of the caller's own finalized screenshots.\n\nOwnership is settled FIRST, before anything is written and before any\nbillable work can be scheduled: a foreign screenshot must not enqueue a\njob, because a queued job is spend and, on a poll, an existence oracle.\nA screenshot that is not the caller's returns the same 404 as one that\ndoes not exist.\n\nThe job reads the PROMOTED object, not an upload: `finalize_upload` has\nalready decoded, capped and re-encoded those bytes, so the model only ever\nsees bytes we produced.\n\nNothing this endpoint starts can create a trade. The worker writes\nsuggestions onto the owner's draft, and creation stays with\n`POST /v1/trades`.",
@@ -4603,6 +4744,59 @@
           }
         },
         "summary": "Patch Trade",
+        "tags": [
+          "trades"
+        ]
+      }
+    },
+    "/v1/trades/{trade_id}/analysis": {
+      "post": {
+        "description": "Queue AI analysis of one of the caller's own screenshots for one trade.\n\nOwnership of BOTH the trade and the screenshot is settled first, before\nanything is written and before any billable work is scheduled: a queued\njob is spend and, on a poll, an existence oracle. Foreign and missing are\nthe same 404.\n\nThe job reads the PROMOTED object, not an upload: `finalize_upload` has\nalready decoded, capped and re-encoded those bytes, so the model only\never sees bytes we produced.",
+        "operationId": "enqueue_trade_analysis_v1_trades__trade_id__analysis_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trade_id",
+            "required": true,
+            "schema": {
+              "title": "Trade Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIAnalysisJobRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIJobAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enqueue Trade Analysis",
         "tags": [
           "trades"
         ]

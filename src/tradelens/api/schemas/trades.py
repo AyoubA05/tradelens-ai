@@ -151,6 +151,43 @@ class AutofillSuggestion(_Strict):
     autocheck: bool = False
 
 
+class AIAnalysisJobRequest(_Strict):
+    """Which of the caller's own screenshots to analyse for this trade.
+
+    A screenshot id, not a key and not a URL: the bytes analysed are the
+    promoted object `finalize_upload` produced, and this is the only handle
+    the browser has on one. Ownership is never input.
+    """
+
+    screenshot_id: int
+
+
+class AIJobAccepted(_Strict):
+    job_id: int
+    status: Literal["queued", "running", "succeeded", "failed"]
+    created: bool
+
+
+class AIJobStatus(_Strict):
+    """Poll response shared by all three Phase 5 kinds.
+
+    `superseded` says the opposite of what `status` does, and both can be
+    true at once: this job succeeded, but a newer job's result occupies the
+    row. Reporting `succeeded` alone would tell the trader their re-run
+    landed when it did not.
+
+    Deliberately carries no result payload: cost, token counts and the raw
+    model output live on `aianalysis` and are served by the analysis read
+    route, never by a job poll.
+    """
+
+    job_id: int
+    kind: Literal["trade_analysis", "trade_journal", "trade_grade"]
+    status: Literal["queued", "running", "succeeded", "failed"]
+    error: Optional[str]
+    superseded: bool
+
+
 class TradeAutofillJobRequest(_Strict):
     """Which of the caller's own screenshots to read. Ownership is never input.
 
