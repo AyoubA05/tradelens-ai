@@ -37,8 +37,19 @@ from src.tradelens.api import storage
 from src.tradelens.config import ANTHROPIC_MODEL_ID, settings
 from src.tradelens.db.models import AIAnalysis, Strategy, Trade
 from src.tradelens.db.session import SessionLocal
+from src.tradelens.services.ai_text_guard import (
+    ForwardLookingContent,
+    fence,
+    reject_forward_looking,
+)
 from src.tradelens.services.corrections import build_correction_few_shot
+from src.tradelens.services.journal import (
+    JournalStructureError,
+    build_journal_context,
+    generate_journal,
+)
 from src.tradelens.services.ownership import require_user_id
+from src.tradelens.services.strategy import get_active_strategy
 from src.tradelens.services.vision import (
     ScreenshotAnalysisError,
     analyze_screenshot_v3,
@@ -477,3 +488,104 @@ def run_analysis(
         vision_result=descriptive,
         usage=captured.get("usage"),
     )
+
+
+# Trader-typed fields that reach a prompt. Each is bounded and fenced, so a
+# note cannot lengthen the prompt without limit and cannot forge the end of
+# its own block. See `ai_text_guard` for why this is a floor, not a cure.
+_UNTRUSTED_TRADE_FIELDS = (
+    "notes",
+    "emotions_before",
+    "emotions_during",
+    "emotions_after",
+)
+
+
+def _sanitised_trade_context(trade_dict: dict) -> dict:
+    """Bound and fence every trader-typed value in a prompt context dict.
+
+    Returns a copy: the caller's dict is built from ORM columns and must not
+    be mutated into a shape that could be written back anywhere.
+    """
+    out = dict(trade_dict)
+    for field in _UNTRUSTED_TRADE_FIELDS:
+        if out.get(field):
+            out[field] = fence(field, out[field])
+    return out
+
+
+def _generate_journal_markdown(trade_dict: dict, ai_dict: dict, strategy, on_usage):
+    """The provider call, isolated so tests can replace exactly this seam."""
+    markdown, usage = generate_journal(trade_dict, ai_dict, strategy_profile=strategy)
+    # Before validation, deliberately: the call was billed whether or not the
+    # response turns out to be usable, and the post-trade-only check below
+    # rejects some responses outright.
+    on_usage(usage)
+    return markdown
+
+
+def _load_for_generation(owner: int, trade_id: int):
+    """The trade and its analysis, or a refusal. Shared by journal and grade."""
+    db = SessionLocal()
+    try:
+        if _owned_trade_id(db, trade_id, owner) is None:
+            raise ValueError("trade not found")
+        trade = db.query(Trade).filter(Trade.id == trade_id).one()
+        analysis = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).first()
+        if analysis is None:
+            raise AnalysisUnavailable(
+                "run the screenshot analysis first — this builds on it"
+            )
+        return trade, analysis
+    finally:
+        db.close()
+
+
+def run_journal(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteOutcome:
+    """Generate and store one journal entry, under the same ordering guard.
+
+    The output is validated twice and stored once: `generate_journal` already
+    enforces the eight ordered headings, and `reject_forward_looking` refuses
+    anything that reads as a trade idea rather than a reflection. A response
+    failing either is a failed job — never stored, never shown. A journal
+    telling a trader what to buy next session is the single worst thing this
+    product could emit, so it is checked rather than asked for.
+
+    Writes `journal_entry_md` and its own job column only. The analysis
+    labels are untouched, confirmed or not: a journal is prose about a trade,
+    not a new reading of it.
+    """
+    owner = require_user_id(user_id)
+    trade, analysis = _load_for_generation(owner, trade_id)
+    trade_dict, ai_dict = build_journal_context(trade, analysis)
+
+    try:
+        markdown = _generate_journal_markdown(
+            _sanitised_trade_context(trade_dict),
+            ai_dict,
+            get_active_strategy(owner),
+            on_usage,
+        )
+        reject_forward_looking(markdown)
+    except (JournalStructureError, ForwardLookingContent, ValueError) as exc:
+        raise AnalysisUnavailable(str(exc)) from exc
+
+    now = datetime.now(timezone.utc).isoformat()
+    db = SessionLocal()
+    try:
+        written = db.execute(
+            update(AIAnalysis)
+            .where(
+                AIAnalysis.trade_id == trade_id,
+                (AIAnalysis.journal_job_id.is_(None))
+                | (AIAnalysis.journal_job_id < job_id),
+            )
+            .values(journal_entry_md=markdown, journal_job_id=job_id, updated_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        db.commit()
+        if written.rowcount != 1:
+            return WriteOutcome(written=False, superseded=True)
+        return WriteOutcome(written=True, superseded=False)
+    finally:
+        db.close()
