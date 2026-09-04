@@ -1222,3 +1222,195 @@ def test_trader_text_reaches_the_prompt_bounded_and_fenced(analysed_trade, monke
     assert "</trade_notes>" not in notes
     assert "SYSTEM" in notes  # bounded and defanged, never silently dropped
     assert len(notes) < 1000  # the 4000-char lever is gone
+
+
+# --- Group B2: process grading ------------------------------------------
+
+
+def _grading(**over):
+    """A structurally valid grading object: four top keys, five dimensions."""
+    base = {
+        "grade": "B",
+        "score": 7,
+        "one_line_verdict": "Disciplined execution.",
+        "rubric": {
+            dim: {"score": 7, "note": "Reasonable."}
+            for dim in (
+                "entry_quality",
+                "risk_management",
+                "exit_quality",
+                "rule_adherence",
+                "emotional_control",
+            )
+        },
+    }
+    base.update(over)
+    return base
+
+
+def _patch_grader(monkeypatch, result):
+    """Stub the PROVIDER beneath `grade_trade`, never the wrapper above it.
+
+    Same reason as the journal tests: the ordering of `on_usage` relative to
+    validation, and the validation itself, are properties of the code under
+    test. A test that supplies its own wrapper cannot see either one move.
+    """
+    import json as _json
+
+    from src.tradelens.services import grading as grading_module
+
+    monkeypatch.setattr(
+        grading_module,
+        "chat",
+        lambda *a, **k: (_json.dumps(result), _analysis_usage()),
+    )
+
+
+def _trade_row(trade_id):
+    from src.tradelens.db.models import Trade
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return db.query(Trade).filter(Trade.id == trade_id).one()
+    finally:
+        db.close()
+
+
+def test_a_grade_cannot_run_before_an_analysis_exists(owned_trade, monkeypatch):
+    """The provider is stubbed to SUCCEED so only the prerequisite can refuse."""
+    _patch_grader(monkeypatch, _grading())
+    user_id, trade_id = owned_trade
+
+    with pytest.raises(ta.AnalysisUnavailable):
+        ta.run_grade(user_id, trade_id, job_id=3, on_usage=lambda u: None)
+    assert _analysis_row(trade_id) is None
+
+
+def test_another_owner_s_trade_is_never_graded(two_users_with_trades):
+    (owner, _own), (_other, other_trade) = two_users_with_trades
+    with pytest.raises(ValueError):
+        ta.run_grade(owner, other_trade, job_id=1, on_usage=lambda u: None)
+
+
+def test_a_grade_missing_a_rubric_dimension_is_refused(analysed_trade, monkeypatch):
+    """Exercises `grade_trade`'s real validator, not a stub of it."""
+    broken = _grading()
+    broken["rubric"].pop("exit_quality")
+    _patch_grader(monkeypatch, broken)
+    user_id, trade_id = analysed_trade
+
+    with pytest.raises(ta.AnalysisUnavailable):
+        ta.run_grade(user_id, trade_id, job_id=3, on_usage=lambda u: None)
+    assert _analysis_row(trade_id).grading_json is None
+
+
+def test_a_rubric_note_giving_forward_looking_advice_is_refused(
+    analysed_trade, monkeypatch
+):
+    """The advice check must cover the free text INSIDE the JSON.
+
+    A grade is mostly structured, but every `note` is model-written English
+    that reaches the trader unchanged. Checking only the prose fields would
+    leave five places to say "buy the open next session".
+    """
+    advice = _grading()
+    advice["rubric"]["entry_quality"]["note"] = "Next session, you should buy the open."
+    _patch_grader(monkeypatch, advice)
+    user_id, trade_id = analysed_trade
+
+    with pytest.raises(ta.AnalysisUnavailable):
+        ta.run_grade(user_id, trade_id, job_id=3, on_usage=lambda u: None)
+    assert _analysis_row(trade_id).grading_json is None
+
+
+def test_a_forward_looking_verdict_is_refused(analysed_trade, monkeypatch):
+    """The one-line verdict is the most prominent string in the whole panel."""
+    advice = _grading(one_line_verdict="Next session, you should short the open.")
+    _patch_grader(monkeypatch, advice)
+    user_id, trade_id = analysed_trade
+
+    with pytest.raises(ta.AnalysisUnavailable):
+        ta.run_grade(user_id, trade_id, job_id=3, on_usage=lambda u: None)
+    assert _analysis_row(trade_id).grading_json is None
+
+
+def test_a_valid_grade_is_stored_and_denormalized_to_the_trade(
+    analysed_trade, monkeypatch
+):
+    """Positive control as well as the happy path.
+
+    Without it, a `run_grade` that refused every response would pass all
+    four refusal tests above.
+    """
+    _patch_grader(monkeypatch, _grading())
+    user_id, trade_id = analysed_trade
+
+    outcome = ta.run_grade(user_id, trade_id, job_id=3, on_usage=lambda u: None)
+
+    assert outcome.written is True
+    assert _analysis_row(trade_id).grading_job_id == 3
+    assert _trade_row(trade_id).ai_grade == "B"
+
+
+def test_grading_never_overwrites_the_trader_s_own_grade(analysed_trade, monkeypatch):
+    """`user_grade` is the trader's verdict. The AI's goes in its own column."""
+    from src.tradelens.db.session import SessionLocal
+
+    user_id, trade_id = analysed_trade
+    db = SessionLocal()
+    try:
+        row = _trade_row(trade_id)
+        merged = db.merge(row)
+        merged.user_grade = "A"
+        db.commit()
+    finally:
+        db.close()
+
+    _patch_grader(monkeypatch, _grading())
+    ta.run_grade(user_id, trade_id, job_id=3, on_usage=lambda u: None)
+
+    assert _trade_row(trade_id).user_grade == "A"
+    assert _trade_row(trade_id).ai_grade == "B"
+
+
+def test_a_stale_grade_job_cannot_replace_a_newer_one(analysed_trade, monkeypatch):
+    import json as _json
+
+    user_id, trade_id = analysed_trade
+    _patch_grader(monkeypatch, _grading())
+    ta.run_grade(user_id, trade_id, job_id=9, on_usage=lambda u: None)
+
+    _patch_grader(monkeypatch, _grading(grade="D", score=2))
+    outcome = ta.run_grade(user_id, trade_id, job_id=4, on_usage=lambda u: None)
+
+    assert outcome.superseded is True
+    assert _json.loads(_analysis_row(trade_id).grading_json)["grade"] == "B"
+    assert _trade_row(trade_id).ai_grade == "B"
+
+
+def test_grade_usage_is_recorded_even_when_the_output_is_refused(
+    analysed_trade, monkeypatch
+):
+    """A refused grade was still billed."""
+    user_id, trade_id = analysed_trade
+    logged = []
+    advice = _grading()
+    advice["rubric"]["exit_quality"]["note"] = "Next session, you should buy the open."
+    _patch_grader(monkeypatch, advice)
+
+    with pytest.raises(ta.AnalysisUnavailable):
+        ta.run_grade(user_id, trade_id, job_id=3, on_usage=logged.append)
+
+    assert len(logged) == 1
+
+
+def test_a_grade_write_never_touches_a_confirmed_label(analysed_trade, monkeypatch):
+    """Grading writes its own column; the trader's confirmed bias is theirs."""
+    user_id, trade_id = analysed_trade
+    _confirm_labels(trade_id, bias="neutral")
+    _patch_grader(monkeypatch, _grading())
+
+    ta.run_grade(user_id, trade_id, job_id=3, on_usage=lambda u: None)
+
+    assert _analysis_row(trade_id).bias == "neutral"

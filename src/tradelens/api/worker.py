@@ -23,7 +23,11 @@ from src.tradelens.services.trade_autofill import (
 )
 from src.tradelens.services.trade_analysis import (
     ANALYSIS_JOB_KIND,
+    GRADE_JOB_KIND,
+    JOURNAL_JOB_KIND,
     run_analysis,
+    run_grade,
+    run_journal,
 )
 from src.tradelens.services.trade_summary import (
     generate_trade_summary,
@@ -110,10 +114,41 @@ def _trade_analysis_handler(user_id: int, payload: dict) -> str:
     )
 
 
+def _trade_journal_handler(user_id: int, payload: dict) -> str:
+    # Feature string matches the Streamlit path's, so the Settings cost
+    # dashboard shows one row per feature rather than splitting one feature
+    # across two names.
+    outcome = run_journal(
+        user_id,
+        int(payload["trade_id"]),
+        job_id=_phase5_job_id(user_id, JOURNAL_JOB_KIND, payload),
+        on_usage=lambda usage: log_ai_usage("AI Journal", usage, user_id=user_id),
+    )
+    return (
+        f"{JOURNAL_JOB_KIND}:{payload['trade_id']}:"
+        f"{'stored' if outcome.written else 'superseded'}"
+    )
+
+
+def _trade_grade_handler(user_id: int, payload: dict) -> str:
+    outcome = run_grade(
+        user_id,
+        int(payload["trade_id"]),
+        job_id=_phase5_job_id(user_id, GRADE_JOB_KIND, payload),
+        on_usage=lambda usage: log_ai_usage("Trade Grading", usage, user_id=user_id),
+    )
+    return (
+        f"{GRADE_JOB_KIND}:{payload['trade_id']}:"
+        f"{'stored' if outcome.written else 'superseded'}"
+    )
+
+
 HANDLERS: dict = {
     "trade_summary": _trade_summary_handler,
     AUTOFILL_JOB_KIND: _trade_autofill_handler,
     ANALYSIS_JOB_KIND: _trade_analysis_handler,
+    JOURNAL_JOB_KIND: _trade_journal_handler,
+    GRADE_JOB_KIND: _trade_grade_handler,
 }
 
 IDLE_SLEEP_SECONDS = 2.0

@@ -43,6 +43,11 @@ from src.tradelens.services.ai_text_guard import (
     reject_forward_looking,
 )
 from src.tradelens.services.corrections import build_correction_few_shot
+from src.tradelens.services.grading import (
+    GradingError,
+    build_grading_context,
+    grade_trade,
+)
 from src.tradelens.services.journal import (
     JournalStructureError,
     build_journal_context,
@@ -586,6 +591,92 @@ def run_journal(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteO
         db.commit()
         if written.rowcount != 1:
             return WriteOutcome(written=False, superseded=True)
+        return WriteOutcome(written=True, superseded=False)
+    finally:
+        db.close()
+
+
+def _generate_grading(trade_dict: dict, strategy, vision_dict: dict, on_usage) -> dict:
+    """The provider call, isolated so tests can replace exactly this seam."""
+    result, usage = grade_trade(trade_dict, strategy, vision_dict)
+    # Before the post-trade-only check below, for the same reason the journal
+    # logs here: a response this function is about to refuse was still billed.
+    on_usage(usage)
+    return result
+
+
+def _grading_free_text(result: dict):
+    """Every model-written English string inside a grading object.
+
+    A grade is mostly structured, but the verdict and each rubric note are
+    prose that reaches the trader unchanged — so they get the same
+    post-trade-only check the journal's markdown gets. Checking the verdict
+    alone would leave five rubric notes free to say what the verdict may not.
+    """
+    yield str(result.get("one_line_verdict") or "")
+    rubric = result.get("rubric")
+    if isinstance(rubric, dict):
+        for entry in rubric.values():
+            if isinstance(entry, dict):
+                yield str(entry.get("note") or "")
+
+
+def run_grade(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteOutcome:
+    """Grade one trade on PROCESS and store it, under the same ordering guard.
+
+    `grade_trade` already validates the four top-level keys and all five
+    rubric dimensions. This adds the post-trade-only check over every free
+    text field the trader will actually read, and the monotonic write guard.
+
+    `trades.ai_grade` is denormalized for the journal list and Overview.
+    `user_grade` is never touched — that column is the trader's own verdict,
+    and the AI does not get to overrule it. The denormalization runs only
+    after the conditional UPDATE succeeds, so a stale job cannot move the
+    trade's visible grade either.
+    """
+    owner = require_user_id(user_id)
+    trade, analysis = _load_for_generation(owner, trade_id)
+    trade_dict, vision_dict = build_grading_context(trade, analysis)
+
+    try:
+        result = _generate_grading(
+            _sanitised_trade_context(trade_dict),
+            get_active_strategy(owner),
+            vision_dict,
+            on_usage,
+        )
+        for text in _grading_free_text(result):
+            reject_forward_looking(text)
+    except (GradingError, ForwardLookingContent, ValueError) as exc:
+        raise AnalysisUnavailable(str(exc)) from exc
+
+    now = datetime.now(timezone.utc).isoformat()
+    db = SessionLocal()
+    try:
+        written = db.execute(
+            update(AIAnalysis)
+            .where(
+                AIAnalysis.trade_id == trade_id,
+                (AIAnalysis.grading_job_id.is_(None))
+                | (AIAnalysis.grading_job_id < job_id),
+            )
+            .values(
+                grading_json=json.dumps(result),
+                grading_job_id=job_id,
+                updated_at=now,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if written.rowcount != 1:
+            db.commit()
+            return WriteOutcome(written=False, superseded=True)
+        db.execute(
+            update(Trade)
+            .where(Trade.id == trade_id, Trade.user_id == owner)
+            .values(ai_grade=result.get("grade"))
+            .execution_options(synchronize_session=False)
+        )
+        db.commit()
         return WriteOutcome(written=True, superseded=False)
     finally:
         db.close()
