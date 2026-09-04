@@ -151,6 +151,37 @@ class AutofillSuggestion(_Strict):
     autocheck: bool = False
 
 
+class AIAnalysisLabelPatch(_Strict):
+    """The labels a trader may confirm or correct. A positive allowlist.
+
+    Server-owned columns — `cost_usd`, `tokens_input`, `raw_response_json`,
+    every `*_job_id`, `confirmed_at` — are absent by construction, and
+    `extra="forbid"` turns sending one into a 422 rather than a silent drop.
+
+    `release` hands named labels back to the AI. It is the only way out of
+    the confirmation lock, and it is an allowlist for the same reason the
+    values are: it must never become a way to name arbitrary columns.
+    """
+
+    bias: Optional[str] = None
+    detected_setup: Optional[str] = None
+    trade_quality: Optional[int] = None
+    matched_strategy: Optional[str] = None
+    user_grade: Optional[str] = None
+    release: List[
+        Literal["bias", "detected_setup", "trade_quality", "matched_strategy"]
+    ] = []
+
+
+class AIAnalysisLabels(_Strict):
+    bias: Optional[str]
+    detected_setup: Optional[str]
+    trade_quality: Optional[int]
+    matched_strategy: Optional[str]
+    user_grade: Optional[str]
+    confirmed_fields: List[str]
+
+
 class AIAnalysisJobRequest(_Strict):
     """Which of the caller's own screenshots to analyse for this trade.
 

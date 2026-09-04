@@ -45,7 +45,10 @@ from src.tradelens.services.ai_text_guard import (
     fence,
     reject_forward_looking,
 )
-from src.tradelens.services.corrections import build_correction_few_shot
+from src.tradelens.services.corrections import (
+    build_correction_few_shot,
+    record_correction,
+)
 from src.tradelens.services.grading import (
     GradingError,
     build_grading_context,
@@ -752,3 +755,103 @@ def run_grade(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteOut
         return WriteOutcome(written=True, superseded=False)
     finally:
         db.close()
+
+
+# THE confirm allowlist. Every field is one the trader can judge from their
+# own chart, and none is server-owned: cost, tokens, job ids and the raw
+# response are absent and cannot be sent. Shared with `store_analysis`, so
+# the write and the confirm cannot disagree about what a label is.
+CONFIRMABLE_LABEL_FIELDS = frozenset(
+    {"bias", "detected_setup", "trade_quality", "matched_strategy"}
+)
+
+# Confirmed labels that the journal list and Overview read off `trades`.
+_LABEL_DENORMALIZATION = (("bias", "bias"), ("detected_setup", "setup_type"))
+
+
+def confirm_labels(user_id: int, trade_id: int, values: dict, *, release=()) -> dict:
+    """Store the trader's confirmed labels, and raise or lower the lock.
+
+    Three things happen together, and they must:
+
+    * A `Correction` row is written for each field whose value actually
+      changed. That is what personalization learns from, and
+      `record_correction` already refuses to write a no-op, so confirming an
+      unchanged value teaches nothing.
+    * The confirmed set grows by the fields sent, so `store_analysis` will
+      not overwrite them — whatever the job ordering.
+    * The confirmed set shrinks by anything named in `release`. This is the
+      ONLY way out of the lock, and it has to exist: without it a confirmed
+      label is frozen forever and the trader can never ask for a fresh
+      reading of that one field.
+
+    Both directions are filtered against `CONFIRMABLE_LABEL_FIELDS` here, at
+    the storage boundary, even though the schema already refuses unknown
+    keys. This is the function that touches the row, so this is where the
+    guarantee has to hold — and `release` is an allowlist for the same
+    reason `values` is: it must not become a way to name arbitrary columns.
+    """
+    owner = require_user_id(user_id)
+    kept = {k: v for k, v in values.items() if k in CONFIRMABLE_LABEL_FIELDS}
+    # Defence in depth with NO observable effect at this layer, and said
+    # plainly rather than left to look load-bearing: `released` only ever
+    # subtracts from `confirmed`, which only ever contains allowlisted
+    # names, so dropping this filter changes no outcome and a mutation of it
+    # survives every test. The observable guarantee is the route's typed
+    # `release` list, where a column name is a 422 — that one IS pinned, by
+    # `test_release_cannot_name_a_column_outside_the_allowlist`. Kept
+    # because it costs nothing and holds if a future caller reaches this
+    # function without going through the schema.
+    released = {r for r in release if r in CONFIRMABLE_LABEL_FIELDS}
+    now = datetime.now(timezone.utc).isoformat()
+
+    db = SessionLocal()
+    try:
+        if _owned_trade_id(db, trade_id, owner) is None:
+            raise ValueError("trade not found")
+        analysis = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).first()
+        if analysis is None:
+            raise ValueError("analysis not found")
+        analysis_id = int(analysis.id)
+        previous = {field: getattr(analysis, field, None) for field in kept}
+        already = set(confirmed_fields(analysis))
+    finally:
+        db.close()
+
+    for field, value in kept.items():
+        # Owner-scoped, and a no-op difference writes nothing.
+        record_correction(
+            trade_id, analysis_id, field, previous.get(field), value, user_id=owner
+        )
+
+    confirmed = sorted((already | set(kept)) - released)
+    db = SessionLocal()
+    try:
+        db.execute(
+            update(AIAnalysis)
+            .where(AIAnalysis.trade_id == trade_id)
+            .values(
+                confirmed_at=now,
+                confirmed_fields_json=json.dumps(confirmed),
+                updated_at=now,
+                **kept,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        trade_values = {
+            column: kept[field]
+            for field, column in _LABEL_DENORMALIZATION
+            if kept.get(field)
+        }
+        if trade_values:
+            db.execute(
+                update(Trade)
+                .where(Trade.id == trade_id, Trade.user_id == owner)
+                .values(**trade_values)
+                .execution_options(synchronize_session=False)
+            )
+        db.commit()
+    finally:
+        db.close()
+
+    return {**kept, "confirmed_fields": confirmed}

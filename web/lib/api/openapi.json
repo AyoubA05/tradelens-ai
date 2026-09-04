@@ -16,6 +16,160 @@
         "title": "AIAnalysisJobRequest",
         "type": "object"
       },
+      "AIAnalysisLabelPatch": {
+        "additionalProperties": false,
+        "description": "The labels a trader may confirm or correct. A positive allowlist.\n\nServer-owned columns \u2014 `cost_usd`, `tokens_input`, `raw_response_json`,\nevery `*_job_id`, `confirmed_at` \u2014 are absent by construction, and\n`extra=\"forbid\"` turns sending one into a 422 rather than a silent drop.\n\n`release` hands named labels back to the AI. It is the only way out of\nthe confirmation lock, and it is an allowlist for the same reason the\nvalues are: it must never become a way to name arbitrary columns.",
+        "properties": {
+          "bias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias"
+          },
+          "detected_setup": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected Setup"
+          },
+          "matched_strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Strategy"
+          },
+          "release": {
+            "default": [],
+            "items": {
+              "enum": [
+                "bias",
+                "detected_setup",
+                "trade_quality",
+                "matched_strategy"
+              ],
+              "type": "string"
+            },
+            "title": "Release",
+            "type": "array"
+          },
+          "trade_quality": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Quality"
+          },
+          "user_grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Grade"
+          }
+        },
+        "title": "AIAnalysisLabelPatch",
+        "type": "object"
+      },
+      "AIAnalysisLabels": {
+        "additionalProperties": false,
+        "properties": {
+          "bias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias"
+          },
+          "confirmed_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Confirmed Fields",
+            "type": "array"
+          },
+          "detected_setup": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected Setup"
+          },
+          "matched_strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Strategy"
+          },
+          "trade_quality": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Quality"
+          },
+          "user_grade": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Grade"
+          }
+        },
+        "required": [
+          "bias",
+          "detected_setup",
+          "trade_quality",
+          "matched_strategy",
+          "user_grade",
+          "confirmed_fields"
+        ],
+        "title": "AIAnalysisLabels",
+        "type": "object"
+      },
       "AIJobAccepted": {
         "additionalProperties": false,
         "properties": {
@@ -4836,6 +4990,57 @@
       }
     },
     "/v1/trades/{trade_id}/analysis": {
+      "patch": {
+        "description": "Confirm, correct or release the AI's labels for one of the caller's trades.\n\nThe trader's judgement is the point of this route: it is what\npersonalization learns from, and it is what locks a label against every\nlater analysis job until they release it.\n\n`user_grade` is handled apart from the labels because it lives on\n`trades`, not on `aianalysis`, and must never be written by the grading\njob \u2014 that column is the trader's own verdict. `None` is a meaningful\nvalue there (it clears the override), so \"not sent\" needs its own\nsentinel rather than being inferred from a null.",
+        "operationId": "patch_trade_analysis_v1_trades__trade_id__analysis_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trade_id",
+            "required": true,
+            "schema": {
+              "title": "Trade Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIAnalysisLabelPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIAnalysisLabels"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Trade Analysis",
+        "tags": [
+          "trades"
+        ]
+      },
       "post": {
         "description": "Queue AI analysis of one of the caller's own screenshots for one trade.\n\nOwnership of BOTH the trade and the screenshot is settled first, before\nanything is written and before any billable work is scheduled: a queued\njob is spend and, on a poll, an existence oracle. Foreign and missing are\nthe same 404.\n\nThe job reads the PROMOTED object, not an upload: `finalize_upload` has\nalready decoded, capped and re-encoded those bytes, so the model only\never sees bytes we produced.",
         "operationId": "enqueue_trade_analysis_v1_trades__trade_id__analysis_post",

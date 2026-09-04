@@ -573,3 +573,126 @@ def test_polling_another_owner_s_derived_job_is_a_404(
 
     assert response.status_code == missing.status_code == 404
     assert response.content == missing.content
+
+
+# --------------------------------------------- Group C1: confirming labels
+
+
+def _patch_labels(client, handle, trade_id, body_dict):
+    path = f"/v1/trades/{trade_id}/analysis"
+    body = json.dumps(body_dict, separators=(",", ":")).encode()
+    return client.patch(
+        path, content=body, headers=_headers(handle, "PATCH", path, body)
+    )
+
+
+def test_confirming_a_label_returns_it_as_confirmed(client, website_session_handle):
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+
+    response = _patch_labels(client, handle, trade_id, {"bias": "bearish"})
+
+    assert response.status_code == 200
+    assert response.json()["bias"] == "bearish"
+    assert response.json()["confirmed_fields"] == ["bias"]
+
+
+def test_a_server_owned_field_is_refused_by_the_schema(client, website_session_handle):
+    """422, not a silent drop: `extra="forbid"` is the contract."""
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+
+    response = _patch_labels(client, handle, trade_id, {"cost_usd": 0.0})
+
+    assert response.status_code == 422
+
+
+def test_release_cannot_name_a_column_outside_the_allowlist(
+    client, website_session_handle
+):
+    """The release list is typed, so a column name is a 422 not a no-op."""
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+
+    response = _patch_labels(client, handle, trade_id, {"release": ["analysis_job_id"]})
+
+    assert response.status_code == 422
+
+
+def test_confirming_on_another_owner_s_trade_is_a_404(
+    client, website_session_handle, two_users
+):
+    owner, handle = website_session_handle
+    other = next(u for u in two_users if u != owner)
+    other_trade, _shot = _trade_with_screenshot(other)
+    _analysed(other, other_trade)
+
+    response = _patch_labels(client, handle, other_trade, {"bias": "bearish"})
+    missing = _patch_labels(client, handle, 99999999, {"bias": "bearish"})
+
+    assert response.status_code == missing.status_code == 404
+    assert response.content == missing.content
+    assert _analysis_row_of(other_trade).bias == "bullish"
+
+
+def test_a_grade_override_never_touches_the_ai_grade(client, website_session_handle):
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+    _set_ai_grade(trade_id, "B")
+
+    response = _patch_labels(client, handle, trade_id, {"user_grade": "A"})
+
+    assert response.status_code == 200
+    assert response.json()["user_grade"] == "A"
+    assert _trade_of(trade_id).ai_grade == "B"
+
+
+def test_a_null_grade_override_clears_it_rather_than_being_ignored(
+    client, website_session_handle
+):
+    """`None` is a meaningful value here — it is how the trader takes it back."""
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+    _patch_labels(client, handle, trade_id, {"user_grade": "A"})
+
+    response = _patch_labels(client, handle, trade_id, {"user_grade": None})
+
+    assert response.status_code == 200
+    assert response.json()["user_grade"] is None
+
+
+def _analysis_row_of(trade_id):
+    from src.tradelens.db.models import AIAnalysis
+
+    db = SessionLocal()
+    try:
+        return db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).one()
+    finally:
+        db.close()
+
+
+def _trade_of(trade_id):
+    from src.tradelens.db.models import Trade
+
+    db = SessionLocal()
+    try:
+        return db.query(Trade).filter(Trade.id == trade_id).one()
+    finally:
+        db.close()
+
+
+def _set_ai_grade(trade_id, grade):
+    from src.tradelens.db.models import Trade
+
+    db = SessionLocal()
+    try:
+        row = db.query(Trade).filter(Trade.id == trade_id).one()
+        row.ai_grade = grade
+        db.commit()
+    finally:
+        db.close()

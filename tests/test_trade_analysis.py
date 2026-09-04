@@ -1637,3 +1637,195 @@ def test_a_trader_typed_short_field_is_bounded_too(analysed_trade, monkeypatch):
 
     assert "<system>" not in seen["prompt"]
     assert "z" * 600 not in seen["prompt"]
+
+
+# --- Group C1: confirming labels, and releasing the lock ----------------
+
+
+def _corrections_count(user_id):
+    from src.tradelens.db.models import Correction
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return db.query(Correction).filter(Correction.user_id == user_id).count()
+    finally:
+        db.close()
+
+
+def test_confirming_a_label_stores_it_and_locks_it(analysed_trade):
+    user_id, trade_id = analysed_trade
+
+    result = ta.confirm_labels(user_id, trade_id, {"bias": "bearish"})
+
+    assert result["confirmed_fields"] == ["bias"]
+    assert _analysis_row(trade_id).bias == "bearish"
+    assert "bias" in ta.confirmed_fields(_analysis_row(trade_id))
+
+
+def test_a_confirmed_label_then_survives_a_later_analysis(analysed_trade):
+    """The lock and the confirm are one mechanism, not two.
+
+    This is the end-to-end statement of the owner's decision: confirm, then
+    re-analyse, and the trader's value is still there.
+    """
+    user_id, trade_id = analysed_trade
+    ta.confirm_labels(user_id, trade_id, {"bias": "bearish"})
+
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=99,
+        vision_result={"bias": "bullish", "trade_quality": 3},
+        usage=_analysis_usage(),
+    )
+
+    assert _analysis_row(trade_id).bias == "bearish"
+    assert _analysis_row(trade_id).trade_quality == 3  # unconfirmed, still moves
+
+
+def test_releasing_a_field_hands_it_back_to_the_ai(analysed_trade):
+    """Explicit release is the ONLY way out of the lock.
+
+    Without it a confirmed label would be frozen forever and the trader
+    would have no way to ask for a fresh reading of that one field.
+    """
+    user_id, trade_id = analysed_trade
+    ta.confirm_labels(user_id, trade_id, {"bias": "bearish"})
+
+    result = ta.confirm_labels(user_id, trade_id, {}, release=["bias"])
+    assert result["confirmed_fields"] == []
+
+    ta.store_analysis(
+        user_id,
+        trade_id,
+        job_id=99,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+    assert _analysis_row(trade_id).bias == "bullish"
+
+
+def test_releasing_one_field_does_not_release_another(analysed_trade):
+    user_id, trade_id = analysed_trade
+    ta.confirm_labels(
+        user_id, trade_id, {"bias": "bearish", "matched_strategy": "OB retest"}
+    )
+
+    ta.confirm_labels(user_id, trade_id, {}, release=["bias"])
+
+    assert ta.confirmed_fields(_analysis_row(trade_id)) == frozenset(
+        {"matched_strategy"}
+    )
+
+
+def test_confirming_a_changed_value_records_one_correction(analysed_trade):
+    """Corrections are what personalization learns from."""
+    user_id, trade_id = analysed_trade
+    before = _corrections_count(user_id)
+
+    ta.confirm_labels(user_id, trade_id, {"bias": "bearish"})
+
+    assert _corrections_count(user_id) == before + 1
+
+
+def test_confirming_an_unchanged_value_records_no_correction(analysed_trade):
+    """A correction is a DIFFERENCE. Recording a no-op would teach noise."""
+    user_id, trade_id = analysed_trade
+    before = _corrections_count(user_id)
+
+    ta.confirm_labels(user_id, trade_id, {"bias": "bullish"})  # already bullish
+
+    assert _corrections_count(user_id) == before
+
+
+def test_a_field_outside_the_allowlist_is_never_written(analysed_trade):
+    """A positive allowlist at the storage boundary, not only in the schema."""
+    user_id, trade_id = analysed_trade
+    before = _analysis_row(trade_id).cost_usd
+
+    ta.confirm_labels(user_id, trade_id, {"cost_usd": 999.0, "analysis_job_id": 424242})
+
+    row = _analysis_row(trade_id)
+    assert row.cost_usd == before
+    assert row.analysis_job_id != 424242
+    assert ta.confirmed_fields(row) == frozenset()
+
+
+def test_releasing_a_field_outside_the_allowlist_is_ignored(analysed_trade):
+    """Release is an allowlist too — it must not become a way to name columns."""
+    user_id, trade_id = analysed_trade
+    ta.confirm_labels(user_id, trade_id, {"bias": "bearish"})
+
+    ta.confirm_labels(user_id, trade_id, {}, release=["analysis_job_id", "cost_usd"])
+
+    assert ta.confirmed_fields(_analysis_row(trade_id)) == frozenset({"bias"})
+
+
+def test_confirming_denormalizes_to_the_trade_for_the_journal_list(analysed_trade):
+    user_id, trade_id = analysed_trade
+
+    ta.confirm_labels(
+        user_id, trade_id, {"bias": "bearish", "detected_setup": "OB retest"}
+    )
+
+    trade = _trade_row_svc(trade_id)
+    assert trade.bias == "bearish"
+    assert trade.setup_type == "OB retest"
+
+
+def test_another_owner_s_trade_is_never_confirmed(two_users_with_trades):
+    (owner, _own), (other, other_trade) = two_users_with_trades
+    ta.store_analysis(
+        other,
+        other_trade,
+        job_id=1,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+
+    with pytest.raises(ValueError):
+        ta.confirm_labels(owner, other_trade, {"bias": "bearish"})
+
+    assert _analysis_row(other_trade).bias == "bullish"
+
+
+def test_another_owner_s_row_is_not_written_even_when_nothing_is_corrected(
+    two_users_with_trades,
+):
+    """Isolates the ownership check from `record_correction`'s own guard.
+
+    The test above sends a CHANGED value, so `record_correction` runs and
+    refuses on its ownership join — meaning the same ValueError appears even
+    with `confirm_labels`' own check removed. Sending an UNCHANGED value
+    makes `record_correction` a no-op before it queries anything, so nothing
+    downstream can refuse and only this function's own guard stands between
+    the caller and an UPDATE on another tenant's row. That UPDATE filters on
+    `trade_id` alone, so without the guard it lands.
+    """
+    (owner, _own), (other, other_trade) = two_users_with_trades
+    ta.store_analysis(
+        other,
+        other_trade,
+        job_id=1,
+        vision_result={"bias": "bullish"},
+        usage=_analysis_usage(),
+    )
+
+    with pytest.raises(ValueError):
+        # Same value that is already stored: no correction is written.
+        ta.confirm_labels(owner, other_trade, {"bias": "bullish"})
+
+    assert ta.confirmed_fields(_analysis_row(other_trade)) == frozenset()
+    assert _analysis_row(other_trade).confirmed_at is None
+
+
+def _trade_row_svc(trade_id):
+    from src.tradelens.db.models import Trade
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return db.query(Trade).filter(Trade.id == trade_id).one()
+    finally:
+        db.close()

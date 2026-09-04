@@ -26,6 +26,8 @@ from src.tradelens.api.deps import current_user
 from src.tradelens.api.routers.overview import _validated_period
 from src.tradelens.api.schemas.trades import (
     AIAnalysisJobRequest,
+    AIAnalysisLabelPatch,
+    AIAnalysisLabels,
     AIJobAccepted,
     AIJobStatus,
     ScreenshotCleanupFailedResponse,
@@ -52,9 +54,13 @@ from src.tradelens.api.schemas.trades import (
     TradeUpdate,
 )
 from src.tradelens.services import drafts, screenshot_service, url_ingest
-from src.tradelens.services.ai_analysis_service import get_analysis_for_trade
+from src.tradelens.services.ai_analysis_service import (
+    get_analysis_for_trade,
+    save_user_grade,
+)
 from src.tradelens.services.trade_analysis import (
     ANALYSIS_JOB_KIND,
+    confirm_labels,
     ANALYSIS_WINDOW_HOURS,
     GRADE_JOB_KIND,
     JOURNAL_JOB_KIND,
@@ -882,6 +888,52 @@ def get_trade_grade_job(
 ) -> AIJobStatus:
     """Status for one grading job. A job of any other kind is a 404 here."""
     return _phase5_job_status(job_id, user_id, GRADE_JOB_KIND)
+
+
+_UNSET_GRADE = object()
+
+
+@router.patch("/trades/{trade_id}/analysis")
+def patch_trade_analysis(
+    trade_id: int,
+    payload: AIAnalysisLabelPatch,
+    user_id: int = Depends(current_user),
+) -> AIAnalysisLabels:
+    """Confirm, correct or release the AI's labels for one of the caller's trades.
+
+    The trader's judgement is the point of this route: it is what
+    personalization learns from, and it is what locks a label against every
+    later analysis job until they release it.
+
+    `user_grade` is handled apart from the labels because it lives on
+    `trades`, not on `aianalysis`, and must never be written by the grading
+    job — that column is the trader's own verdict. `None` is a meaningful
+    value there (it clears the override), so "not sent" needs its own
+    sentinel rather than being inferred from a null.
+    """
+    sent = payload.model_dump(exclude_unset=True)
+    released = sent.pop("release", [])
+    grade_override = sent.pop("user_grade", _UNSET_GRADE)
+
+    try:
+        result = confirm_labels(user_id, trade_id, sent, release=released)
+        if grade_override is not _UNSET_GRADE:
+            save_user_grade(trade_id, grade_override, user_id=user_id)
+    except ValueError:
+        raise _not_found()
+
+    analysis = get_analysis_for_trade(trade_id, user_id=user_id)
+    trade = _owned_trade_or_none(trade_id, user_id)
+    if analysis is None or trade is None:
+        raise _not_found()
+    return AIAnalysisLabels(
+        bias=analysis.bias,
+        detected_setup=analysis.detected_setup,
+        trade_quality=analysis.trade_quality,
+        matched_strategy=analysis.matched_strategy,
+        user_grade=trade.user_grade,
+        confirmed_fields=result.get("confirmed_fields", []),
+    )
 
 
 @router.get("/trades/analysis/{job_id}")
