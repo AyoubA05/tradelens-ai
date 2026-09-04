@@ -827,3 +827,115 @@ def test_a_bogus_owner_is_refused_before_any_write(owned_trade):
             usage=_analysis_usage(),
         )
     assert _analysis_row(trade_id) is None
+
+
+# --- the run function: the image source, cost, and terminal failure -------
+
+
+def test_analysis_reads_the_promoted_object_and_nothing_else(owned_trade, monkeypatch):
+    """The model only ever sees bytes we produced.
+
+    Pinning the FUNCTION, not the bytes: `read_owned_final_object` is what
+    enforces both the ownership join and `_is_final_key`, so a future change
+    that reads a quarantine object or an upload key directly must fail here.
+    """
+    user_id, trade_id = owned_trade
+    seen = {}
+
+    def fake_read(uid, sid):
+        seen["args"] = (uid, sid)
+        return b"promoted-bytes"
+
+    monkeypatch.setattr(ta.storage, "read_owned_final_object", fake_read)
+    monkeypatch.setattr(
+        ta, "_analyse_bytes", lambda data, on_usage: {"bias": "bullish"}
+    )
+
+    ta.run_analysis(
+        user_id,
+        trade_id,
+        44,
+        job_id=1,
+        on_usage=lambda usage: None,
+    )
+    assert seen["args"] == (user_id, 44)
+
+
+def test_an_unreadable_screenshot_fails_terminally_and_costs_nothing(
+    owned_trade, monkeypatch
+):
+    """No image, no billable call — and the failure is terminal, not a retry."""
+    user_id, trade_id = owned_trade
+    calls = []
+    monkeypatch.setattr(ta.storage, "read_owned_final_object", lambda u, s: None)
+    monkeypatch.setattr(ta, "_analyse_bytes", lambda data, on_usage: calls.append(1))
+
+    with pytest.raises(ta.AnalysisUnavailable):
+        ta.run_analysis(
+            user_id,
+            trade_id,
+            44,
+            job_id=1,
+            on_usage=lambda usage: None,
+        )
+    assert calls == []
+
+
+def test_a_present_but_unreadable_blob_never_reaches_the_paid_call(
+    owned_trade, monkeypatch
+):
+    """Bytes exist but are not an image — that must not buy a vision call.
+
+    The other tests in this group patch `_analyse_bytes` wholesale, so none
+    of them exercises the local quality pre-check at all; removing it left
+    every one of them green while an unopenable object went straight to a
+    paid Opus call. The promoted object should always be valid PNG, which is
+    exactly why this is worth pinning: when that assumption breaks, the
+    failure is silent and billed.
+    """
+    called = []
+
+    monkeypatch.setattr(
+        ta.storage, "read_owned_final_object", lambda u, s: b"not an image at all"
+    )
+    monkeypatch.setattr(
+        ta,
+        "analyze_screenshot_v3",
+        lambda *a, **k: called.append(1) or ({}, None),
+    )
+
+    user_id, trade_id = owned_trade
+    with pytest.raises(ta.AnalysisUnavailable):
+        ta.run_analysis(
+            user_id,
+            trade_id,
+            44,
+            job_id=1,
+            on_usage=lambda usage: None,
+        )
+    assert called == []
+
+
+def test_usage_is_recorded_even_when_the_response_fails_to_parse(
+    owned_trade, monkeypatch
+):
+    """A billed call that then fails must still appear in cost tracking."""
+    user_id, trade_id = owned_trade
+    logged = []
+
+    def fake_analyse(data, on_usage):
+        on_usage(_analysis_usage())
+        raise ta.AnalysisUnavailable("unparseable")
+
+    monkeypatch.setattr(ta.storage, "read_owned_final_object", lambda u, s: b"x")
+    monkeypatch.setattr(ta, "_analyse_bytes", fake_analyse)
+
+    with pytest.raises(ta.AnalysisUnavailable):
+        ta.run_analysis(
+            user_id,
+            trade_id,
+            44,
+            job_id=1,
+            on_usage=logged.append,
+        )
+    assert len(logged) == 1

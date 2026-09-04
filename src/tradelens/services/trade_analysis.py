@@ -24,16 +24,24 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import func, update
 
+from src.tradelens.api import storage
 from src.tradelens.config import ANTHROPIC_MODEL_ID, settings
 from src.tradelens.db.models import AIAnalysis, Correction, Strategy, Trade
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services.ownership import require_user_id
+from src.tradelens.services.vision import (
+    ScreenshotAnalysisError,
+    analyze_screenshot_v3,
+    check_screenshot_quality,
+)
 
 ANALYSIS_JOB_KIND = "trade_analysis"
 JOURNAL_JOB_KIND = "trade_journal"
@@ -366,3 +374,91 @@ def store_analysis(
         return WriteOutcome(written=True, superseded=False, locked=locked)
     finally:
         db.close()
+
+
+# The promoted object always has this extension: `finalize_upload` normalises
+# every image to one content type, so this is not a guess.
+_FINAL_SUFFIX = ".png"
+
+
+class AnalysisUnavailable(Exception):
+    """Raised when analysis cannot run — no readable image, or a bad response.
+
+    Terminal by construction: the job runner marks the job failed, and the
+    input fingerprint means a resubmit for the same inputs returns that failed
+    job instead of spending again.
+    """
+
+
+def _analyse_bytes(data: bytes, on_usage) -> dict:
+    """Quality-check then analyse promoted bytes, returning raw v3 output.
+
+    The bytes are materialised to a temp file only because the vision client
+    takes a path. This is not a second image path: these bytes already passed
+    `imaging.validate_and_normalise` and were written by us. The file is
+    removed on every exit.
+    """
+    handle, temp_path = tempfile.mkstemp(suffix=_FINAL_SUFFIX)
+    try:
+        with os.fdopen(handle, "wb") as fh:
+            fh.write(data)
+        if not check_screenshot_quality(temp_path).usable:
+            # Refused before any billable call: an image the local pre-check
+            # cannot open will not be readable by the model either.
+            raise AnalysisUnavailable("that screenshot could not be read")
+        try:
+            analysis, _usage = analyze_screenshot_v3(
+                temp_path, {}, None, on_usage=on_usage
+            )
+        except ScreenshotAnalysisError as exc:
+            raise AnalysisUnavailable(str(exc)) from exc
+        return analysis
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:  # pragma: no cover — best effort, never masks a result
+            pass
+
+
+def run_analysis(
+    user_id: int,
+    trade_id: int,
+    screenshot_id: int,
+    *,
+    job_id: int,
+    on_usage,
+) -> WriteOutcome:
+    """Analyse one owned screenshot and store the result under the guards.
+
+    Bytes come from `storage.read_owned_final_object` and from nowhere else:
+    that function enforces the ownership join AND `_is_final_key`, so a
+    quarantine-keyed row cannot be turned into a read of un-re-encoded bytes.
+
+    `Usage` is captured through the callback rather than returned, because it
+    must reach cost tracking the instant the provider answers — everything
+    after that can raise, and a billed call that never appears in cost
+    tracking is worse than no tracking at all.
+    """
+    owner = require_user_id(user_id)
+    data = storage.read_owned_final_object(owner, screenshot_id)
+    if not data:
+        raise AnalysisUnavailable("that screenshot could not be read")
+
+    captured = {}
+
+    def _capture(usage):
+        # Fires the instant the provider answers, before anything below can
+        # raise. The caller's callback runs first so cost tracking never
+        # depends on the rest of this function succeeding.
+        on_usage(usage)
+        captured["usage"] = usage
+
+    analysis = _analyse_bytes(data, _capture)
+    descriptive = analysis.get("descriptive") or {}
+    return store_analysis(
+        owner,
+        trade_id,
+        job_id=job_id,
+        vision_result=descriptive,
+        usage=captured.get("usage"),
+    )
