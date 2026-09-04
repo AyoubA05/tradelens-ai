@@ -25,6 +25,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -38,7 +39,9 @@ from src.tradelens.config import ANTHROPIC_MODEL_ID, settings
 from src.tradelens.db.models import AIAnalysis, Strategy, Trade
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services.ai_text_guard import (
+    MAX_PROMPT_LIST_ITEMS,
     ForwardLookingContent,
+    bounded_text,
     fence,
     reject_forward_looking,
 )
@@ -82,6 +85,9 @@ MAX_GRADES_PER_WINDOW = 20
 ANALYSIS_WINDOW_HOURS = 24
 
 _log = logging.getLogger(__name__)
+
+# Same rule `ai_text_guard.fence` applies inside a block.
+_MARKUP_IN_PROMPT = re.compile(r"[<>]")
 
 
 def _strategy_fingerprint(user_id: int) -> str:
@@ -495,14 +501,43 @@ def run_analysis(
     )
 
 
-# Trader-typed fields that reach a prompt. Each is bounded and fenced, so a
-# note cannot lengthen the prompt without limit and cannot forge the end of
-# its own block. See `ai_text_guard` for why this is a floor, not a cure.
+# Trader-typed free text. Fenced, so a value cannot forge the end of its own
+# block, and bounded, so its length is not a lever.
 _UNTRUSTED_TRADE_FIELDS = (
     "notes",
     "emotions_before",
     "emotions_during",
     "emotions_after",
+)
+
+# Trader-typed SHORT fields. Also untrusted: `TradeCreate` puts no length or
+# enum limit on them and the columns are bare `String`, so `strategy_used`
+# carries exactly the same 4000-character lever `notes` does. Bounded and
+# stripped rather than fenced — they are labelled values inside a JSON blob,
+# and wrapping each in its own block would bloat the prompt for no gain.
+_UNTRUSTED_TRADE_SCALARS = (
+    "asset",
+    "bias",
+    "setup_type",
+    "strategy_used",
+    "session",
+    "direction",
+    "result",
+)
+
+# Model-read chart text. This is the indirect-injection channel: the trader
+# supplies an IMAGE, a model reads words out of it, and those words are
+# replayed into two later prompts. It is no more trustworthy than anything
+# typed by hand — arguably less, because the trader never sees it as text.
+_UNTRUSTED_ANALYSIS_FIELDS = (
+    "bias",
+    "detected_setup",
+    "matched_strategy",
+)
+_UNTRUSTED_ANALYSIS_LISTS = (
+    "key_zones",
+    "possible_mistakes",
+    "missed_opportunities",
 )
 
 
@@ -516,16 +551,53 @@ def _sanitised_trade_context(trade_dict: dict) -> dict:
     for field in _UNTRUSTED_TRADE_FIELDS:
         if out.get(field):
             out[field] = fence(field, out[field])
+    for field in _UNTRUSTED_TRADE_SCALARS:
+        if isinstance(out.get(field), str) and out[field]:
+            out[field] = _prompt_scalar(out[field])
+    return out
+
+
+def _prompt_scalar(value) -> str:
+    """One short untrusted value: bounded, and stripped of anything markup-shaped."""
+    return _MARKUP_IN_PROMPT.sub("", bounded_text(value))
+
+
+def _sanitised_analysis_context(ai_dict: dict) -> dict:
+    """Bound and strip the model-read chart text before it re-enters a prompt.
+
+    `build_journal_context` and `build_grading_context` hand these straight
+    from `aianalysis` into the journal and grading prompts. They are model
+    output read out of a trader-supplied image, so a chart with text drawn on
+    it is an injection channel into two later paid calls — and one the trader
+    never sees rendered as text, so nothing prompts them to notice it.
+
+    Lists are bounded per item AND in length: an analysis row can hold as
+    many `possible_mistakes` as the model chose to emit, and a thousand of
+    them is the same unbounded lever as one very long string.
+    """
+    out = dict(ai_dict)
+    for field in _UNTRUSTED_ANALYSIS_FIELDS:
+        if isinstance(out.get(field), str) and out[field]:
+            out[field] = _prompt_scalar(out[field])
+    for field in _UNTRUSTED_ANALYSIS_LISTS:
+        value = out.get(field)
+        if isinstance(value, list):
+            out[field] = [
+                _prompt_scalar(item) for item in value[:MAX_PROMPT_LIST_ITEMS]
+            ]
     return out
 
 
 def _generate_journal_markdown(trade_dict: dict, ai_dict: dict, strategy, on_usage):
     """The provider call, isolated so tests can replace exactly this seam."""
-    markdown, usage = generate_journal(trade_dict, ai_dict, strategy_profile=strategy)
-    # Before validation, deliberately: the call was billed whether or not the
-    # response turns out to be usable, and the post-trade-only check below
-    # rejects some responses outright.
-    on_usage(usage)
+    # `on_usage` is handed DOWN rather than applied to the return value.
+    # `generate_journal` validates its eight headings internally and raises
+    # before returning, so a wrapper that logged here would miss every
+    # structurally malformed response — the likeliest failure on this path,
+    # and one that is still billed.
+    markdown, _usage = generate_journal(
+        trade_dict, ai_dict, strategy_profile=strategy, on_usage=on_usage
+    )
     return markdown
 
 
@@ -567,7 +639,7 @@ def run_journal(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteO
     try:
         markdown = _generate_journal_markdown(
             _sanitised_trade_context(trade_dict),
-            ai_dict,
+            _sanitised_analysis_context(ai_dict),
             get_active_strategy(owner),
             on_usage,
         )
@@ -598,10 +670,10 @@ def run_journal(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteO
 
 def _generate_grading(trade_dict: dict, strategy, vision_dict: dict, on_usage) -> dict:
     """The provider call, isolated so tests can replace exactly this seam."""
-    result, usage = grade_trade(trade_dict, strategy, vision_dict)
-    # Before the post-trade-only check below, for the same reason the journal
-    # logs here: a response this function is about to refuse was still billed.
-    on_usage(usage)
+    # Handed down for the same reason as the journal's: `grade_trade` parses
+    # and validates internally and raises before returning, so logging on the
+    # return value would miss a billed call that produced unusable JSON.
+    result, _usage = grade_trade(trade_dict, strategy, vision_dict, on_usage=on_usage)
     return result
 
 
@@ -642,7 +714,7 @@ def run_grade(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteOut
         result = _generate_grading(
             _sanitised_trade_context(trade_dict),
             get_active_strategy(owner),
-            vision_dict,
+            _sanitised_analysis_context(vision_dict),
             on_usage,
         )
         for text in _grading_free_text(result):

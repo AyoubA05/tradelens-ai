@@ -27,6 +27,10 @@ from src.tradelens.services.trade_summary import (
 # Same ceiling `trade_summary` applies to a snapshot field. One number.
 MAX_PROMPT_TEXT_CHARS = 500
 
+# A list of untrusted strings is bounded by COUNT as well as per item: a
+# thousand short entries are the same unbounded lever as one long string.
+MAX_PROMPT_LIST_ITEMS = 20
+
 # Anything that could read as markup is stripped from fenced values, so a
 # value cannot close its own block or open a new one.
 _MARKUP = re.compile(r"[<>]")

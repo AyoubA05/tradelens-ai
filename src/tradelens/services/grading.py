@@ -7,7 +7,7 @@ This is educational review only — not live trading advice.
 """
 
 import json
-from typing import Optional
+from typing import Callable, Optional
 
 from src.tradelens.services.ai_client import (
     AIUnavailable,
@@ -139,6 +139,7 @@ def grade_trade(
     trade: dict,
     strategy_profile: Optional[dict],
     vision_analysis: dict,
+    on_usage: Optional[Callable[[Usage], None]] = None,
 ) -> tuple[dict, Usage]:
     """
     Grade a closed trade on PROCESS using Claude Opus 5.
@@ -181,6 +182,13 @@ def grade_trade(
         response_format={"type": "json_object"},
         demo_response=demo_resp,
     )
+
+    if on_usage is not None:
+        # Before parsing and before validation, deliberately: both raise on a
+        # malformed response and would discard this Usage with it. A grading
+        # call that was billed and then failed to parse must still be visible
+        # in cost tracking — that is exactly when spend is easiest to lose.
+        on_usage(usage)
 
     if isinstance(content, AIUnavailable):
         raise GradingError(content.reason)
