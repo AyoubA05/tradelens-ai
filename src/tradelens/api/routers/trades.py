@@ -52,12 +52,19 @@ from src.tradelens.api.schemas.trades import (
     TradeUpdate,
 )
 from src.tradelens.services import drafts, screenshot_service, url_ingest
+from src.tradelens.services.ai_analysis_service import get_analysis_for_trade
 from src.tradelens.services.trade_analysis import (
     ANALYSIS_JOB_KIND,
     ANALYSIS_WINDOW_HOURS,
+    GRADE_JOB_KIND,
+    JOURNAL_JOB_KIND,
     MAX_ANALYSES_PER_WINDOW,
+    MAX_GRADES_PER_WINDOW,
+    MAX_JOURNALS_PER_WINDOW,
     AIInputVersionUnavailable,
     analysis_key,
+    grade_key,
+    journal_key,
 )
 from src.tradelens.services.trade_autofill import (
     AUTOFILL_WINDOW_HOURS,
@@ -767,6 +774,114 @@ def enqueue_trade_analysis(
             ),
         )
     return _accepted(job_id, user_id, created)
+
+
+def _enqueue_derived(
+    trade_id: int,
+    user_id: int,
+    *,
+    kind: str,
+    key_fn,
+    limit: int,
+    label: str,
+) -> AIJobAccepted:
+    """Shared enqueue for the two kinds that read the stored analysis.
+
+    One helper rather than two near-identical routes: the ownership check,
+    the prerequisite, the fingerprint and the ceiling are the same shape, and
+    two copies of a security check are two chances for them to drift apart.
+
+    The missing-analysis case is a 409, not a 404. The trade exists and is
+    the caller's; what is missing is the prerequisite. A 404 would be a lie
+    the trader cannot act on — they would go looking for a trade that is
+    plainly on their screen.
+    """
+    trade = _owned_trade_or_none(trade_id, user_id)
+    if trade is None:
+        raise _not_found()
+    analysis = get_analysis_for_trade(trade_id, user_id=user_id)
+    if analysis is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Run the screenshot analysis first — this builds on it.",
+        )
+
+    # Fails closed, exactly as the analysis route does: never enqueue under a
+    # placeholder identity that could collide with an earlier job computed
+    # under different AI context.
+    try:
+        key = key_fn(user_id, trade_id, trade.updated_at, analysis.updated_at)
+    except AIInputVersionUnavailable:
+        raise HTTPException(status_code=503, detail=_FINGERPRINT_UNAVAILABLE)
+
+    job_id, created = jobs.enqueue_with_limit(
+        user_id,
+        kind,
+        key,
+        {"trade_id": int(trade_id), "key": key},
+        since=datetime.now(timezone.utc) - timedelta(hours=ANALYSIS_WINDOW_HOURS),
+        limit=limit,
+    )
+    if job_id is None:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"You've reached {limit} AI {label} for today. More are "
+                f"available again {ANALYSIS_WINDOW_HOURS} hours after your "
+                "earliest one. Your own notes are unaffected."
+            ),
+        )
+    return _accepted(job_id, user_id, created)
+
+
+@router.post("/trades/{trade_id}/journal", status_code=status.HTTP_202_ACCEPTED)
+def enqueue_trade_journal(
+    trade_id: int,
+    user_id: int = Depends(current_user),
+) -> AIJobAccepted:
+    """Queue a written journal entry for one of the caller's own trades."""
+    return _enqueue_derived(
+        trade_id,
+        user_id,
+        kind=JOURNAL_JOB_KIND,
+        key_fn=journal_key,
+        limit=MAX_JOURNALS_PER_WINDOW,
+        label="journal entries",
+    )
+
+
+@router.post("/trades/{trade_id}/grade", status_code=status.HTTP_202_ACCEPTED)
+def enqueue_trade_grade(
+    trade_id: int,
+    user_id: int = Depends(current_user),
+) -> AIJobAccepted:
+    """Queue a process grade for one of the caller's own trades."""
+    return _enqueue_derived(
+        trade_id,
+        user_id,
+        kind=GRADE_JOB_KIND,
+        key_fn=grade_key,
+        limit=MAX_GRADES_PER_WINDOW,
+        label="grades",
+    )
+
+
+@router.get("/trades/journal/{job_id}")
+def get_trade_journal_job(
+    job_id: int,
+    user_id: int = Depends(current_user),
+) -> AIJobStatus:
+    """Status for one journal job. A job of any other kind is a 404 here."""
+    return _phase5_job_status(job_id, user_id, JOURNAL_JOB_KIND)
+
+
+@router.get("/trades/grade/{job_id}")
+def get_trade_grade_job(
+    job_id: int,
+    user_id: int = Depends(current_user),
+) -> AIJobStatus:
+    """Status for one grading job. A job of any other kind is a 404 here."""
+    return _phase5_job_status(job_id, user_id, GRADE_JOB_KIND)
 
 
 @router.get("/trades/analysis/{job_id}")

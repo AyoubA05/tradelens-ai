@@ -111,15 +111,15 @@ def _insert_job(user_id: int, kind: str, key: str) -> int:
         db.close()
 
 
-def _fill_quota(user_id: int) -> None:
+def _fill_quota(user_id: int, kind: str = ANALYSIS_JOB_KIND) -> None:
     db = SessionLocal()
     try:
         for index in range(MAX_ANALYSES_PER_WINDOW):
             db.add(
                 AIJob(
                     user_id=user_id,
-                    kind=ANALYSIS_JOB_KIND,
-                    idempotency_key=f"{ANALYSIS_JOB_KIND}:filler-{index}",
+                    kind=kind,
+                    idempotency_key=f"{kind}:filler-{index}",
                     payload="{}",
                     status="succeeded",
                     created_at=datetime.now(timezone.utc),
@@ -376,3 +376,200 @@ def test_the_poll_never_returns_cost_or_raw_model_output(
 
     for leaked in ("cost_usd", "tokens_input", "tokens_output", "raw_response_json"):
         assert leaked not in body
+
+
+# ------------------------------------------------- Group B3: journal/grade
+
+
+def _analysed(user_id: int, trade_id: int, *, job_id: int = 1) -> None:
+    """Give a trade a stored analysis, as Group A's job leaves it."""
+    from src.tradelens.services.ai_client import Usage
+
+    trade_analysis.store_analysis(
+        user_id,
+        trade_id,
+        job_id=job_id,
+        vision_result={"bias": "bullish", "trade_quality": 7},
+        usage=Usage("claude-opus-5", 10, 20, 30, 0.01, 0.5),
+    )
+
+
+def _enqueue(client, handle, trade_id, what):
+    path = f"/v1/trades/{trade_id}/{what}"
+    body = b"{}"
+    return client.post(path, content=body, headers=_headers(handle, "POST", path, body))
+
+
+def _poll_kind(client, handle, what, job_id):
+    path = f"/v1/trades/{what}/{job_id}"
+    return client.get(path, headers=_headers(handle, "GET", path))
+
+
+@pytest.mark.parametrize("what", ["journal", "grade"])
+def test_a_foreign_trade_never_enqueues_derived_work(
+    client, website_session_handle, two_users, what
+):
+    owner, handle = website_session_handle
+    other = next(u for u in two_users if u != owner)
+    other_trade, _shot = _trade_with_screenshot(other)
+    _analysed(other, other_trade)
+
+    response = _enqueue(client, handle, other_trade, what)
+
+    assert response.status_code == 404
+    assert _jobs_of(owner) == 0
+
+
+@pytest.mark.parametrize("what", ["journal", "grade"])
+def test_a_trade_with_no_analysis_is_refused_without_spending(
+    client, website_session_handle, what
+):
+    """409, not 404: the trade exists and is theirs — the prerequisite is missing.
+
+    A 404 here would be a lie the trader cannot act on; they would look for
+    a trade that is plainly on screen.
+    """
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+
+    response = _enqueue(client, handle, trade_id, what)
+
+    assert response.status_code == 409
+    assert _jobs_of(owner) == 0
+
+
+@pytest.mark.parametrize("what", ["journal", "grade"])
+def test_regenerating_an_unchanged_result_returns_the_same_job(
+    client, website_session_handle, what
+):
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+
+    first = _enqueue(client, handle, trade_id, what)
+    second = _enqueue(client, handle, trade_id, what)
+
+    assert first.status_code == second.status_code == 202
+    assert first.json()["job_id"] == second.json()["job_id"]
+    assert second.json()["created"] is False
+
+
+def test_a_journal_and_a_grade_for_one_trade_are_different_jobs(
+    client, website_session_handle
+):
+    """They share every input, so only the kind namespace separates them.
+
+    Without it one enqueue returns the other's job and the trader polls a
+    grade expecting a journal.
+    """
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+
+    journal = _enqueue(client, handle, trade_id, "journal")
+    grade = _enqueue(client, handle, trade_id, "grade")
+
+    assert journal.json()["job_id"] != grade.json()["job_id"]
+    assert grade.json()["created"] is True
+
+
+@pytest.mark.parametrize("what", ["journal", "grade"])
+def test_a_fresh_analysis_makes_the_derived_result_a_new_job(
+    client, website_session_handle, what
+):
+    """Re-analysis genuinely makes a journal and a grade stale.
+
+    The analysis row's `updated_at` is in the key precisely so the trader
+    does not get the previous reading's journal handed back.
+    """
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id, job_id=1)
+    first = _enqueue(client, handle, trade_id, what)
+
+    _analysed(owner, trade_id, job_id=2)
+    second = _enqueue(client, handle, trade_id, what)
+
+    assert first.json()["job_id"] != second.json()["job_id"]
+
+
+@pytest.mark.parametrize(
+    "what,kind",
+    [("journal", "trade_journal"), ("grade", "trade_grade")],
+)
+def test_the_derived_limit_is_429_and_creates_no_job(
+    client, website_session_handle, what, kind
+):
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+    _fill_quota(owner, kind=kind)
+    before = _jobs_of(owner)
+
+    response = _enqueue(client, handle, trade_id, what)
+
+    assert response.status_code == 429
+    assert _jobs_of(owner) == before
+
+
+@pytest.mark.parametrize("what", ["journal", "grade"])
+def test_an_unfingerprintable_context_refuses_derived_work(
+    client, website_session_handle, monkeypatch, what
+):
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+    before = _jobs_of(owner)
+
+    def boom(_uid):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(trade_analysis, "_corrections_fingerprint", boom)
+    response = _enqueue(client, handle, trade_id, what)
+
+    assert response.status_code == 503
+    assert _jobs_of(owner) == before
+
+
+@pytest.mark.parametrize(
+    "own,foreign",
+    [("journal", "grade"), ("grade", "journal")],
+)
+def test_each_kind_polls_only_on_its_own_route(
+    client, website_session_handle, own, foreign
+):
+    """Cross-kind is a 404 byte-identical to a missing job.
+
+    A shared poll would let one kind's id answer on another's route with
+    `kind` set correctly — honest, but it makes the id's existence and
+    category observable from the wrong endpoint.
+    """
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+    job_id = _enqueue(client, handle, trade_id, own).json()["job_id"]
+
+    good = _poll_kind(client, handle, own, job_id)
+    wrong = _poll_kind(client, handle, foreign, job_id)
+    missing = _poll_kind(client, handle, foreign, 99999999)
+
+    assert good.status_code == 200
+    assert good.json()["job_id"] == job_id
+    assert wrong.status_code == missing.status_code == 404
+    assert wrong.content == missing.content
+
+
+@pytest.mark.parametrize("what", ["journal", "grade"])
+def test_polling_another_owner_s_derived_job_is_a_404(
+    client, website_session_handle, two_users, what
+):
+    owner, handle = website_session_handle
+    other = next(u for u in two_users if u != owner)
+    kind = "trade_journal" if what == "journal" else "trade_grade"
+    foreign = _insert_job(other, kind, f"{kind}:theirs")
+
+    response = _poll_kind(client, handle, what, foreign)
+    missing = _poll_kind(client, handle, what, 99999999)
+
+    assert response.status_code == missing.status_code == 404
+    assert response.content == missing.content
