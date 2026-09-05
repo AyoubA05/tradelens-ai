@@ -15,6 +15,7 @@ const ANALYSIS: AIAnalysisDetail = {
   ai_grade: "B",
   bias: "Bullish",
   confirmed_fields: [],
+  latest_proposals: {},
   detected_setup: "London sweep and reversal",
   grading: null,
   journal_entry_md: null,

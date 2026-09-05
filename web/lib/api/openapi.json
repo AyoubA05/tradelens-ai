@@ -3,7 +3,7 @@
     "schemas": {
       "AIAnalysisDetail": {
         "additionalProperties": false,
-        "description": "The stored per-trade AI review, as the page reads it.\n\nDeliberately NOT the row. `cost_usd`, `tokens_input`, `tokens_output`,\nevery `*_job_id` and `raw_response_json` are absent: the raw response is\nunvalidated model output and cost is billing detail, and neither belongs\nin a browser.\n\n`confirmed_fields` travels because the panel has to distinguish a label\nthe AI produced from one the trader stands behind \u2014 that difference is\nthe whole point of the lock, and a UI that cannot see it would present\nthe trader's own decision as a machine's guess.",
+        "description": "The stored per-trade AI review, as the page reads it.\n\nDeliberately NOT the row. `cost_usd`, `tokens_input`, `tokens_output`,\nevery `*_job_id` and `raw_response_json` are absent: the raw response is\nunvalidated model output and cost is billing detail, and neither belongs\nin a browser.\n\n`confirmed_fields` travels because the panel has to distinguish a label\nthe AI produced from one the trader stands behind \u2014 that difference is\nthe whole point of the lock, and a UI that cannot see it would present\nthe trader's own decision as a machine's guess.\n\n`latest_proposals` carries what the NEWEST analysis read for each label,\nincluding the ones the trader has locked. Design decision 3: locked\nmeans \"not applied\", never \"hidden\". Without it a trader can never see\nwhat a re-analysis found for a confirmed field \u2014 they would have to\nrelease it, re-run, and hope. This is a projection through the SAME\nconfirmable allowlist, not the raw model output: `raw_response_json`\nstays server-side, and every value here is one the trader could already\nhave set by hand.",
         "properties": {
           "ai_grade": {
             "anyOf": [
@@ -72,6 +72,13 @@
             },
             "title": "Key Zones",
             "type": "array"
+          },
+          "latest_proposals": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Latest Proposals",
+            "type": "object"
           },
           "matched_strategy": {
             "anyOf": [
@@ -145,6 +152,7 @@
           "ai_grade",
           "user_grade",
           "confirmed_fields",
+          "latest_proposals",
           "updated_at"
         ],
         "title": "AIAnalysisDetail",

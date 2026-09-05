@@ -381,7 +381,9 @@ def test_the_poll_never_returns_cost_or_raw_model_output(
 # ------------------------------------------------- Group B3: journal/grade
 
 
-def _analysed(user_id: int, trade_id: int, *, job_id: int = 1) -> None:
+def _analysed(
+    user_id: int, trade_id: int, *, job_id: int = 1, bias: str = "bullish"
+) -> None:
     """Give a trade a stored analysis, as Group A's job leaves it."""
     from src.tradelens.services.ai_client import Usage
 
@@ -389,7 +391,7 @@ def _analysed(user_id: int, trade_id: int, *, job_id: int = 1) -> None:
         user_id,
         trade_id,
         job_id=job_id,
-        vision_result={"bias": "bullish", "trade_quality": 7},
+        vision_result={"bias": bias, "trade_quality": 7},
         usage=Usage("claude-opus-5", 10, 20, 30, 0.01, 0.5),
     )
 
@@ -1008,3 +1010,88 @@ def test_an_unparseable_stored_list_reads_as_empty_not_a_500(
     assert response.status_code == 200
     assert response.json()["possible_mistakes"] == []
     assert response.json()["grading"] is None
+
+
+def test_a_locked_field_still_reports_what_the_newest_analysis_read(
+    client, website_session_handle
+):
+    """Locked means "not applied", never "hidden" (design decision 3).
+
+    Without this the trader can never see what a re-analysis found for a
+    field they confirmed — they would have to release it, re-run, and hope.
+    """
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id, job_id=1)
+    _patch_labels(client, handle, trade_id, {"bias": "neutral"})
+
+    # A newer run reads something different. The lock stops it being applied.
+    _analysed(owner, trade_id, job_id=2, bias="bearish")
+
+    path = f"/v1/trades/{trade_id}/analysis"
+    body = client.get(path, headers=_headers(handle, "GET", path)).json()
+
+    assert body["bias"] == "neutral"  # the trader's value still stands
+    assert body["confirmed_fields"] == ["bias"]
+    assert body["latest_proposals"]["bias"] == "bearish"  # and is visible
+
+
+def test_latest_proposals_carries_only_confirmable_labels(
+    client, website_session_handle
+):
+    """A projection through the allowlist, not the raw model output.
+
+    `raw_response_json` holds whatever the model emitted. Only the handful
+    of values the trader could have typed themselves may cross the wire.
+    """
+    from src.tradelens.db.models import AIAnalysis
+    from src.tradelens.db.session import SessionLocal
+
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+    db = SessionLocal()
+    try:
+        row = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).one()
+        row.raw_response_json = json.dumps(
+            {
+                "bias": "bearish",
+                "notes_to_user": "chatty model prose",
+                "entry_price": 20150.5,
+                "some_invented_key": "should never appear",
+            }
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    path = f"/v1/trades/{trade_id}/analysis"
+    proposals = client.get(path, headers=_headers(handle, "GET", path)).json()[
+        "latest_proposals"
+    ]
+
+    assert proposals == {"bias": "bearish"}
+
+
+def test_an_unparseable_raw_response_offers_no_proposals(
+    client, website_session_handle
+):
+    from src.tradelens.db.models import AIAnalysis
+    from src.tradelens.db.session import SessionLocal
+
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+    db = SessionLocal()
+    try:
+        row = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).one()
+        row.raw_response_json = "{not json"
+        db.commit()
+    finally:
+        db.close()
+
+    path = f"/v1/trades/{trade_id}/analysis"
+    response = client.get(path, headers=_headers(handle, "GET", path))
+
+    assert response.status_code == 200
+    assert response.json()["latest_proposals"] == {}

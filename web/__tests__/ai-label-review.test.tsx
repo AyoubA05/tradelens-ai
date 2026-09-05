@@ -9,6 +9,7 @@ const ANALYSIS: AIAnalysisDetail = {
   ai_grade: "B",
   bias: "Bullish",
   confirmed_fields: [],
+  latest_proposals: {},
   detected_setup: "London sweep and reversal",
   grading: null,
   journal_entry_md: null,
@@ -185,5 +186,87 @@ describe("AILabelReview", () => {
     fireEvent.click(screen.getByRole("button", { name: /save these labels/i }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(bodyOf(fetchMock)).toEqual({ trade_quality: 4 });
+  });
+});
+
+describe("AILabelReview — the latest reading for a locked field", () => {
+  it("shows what the newest analysis read for a confirmed field", () => {
+    // Locked means "not applied", never "hidden". Without this the trader
+    // cannot tell a re-analysis found something different, and would have to
+    // release the field and re-run to find out.
+    render(
+      <AILabelReview
+        analysis={{
+          ...ANALYSIS,
+          bias: "neutral",
+          confirmed_fields: ["bias"],
+          latest_proposals: { bias: "bearish" },
+        } as never}
+        tradeId={7}
+        onSaved={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("label-proposal-bias")).toHaveTextContent("bearish");
+    // And the trader's own value is what the field still holds.
+    expect(screen.getByLabelText("Bias at entry")).toHaveValue("neutral");
+  });
+
+  it("does not offer a reading that matches what the trader already has", () => {
+    render(
+      <AILabelReview
+        analysis={{
+          ...ANALYSIS,
+          bias: "bearish",
+          confirmed_fields: ["bias"],
+          latest_proposals: { bias: "bearish" },
+        } as never}
+        tradeId={7}
+        onSaved={() => {}}
+      />,
+    );
+
+    expect(screen.queryByTestId("label-proposal-bias")).not.toBeInTheDocument();
+  });
+
+  it("offers nothing for an unconfirmed field, which the AI can already update", () => {
+    render(
+      <AILabelReview
+        analysis={{
+          ...ANALYSIS,
+          bias: "neutral",
+          confirmed_fields: [],
+          latest_proposals: { bias: "bearish" },
+        } as never}
+        tradeId={7}
+        onSaved={() => {}}
+      />,
+    );
+
+    expect(screen.queryByTestId("label-proposal-bias")).not.toBeInTheDocument();
+  });
+
+  it("applying the reading fills the field but saves nothing on its own", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <AILabelReview
+        analysis={{
+          ...ANALYSIS,
+          bias: "neutral",
+          confirmed_fields: ["bias"],
+          latest_proposals: { bias: "bearish" },
+        } as never}
+        tradeId={7}
+        onSaved={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /use the latest reading for bias/i }));
+
+    // The decision stays the trader's: the input is filled, nothing is sent
+    // until they save, and they can still edit or abandon it.
+    expect(screen.getByLabelText("Bias at entry")).toHaveValue("bearish");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

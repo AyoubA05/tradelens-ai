@@ -632,6 +632,15 @@ export interface components {
          *     the AI produced from one the trader stands behind — that difference is
          *     the whole point of the lock, and a UI that cannot see it would present
          *     the trader's own decision as a machine's guess.
+         *
+         *     `latest_proposals` carries what the NEWEST analysis read for each label,
+         *     including the ones the trader has locked. Design decision 3: locked
+         *     means "not applied", never "hidden". Without it a trader can never see
+         *     what a re-analysis found for a confirmed field — they would have to
+         *     release it, re-run, and hope. This is a projection through the SAME
+         *     confirmable allowlist, not the raw model output: `raw_response_json`
+         *     stays server-side, and every value here is one the trader could already
+         *     have set by hand.
          */
         AIAnalysisDetail: {
             /** Ai Grade */
@@ -647,6 +656,10 @@ export interface components {
             journal_entry_md: string | null;
             /** Key Zones */
             key_zones: string[];
+            /** Latest Proposals */
+            latest_proposals: {
+                [key: string]: string;
+            };
             /** Matched Strategy */
             matched_strategy: string | null;
             /** Missed Opportunities */

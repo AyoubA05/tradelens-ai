@@ -85,6 +85,22 @@ export function AILabelReview({
   const [baseline, setBaseline] = useState<Values>(() => valuesOf(analysis));
   const [values, setValues] = useState<Values>(() => valuesOf(analysis));
   const [confirmed, setConfirmed] = useState<string[]>(() => analysis.confirmed_fields);
+
+  /**
+   * What the newest analysis read for one label, or null.
+   *
+   * A locked field is never overwritten by a job, so without this the
+   * trader could not see that a re-analysis had read something different —
+   * they would have to release the field, re-run, and hope. Offering the
+   * value with an explicit "Use it" keeps the decision theirs: nothing is
+   * applied until they click, and clicking only fills the input, which they
+   * then still have to save.
+   */
+  const proposalFor = (name: string): string | null => {
+    const proposals = analysis.latest_proposals ?? {};
+    const value = (proposals as Record<string, string>)[name];
+    return typeof value === "string" && value !== "" ? value : null;
+  };
   const [message, setMessage] = useState<{ tone: "note" | "problem"; text: string } | null>(
     null,
   );
@@ -222,6 +238,37 @@ export function AILabelReview({
                 />
               </label>
               {isConfirmed && <p className="mt-2 text-xs leading-5 text-muted">{RELEASE_NOTE}</p>}
+              {isConfirmed &&
+                proposalFor(field.name) !== null &&
+                proposalFor(field.name) !== values[field.name] && (
+                  <div
+                    data-testid={`label-proposal-${field.name}`}
+                    className="mt-2 flex flex-wrap items-center gap-2 border-t border-line pt-2"
+                  >
+                    {/* Locked means "not applied", never "hidden". The newest
+                        analysis still read something for this field; showing
+                        it is what stops the lock from becoming a blindfold.
+                        Applying is the trader's click, never automatic. */}
+                    <p className="text-xs leading-5 text-muted">
+                      The latest analysis read{" "}
+                      <span className="font-medium text-text">{proposalFor(field.name)}</span>.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setValues((current) => ({
+                          ...current,
+                          [field.name]: proposalFor(field.name) as string,
+                        }))
+                      }
+                      disabled={saving}
+                      aria-label={`Use the latest reading for ${field.label}`}
+                      className="min-h-11 rounded-lg border border-line-strong px-3 py-1.5 text-xs font-semibold text-text transition-colors duration-150 ease-tl hover:bg-surface disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Use it
+                    </button>
+                  </div>
+                )}
             </div>
           );
         })}

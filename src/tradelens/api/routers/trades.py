@@ -15,7 +15,7 @@ import json
 import logging
 import math
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import ValidationError
@@ -60,6 +60,7 @@ from src.tradelens.services import drafts, screenshot_service, url_ingest
 from src.tradelens.services.ai_analysis_service import get_analysis_for_trade
 from src.tradelens.services.trade_analysis import (
     _UNSET_GRADE,
+    CONFIRMABLE_LABEL_FIELDS,
     confirmed_fields,
     ANALYSIS_JOB_KIND,
     confirm_labels,
@@ -980,6 +981,32 @@ def _grading_or_none(raw):
     )
 
 
+def _latest_proposals(raw) -> Dict[str, str]:
+    """What the newest analysis read for each confirmable label.
+
+    Projected through `CONFIRMABLE_LABEL_FIELDS`, so this is not the raw
+    model output being handed to a browser — it is the same small set of
+    values the trader could type themselves, and nothing else from the
+    response escapes. Values are stringified for one wire type; the panel
+    renders them as text beside the locked field.
+
+    Parsed defensively, like every other stored-JSON read here: a row
+    written by an older deploy that no longer parses yields nothing to
+    offer, not a broken page.
+    """
+    try:
+        parsed = json.loads(raw or "{}")
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {
+        field: str(parsed[field])
+        for field in sorted(CONFIRMABLE_LABEL_FIELDS)
+        if parsed.get(field) is not None
+    }
+
+
 @router.get("/trades/{trade_id}/analysis")
 def get_trade_analysis(
     trade_id: int,
@@ -1008,6 +1035,7 @@ def get_trade_analysis(
         ai_grade=trade.ai_grade,
         user_grade=trade.user_grade,
         confirmed_fields=sorted(confirmed_fields(analysis)),
+        latest_proposals=_latest_proposals(analysis.raw_response_json),
         updated_at=analysis.updated_at,
     )
 
