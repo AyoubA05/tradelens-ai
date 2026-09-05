@@ -7077,3 +7077,126 @@ production egress restrictions remain recommended defense in depth.
 **Phase 4E is cleared to proceed to Phase 5 after `f95aac5`.** This is development clearance, not
 deployment clearance; the live R2, PostgreSQL, Docker, Anthropic, dependency and narrow-viewport
 gates above remain mandatory. Do not treat this review as having started Phase 5.
+
+---
+
+# Phase 5 — AI Analysis, Journal & Grading (2026-09-05)
+
+Branch `worktree-phase5-ai-analysis`, 23 commits, `b6fa75e..fb58e9d`. Ancestry verified before any
+work: `origin/main` is `49b7eed` and is an ancestor of the branch, so this is a merge, not a
+divergence. Migrates the individual-trade AI workflow off the synchronous Streamlit page onto the
+FastAPI + Next.js boundary: screenshot analysis, journal generation, process grading, correction
+memory, and the trader's confirm/release lock — all job-backed.
+
+## The invariant this phase exists to hold
+
+`aianalysis` writes are **atomic conditional UPDATEs guarded by a monotonic job id**. Streamlit ran
+all three AI steps synchronously inside a page render and `create_or_update_analysis` read the row
+then assigned fields. Under a queue, two jobs for one trade can be in flight and the one that
+finishes *last* is not necessarily the one the trader started last. Every result write is now
+predicated in its WHERE clause, never read-then-write, `<` not `<=` so a redelivered job does not
+rewrite its own result.
+
+## The three owner clarifications, and where each is pinned
+
+**1. Fingerprints cover every effective AI input, and fail closed.** `ai_input_version` digests the
+model id, effort, `DEMO_MODE`, the *active* Strategy Profile and the correction state. Two requests
+share a job only if they would produce the same answer.
+
+* `_strategy_fingerprint` filters `is_active == 1`, mirroring `get_active_strategy`. Without it an
+  owner with several profiles could switch which is active — genuinely changing the AI's input —
+  while the digest sat still, and the cached job came back carrying the other profile's reasoning.
+* `_corrections_fingerprint` digests the **rendered** `<past_corrections>` block, not a proxy. An
+  earlier `(count, max(id))` version was justified as "corrections are append-only"; that premise
+  is false (`trade_service.delete_all_trades` and account deletion both bulk-DELETE), and on SQLite
+  a reused rowid makes the pair collide *exactly* for genuinely different text.
+* **Fails closed.** An unfingerprintable context raises `AIInputVersionUnavailable` → `503`, having
+  created and spent nothing. The rejected fallback returned a constant, which let two different AI
+  contexts share one cached job **inside a single trader's account** — the key IS the cache, so
+  nothing downstream catches it. The comment defending it ("it can never make one owner read
+  another's work") answered a question nobody was asking; `ai_jobs` is already unique on
+  `(user_id, idempotency_key)`.
+
+**2. Trader text never holds system authority.** `<past_corrections>` is built from free text the
+trader typed and was appended to the **system** message. It now prepends to the first *user* turn —
+into the existing message, so an extra leading turn cannot reshape a `converse` history. Each
+interpolated value is bounded per field and stripped of `<>` **and newlines**: the block is
+line-structured and `field`/`user_reason` are interpolated raw, so a newline forged an entire extra
+line indistinguishable from real correction memory. Seven tests pinned the old placement; all now
+assert both halves — present in the user turn **and** absent from system. Moving it also improves
+prompt caching: the system prefix is now identical across traders.
+
+**3. A confirmed label is LOCKED until explicitly released.** Decided against the first draft, which
+let a job enqueued *after* a confirmation replace it. Clicking re-analyse asks for analysis — usually
+because a better screenshot was attached — not for the trader's judgement to be discarded. There is
+**no timestamp comparison anywhere on the write path**; `store_analysis` drops confirmed fields
+unconditionally. Release is the only path that lowers the lock, does not revert the value, and does
+not disable the ordering guard against older jobs. `latest_proposals` surfaces what the newest run
+read for a locked field so the lock is not a blindfold — a projection through the same confirmable
+allowlist, never raw model output.
+
+## Verification
+
+Python **3202 passed / 7 skipped**; ruff and black clean. Web **1436 passed / 82 files**; `tsc`
+clean; eslint 0 errors (2 pre-existing `modal-trap.ts` warnings). Production build succeeded.
+OpenAPI and `schema.d.ts` regenerate with zero drift. Single alembic head `g3h4i5j6k7l8`, downgrade
+executed and re-upgraded. No Streamlit import reachable from `services/`, `db/` or `api/` (67
+modules, fresh subprocess each). `prompts/` and `services/metrics.py` byte-untouched. No new npm or
+Python dependencies.
+
+**Roughly 70 mutations run across the phase**, each restored and each caught by a *named* test.
+
+## What review caught that the tests did not
+
+Four independent reviews (A, B, C, and the phase boundary) found what green suites hid:
+
+* **Group B, blocking.** Usage was logged on the wrapper's return value, but `generate_journal` and
+  `grade_trade` validate *internally* and raise before returning — so a malformed model response,
+  the likeliest failure on either path, was billed and went untracked. Both existing usage tests
+  used forward-looking payloads, which pass structural validation and are refused one layer up, so
+  the guard read as covered while its real failure mode was silent.
+* **Phase boundary, blocking.** `trade_quality` is 1–10 (`prompts/screenshot_v3.txt`, the Streamlit
+  slider); the new panel hard-coded 1–5 and refused to save above it, and the existing test **pinned
+  the bug** by asserting 9 was rejected. A test can be entirely correct about the wrong constant.
+* **The read endpoint was never built.** Group C was renumbered around the owner's clarifications
+  and `GET /v1/trades/{id}/analysis` fell out. It surfaced only because the generated TypeScript came
+  back empty — luck, not process. Plan-coverage checking is now an explicit review task.
+* Masked tests found and fixed: a foreign-trade test where a screenshot check refused first, so
+  removing trade ownership entirely left it green; an emotion-fencing test asserting a closing-tag
+  count an *unfenced* value also satisfies; correction-block tests that passed because the block was
+  empty; a usage test stubbing the very wrapper whose ordering was under test.
+
+## Known survivors, recorded rather than hidden
+
+Three mutations survive **by design**, each confirmed by an independent reviewer and each with the
+real guarantee pinned elsewhere: filtering `release` inside `confirm_labels` (set subtraction cannot
+introduce a name; the schema `Literal` is the gate), the explicit `db.rollback()` (the session close
+already rolls back; atomicity is pinned by committing the corrections separately), and the tenant
+filter on the grade denormalize (ownership is settled upstream).
+
+## Carried forward
+
+* **The six deployment gates remain open and were not this phase's to close**: Docker build /
+  startup / health; disposable PostgreSQL migration verification; real PostgreSQL concurrent AI-job
+  verification; broader Python dependency audit; live Anthropic key + injection/model smoke; live R2
+  + browser smoke. **Phase 5 adds weight to two.** The Anthropic gate now covers three more paid
+  paths — analysis, journal, grading — whose output validation and forward-looking rejection have
+  never run against a real model response; `DEMO_MODE` covers every test here. And no browser has
+  rendered the AI review panel at any viewport, so its polling, retry and superseded states are
+  verified in jsdom only.
+* `_reject_forward_looking` is a regex heuristic reused from Phase 3E. It will not catch every
+  forward-looking sentence a model can write, and it will occasionally refuse a legitimate
+  retrospective — the `_REFLECTIVE` escape hatch exists because that already happened once. One
+  definition beats two, but it is a filter, not a proof.
+* `_analyse_bytes` passes an empty trade context and no strategy profile to vision, while
+  `analysis_key` fingerprints the trade's `updated_at` and the profile. Over-keying: extra cache
+  misses, never a stale serve. Decide whether analysis is deliberately context-free.
+* A rate-limited (429) step removes its button, so the trader cannot retry after the window rolls
+  over without reloading.
+* `PATCH` failures in the label review collapse to one generic message, losing the backend's own
+  sentence for a 429 or 409 there.
+* `_latest_proposals` stringifies model-authored values with no length bound.
+* `release` has no `max_length`; a very long list of valid literals collapses to a 4-element set.
+
+**Phase 5 is cleared for development merge. This is not deployment clearance** — the six gates above
+remain mandatory and none has been run.
