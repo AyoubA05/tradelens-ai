@@ -904,3 +904,107 @@ def test_a_failure_after_the_correction_write_leaves_nothing_behind(
     assert _corrections_of(owner) == []  # rolled back with everything else
     assert _confirmed_fields(trade_id) == []  # lock never went up
     assert _stored_bias(trade_id) == "bullish"  # label untouched
+
+
+def test_reading_the_stored_analysis_omits_cost_and_raw_model_output(
+    client, website_session_handle
+):
+    """Tokens, cost, job ids and the raw response are ours, not the browser's.
+
+    The raw response is unvalidated model output; cost is billing detail.
+    Both sit on the row and neither belongs on the wire.
+    """
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+
+    path = f"/v1/trades/{trade_id}/analysis"
+    body = client.get(path, headers=_headers(handle, "GET", path)).json()
+
+    for leaked in (
+        "cost_usd",
+        "tokens_input",
+        "tokens_output",
+        "raw_response_json",
+        "analysis_job_id",
+        "journal_job_id",
+        "grading_job_id",
+    ):
+        assert leaked not in body
+    assert body["bias"] == "bullish"
+
+
+def test_a_trade_with_no_analysis_reads_as_a_404_not_an_empty_object(
+    client, website_session_handle
+):
+    """'Not run yet' is a state the panel renders differently from 'ran'."""
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+
+    path = f"/v1/trades/{trade_id}/analysis"
+    assert client.get(path, headers=_headers(handle, "GET", path)).status_code == 404
+
+
+def test_another_owner_s_analysis_is_byte_identical_to_a_missing_one(
+    client, website_session_handle, two_users
+):
+    owner, handle = website_session_handle
+    other = next(u for u in two_users if u != owner)
+    other_trade, _shot = _trade_with_screenshot(other)
+    _analysed(other, other_trade)
+
+    fp = f"/v1/trades/{other_trade}/analysis"
+    mp = "/v1/trades/99999999/analysis"
+    foreign = client.get(fp, headers=_headers(handle, "GET", fp))
+    missing = client.get(mp, headers=_headers(handle, "GET", mp))
+
+    assert foreign.status_code == missing.status_code == 404
+    assert foreign.content == missing.content
+
+
+def test_the_read_reports_which_labels_the_trader_confirmed(
+    client, website_session_handle
+):
+    """The panel must tell an AI guess from a decision the trader stands
+    behind — that difference is the entire point of the lock."""
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+    _patch_labels(client, handle, trade_id, {"bias": "bearish"})
+
+    path = f"/v1/trades/{trade_id}/analysis"
+    body = client.get(path, headers=_headers(handle, "GET", path)).json()
+
+    assert body["confirmed_fields"] == ["bias"]
+    assert body["bias"] == "bearish"
+
+
+def test_an_unparseable_stored_list_reads_as_empty_not_a_500(
+    client, website_session_handle
+):
+    """These columns hold model output written by an earlier deploy.
+
+    A row that no longer parses must render as "nothing recorded" rather
+    than break a page the trader is trying to read.
+    """
+    from src.tradelens.db.models import AIAnalysis
+    from src.tradelens.db.session import SessionLocal
+
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+    db = SessionLocal()
+    try:
+        row = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).one()
+        row.mistakes_json = "{not json"
+        row.grading_json = "[]"
+        db.commit()
+    finally:
+        db.close()
+
+    path = f"/v1/trades/{trade_id}/analysis"
+    response = client.get(path, headers=_headers(handle, "GET", path))
+
+    assert response.status_code == 200
+    assert response.json()["possible_mistakes"] == []
+    assert response.json()["grading"] is None

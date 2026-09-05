@@ -182,6 +182,47 @@ class AIAnalysisLabels(_Strict):
     confirmed_fields: List[str]
 
 
+class AIGradingRubricEntry(_Strict):
+    score: Optional[int]
+    note: Optional[str]
+
+
+class AIGrading(_Strict):
+    grade: Optional[str]
+    score: Optional[int]
+    one_line_verdict: Optional[str]
+    rubric: Dict[str, AIGradingRubricEntry]
+
+
+class AIAnalysisDetail(_Strict):
+    """The stored per-trade AI review, as the page reads it.
+
+    Deliberately NOT the row. `cost_usd`, `tokens_input`, `tokens_output`,
+    every `*_job_id` and `raw_response_json` are absent: the raw response is
+    unvalidated model output and cost is billing detail, and neither belongs
+    in a browser.
+
+    `confirmed_fields` travels because the panel has to distinguish a label
+    the AI produced from one the trader stands behind — that difference is
+    the whole point of the lock, and a UI that cannot see it would present
+    the trader's own decision as a machine's guess.
+    """
+
+    bias: Optional[str]
+    detected_setup: Optional[str]
+    trade_quality: Optional[int]
+    matched_strategy: Optional[str]
+    key_zones: List[str]
+    possible_mistakes: List[str]
+    missed_opportunities: List[str]
+    journal_entry_md: Optional[str]
+    grading: Optional[AIGrading]
+    ai_grade: Optional[str]
+    user_grade: Optional[str]
+    confirmed_fields: List[str]
+    updated_at: Optional[str]
+
+
 class AIAnalysisJobRequest(_Strict):
     """Which of the caller's own screenshots to analyse for this trade.
 

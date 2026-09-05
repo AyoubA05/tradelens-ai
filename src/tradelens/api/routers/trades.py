@@ -15,7 +15,7 @@ import json
 import logging
 import math
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import ValidationError
@@ -25,7 +25,10 @@ from src.tradelens.api import imaging, jobs, storage
 from src.tradelens.api.deps import current_user
 from src.tradelens.api.routers.overview import _validated_period
 from src.tradelens.api.schemas.trades import (
+    AIAnalysisDetail,
     AIAnalysisJobRequest,
+    AIGrading,
+    AIGradingRubricEntry,
     AIAnalysisLabelPatch,
     AIAnalysisLabels,
     AIJobAccepted,
@@ -57,6 +60,7 @@ from src.tradelens.services import drafts, screenshot_service, url_ingest
 from src.tradelens.services.ai_analysis_service import get_analysis_for_trade
 from src.tradelens.services.trade_analysis import (
     _UNSET_GRADE,
+    confirmed_fields,
     ANALYSIS_JOB_KIND,
     confirm_labels,
     ANALYSIS_WINDOW_HOURS,
@@ -932,6 +936,79 @@ def patch_trade_analysis(
         matched_strategy=analysis.matched_strategy,
         user_grade=trade.user_grade,
         confirmed_fields=result.get("confirmed_fields", []),
+    )
+
+
+def _json_list(raw) -> List[str]:
+    """A stored JSON array as a list of strings, or empty on anything else.
+
+    Parsed defensively: these columns hold model output written by an
+    earlier deploy, and a row that no longer parses must render as "nothing
+    recorded" rather than 500 a page the trader is trying to read.
+    """
+    try:
+        parsed = json.loads(raw or "[]")
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed if item is not None]
+
+
+def _grading_or_none(raw):
+    """The stored grading object, or None if it is absent or unusable."""
+    try:
+        parsed = json.loads(raw or "null")
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    rubric = parsed.get("rubric")
+    if not isinstance(rubric, dict):
+        return None
+    return AIGrading(
+        grade=parsed.get("grade"),
+        score=parsed.get("score"),
+        one_line_verdict=parsed.get("one_line_verdict"),
+        rubric={
+            str(dim): AIGradingRubricEntry(
+                score=entry.get("score"), note=entry.get("note")
+            )
+            for dim, entry in rubric.items()
+            if isinstance(entry, dict)
+        },
+    )
+
+
+@router.get("/trades/{trade_id}/analysis")
+def get_trade_analysis(
+    trade_id: int,
+    user_id: int = Depends(current_user),
+) -> AIAnalysisDetail:
+    """The stored AI review for one of the caller's own trades.
+
+    A trade with no analysis yet is a 404, not an empty object: "not run"
+    and "run, and it found nothing" are different states and the panel
+    renders them differently. Foreign and missing are the same 404.
+    """
+    trade = _owned_trade_or_none(trade_id, user_id)
+    analysis = get_analysis_for_trade(trade_id, user_id=user_id)
+    if trade is None or analysis is None:
+        raise _not_found()
+    return AIAnalysisDetail(
+        bias=analysis.bias,
+        detected_setup=analysis.detected_setup,
+        trade_quality=analysis.trade_quality,
+        matched_strategy=analysis.matched_strategy,
+        key_zones=_json_list(analysis.zones_json),
+        possible_mistakes=_json_list(analysis.mistakes_json),
+        missed_opportunities=_json_list(analysis.missed_opps_json),
+        journal_entry_md=analysis.journal_entry_md,
+        grading=_grading_or_none(analysis.grading_json),
+        ai_grade=trade.ai_grade,
+        user_grade=trade.user_grade,
+        confirmed_fields=sorted(confirmed_fields(analysis)),
+        updated_at=analysis.updated_at,
     )
 
 

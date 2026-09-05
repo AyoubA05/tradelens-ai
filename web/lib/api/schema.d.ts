@@ -114,6 +114,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/trades/analysis/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trade Analysis Job
+         * @description Status for one owner-scoped Phase 5 job; foreign and missing are identical.
+         *
+         *     The kind check is not decoration: without it this route would read any of
+         *     the owner's jobs, and a summary's or an autofill's row would be reported
+         *     as an analysis.
+         */
+        get: operations["get_trade_analysis_job_v1_trades_analysis__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/trades/autofill": {
         parameters: {
             query?: never;
@@ -226,6 +250,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/trades/grade/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trade Grade Job
+         * @description Status for one grading job. A job of any other kind is a 404 here.
+         */
+        get: operations["get_trade_grade_job_v1_trades_grade__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/trades/journal/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trade Journal Job
+         * @description Status for one journal job. A job of any other kind is a 404 here.
+         */
+        get: operations["get_trade_journal_job_v1_trades_journal__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/trades/summary": {
         parameters: {
             query?: never;
@@ -321,6 +385,97 @@ export interface paths {
          *     than silently discarding the trader's typing.
          */
         patch: operations["patch_trade_v1_trades__trade_id__patch"];
+        trace?: never;
+    };
+    "/v1/trades/{trade_id}/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trade Analysis
+         * @description The stored AI review for one of the caller's own trades.
+         *
+         *     A trade with no analysis yet is a 404, not an empty object: "not run"
+         *     and "run, and it found nothing" are different states and the panel
+         *     renders them differently. Foreign and missing are the same 404.
+         */
+        get: operations["get_trade_analysis_v1_trades__trade_id__analysis_get"];
+        put?: never;
+        /**
+         * Enqueue Trade Analysis
+         * @description Queue AI analysis of one of the caller's own screenshots for one trade.
+         *
+         *     Ownership of BOTH the trade and the screenshot is settled first, before
+         *     anything is written and before any billable work is scheduled: a queued
+         *     job is spend and, on a poll, an existence oracle. Foreign and missing are
+         *     the same 404.
+         *
+         *     The job reads the PROMOTED object, not an upload: `finalize_upload` has
+         *     already decoded, capped and re-encoded those bytes, so the model only
+         *     ever sees bytes we produced.
+         */
+        post: operations["enqueue_trade_analysis_v1_trades__trade_id__analysis_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Trade Analysis
+         * @description Confirm, correct or release the AI's labels for one of the caller's trades.
+         *
+         *     The trader's judgement is the point of this route: it is what
+         *     personalization learns from, and it is what locks a label against every
+         *     later analysis job until they release it.
+         *
+         *     `user_grade` is handled apart from the labels because it lives on
+         *     `trades`, not on `aianalysis`, and must never be written by the grading
+         *     job — that column is the trader's own verdict. `None` is a meaningful
+         *     value there (it clears the override), so "not sent" needs its own
+         *     sentinel rather than being inferred from a null.
+         */
+        patch: operations["patch_trade_analysis_v1_trades__trade_id__analysis_patch"];
+        trace?: never;
+    };
+    "/v1/trades/{trade_id}/grade": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enqueue Trade Grade
+         * @description Queue a process grade for one of the caller's own trades.
+         */
+        post: operations["enqueue_trade_grade_v1_trades__trade_id__grade_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/trades/{trade_id}/journal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enqueue Trade Journal
+         * @description Queue a written journal entry for one of the caller's own trades.
+         */
+        post: operations["enqueue_trade_journal_v1_trades__trade_id__journal_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/trades/{trade_id}/screenshot/abandon": {
@@ -464,6 +619,166 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AIAnalysisDetail
+         * @description The stored per-trade AI review, as the page reads it.
+         *
+         *     Deliberately NOT the row. `cost_usd`, `tokens_input`, `tokens_output`,
+         *     every `*_job_id` and `raw_response_json` are absent: the raw response is
+         *     unvalidated model output and cost is billing detail, and neither belongs
+         *     in a browser.
+         *
+         *     `confirmed_fields` travels because the panel has to distinguish a label
+         *     the AI produced from one the trader stands behind — that difference is
+         *     the whole point of the lock, and a UI that cannot see it would present
+         *     the trader's own decision as a machine's guess.
+         */
+        AIAnalysisDetail: {
+            /** Ai Grade */
+            ai_grade: string | null;
+            /** Bias */
+            bias: string | null;
+            /** Confirmed Fields */
+            confirmed_fields: string[];
+            /** Detected Setup */
+            detected_setup: string | null;
+            grading: components["schemas"]["AIGrading"] | null;
+            /** Journal Entry Md */
+            journal_entry_md: string | null;
+            /** Key Zones */
+            key_zones: string[];
+            /** Matched Strategy */
+            matched_strategy: string | null;
+            /** Missed Opportunities */
+            missed_opportunities: string[];
+            /** Possible Mistakes */
+            possible_mistakes: string[];
+            /** Trade Quality */
+            trade_quality: number | null;
+            /** Updated At */
+            updated_at: string | null;
+            /** User Grade */
+            user_grade: string | null;
+        };
+        /**
+         * AIAnalysisJobRequest
+         * @description Which of the caller's own screenshots to analyse for this trade.
+         *
+         *     A screenshot id, not a key and not a URL: the bytes analysed are the
+         *     promoted object `finalize_upload` produced, and this is the only handle
+         *     the browser has on one. Ownership is never input.
+         */
+        AIAnalysisJobRequest: {
+            /** Screenshot Id */
+            screenshot_id: number;
+        };
+        /**
+         * AIAnalysisLabelPatch
+         * @description The labels a trader may confirm or correct. A positive allowlist.
+         *
+         *     Server-owned columns — `cost_usd`, `tokens_input`, `raw_response_json`,
+         *     every `*_job_id`, `confirmed_at` — are absent by construction, and
+         *     `extra="forbid"` turns sending one into a 422 rather than a silent drop.
+         *
+         *     `release` hands named labels back to the AI. It is the only way out of
+         *     the confirmation lock, and it is an allowlist for the same reason the
+         *     values are: it must never become a way to name arbitrary columns.
+         */
+        AIAnalysisLabelPatch: {
+            /** Bias */
+            bias?: string | null;
+            /** Detected Setup */
+            detected_setup?: string | null;
+            /** Matched Strategy */
+            matched_strategy?: string | null;
+            /**
+             * Release
+             * @default []
+             */
+            release: ("bias" | "detected_setup" | "trade_quality" | "matched_strategy")[];
+            /** Trade Quality */
+            trade_quality?: number | null;
+            /** User Grade */
+            user_grade?: string | null;
+        };
+        /** AIAnalysisLabels */
+        AIAnalysisLabels: {
+            /** Bias */
+            bias: string | null;
+            /** Confirmed Fields */
+            confirmed_fields: string[];
+            /** Detected Setup */
+            detected_setup: string | null;
+            /** Matched Strategy */
+            matched_strategy: string | null;
+            /** Trade Quality */
+            trade_quality: number | null;
+            /** User Grade */
+            user_grade: string | null;
+        };
+        /** AIGrading */
+        AIGrading: {
+            /** Grade */
+            grade: string | null;
+            /** One Line Verdict */
+            one_line_verdict: string | null;
+            /** Rubric */
+            rubric: {
+                [key: string]: components["schemas"]["AIGradingRubricEntry"];
+            };
+            /** Score */
+            score: number | null;
+        };
+        /** AIGradingRubricEntry */
+        AIGradingRubricEntry: {
+            /** Note */
+            note: string | null;
+            /** Score */
+            score: number | null;
+        };
+        /** AIJobAccepted */
+        AIJobAccepted: {
+            /** Created */
+            created: boolean;
+            /** Job Id */
+            job_id: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed";
+        };
+        /**
+         * AIJobStatus
+         * @description Poll response shared by all three Phase 5 kinds.
+         *
+         *     `superseded` says the opposite of what `status` does, and both can be
+         *     true at once: this job succeeded, but a newer job's result occupies the
+         *     row. Reporting `succeeded` alone would tell the trader their re-run
+         *     landed when it did not.
+         *
+         *     Deliberately carries no result payload: cost, token counts and the raw
+         *     model output live on `aianalysis` and are served by the analysis read
+         *     route, never by a job poll.
+         */
+        AIJobStatus: {
+            /** Error */
+            error: string | null;
+            /** Job Id */
+            job_id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "trade_analysis" | "trade_journal" | "trade_grade";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed";
+            /** Superseded */
+            superseded: boolean;
+        };
         /**
          * AutofillSuggestion
          * @description One AI-suggested value for one draft field, with its confidence.
@@ -1667,6 +1982,37 @@ export interface operations {
             };
         };
     };
+    get_trade_analysis_job_v1_trades_analysis__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIJobStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     enqueue_trade_autofill_v1_trades_autofill_post: {
         parameters: {
             query?: never;
@@ -1771,6 +2117,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TradeDraftResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_trade_grade_job_v1_trades_grade__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIJobStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_trade_journal_job_v1_trades_journal__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIJobStatus"];
                 };
             };
             /** @description Validation Error */
@@ -1948,6 +2356,169 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TradeConflictResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_trade_analysis_v1_trades__trade_id__analysis_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIAnalysisDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enqueue_trade_analysis_v1_trades__trade_id__analysis_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AIAnalysisJobRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIJobAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_trade_analysis_v1_trades__trade_id__analysis_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AIAnalysisLabelPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIAnalysisLabels"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enqueue_trade_grade_v1_trades__trade_id__grade_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIJobAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enqueue_trade_journal_v1_trades__trade_id__journal_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIJobAccepted"];
                 };
             };
             /** @description Validation Error */
