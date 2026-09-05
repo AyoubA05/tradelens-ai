@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { AILabelReview } from "@/components/app/trade-detail/ai-label-review";
 import type { AIAnalysisDetail, AIJobAccepted, AIJobStatus } from "@/lib/app/trade-analysis";
 import type { TradeDetail } from "@/lib/app/trades";
 
@@ -222,6 +223,14 @@ export function AIReviewPanel({
             <p className="mt-3 text-sm text-muted">This trade is not analysed yet.</p>
           )}
         </Step>
+
+        {analysis && (
+          <AILabelReview
+            analysis={analysis}
+            tradeId={trade.id}
+            onSaved={() => router.refresh()}
+          />
+        )}
 
         <Step
           title="Journal entry"
