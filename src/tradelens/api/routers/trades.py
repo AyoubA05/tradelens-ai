@@ -54,11 +54,9 @@ from src.tradelens.api.schemas.trades import (
     TradeUpdate,
 )
 from src.tradelens.services import drafts, screenshot_service, url_ingest
-from src.tradelens.services.ai_analysis_service import (
-    get_analysis_for_trade,
-    save_user_grade,
-)
+from src.tradelens.services.ai_analysis_service import get_analysis_for_trade
 from src.tradelens.services.trade_analysis import (
+    _UNSET_GRADE,
     ANALYSIS_JOB_KIND,
     confirm_labels,
     ANALYSIS_WINDOW_HOURS,
@@ -890,9 +888,6 @@ def get_trade_grade_job(
     return _phase5_job_status(job_id, user_id, GRADE_JOB_KIND)
 
 
-_UNSET_GRADE = object()
-
-
 @router.patch("/trades/{trade_id}/analysis")
 def patch_trade_analysis(
     trade_id: int,
@@ -915,10 +910,14 @@ def patch_trade_analysis(
     released = sent.pop("release", [])
     grade_override = sent.pop("user_grade", _UNSET_GRADE)
 
+    # `user_grade` goes INTO the same call, not a second one after it. Two
+    # calls are two transactions, and a failure between them leaves the
+    # labels confirmed while the trader's grade override is lost — the same
+    # half-applied state the service exists to prevent.
     try:
-        result = confirm_labels(user_id, trade_id, sent, release=released)
-        if grade_override is not _UNSET_GRADE:
-            save_user_grade(trade_id, grade_override, user_id=user_id)
+        result = confirm_labels(
+            user_id, trade_id, sent, release=released, user_grade=grade_override
+        )
     except ValueError:
         raise _not_found()
 

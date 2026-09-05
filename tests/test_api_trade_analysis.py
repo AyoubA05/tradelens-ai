@@ -696,3 +696,211 @@ def _set_ai_grade(trade_id, grade):
         db.commit()
     finally:
         db.close()
+
+
+# ---------------------------------------------- C1: confirm, lock, release
+
+
+def _corrections_of(user_id: int):
+    from src.tradelens.db.models import Correction
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return [
+            (c.field, c.ai_value, c.user_value)
+            for c in db.query(Correction).filter(Correction.user_id == user_id).all()
+        ]
+    finally:
+        db.close()
+
+
+def _patch_labels(client, handle, trade_id, body):
+    path = f"/v1/trades/{trade_id}/analysis"
+    raw = json.dumps(body, separators=(",", ":")).encode()
+    return client.patch(path, content=raw, headers=_headers(handle, "PATCH", path, raw))
+
+
+def _confirmed_fields(trade_id):
+    from src.tradelens.services.trade_analysis import confirmed_fields
+
+    from src.tradelens.db.models import AIAnalysis
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        row = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).first()
+        return sorted(confirmed_fields(row))
+    finally:
+        db.close()
+
+
+def _stored_bias(trade_id):
+    from src.tradelens.db.models import AIAnalysis
+    from src.tradelens.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).one().bias
+    finally:
+        db.close()
+
+
+def test_confirming_records_an_owner_scoped_correction(client, website_session_handle):
+    """The correction is what personalization learns from, so it must land."""
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+
+    response = _patch_labels(client, handle, trade_id, {"bias": "bearish"})
+
+    assert response.status_code == 200
+    assert response.json()["confirmed_fields"] == ["bias"]
+    assert ("bias", "bullish", "bearish") in _corrections_of(owner)
+
+
+def test_confirming_an_unchanged_value_records_nothing(client, website_session_handle):
+    """A correction is a DIFFERENCE. Recording a no-op would teach noise."""
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+
+    _patch_labels(client, handle, trade_id, {"bias": "bullish"})
+
+    assert _corrections_of(owner) == []
+    # Still locked, though: the trader affirmed this value deliberately.
+    assert _confirmed_fields(trade_id) == ["bias"]
+
+
+def test_confirming_on_another_owner_s_trade_is_byte_identical_to_missing(
+    client, website_session_handle, two_users
+):
+    owner, handle = website_session_handle
+    other = next(u for u in two_users if u != owner)
+    other_trade, _shot = _trade_with_screenshot(other)
+    _analysed(other, other_trade)
+
+    foreign = _patch_labels(client, handle, other_trade, {"bias": "bearish"})
+    missing = _patch_labels(client, handle, 99999999, {"bias": "bearish"})
+
+    assert foreign.status_code == missing.status_code == 404
+    assert foreign.content == missing.content
+    assert _corrections_of(owner) == []
+    # And the other owner's label is untouched.
+    assert _stored_bias(other_trade) == "bullish"
+
+
+def test_a_confirmed_field_stays_locked_against_every_later_job(
+    client, website_session_handle
+):
+    """Confirm, then let a NEWER analysis job run. The trader's value stands."""
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id, job_id=1)
+    _patch_labels(client, handle, trade_id, {"bias": "bearish"})
+
+    _analysed(owner, trade_id, job_id=50)  # much newer job
+
+    assert _stored_bias(trade_id) == "bearish"
+
+
+def test_release_is_the_only_path_that_makes_a_field_ai_writable_again(
+    client, website_session_handle
+):
+    """Release, and only release, lowers the lock.
+
+    Re-sending a value re-confirms it; nothing else in the API unlocks. And
+    releasing does not revert the value — it only lets a LATER job replace
+    it, so the trader's decision stands until something newer arrives.
+    """
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id, job_id=1)
+    _patch_labels(client, handle, trade_id, {"bias": "bearish"})
+
+    # Re-confirming with a different value keeps it locked, not unlocked.
+    _patch_labels(client, handle, trade_id, {"bias": "neutral"})
+    assert _confirmed_fields(trade_id) == ["bias"]
+    _analysed(owner, trade_id, job_id=60)
+    assert _stored_bias(trade_id) == "neutral"
+
+    # Now release it explicitly.
+    released = _patch_labels(client, handle, trade_id, {"release": ["bias"]})
+    assert released.status_code == 200
+    assert released.json()["confirmed_fields"] == []
+    assert _stored_bias(trade_id) == "neutral"  # release does not revert
+
+    _analysed(owner, trade_id, job_id=70)
+    assert _stored_bias(trade_id) == "bullish"  # now AI-writable again
+
+
+def test_a_stale_job_still_cannot_win_after_a_release(client, website_session_handle):
+    """Release lowers the lock; it does not disable the ordering guard.
+
+    Both rules have to keep holding independently, or releasing one field
+    would quietly reopen the door to every older job in the queue.
+    """
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id, job_id=40)
+    _patch_labels(client, handle, trade_id, {"bias": "bearish"})
+    _patch_labels(client, handle, trade_id, {"release": ["bias"]})
+
+    _analysed(owner, trade_id, job_id=5)  # older than the stored job
+
+    assert _stored_bias(trade_id) == "bearish"
+
+
+def test_release_cannot_name_a_field_outside_the_allowlist(
+    client, website_session_handle
+):
+    """A release list is not a way to name arbitrary columns."""
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+
+    response = _patch_labels(
+        client, handle, trade_id, {"release": ["analysis_job_id", "cost_usd"]}
+    )
+
+    assert response.status_code == 422
+
+
+def test_a_server_owned_field_cannot_be_confirmed(client, website_session_handle):
+    """The confirm body is a positive allowlist, not a column editor."""
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+
+    response = _patch_labels(
+        client, handle, trade_id, {"cost_usd": 0.0, "analysis_job_id": 999}
+    )
+
+    assert response.status_code == 422
+
+
+def test_a_failure_after_the_correction_write_leaves_nothing_behind(
+    client, website_session_handle, monkeypatch
+):
+    """THE atomicity property, tested by injecting a real failure.
+
+    Split across transactions, a failure here lands the correction while
+    leaving the lock down — personalization learns from the trader's
+    decision AND the next job overwrites the value they decided on. Both
+    halves commit or neither does.
+    """
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+
+    # Break the denormalize step, which runs AFTER the correction insert and
+    # after the lock update, inside the same transaction.
+    monkeypatch.setattr(
+        trade_analysis, "_LABEL_DENORMALIZATION", (("bias", "no_such_column"),)
+    )
+    response = _patch_labels(client, handle, trade_id, {"bias": "bearish"})
+
+    assert response.status_code >= 500
+    assert _corrections_of(owner) == []  # rolled back with everything else
+    assert _confirmed_fields(trade_id) == []  # lock never went up
+    assert _stored_bias(trade_id) == "bullish"  # label untouched

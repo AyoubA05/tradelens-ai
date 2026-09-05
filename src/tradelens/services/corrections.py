@@ -96,6 +96,52 @@ def record_correction(
     created_at is always set to the current UTC timestamp.
     Owned by `user_id` (defaults to the active user set by the auth layer).
     """
+    # `user_id` is passed straight through, NOT resolved here: the in-session
+    # writer returns early for a no-op difference before it resolves an
+    # owner, and resolving eagerly would turn "nothing changed, and no scope
+    # is active" from a quiet None into a LookupError.
+    db = SessionLocal()
+    try:
+        row = record_correction_in_session(
+            db,
+            trade_id,
+            ai_analysis_id,
+            field,
+            ai_value,
+            user_value,
+            user_reason,
+            user_id=user_id,
+        )
+        db.commit()
+        if row is not None:
+            db.refresh(row)
+        return row
+    finally:
+        db.close()
+
+
+def record_correction_in_session(
+    db,
+    trade_id: int,
+    ai_analysis_id: int,
+    field: str,
+    ai_value,
+    user_value,
+    user_reason: Optional[str] = None,
+    *,
+    user_id,
+) -> Optional[Correction]:
+    """The correction write itself, without a transaction of its own.
+
+    Split out so a caller that must record a correction AND change something
+    else can do both in one transaction — the confirm path raises the write
+    lock in the same breath as recording why. Two transactions there would
+    let the correction land while the lock did not, which is the worst of
+    both: personalization learns from the trader's decision, and the next
+    analysis job overwrites the value they decided on.
+
+    Mirrors `strategy._upsert_in_session`. **Callers own the commit.**
+    """
     serialized_ai = _serialize(ai_value)
     serialized_user = _serialize(user_value)
 
@@ -104,36 +150,31 @@ def record_correction(
 
     owner = _resolve_user(user_id)
     now = datetime.now(timezone.utc).isoformat()
-    db = SessionLocal()
-    try:
-        owned_context = (
-            db.query(AIAnalysis.id)
-            .join(Trade, Trade.id == AIAnalysis.trade_id)
-            .filter(
-                AIAnalysis.id == ai_analysis_id,
-                AIAnalysis.trade_id == trade_id,
-                Trade.user_id == owner,
-            )
-            .first()
+    owned_context = (
+        db.query(AIAnalysis.id)
+        .join(Trade, Trade.id == AIAnalysis.trade_id)
+        .filter(
+            AIAnalysis.id == ai_analysis_id,
+            AIAnalysis.trade_id == trade_id,
+            Trade.user_id == owner,
         )
-        if owned_context is None:
-            raise ValueError("correction context not found")
-        row = Correction(
-            trade_id=trade_id,
-            ai_analysis_id=ai_analysis_id,
-            field=field,
-            ai_value=serialized_ai,
-            user_value=serialized_user,
-            user_reason=user_reason,
-            created_at=now,
-            user_id=owner,
-        )
-        db.add(row)
-        db.commit()
-        db.refresh(row)
-        return row
-    finally:
-        db.close()
+        .first()
+    )
+    if owned_context is None:
+        raise ValueError("correction context not found")
+    row = Correction(
+        trade_id=trade_id,
+        ai_analysis_id=ai_analysis_id,
+        field=field,
+        ai_value=serialized_ai,
+        user_value=serialized_user,
+        user_reason=user_reason,
+        created_at=now,
+        user_id=owner,
+    )
+    db.add(row)
+    db.flush()
+    return row
 
 
 _FEWSHOT_TOKEN_BUDGET = 800  # keep the injected <past_corrections> block small
