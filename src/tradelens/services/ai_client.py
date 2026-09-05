@@ -226,6 +226,38 @@ def _corrections_block(scope: Optional[str] = None) -> str:
         return ""
 
 
+def _inject_corrections(messages: list, corrections: str) -> list:
+    """Prepend the correction block to the first user turn.
+
+    Returned as a new list; the caller's `messages` is never mutated, because
+    `converse` hands in a history object it keeps using afterwards.
+
+    Prepended INTO the first user message rather than added as a message of
+    its own: an extra leading user turn changes the shape of the
+    conversation the model sees, and for `converse` it would sit in front of
+    a real exchange. Handles both content shapes — a plain string for
+    `chat`, a content-block list for `vision`.
+    """
+    if not corrections:
+        return messages
+    out = [dict(m) for m in messages]
+    for message in out:
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            message["content"] = f"{corrections}\n\n{content}"
+        elif isinstance(content, list):
+            message["content"] = [
+                {"type": "text", "text": corrections},
+                *content,
+            ]
+        else:  # pragma: no cover — no other shape is produced here
+            return messages
+        return out
+    return out
+
+
 def _build_system(system_message: str, few_shot: Optional[str], cache_system: bool):
     """Assemble the system field. When `cache_system`, return a content-block list
     carrying a cache_control breakpoint (used for the repeated Strategy Profile)."""
@@ -254,9 +286,24 @@ def _complete(
 
     # Correction memory: inject the trader's past overrides into EVERY call.
     # Deterministic + DB-only (no API), so it runs even in DEMO_MODE.
+    #
+    # It goes in the USER turn, never the system message. The block is built
+    # from `user_value` and `user_reason` — free text the trader typed — and
+    # putting it in `system` handed user-authored text the strongest
+    # authority the prompt has. Bounding and escaping it (see
+    # `corrections._prompt_safe`) reduces what that text can do; moving it
+    # means it never holds system authority at all, and defence that removes
+    # the capability beats defence that filters it.
+    #
+    # `few_shot` stays in the system message: it is supplied by calling code,
+    # not by a person, and no caller currently passes it.
+    #
+    # Moving it also IMPROVES prompt caching. The system message is now
+    # identical across traders instead of varying with each one's correction
+    # history, so the cached prefix is shared rather than per-user.
     corrections = _corrections_block()
-    combined_few_shot = "\n\n".join(p for p in (few_shot, corrections) if p) or None
-    system = _build_system(system_message, combined_few_shot, cache_system)
+    messages = _inject_corrections(messages, corrections)
+    system = _build_system(system_message, few_shot, cache_system)
 
     # DEMO_MODE: never touch the network.
     if settings.demo_mode:

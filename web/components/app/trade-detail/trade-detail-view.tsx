@@ -6,9 +6,11 @@ import { useState } from "react";
 import { ArrowLeft } from "lucide-react";
 
 import { EditTradeForm } from "@/components/app/trade-detail/edit-trade-form";
+import { AIReviewPanel } from "@/components/app/trade-detail/ai-review-panel";
 import { DeleteTradeDialog } from "@/components/app/trade-detail/delete-trade-dialog";
 import { TradeReadView } from "@/components/app/trade-detail/trade-read-view";
 import { ScreenshotGallery } from "@/components/app/trade-detail/screenshot-gallery";
+import type { AIAnalysisDetail } from "@/lib/app/trade-analysis";
 import type { TradeDetail } from "@/lib/app/trades";
 
 /**
@@ -23,7 +25,13 @@ import type { TradeDetail } from "@/lib/app/trades";
  * record pages in this app (Journal's filters, its pagination) already
  * re-fetch through Next rather than patching local state by hand.
  */
-export function TradeDetailView({ trade }: { trade: TradeDetail }) {
+export function TradeDetailView({
+  trade,
+  analysis,
+}: {
+  trade: TradeDetail;
+  analysis: AIAnalysisDetail | null;
+}) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -75,6 +83,7 @@ export function TradeDetailView({ trade }: { trade: TradeDetail }) {
         ) : (
           <>
             <TradeReadView trade={trade} />
+            <AIReviewPanel trade={trade} analysis={analysis} />
             <ScreenshotGallery screenshots={trade.screenshots} asset={trade.asset} />
           </>
         )}

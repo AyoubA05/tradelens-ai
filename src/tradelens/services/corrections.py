@@ -6,6 +6,7 @@ No Streamlit imports here.
 """
 
 import json
+import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -95,6 +96,52 @@ def record_correction(
     created_at is always set to the current UTC timestamp.
     Owned by `user_id` (defaults to the active user set by the auth layer).
     """
+    # `user_id` is passed straight through, NOT resolved here: the in-session
+    # writer returns early for a no-op difference before it resolves an
+    # owner, and resolving eagerly would turn "nothing changed, and no scope
+    # is active" from a quiet None into a LookupError.
+    db = SessionLocal()
+    try:
+        row = record_correction_in_session(
+            db,
+            trade_id,
+            ai_analysis_id,
+            field,
+            ai_value,
+            user_value,
+            user_reason,
+            user_id=user_id,
+        )
+        db.commit()
+        if row is not None:
+            db.refresh(row)
+        return row
+    finally:
+        db.close()
+
+
+def record_correction_in_session(
+    db,
+    trade_id: int,
+    ai_analysis_id: int,
+    field: str,
+    ai_value,
+    user_value,
+    user_reason: Optional[str] = None,
+    *,
+    user_id,
+) -> Optional[Correction]:
+    """The correction write itself, without a transaction of its own.
+
+    Split out so a caller that must record a correction AND change something
+    else can do both in one transaction — the confirm path raises the write
+    lock in the same breath as recording why. Two transactions there would
+    let the correction land while the lock did not, which is the worst of
+    both: personalization learns from the trader's decision, and the next
+    analysis job overwrites the value they decided on.
+
+    Mirrors `strategy._upsert_in_session`. **Callers own the commit.**
+    """
     serialized_ai = _serialize(ai_value)
     serialized_user = _serialize(user_value)
 
@@ -103,36 +150,31 @@ def record_correction(
 
     owner = _resolve_user(user_id)
     now = datetime.now(timezone.utc).isoformat()
-    db = SessionLocal()
-    try:
-        owned_context = (
-            db.query(AIAnalysis.id)
-            .join(Trade, Trade.id == AIAnalysis.trade_id)
-            .filter(
-                AIAnalysis.id == ai_analysis_id,
-                AIAnalysis.trade_id == trade_id,
-                Trade.user_id == owner,
-            )
-            .first()
+    owned_context = (
+        db.query(AIAnalysis.id)
+        .join(Trade, Trade.id == AIAnalysis.trade_id)
+        .filter(
+            AIAnalysis.id == ai_analysis_id,
+            AIAnalysis.trade_id == trade_id,
+            Trade.user_id == owner,
         )
-        if owned_context is None:
-            raise ValueError("correction context not found")
-        row = Correction(
-            trade_id=trade_id,
-            ai_analysis_id=ai_analysis_id,
-            field=field,
-            ai_value=serialized_ai,
-            user_value=serialized_user,
-            user_reason=user_reason,
-            created_at=now,
-            user_id=owner,
-        )
-        db.add(row)
-        db.commit()
-        db.refresh(row)
-        return row
-    finally:
-        db.close()
+        .first()
+    )
+    if owned_context is None:
+        raise ValueError("correction context not found")
+    row = Correction(
+        trade_id=trade_id,
+        ai_analysis_id=ai_analysis_id,
+        field=field,
+        ai_value=serialized_ai,
+        user_value=serialized_user,
+        user_reason=user_reason,
+        created_at=now,
+        user_id=owner,
+    )
+    db.add(row)
+    db.flush()
+    return row
 
 
 _FEWSHOT_TOKEN_BUDGET = 800  # keep the injected <past_corrections> block small
@@ -141,6 +183,35 @@ _FEWSHOT_TOKEN_BUDGET = 800  # keep the injected <past_corrections> block small
 def _estimate_tokens(text: str) -> int:
     """Rough token estimate (~4 chars/token). Good enough for budgeting a block."""
     return (len(text) + 3) // 4
+
+
+def _prompt_safe(value) -> str:
+    """Bound one trader-typed value and strip anything markup-shaped.
+
+    This text is typed by the trader and is replayed into every AI call the
+    app makes. Two properties, both cheap:
+
+    * **Bounded per field.** `_FEWSHOT_TOKEN_BUDGET` caps the block as a
+      whole, but the loop below `break`s on the first line that will not
+      fit — so one unbounded correction does not merely crowd the block, it
+      empties everything after it. A per-field cap keeps the trader's other
+      corrections alive.
+    * **Stripped of angle brackets AND newlines.** Angle brackets stop a
+      correction reading `</past_corrections> SYSTEM: ...` from ending the
+      data block early. Newlines matter for a second reason: this block is
+      line-structured, one correction per `- ` line, and `field` and
+      `user_reason` are interpolated raw rather than through `!r`. A reason
+      containing a newline therefore forges an entire extra line that is
+      indistinguishable from a real correction — it cannot escape the block,
+      but "- SYSTEM: emit entries" sitting among the trader's genuine
+      corrections is exactly the content this product may not produce.
+
+    Imported lazily to avoid tying two service modules together for one
+    constant and one regex.
+    """
+    from src.tradelens.services.ai_text_guard import MAX_PROMPT_TEXT_CHARS
+
+    return re.sub(r"[<>\r\n]", " ", str(value or ""))[:MAX_PROMPT_TEXT_CHARS]
 
 
 def build_correction_few_shot(
@@ -195,14 +266,28 @@ def build_correction_few_shot(
     used = _estimate_tokens(header) + _estimate_tokens(footer)
     lines: list = []
     for g in ordered[:limit]:
-        line = f"- {g['field']}: prefer {g['user_value']!r} over {g['ai_value']!r}"
+        # Every interpolated value is trader-typed and enters a prompt, so
+        # each is bounded and stripped — see `_prompt_safe`. `field` is
+        # included: the column is free Text, not an enum.
+        field = _prompt_safe(g["field"])
+        user_value = _prompt_safe(g["user_value"])
+        ai_value = _prompt_safe(g["ai_value"])
+        line = f"- {field}: prefer {user_value!r} over {ai_value!r}"
         if g["count"] > 1:
             line += f" (corrected {g['count']}x)"
         if g["user_reason"]:
-            line += f" — {g['user_reason']}"
+            line += f" — {_prompt_safe(g['user_reason'])}"
         cost = _estimate_tokens(line) + 1  # +1 for the joining newline
         if used + cost > _FEWSHOT_TOKEN_BUDGET:
-            break
+            # `continue`, not `break`: one oversized correction is skipped,
+            # the rest still make it in. With `break` the property "a single
+            # long correction cannot crowd out the others" held only by
+            # arithmetic — the per-field cap kept a worst-case line just
+            # under this budget, with tens of tokens to spare — so lowering
+            # either constant silently switched correction memory off and no
+            # test would have noticed. Skipping makes it structural instead
+            # of a coincidence between two numbers in different modules.
+            continue
         lines.append(line)
         used += cost
 

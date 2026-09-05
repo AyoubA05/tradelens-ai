@@ -151,6 +151,125 @@ class AutofillSuggestion(_Strict):
     autocheck: bool = False
 
 
+class AIAnalysisLabelPatch(_Strict):
+    """The labels a trader may confirm or correct. A positive allowlist.
+
+    Server-owned columns — `cost_usd`, `tokens_input`, `raw_response_json`,
+    every `*_job_id`, `confirmed_at` — are absent by construction, and
+    `extra="forbid"` turns sending one into a 422 rather than a silent drop.
+
+    `release` hands named labels back to the AI. It is the only way out of
+    the confirmation lock, and it is an allowlist for the same reason the
+    values are: it must never become a way to name arbitrary columns.
+    """
+
+    bias: Optional[str] = None
+    detected_setup: Optional[str] = None
+    trade_quality: Optional[int] = None
+    matched_strategy: Optional[str] = None
+    user_grade: Optional[str] = None
+    release: List[
+        Literal["bias", "detected_setup", "trade_quality", "matched_strategy"]
+    ] = []
+
+
+class AIAnalysisLabels(_Strict):
+    bias: Optional[str]
+    detected_setup: Optional[str]
+    trade_quality: Optional[int]
+    matched_strategy: Optional[str]
+    user_grade: Optional[str]
+    confirmed_fields: List[str]
+
+
+class AIGradingRubricEntry(_Strict):
+    score: Optional[int]
+    note: Optional[str]
+
+
+class AIGrading(_Strict):
+    grade: Optional[str]
+    score: Optional[int]
+    one_line_verdict: Optional[str]
+    rubric: Dict[str, AIGradingRubricEntry]
+
+
+class AIAnalysisDetail(_Strict):
+    """The stored per-trade AI review, as the page reads it.
+
+    Deliberately NOT the row. `cost_usd`, `tokens_input`, `tokens_output`,
+    every `*_job_id` and `raw_response_json` are absent: the raw response is
+    unvalidated model output and cost is billing detail, and neither belongs
+    in a browser.
+
+    `confirmed_fields` travels because the panel has to distinguish a label
+    the AI produced from one the trader stands behind — that difference is
+    the whole point of the lock, and a UI that cannot see it would present
+    the trader's own decision as a machine's guess.
+
+    `latest_proposals` carries what the NEWEST analysis read for each label,
+    including the ones the trader has locked. Design decision 3: locked
+    means "not applied", never "hidden". Without it a trader can never see
+    what a re-analysis found for a confirmed field — they would have to
+    release it, re-run, and hope. This is a projection through the SAME
+    confirmable allowlist, not the raw model output: `raw_response_json`
+    stays server-side, and every value here is one the trader could already
+    have set by hand.
+    """
+
+    bias: Optional[str]
+    detected_setup: Optional[str]
+    trade_quality: Optional[int]
+    matched_strategy: Optional[str]
+    key_zones: List[str]
+    possible_mistakes: List[str]
+    missed_opportunities: List[str]
+    journal_entry_md: Optional[str]
+    grading: Optional[AIGrading]
+    ai_grade: Optional[str]
+    user_grade: Optional[str]
+    confirmed_fields: List[str]
+    latest_proposals: Dict[str, str]
+    updated_at: Optional[str]
+
+
+class AIAnalysisJobRequest(_Strict):
+    """Which of the caller's own screenshots to analyse for this trade.
+
+    A screenshot id, not a key and not a URL: the bytes analysed are the
+    promoted object `finalize_upload` produced, and this is the only handle
+    the browser has on one. Ownership is never input.
+    """
+
+    screenshot_id: int
+
+
+class AIJobAccepted(_Strict):
+    job_id: int
+    status: Literal["queued", "running", "succeeded", "failed"]
+    created: bool
+
+
+class AIJobStatus(_Strict):
+    """Poll response shared by all three Phase 5 kinds.
+
+    `superseded` says the opposite of what `status` does, and both can be
+    true at once: this job succeeded, but a newer job's result occupies the
+    row. Reporting `succeeded` alone would tell the trader their re-run
+    landed when it did not.
+
+    Deliberately carries no result payload: cost, token counts and the raw
+    model output live on `aianalysis` and are served by the analysis read
+    route, never by a job poll.
+    """
+
+    job_id: int
+    kind: Literal["trade_analysis", "trade_journal", "trade_grade"]
+    status: Literal["queued", "running", "succeeded", "failed"]
+    error: Optional[str]
+    superseded: bool
+
+
 class TradeAutofillJobRequest(_Strict):
     """Which of the caller's own screenshots to read. Ownership is never input.
 

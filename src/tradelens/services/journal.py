@@ -6,7 +6,7 @@ and trade data. This is educational reflection only — not live trading advice.
 """
 
 import json
-from typing import Optional
+from typing import Callable, Optional
 
 from src.tradelens.services.ai_client import AIUnavailable, Usage, chat, load_prompt
 from src.tradelens.services.demo import is_demo, load_demo_fixture
@@ -127,6 +127,7 @@ def generate_journal(
     trade: dict,
     ai_analysis: dict,
     strategy_profile: Optional[dict] = None,
+    on_usage: Optional[Callable[[Usage], None]] = None,
 ) -> tuple[str, Usage]:
     """
     Generate an 8-section markdown journal entry for a closed post-trade review.
@@ -170,6 +171,15 @@ def generate_journal(
         system_message=system_message,
         demo_response=demo_resp,
     )
+
+    if on_usage is not None:
+        # Record spend the moment the provider answers. Section validation
+        # below raises on a malformed response and would carry this Usage
+        # away with it, so logging any later means a call that WAS billed
+        # never appears in cost tracking — and a malformed response is the
+        # likeliest way this path fails. Same discipline as
+        # `vision.analyze_screenshot_v3` and the trade-summary handler.
+        on_usage(usage)
 
     if isinstance(content, AIUnavailable):
         raise JournalStructureError(content.reason)

@@ -21,6 +21,14 @@ from src.tradelens.services.trade_autofill import (
     JOB_KIND as AUTOFILL_JOB_KIND,
     suggest_from_screenshot,
 )
+from src.tradelens.services.trade_analysis import (
+    ANALYSIS_JOB_KIND,
+    GRADE_JOB_KIND,
+    JOURNAL_JOB_KIND,
+    run_analysis,
+    run_grade,
+    run_journal,
+)
 from src.tradelens.services.trade_summary import (
     generate_trade_summary,
     save_trade_summary_result,
@@ -72,9 +80,75 @@ def _trade_autofill_handler(user_id: int, payload: dict) -> str:
     return f"{AUTOFILL_JOB_KIND}:{screenshot_id}"
 
 
+def _phase5_job_id(user_id: int, kind: str, payload: dict) -> int:
+    """The id of the job now running, resolved from its own payload.
+
+    `run_once` hands a handler `(user_id, payload)` and not the job row, and
+    every Phase 5 write is ordered by job id, so the handler has to recover
+    it. The idempotency key is written into the payload at enqueue time
+    rather than re-derived here: `ai_input_version` moves whenever the owner
+    corrects something, so a handler that recomputed the key could fail to
+    find its own job. Owner-scoped lookup, so a payload cannot name another
+    tenant's row.
+    """
+    job = jobs.get_owned_job_by_idempotency_key(user_id, kind, payload["key"])
+    if job is None:
+        raise RuntimeError("job unavailable")
+    return int(job.id)
+
+
+def _trade_analysis_handler(user_id: int, payload: dict) -> str:
+    # Same usage discipline as the summary and autofill handlers: the
+    # callback is handed down to the provider call so a response that then
+    # fails to parse is still billed-and-visible.
+    outcome = run_analysis(
+        user_id,
+        int(payload["trade_id"]),
+        int(payload["screenshot_id"]),
+        job_id=_phase5_job_id(user_id, ANALYSIS_JOB_KIND, payload),
+        on_usage=lambda usage: log_ai_usage("Trade Analysis", usage, user_id=user_id),
+    )
+    return (
+        f"{ANALYSIS_JOB_KIND}:{payload['trade_id']}:"
+        f"{'stored' if outcome.written else 'superseded'}"
+    )
+
+
+def _trade_journal_handler(user_id: int, payload: dict) -> str:
+    # Feature string matches the Streamlit path's, so the Settings cost
+    # dashboard shows one row per feature rather than splitting one feature
+    # across two names.
+    outcome = run_journal(
+        user_id,
+        int(payload["trade_id"]),
+        job_id=_phase5_job_id(user_id, JOURNAL_JOB_KIND, payload),
+        on_usage=lambda usage: log_ai_usage("AI Journal", usage, user_id=user_id),
+    )
+    return (
+        f"{JOURNAL_JOB_KIND}:{payload['trade_id']}:"
+        f"{'stored' if outcome.written else 'superseded'}"
+    )
+
+
+def _trade_grade_handler(user_id: int, payload: dict) -> str:
+    outcome = run_grade(
+        user_id,
+        int(payload["trade_id"]),
+        job_id=_phase5_job_id(user_id, GRADE_JOB_KIND, payload),
+        on_usage=lambda usage: log_ai_usage("Trade Grading", usage, user_id=user_id),
+    )
+    return (
+        f"{GRADE_JOB_KIND}:{payload['trade_id']}:"
+        f"{'stored' if outcome.written else 'superseded'}"
+    )
+
+
 HANDLERS: dict = {
     "trade_summary": _trade_summary_handler,
     AUTOFILL_JOB_KIND: _trade_autofill_handler,
+    ANALYSIS_JOB_KIND: _trade_analysis_handler,
+    JOURNAL_JOB_KIND: _trade_journal_handler,
+    GRADE_JOB_KIND: _trade_grade_handler,
 }
 
 IDLE_SLEEP_SECONDS = 2.0

@@ -280,6 +280,18 @@ class AIAnalysis(Base):
     cost_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     updated_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Server-owned write guards (Phase 5). Each names the job whose result
+    # currently occupies the matching columns. A worker write is conditional
+    # on being NEWER than what is stored, so a slow older job cannot land on
+    # top of a newer one's result.
+    analysis_job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    journal_job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    grading_job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # When the trader last confirmed labels, and which ones. A confirmed field
+    # is locked: no job write may replace it until the trader changes or
+    # releases it.
+    confirmed_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    confirmed_fields_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     trade = relationship("Trade", back_populates="ai_analysis")
 

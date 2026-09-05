@@ -15,7 +15,7 @@ import json
 import logging
 import math
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import ValidationError
@@ -25,6 +25,14 @@ from src.tradelens.api import imaging, jobs, storage
 from src.tradelens.api.deps import current_user
 from src.tradelens.api.routers.overview import _validated_period
 from src.tradelens.api.schemas.trades import (
+    AIAnalysisDetail,
+    AIAnalysisJobRequest,
+    AIGrading,
+    AIGradingRubricEntry,
+    AIAnalysisLabelPatch,
+    AIAnalysisLabels,
+    AIJobAccepted,
+    AIJobStatus,
     ScreenshotCleanupFailedResponse,
     TradeAutofillJobAccepted,
     TradeAutofillJobRequest,
@@ -49,6 +57,24 @@ from src.tradelens.api.schemas.trades import (
     TradeUpdate,
 )
 from src.tradelens.services import drafts, screenshot_service, url_ingest
+from src.tradelens.services.ai_analysis_service import get_analysis_for_trade
+from src.tradelens.services.trade_analysis import (
+    _UNSET_GRADE,
+    CONFIRMABLE_LABEL_FIELDS,
+    confirmed_fields,
+    ANALYSIS_JOB_KIND,
+    confirm_labels,
+    ANALYSIS_WINDOW_HOURS,
+    GRADE_JOB_KIND,
+    JOURNAL_JOB_KIND,
+    MAX_ANALYSES_PER_WINDOW,
+    MAX_GRADES_PER_WINDOW,
+    MAX_JOURNALS_PER_WINDOW,
+    AIInputVersionUnavailable,
+    analysis_key,
+    grade_key,
+    journal_key,
+)
 from src.tradelens.services.trade_autofill import (
     AUTOFILL_WINDOW_HOURS,
     JOB_KIND as AUTOFILL_JOB_KIND,
@@ -659,6 +685,373 @@ def put_trade_draft(
     # of the owner's draft even though the browser cannot submit them itself.
     stored = drafts.get_draft(user_id) or {}
     return TradeDraftResponse(draft=TradeDraftPayload(**stored), revision=revision)
+
+
+_FINGERPRINT_UNAVAILABLE = "We could not start this just now. Please try again."
+
+
+def _owned_trade_or_none(trade_id: int, user_id: int):
+    """The trade, only if it is this owner's. `get_trade` already filters."""
+    return get_trade(trade_id, user_id)
+
+
+def _accepted(job_id: int, user_id: int, created: bool) -> AIJobAccepted:
+    job = jobs.get_owned_job(job_id, user_id)
+    if job is None:  # Defensive: enqueue committed this exact owner-scoped row.
+        raise HTTPException(status_code=500, detail="job unavailable")
+    return AIJobAccepted(job_id=job_id, status=job.status, created=created)
+
+
+def _phase5_job_status(job_id: int, user_id: int, kind: str) -> AIJobStatus:
+    """One Phase 5 job, only for its own owner and only on its own route.
+
+    Gated to a SINGLE kind rather than the Phase 5 set. A shared poll would
+    let a journal id answer on the analysis route with `kind` set correctly
+    — honest, but it makes the id's existence and category observable from
+    the wrong endpoint. Cross-kind is a 404 byte-identical to a missing job,
+    the same rule every other per-id route here follows. Groups B and C add
+    their own poll routes rather than widening this one.
+    """
+    job = jobs.get_owned_job(job_id, user_id)
+    if job is None or job.kind != kind:
+        raise HTTPException(status_code=404, detail="job not found")
+    superseded = job.status == "succeeded" and str(job.result_ref or "").endswith(
+        ":superseded"
+    )
+    return AIJobStatus(
+        job_id=job.id,
+        kind=job.kind,
+        status=job.status,
+        error=job.error,
+        superseded=superseded,
+    )
+
+
+@router.post("/trades/{trade_id}/analysis", status_code=status.HTTP_202_ACCEPTED)
+def enqueue_trade_analysis(
+    trade_id: int,
+    payload: AIAnalysisJobRequest,
+    user_id: int = Depends(current_user),
+) -> AIJobAccepted:
+    """Queue AI analysis of one of the caller's own screenshots for one trade.
+
+    Ownership of BOTH the trade and the screenshot is settled first, before
+    anything is written and before any billable work is scheduled: a queued
+    job is spend and, on a poll, an existence oracle. Foreign and missing are
+    the same 404.
+
+    The job reads the PROMOTED object, not an upload: `finalize_upload` has
+    already decoded, capped and re-encoded those bytes, so the model only
+    ever sees bytes we produced.
+    """
+    trade = _owned_trade_or_none(trade_id, user_id)
+    if trade is None or not storage.screenshot_belongs_to_trade(
+        user_id, payload.screenshot_id, trade_id
+    ):
+        raise _not_found()
+
+    # The fingerprint fails closed (design decision 4). Refuse rather than
+    # enqueue under a placeholder identity that could collide with an earlier
+    # job computed under different AI context. Nothing is created or spent.
+    try:
+        key = analysis_key(
+            user_id, trade_id, int(payload.screenshot_id), trade.updated_at
+        )
+    except AIInputVersionUnavailable:
+        raise HTTPException(status_code=503, detail=_FINGERPRINT_UNAVAILABLE)
+
+    job_id, created = jobs.enqueue_with_limit(
+        user_id,
+        ANALYSIS_JOB_KIND,
+        key,
+        {
+            "trade_id": int(trade_id),
+            "screenshot_id": int(payload.screenshot_id),
+            "key": key,
+        },
+        since=datetime.now(timezone.utc) - timedelta(hours=ANALYSIS_WINDOW_HOURS),
+        limit=MAX_ANALYSES_PER_WINDOW,
+    )
+    if job_id is None:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"You've reached {MAX_ANALYSES_PER_WINDOW} AI analyses for "
+                f"today. New analyses are available again "
+                f"{ANALYSIS_WINDOW_HOURS} hours after your earliest one. "
+                "Your journal and your own notes are unaffected."
+            ),
+        )
+    return _accepted(job_id, user_id, created)
+
+
+def _enqueue_derived(
+    trade_id: int,
+    user_id: int,
+    *,
+    kind: str,
+    key_fn,
+    limit: int,
+    label: str,
+) -> AIJobAccepted:
+    """Shared enqueue for the two kinds that read the stored analysis.
+
+    One helper rather than two near-identical routes: the ownership check,
+    the prerequisite, the fingerprint and the ceiling are the same shape, and
+    two copies of a security check are two chances for them to drift apart.
+
+    The missing-analysis case is a 409, not a 404. The trade exists and is
+    the caller's; what is missing is the prerequisite. A 404 would be a lie
+    the trader cannot act on — they would go looking for a trade that is
+    plainly on their screen.
+    """
+    trade = _owned_trade_or_none(trade_id, user_id)
+    if trade is None:
+        raise _not_found()
+    analysis = get_analysis_for_trade(trade_id, user_id=user_id)
+    if analysis is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Run the screenshot analysis first — this builds on it.",
+        )
+
+    # Fails closed, exactly as the analysis route does: never enqueue under a
+    # placeholder identity that could collide with an earlier job computed
+    # under different AI context.
+    try:
+        key = key_fn(user_id, trade_id, trade.updated_at, analysis.updated_at)
+    except AIInputVersionUnavailable:
+        raise HTTPException(status_code=503, detail=_FINGERPRINT_UNAVAILABLE)
+
+    job_id, created = jobs.enqueue_with_limit(
+        user_id,
+        kind,
+        key,
+        {"trade_id": int(trade_id), "key": key},
+        since=datetime.now(timezone.utc) - timedelta(hours=ANALYSIS_WINDOW_HOURS),
+        limit=limit,
+    )
+    if job_id is None:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"You've reached {limit} AI {label} for today. More are "
+                f"available again {ANALYSIS_WINDOW_HOURS} hours after your "
+                "earliest one. Your own notes are unaffected."
+            ),
+        )
+    return _accepted(job_id, user_id, created)
+
+
+@router.post("/trades/{trade_id}/journal", status_code=status.HTTP_202_ACCEPTED)
+def enqueue_trade_journal(
+    trade_id: int,
+    user_id: int = Depends(current_user),
+) -> AIJobAccepted:
+    """Queue a written journal entry for one of the caller's own trades."""
+    return _enqueue_derived(
+        trade_id,
+        user_id,
+        kind=JOURNAL_JOB_KIND,
+        key_fn=journal_key,
+        limit=MAX_JOURNALS_PER_WINDOW,
+        label="journal entries",
+    )
+
+
+@router.post("/trades/{trade_id}/grade", status_code=status.HTTP_202_ACCEPTED)
+def enqueue_trade_grade(
+    trade_id: int,
+    user_id: int = Depends(current_user),
+) -> AIJobAccepted:
+    """Queue a process grade for one of the caller's own trades."""
+    return _enqueue_derived(
+        trade_id,
+        user_id,
+        kind=GRADE_JOB_KIND,
+        key_fn=grade_key,
+        limit=MAX_GRADES_PER_WINDOW,
+        label="grades",
+    )
+
+
+@router.get("/trades/journal/{job_id}")
+def get_trade_journal_job(
+    job_id: int,
+    user_id: int = Depends(current_user),
+) -> AIJobStatus:
+    """Status for one journal job. A job of any other kind is a 404 here."""
+    return _phase5_job_status(job_id, user_id, JOURNAL_JOB_KIND)
+
+
+@router.get("/trades/grade/{job_id}")
+def get_trade_grade_job(
+    job_id: int,
+    user_id: int = Depends(current_user),
+) -> AIJobStatus:
+    """Status for one grading job. A job of any other kind is a 404 here."""
+    return _phase5_job_status(job_id, user_id, GRADE_JOB_KIND)
+
+
+@router.patch("/trades/{trade_id}/analysis")
+def patch_trade_analysis(
+    trade_id: int,
+    payload: AIAnalysisLabelPatch,
+    user_id: int = Depends(current_user),
+) -> AIAnalysisLabels:
+    """Confirm, correct or release the AI's labels for one of the caller's trades.
+
+    The trader's judgement is the point of this route: it is what
+    personalization learns from, and it is what locks a label against every
+    later analysis job until they release it.
+
+    `user_grade` is handled apart from the labels because it lives on
+    `trades`, not on `aianalysis`, and must never be written by the grading
+    job — that column is the trader's own verdict. `None` is a meaningful
+    value there (it clears the override), so "not sent" needs its own
+    sentinel rather than being inferred from a null.
+    """
+    sent = payload.model_dump(exclude_unset=True)
+    released = sent.pop("release", [])
+    grade_override = sent.pop("user_grade", _UNSET_GRADE)
+
+    # `user_grade` goes INTO the same call, not a second one after it. Two
+    # calls are two transactions, and a failure between them leaves the
+    # labels confirmed while the trader's grade override is lost — the same
+    # half-applied state the service exists to prevent.
+    try:
+        result = confirm_labels(
+            user_id, trade_id, sent, release=released, user_grade=grade_override
+        )
+    except ValueError:
+        raise _not_found()
+
+    analysis = get_analysis_for_trade(trade_id, user_id=user_id)
+    trade = _owned_trade_or_none(trade_id, user_id)
+    if analysis is None or trade is None:
+        raise _not_found()
+    return AIAnalysisLabels(
+        bias=analysis.bias,
+        detected_setup=analysis.detected_setup,
+        trade_quality=analysis.trade_quality,
+        matched_strategy=analysis.matched_strategy,
+        user_grade=trade.user_grade,
+        confirmed_fields=result.get("confirmed_fields", []),
+    )
+
+
+def _json_list(raw) -> List[str]:
+    """A stored JSON array as a list of strings, or empty on anything else.
+
+    Parsed defensively: these columns hold model output written by an
+    earlier deploy, and a row that no longer parses must render as "nothing
+    recorded" rather than 500 a page the trader is trying to read.
+    """
+    try:
+        parsed = json.loads(raw or "[]")
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed if item is not None]
+
+
+def _grading_or_none(raw):
+    """The stored grading object, or None if it is absent or unusable."""
+    try:
+        parsed = json.loads(raw or "null")
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    rubric = parsed.get("rubric")
+    if not isinstance(rubric, dict):
+        return None
+    return AIGrading(
+        grade=parsed.get("grade"),
+        score=parsed.get("score"),
+        one_line_verdict=parsed.get("one_line_verdict"),
+        rubric={
+            str(dim): AIGradingRubricEntry(
+                score=entry.get("score"), note=entry.get("note")
+            )
+            for dim, entry in rubric.items()
+            if isinstance(entry, dict)
+        },
+    )
+
+
+def _latest_proposals(raw) -> Dict[str, str]:
+    """What the newest analysis read for each confirmable label.
+
+    Projected through `CONFIRMABLE_LABEL_FIELDS`, so this is not the raw
+    model output being handed to a browser — it is the same small set of
+    values the trader could type themselves, and nothing else from the
+    response escapes. Values are stringified for one wire type; the panel
+    renders them as text beside the locked field.
+
+    Parsed defensively, like every other stored-JSON read here: a row
+    written by an older deploy that no longer parses yields nothing to
+    offer, not a broken page.
+    """
+    try:
+        parsed = json.loads(raw or "{}")
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {
+        field: str(parsed[field])
+        for field in sorted(CONFIRMABLE_LABEL_FIELDS)
+        if parsed.get(field) is not None
+    }
+
+
+@router.get("/trades/{trade_id}/analysis")
+def get_trade_analysis(
+    trade_id: int,
+    user_id: int = Depends(current_user),
+) -> AIAnalysisDetail:
+    """The stored AI review for one of the caller's own trades.
+
+    A trade with no analysis yet is a 404, not an empty object: "not run"
+    and "run, and it found nothing" are different states and the panel
+    renders them differently. Foreign and missing are the same 404.
+    """
+    trade = _owned_trade_or_none(trade_id, user_id)
+    analysis = get_analysis_for_trade(trade_id, user_id=user_id)
+    if trade is None or analysis is None:
+        raise _not_found()
+    return AIAnalysisDetail(
+        bias=analysis.bias,
+        detected_setup=analysis.detected_setup,
+        trade_quality=analysis.trade_quality,
+        matched_strategy=analysis.matched_strategy,
+        key_zones=_json_list(analysis.zones_json),
+        possible_mistakes=_json_list(analysis.mistakes_json),
+        missed_opportunities=_json_list(analysis.missed_opps_json),
+        journal_entry_md=analysis.journal_entry_md,
+        grading=_grading_or_none(analysis.grading_json),
+        ai_grade=trade.ai_grade,
+        user_grade=trade.user_grade,
+        confirmed_fields=sorted(confirmed_fields(analysis)),
+        latest_proposals=_latest_proposals(analysis.raw_response_json),
+        updated_at=analysis.updated_at,
+    )
+
+
+@router.get("/trades/analysis/{job_id}")
+def get_trade_analysis_job(
+    job_id: int,
+    user_id: int = Depends(current_user),
+) -> AIJobStatus:
+    """Status for one owner-scoped Phase 5 job; foreign and missing are identical.
+
+    The kind check is not decoration: without it this route would read any of
+    the owner's jobs, and a summary's or an autofill's row would be reported
+    as an analysis.
+    """
+    return _phase5_job_status(job_id, user_id, ANALYSIS_JOB_KIND)
 
 
 @router.get("/trades/{trade_id}")
