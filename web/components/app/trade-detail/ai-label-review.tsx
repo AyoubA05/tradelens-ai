@@ -42,7 +42,7 @@ const FIELDS: Field[] = [
   { name: "bias", label: "Bias at entry" },
   { name: "detected_setup", label: "Setup described" },
   { name: "matched_strategy", label: "Matched strategy" },
-  { name: "trade_quality", label: "Trade quality (1–5)", numeric: true },
+  { name: "trade_quality", label: "Trade quality (1–10)", numeric: true },
 ];
 
 const GRADE_LABEL = "Your grade";
@@ -50,8 +50,12 @@ const GRADE_LABEL = "Your grade";
 const NOTHING_CHANGED = "Nothing has been changed yet, so there was nothing to save.";
 const SAVE_FAILED =
   "These labels weren't saved — the change didn't reach the server. Your edits are still here exactly as you typed them, and you can try again.";
+const BLANK_NOT_SUPPORTED =
+  "A label cannot be emptied here. Type the value you want, or let a newer " +
+  "analysis update the field instead. Nothing was saved.";
+
 const QUALITY_INVALID =
-  "Trade quality is a whole number from 1 to 5. Nothing was saved while it reads otherwise.";
+  "Trade quality is a whole number from 1 to 10. Nothing was saved while it reads otherwise.";
 const RELEASE_NOTE =
   "This value stays as you left it; a newer analysis may update it again.";
 
@@ -152,7 +156,12 @@ export function AILabelReview({
           return;
         }
         const parsed = Number.parseInt(typed, 10);
-        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 5) {
+        // 1–10, matching `prompts/screenshot_v3.txt` ("integer 1-10 where 10
+        // is perfect execution") and the Streamlit slider. A narrower ceiling
+        // here would refuse to save a value the model itself produces, and
+        // would silently block the trader from correcting quality upward at
+        // all.
+        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10) {
           setMessage({ tone: "problem", text: QUALITY_INVALID });
           return;
         }
@@ -160,7 +169,16 @@ export function AILabelReview({
         applied.trade_quality = typed;
         continue;
       }
-      if (typed === "") continue;
+      if (typed === "") {
+        // A blank is the trader trying to CLEAR a label, and the patch schema
+        // cannot express that: an absent key means "leave alone", and there is
+        // no null. Skipping it quietly was worse than not supporting it — the
+        // save then reported "nothing has been changed", which is untrue and
+        // leaves the trader believing their edit was a no-op rather than
+        // unsupported. Say so instead, and name the affordance that does work.
+        setMessage({ tone: "problem", text: BLANK_NOT_SUPPORTED });
+        return;
+      }
       patch[field.name as Exclude<FieldName, "trade_quality">] = typed;
       applied[field.name] = typed;
     }

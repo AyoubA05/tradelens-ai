@@ -298,7 +298,7 @@ function AnalysisBody({ analysis }: { analysis: AIAnalysisDetail }) {
   if (analysis.bias) rows.push(["Bias at entry", analysis.bias]);
   if (analysis.matched_strategy) rows.push(["Matched strategy", analysis.matched_strategy]);
   if (analysis.trade_quality !== null) {
-    rows.push(["Trade quality", `${analysis.trade_quality} / 5`]);
+    rows.push(["Trade quality", `${analysis.trade_quality} / 10`]);
   }
   if (analysis.user_grade) rows.push(["Your grade", analysis.user_grade]);
   else if (analysis.ai_grade) rows.push(["AI grade", analysis.ai_grade]);

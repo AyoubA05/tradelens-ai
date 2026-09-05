@@ -170,14 +170,14 @@ describe("AILabelReview", () => {
     fireEvent.change(quality, { target: { value: "great" } });
     fireEvent.click(screen.getByRole("button", { name: /save these labels/i }));
     await waitFor(() =>
-      expect(screen.getByText(/whole number from 1 to 5/i)).toBeInTheDocument(),
+      expect(screen.getByText(/whole number from 1 to 10/i)).toBeInTheDocument(),
     );
     expect(fetchMock).not.toHaveBeenCalled();
 
-    fireEvent.change(quality, { target: { value: "9" } });
+    fireEvent.change(quality, { target: { value: "11" } });
     fireEvent.click(screen.getByRole("button", { name: /save these labels/i }));
     await waitFor(() =>
-      expect(screen.getByText(/whole number from 1 to 5/i)).toBeInTheDocument(),
+      expect(screen.getByText(/whole number from 1 to 10/i)).toBeInTheDocument(),
     );
     expect(fetchMock).not.toHaveBeenCalled();
 
@@ -186,6 +186,26 @@ describe("AILabelReview", () => {
     fireEvent.click(screen.getByRole("button", { name: /save these labels/i }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(bodyOf(fetchMock)).toEqual({ trade_quality: 4 });
+  });
+
+  it("accepts the upper half of the scale the model actually uses", async () => {
+    // The scale is 1-10: `prompts/screenshot_v3.txt` says "integer 1-10 where
+    // 10 is perfect execution" and the Streamlit slider is st.slider(1, 10).
+    // A 1-5 ceiling here refused to save a value the model itself produces,
+    // and the previous version of the test above PINNED that bug by asserting
+    // "9" was rejected. A test can be perfectly correct about the wrong
+    // constant, which is why this positive case exists alongside it.
+    const fetchMock = vi.fn().mockResolvedValue(okResponse(["bias"]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AILabelReview analysis={ANALYSIS} tradeId={7} onSaved={() => {}} />);
+    fireEvent.change(screen.getByLabelText(/trade quality/i), {
+      target: { value: "9" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save these labels/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(bodyOf(fetchMock)).toEqual({ trade_quality: 9 });
   });
 });
 
@@ -268,5 +288,29 @@ describe("AILabelReview — the latest reading for a locked field", () => {
     // until they save, and they can still edit or abandon it.
     expect(screen.getByLabelText("Bias at entry")).toHaveValue("bearish");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("AILabelReview — clearing a label", () => {
+  it("says blanking is unsupported rather than claiming nothing changed", async () => {
+    // The patch schema has no way to express "clear this": an absent key
+    // means "leave alone". Skipping a blanked field quietly produced
+    // "nothing has been changed yet", which is untrue — the trader changed
+    // something, it just cannot be sent — and left them thinking their edit
+    // was a no-op rather than unsupported.
+    const fetchMock = vi.fn().mockResolvedValue(okResponse(["bias"]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AILabelReview analysis={ANALYSIS} tradeId={7} onSaved={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Bias at entry"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /save these labels/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/cannot be emptied here/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/nothing has been changed/i)).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    // And the trader's blank is left alone, not silently reverted under them.
+    expect(screen.getByLabelText("Bias at entry")).toHaveValue("");
   });
 });
