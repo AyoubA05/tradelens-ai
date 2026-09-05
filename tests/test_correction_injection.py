@@ -156,3 +156,47 @@ def test_weekly_call_injects_corrections(captured_client, monkeypatch):
     except Exception:
         pass
     _assert_corrections_are_user_data(captured_client)
+
+
+def test_converse_places_corrections_in_the_first_user_turn(captured_client):
+    """The only call shape with an assistant turn in the history.
+
+    `chat` and `vision` both hand `_complete` a single user message, so
+    neither can show what happens when the history does not start with one.
+    `converse` is the shape where "prepend to the first USER turn" is a real
+    decision rather than a tautology — and the AI Partner is its only
+    production caller, whose own tests stub `converse` outright.
+    """
+    from src.tradelens.services.ai_client import converse
+
+    history = [
+        {"role": "assistant", "content": "What would you like to review?"},
+        {"role": "user", "content": "How did my NQ trades go?"},
+    ]
+    converse(history, system_message="PBASE")
+
+    sent = captured_client.messages.create.call_args[1]["messages"]
+
+    # Landed in the user turn, not as a new leading message and not in the
+    # assistant's mouth — putting words there would have the model treat its
+    # own prior turn as having said them.
+    assert len(sent) == 2
+    assert sent[0]["role"] == "assistant"
+    assert "<past_corrections>" not in sent[0]["content"]
+    assert "<past_corrections>" in sent[1]["content"]
+    assert "How did my NQ trades go?" in sent[1]["content"]
+    assert "<past_corrections>" not in _system_blob(captured_client)
+
+
+def test_converse_does_not_mutate_the_caller_s_history(captured_client):
+    """The Partner drawer keeps using its list after the call returns.
+
+    Mutating it in place would append the correction block into the stored
+    conversation, so every later turn would carry another copy.
+    """
+    from src.tradelens.services.ai_client import converse
+
+    history = [{"role": "user", "content": "How did my NQ trades go?"}]
+    converse(history, system_message="PBASE")
+
+    assert history == [{"role": "user", "content": "How did my NQ trades go?"}]

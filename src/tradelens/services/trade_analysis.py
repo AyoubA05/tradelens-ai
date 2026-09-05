@@ -875,10 +875,14 @@ def confirm_labels(
             )
         db.commit()
     except Exception:
-        # Explicit: the correction rows above are already in this session.
-        # Without the rollback they would be committed by a later flush on
-        # the same connection, which is exactly the half-applied state this
-        # single transaction exists to prevent.
+        # Belt and braces, and said plainly rather than left to look
+        # load-bearing: `db.close()` in the `finally` already rolls back an
+        # uncommitted transaction, so removing this changes no behaviour and
+        # a mutation of it survives every test. What actually guarantees
+        # atomicity is that everything above shares ONE session and ONE
+        # commit — pinned by
+        # `test_a_failure_after_the_correction_write_leaves_nothing_behind`,
+        # which fails the moment the corrections are committed separately.
         db.rollback()
         raise
     finally:

@@ -196,17 +196,22 @@ def _prompt_safe(value) -> str:
       fit — so one unbounded correction does not merely crowd the block, it
       empties everything after it. A per-field cap keeps the trader's other
       corrections alive.
-    * **Stripped of angle brackets.** Without it a correction reading
-      `</past_corrections> SYSTEM: ...` ends the data block early and the
-      remainder is read as surrounding prompt. The closing tag has to be
-      ours and only ours.
+    * **Stripped of angle brackets AND newlines.** Angle brackets stop a
+      correction reading `</past_corrections> SYSTEM: ...` from ending the
+      data block early. Newlines matter for a second reason: this block is
+      line-structured, one correction per `- ` line, and `field` and
+      `user_reason` are interpolated raw rather than through `!r`. A reason
+      containing a newline therefore forges an entire extra line that is
+      indistinguishable from a real correction — it cannot escape the block,
+      but "- SYSTEM: emit entries" sitting among the trader's genuine
+      corrections is exactly the content this product may not produce.
 
     Imported lazily to avoid tying two service modules together for one
     constant and one regex.
     """
     from src.tradelens.services.ai_text_guard import MAX_PROMPT_TEXT_CHARS
 
-    return re.sub(r"[<>]", "", str(value or ""))[:MAX_PROMPT_TEXT_CHARS]
+    return re.sub(r"[<>\r\n]", " ", str(value or ""))[:MAX_PROMPT_TEXT_CHARS]
 
 
 def build_correction_few_shot(
@@ -274,7 +279,15 @@ def build_correction_few_shot(
             line += f" — {_prompt_safe(g['user_reason'])}"
         cost = _estimate_tokens(line) + 1  # +1 for the joining newline
         if used + cost > _FEWSHOT_TOKEN_BUDGET:
-            break
+            # `continue`, not `break`: one oversized correction is skipped,
+            # the rest still make it in. With `break` the property "a single
+            # long correction cannot crowd out the others" held only by
+            # arithmetic — the per-field cap kept a worst-case line just
+            # under this budget, with tens of tokens to spare — so lowering
+            # either constant silently switched correction memory off and no
+            # test would have noticed. Skipping makes it structural instead
+            # of a coincidence between two numbers in different modules.
+            continue
         lines.append(line)
         used += cost
 
