@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const authenticate = vi.fn();
 const appRedirect = vi.fn();
 const fetchTradeDetail = vi.fn();
+const fetchAnalysis = vi.fn();
 const redirect = vi.fn((path: string) => {
   throw new Error(`redirect:${path}`);
 });
@@ -25,6 +26,9 @@ vi.mock("@/lib/auth/session", () => ({
 vi.mock("@/lib/app/trades", () => ({
   fetchTradeDetail: (...args: unknown[]) => fetchTradeDetail(...args),
 }));
+vi.mock("@/lib/app/trade-analysis", () => ({
+  fetchAnalysis: (...args: unknown[]) => fetchAnalysis(...args),
+}));
 vi.mock("@/components/app/trade-detail/trade-detail-view", () => ({
   TradeDetailView: () => null,
 }));
@@ -38,6 +42,8 @@ beforeEach(() => {
   authenticate.mockReset();
   appRedirect.mockReset();
   fetchTradeDetail.mockReset();
+  fetchAnalysis.mockReset();
+  fetchAnalysis.mockRejectedValue(new ApiError(404, "not found"));
   redirect.mockClear();
   notFound.mockClear();
 });
@@ -136,5 +142,12 @@ describe("Trade Detail page id parsing", () => {
     fetchTradeDetail.mockResolvedValue({ id: 1234567890123456, screenshots: [] });
     await TradeDetailPage({ params: Promise.resolve({ id: "1234567890123456" }) });
     expect(fetchTradeDetail).toHaveBeenCalledWith("browser-token", 1234567890123456);
+    expect(fetchAnalysis).toHaveBeenCalledWith("browser-token", 1234567890123456);
+  });
+
+  it("does not read the AI review for a trade the caller cannot see", async () => {
+    fetchTradeDetail.mockRejectedValue(new ApiError(404, "not found"));
+    await expect(TradeDetailPage({ params })).rejects.toThrow("notFound");
+    expect(fetchAnalysis).not.toHaveBeenCalled();
   });
 });

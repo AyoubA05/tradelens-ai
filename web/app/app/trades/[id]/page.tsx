@@ -7,6 +7,8 @@ import {
   sessionTokenFromCookieHeader,
 } from "@/lib/auth/session";
 import { fetchTradeDetail } from "@/lib/app/trades";
+import { fetchAnalysis } from "@/lib/app/trade-analysis";
+import type { AIAnalysisDetail } from "@/lib/app/trade-analysis";
 import { ApiError } from "@/lib/api/client";
 import { TradeDetailView } from "@/components/app/trade-detail/trade-detail-view";
 
@@ -63,9 +65,20 @@ export default async function TradeDetailPage({
     throw err;
   }
 
+  // A trade with no analysis is a 404 upstream, never an empty object, and
+  // that 404 becomes `null` here — the panel's "not analysed yet" state.
+  // Any other failure is not swallowed: it would otherwise render as "never
+  // analysed" for a trade that has in fact been reviewed.
+  let analysis: AIAnalysisDetail | null = null;
+  try {
+    analysis = await fetchAnalysis(token, tradeId);
+  } catch (err) {
+    if (!(err instanceof ApiError && err.status === 404)) throw err;
+  }
+
   return (
     <div className="mx-auto max-w-6xl">
-      <TradeDetailView trade={trade} />
+      <TradeDetailView trade={trade} analysis={analysis} />
     </div>
   );
 }

@@ -65,13 +65,21 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("TradeDetailView", () => {
   it("shows the read view and screenshots by default, not the edit form", () => {
-    render(<TradeDetailView trade={TRADE} />);
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
     expect(screen.getByRole("heading", { name: "NQ" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /save changes/i })).not.toBeInTheDocument();
   });
 
+  it("renders the AI review panel in the read view and leaves it out while editing", () => {
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
+    expect(screen.getByRole("heading", { name: /ai review/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+    expect(screen.queryByRole("heading", { name: /ai review/i })).not.toBeInTheDocument();
+  });
+
   it("switches to the edit form and back via Cancel", () => {
-    render(<TradeDetailView trade={TRADE} />);
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
     fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
     expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
 
@@ -81,7 +89,7 @@ describe("TradeDetailView", () => {
   });
 
   it("hides Edit/Delete while editing, so they cannot be triggered mid-edit", () => {
-    render(<TradeDetailView trade={TRADE} />);
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
     fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
     expect(screen.queryByRole("button", { name: /^delete$/i })).not.toBeInTheDocument();
   });
@@ -91,7 +99,7 @@ describe("TradeDetailView", () => {
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => TRADE }),
     );
-    render(<TradeDetailView trade={TRADE} />);
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
     fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
 
@@ -104,7 +112,7 @@ describe("TradeDetailView", () => {
       "fetch",
       vi.fn().mockResolvedValue({ ok: false, status: 409, json: async () => ({ error: "stale_trade" }) }),
     );
-    render(<TradeDetailView trade={TRADE} />);
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
     fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
 
@@ -114,14 +122,14 @@ describe("TradeDetailView", () => {
   });
 
   it("opens the delete dialog from the Delete button", () => {
-    render(<TradeDetailView trade={TRADE} />);
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
     fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("navigates to the journal after a confirmed delete", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 204 }));
-    render(<TradeDetailView trade={TRADE} />);
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
     fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
@@ -131,7 +139,7 @@ describe("TradeDetailView", () => {
   it("deletes against this trade's own id", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ status: 204 });
     vi.stubGlobal("fetch", fetchMock);
-    render(<TradeDetailView trade={TRADE} />);
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
     fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
@@ -152,7 +160,7 @@ describe("TradeDetailView", () => {
         json: async () => ({ error: "screenshot_cleanup_failed", unresolvable: false }),
       }),
     );
-    render(<TradeDetailView trade={TRADE} />);
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
     fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
@@ -173,7 +181,7 @@ describe("TradeDetailView", () => {
         json: async () => ({ error: "screenshot_cleanup_failed", unresolvable: true }),
       }),
     );
-    render(<TradeDetailView trade={TRADE} />);
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
     fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
@@ -196,7 +204,7 @@ describe("TradeDetailView", () => {
         },
       }),
     );
-    render(<TradeDetailView trade={TRADE} />);
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
     fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
@@ -209,7 +217,7 @@ describe("TradeDetailView", () => {
 
   it("reports a non-503 failure as a failure, never as a deletion", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 502 }));
-    render(<TradeDetailView trade={TRADE} />);
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
     fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
@@ -222,7 +230,7 @@ describe("TradeDetailView", () => {
   it("treats only a real 204 from the relay as a deletion", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ status: 204 });
     vi.stubGlobal("fetch", fetchMock);
-    render(<TradeDetailView trade={TRADE} />);
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
     fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^delete trade$/i }));
 
@@ -232,7 +240,7 @@ describe("TradeDetailView", () => {
   });
 
   it("links back to the journal", () => {
-    render(<TradeDetailView trade={TRADE} />);
+    render(<TradeDetailView trade={TRADE} analysis={null} />);
     expect(screen.getByRole("link", { name: /back to journal/i })).toHaveAttribute(
       "href",
       "/app/journal",
