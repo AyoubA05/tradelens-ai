@@ -50,8 +50,41 @@ def captured_client(monkeypatch):
 
 
 def _system_blob(client) -> str:
-    system = client.messages.create.call_args[1]["system"]
+    system = client.messages.create.call_args[1].get("system")
+    if system is None:
+        return ""
     return system if isinstance(system, str) else system[0]["text"]
+
+
+def _user_blob(client) -> str:
+    """Everything the model receives in the user turn, as one string."""
+    messages = client.messages.create.call_args[1]["messages"]
+    parts = []
+    for message in messages:
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            parts.append(content)
+        elif isinstance(content, list):
+            parts.extend(
+                block.get("text", "")
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "text"
+            )
+    return "\n".join(parts)
+
+
+def _assert_corrections_are_user_data(client) -> None:
+    """The block reaches the model, and it does NOT hold system authority.
+
+    Both halves matter. Asserting only its presence would pass if it were
+    still in `system`; asserting only its absence from `system` would pass
+    if it had been dropped entirely and correction memory silently stopped
+    working. It is trader-typed text, so it travels as data.
+    """
+    assert "<past_corrections>" in _user_blob(client)
+    assert "<past_corrections>" not in _system_blob(client)
 
 
 def _fake_trades():
@@ -81,7 +114,7 @@ def test_vision_call_injects_corrections(captured_client, tmp_path):
         analyze_screenshot(str(img), {"asset": "NQ"})
     except Exception:
         pass
-    assert "<past_corrections>" in _system_blob(captured_client)
+    _assert_corrections_are_user_data(captured_client)
 
 
 def test_journal_call_injects_corrections(captured_client):
@@ -91,7 +124,7 @@ def test_journal_call_injects_corrections(captured_client):
         generate_journal({"asset": "NQ"}, {})
     except Exception:
         pass
-    assert "<past_corrections>" in _system_blob(captured_client)
+    _assert_corrections_are_user_data(captured_client)
 
 
 def test_grading_call_injects_corrections(captured_client):
@@ -101,7 +134,7 @@ def test_grading_call_injects_corrections(captured_client):
         grade_trade({"asset": "NQ"}, None, {})
     except Exception:
         pass
-    assert "<past_corrections>" in _system_blob(captured_client)
+    _assert_corrections_are_user_data(captured_client)
 
 
 def test_patterns_call_injects_corrections(captured_client):
@@ -111,7 +144,7 @@ def test_patterns_call_injects_corrections(captured_client):
         generate_cards({"total_trades": 3})
     except Exception:
         pass
-    assert "<past_corrections>" in _system_blob(captured_client)
+    _assert_corrections_are_user_data(captured_client)
 
 
 def test_weekly_call_injects_corrections(captured_client, monkeypatch):
@@ -122,4 +155,4 @@ def test_weekly_call_injects_corrections(captured_client, monkeypatch):
         weekly.generate_weekly_review("2026-06-17", user_id=1)
     except Exception:
         pass
-    assert "<past_corrections>" in _system_blob(captured_client)
+    _assert_corrections_are_user_data(captured_client)

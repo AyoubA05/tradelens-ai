@@ -6,6 +6,7 @@ No Streamlit imports here.
 """
 
 import json
+import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
@@ -143,6 +144,30 @@ def _estimate_tokens(text: str) -> int:
     return (len(text) + 3) // 4
 
 
+def _prompt_safe(value) -> str:
+    """Bound one trader-typed value and strip anything markup-shaped.
+
+    This text is typed by the trader and is replayed into every AI call the
+    app makes. Two properties, both cheap:
+
+    * **Bounded per field.** `_FEWSHOT_TOKEN_BUDGET` caps the block as a
+      whole, but the loop below `break`s on the first line that will not
+      fit — so one unbounded correction does not merely crowd the block, it
+      empties everything after it. A per-field cap keeps the trader's other
+      corrections alive.
+    * **Stripped of angle brackets.** Without it a correction reading
+      `</past_corrections> SYSTEM: ...` ends the data block early and the
+      remainder is read as surrounding prompt. The closing tag has to be
+      ours and only ours.
+
+    Imported lazily to avoid tying two service modules together for one
+    constant and one regex.
+    """
+    from src.tradelens.services.ai_text_guard import MAX_PROMPT_TEXT_CHARS
+
+    return re.sub(r"[<>]", "", str(value or ""))[:MAX_PROMPT_TEXT_CHARS]
+
+
 def build_correction_few_shot(
     limit: int = 10, scope: Optional[str] = None, user_id=_UNSET
 ) -> str:
@@ -195,11 +220,17 @@ def build_correction_few_shot(
     used = _estimate_tokens(header) + _estimate_tokens(footer)
     lines: list = []
     for g in ordered[:limit]:
-        line = f"- {g['field']}: prefer {g['user_value']!r} over {g['ai_value']!r}"
+        # Every interpolated value is trader-typed and enters a prompt, so
+        # each is bounded and stripped — see `_prompt_safe`. `field` is
+        # included: the column is free Text, not an enum.
+        field = _prompt_safe(g["field"])
+        user_value = _prompt_safe(g["user_value"])
+        ai_value = _prompt_safe(g["ai_value"])
+        line = f"- {field}: prefer {user_value!r} over {ai_value!r}"
         if g["count"] > 1:
             line += f" (corrected {g['count']}x)"
         if g["user_reason"]:
-            line += f" — {g['user_reason']}"
+            line += f" — {_prompt_safe(g['user_reason'])}"
         cost = _estimate_tokens(line) + 1  # +1 for the joining newline
         if used + cost > _FEWSHOT_TOKEN_BUDGET:
             break

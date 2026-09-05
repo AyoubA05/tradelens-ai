@@ -322,10 +322,17 @@ def test_chat_injects_past_corrections_block(monkeypatch):
 
     chat("hello", system_message="BASE")
     system = client.messages.create.call_args[1]["system"]
-    blob = system if isinstance(system, str) else system[0]["text"]
-    assert "<past_corrections>" in blob
-    assert "bias: prefer 'bearish'" in blob
-    assert "BASE" in blob
+    system_blob = system if isinstance(system, str) else system[0]["text"]
+    user_blob = client.messages.create.call_args[1]["messages"][0]["content"]
+
+    # The block reaches the model as USER data, carrying no system authority:
+    # it is built from free text the trader typed.
+    assert "<past_corrections>" in user_blob
+    assert "bias: prefer 'bearish'" in user_blob
+    assert "hello" in user_blob
+    assert "<past_corrections>" not in system_blob
+    # The caller's own system message is untouched and still stands alone.
+    assert system_blob == "BASE"
 
 
 def test_chat_without_corrections_keeps_system_exact(monkeypatch):
@@ -354,9 +361,15 @@ def test_vision_injects_past_corrections_block(monkeypatch, tmp_path):
 
     vision(str(img), "analyze", system_message="VBASE")
     system = client.messages.create.call_args[1]["system"]
-    blob = system if isinstance(system, str) else system[0]["text"]
-    assert "<past_corrections>" in blob
-    assert "VBASE" in blob
+    system_blob = system if isinstance(system, str) else system[0]["text"]
+    content = client.messages.create.call_args[1]["messages"][0]["content"]
+    text_blocks = [b["text"] for b in content if b.get("type") == "text"]
+
+    # Vision's content is a block list, so the correction block is prepended
+    # as its own text block ahead of the image.
+    assert any("<past_corrections>" in t for t in text_blocks)
+    assert "<past_corrections>" not in system_blob
+    assert system_blob == "VBASE"
 
 
 def test_demo_mode_still_builds_corrections(monkeypatch):
