@@ -244,6 +244,23 @@ def test_correcting_the_ai_makes_the_next_analysis_a_new_job(
     assert second.json()["created"] is True
 
 
+def test_releasing_a_label_makes_reanalysis_new_work(client, website_session_handle):
+    """A cached pre-release job cannot populate a field the trader just unlocked."""
+    owner, handle = website_session_handle
+    trade_id, shot_id = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id, job_id=1)
+    _patch_labels(client, handle, trade_id, {"bias": "bearish"})
+
+    before_release = _enqueue_analysis(client, handle, trade_id, shot_id)
+    released = _patch_labels(client, handle, trade_id, {"release": ["bias"]})
+    assert released.status_code == 200
+    after_release = _enqueue_analysis(client, handle, trade_id, shot_id)
+
+    assert after_release.status_code == 202
+    assert after_release.json()["job_id"] != before_release.json()["job_id"]
+    assert after_release.json()["created"] is True
+
+
 # ------------------------------------------------------------- cost gates
 
 
@@ -456,6 +473,38 @@ def test_regenerating_an_unchanged_result_returns_the_same_job(
     assert second.json()["created"] is False
 
 
+@pytest.mark.parametrize("what", ["journal", "grade"])
+def test_storing_a_derived_result_does_not_invalidate_its_own_job_key(
+    client, website_session_handle, what
+):
+    """Using analysis.updated_at as input makes every successful run billable again."""
+    from src.tradelens.db.models import AIAnalysis
+    from src.tradelens.db.session import SessionLocal
+
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id, job_id=7)
+    first = _enqueue(client, handle, trade_id, what)
+
+    # This is the observable state change made by either derived worker.
+    db = SessionLocal()
+    try:
+        row = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).one()
+        row.updated_at = "2099-01-01T00:00:00+00:00"
+        if what == "journal":
+            row.journal_job_id = first.json()["job_id"]
+        else:
+            row.grading_job_id = first.json()["job_id"]
+        db.commit()
+    finally:
+        db.close()
+
+    second = _enqueue(client, handle, trade_id, what)
+    assert second.status_code == 202
+    assert second.json()["job_id"] == first.json()["job_id"]
+    assert second.json()["created"] is False
+
+
 def test_a_journal_and_a_grade_for_one_trade_are_different_jobs(
     client, website_session_handle
 ):
@@ -511,6 +560,24 @@ def test_the_derived_limit_is_429_and_creates_no_job(
     response = _enqueue(client, handle, trade_id, what)
 
     assert response.status_code == 429
+    assert _jobs_of(owner) == before
+
+
+def test_an_unreadable_release_state_refuses_instead_of_returning_500(
+    client, website_session_handle, monkeypatch
+):
+    """The release-state term is part of cache identity and must fail closed too."""
+    owner, handle = website_session_handle
+    trade_id, shot_id = _trade_with_screenshot(owner)
+    before = _jobs_of(owner)
+
+    def boom(_uid, _trade_id):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(trade_analysis, "_analysis_control_fingerprint", boom)
+    response = _enqueue_analysis(client, handle, trade_id, shot_id)
+
+    assert response.status_code == 503
     assert _jobs_of(owner) == before
 
 
@@ -881,6 +948,29 @@ def test_a_server_owned_field_cannot_be_confirmed(client, website_session_handle
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"bias": "x" * 501},
+        {"detected_setup": "x" * 501},
+        {"matched_strategy": "x" * 501},
+        {"user_grade": "x" * 501},
+        {"trade_quality": 0},
+        {"trade_quality": 11},
+    ],
+)
+def test_label_patch_rejects_unbounded_or_out_of_range_values(
+    client, website_session_handle, payload
+):
+    """Removing schema bounds turns the confirmation API into unbounded storage."""
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+
+    response = _patch_labels(client, handle, trade_id, payload)
+    assert response.status_code == 422
+
+
 def test_a_failure_after_the_correction_write_leaves_nothing_behind(
     client, website_session_handle, monkeypatch
 ):
@@ -1095,3 +1185,26 @@ def test_an_unparseable_raw_response_offers_no_proposals(
 
     assert response.status_code == 200
     assert response.json()["latest_proposals"] == {}
+
+
+def test_latest_proposals_bounds_model_text(client, website_session_handle):
+    """Dropping the projection bound would return the entire model string."""
+    from src.tradelens.db.models import AIAnalysis
+    from src.tradelens.db.session import SessionLocal
+
+    owner, handle = website_session_handle
+    trade_id, _shot = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+    db = SessionLocal()
+    try:
+        row = db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).one()
+        row.raw_response_json = json.dumps({"bias": "x" * 5000})
+        db.commit()
+    finally:
+        db.close()
+
+    path = f"/v1/trades/{trade_id}/analysis"
+    response = client.get(path, headers=_headers(handle, "GET", path))
+
+    assert response.status_code == 200
+    assert len(response.json()["latest_proposals"]["bias"]) == 500

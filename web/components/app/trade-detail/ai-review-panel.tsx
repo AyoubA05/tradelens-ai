@@ -394,7 +394,7 @@ function Step({
           <h3 className="font-display text-base font-semibold text-text">{title}</h3>
           <p className="mt-1 max-w-xl text-sm leading-6 text-muted">{description}</p>
         </div>
-        {unavailable === null && state.phase !== "limited" && (
+        {unavailable === null && (
           <button
             type="button"
             onClick={onRun}

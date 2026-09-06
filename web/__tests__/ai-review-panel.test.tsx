@@ -151,8 +151,9 @@ describe("AIReviewPanel", () => {
     await waitFor(() =>
       expect(screen.getByText(/reached 20 AI analyses for today/i)).toBeInTheDocument(),
     );
-    // Presented as a limit, not as a failure with a retry.
-    expect(screen.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument();
+    // Presented as a limit, not as a failure, while retaining a retry for
+    // when the rolling window expires without forcing a full-page reload.
+    expect(screen.getByRole("button", { name: /try again/i })).toBeEnabled();
     expect(screen.queryByText(/didn't finish/i)).not.toBeInTheDocument();
   });
 

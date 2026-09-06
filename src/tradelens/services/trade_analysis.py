@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import update
+from sqlalchemy import exists, update
 from sqlalchemy.exc import IntegrityError
 
 from src.tradelens.api import storage
@@ -51,6 +51,7 @@ from src.tradelens.services.corrections import (
 )
 from src.tradelens.services.grading import (
     GradingError,
+    _validate_grading_result,
     build_grading_context,
     grade_trade,
 )
@@ -219,9 +220,34 @@ def _fingerprint(kind: str, *parts) -> str:
     return f"{kind}:{digest}"
 
 
+def _analysis_control_fingerprint(user_id: int, trade_id: int) -> str:
+    """Version the lock/release state that changes what an analysis may write."""
+    owner = require_user_id(user_id)
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(AIAnalysis.confirmed_at, AIAnalysis.confirmed_fields_json)
+            .join(Trade, Trade.id == AIAnalysis.trade_id)
+            .filter(AIAnalysis.trade_id == trade_id, Trade.user_id == owner)
+            .first()
+        )
+    finally:
+        db.close()
+    if row is None:
+        return "unlocked"
+    return hashlib.sha256(
+        f"{row[0] or ''}|{row[1] or '[]'}".encode("utf-8")
+    ).hexdigest()[:16]
+
+
 def analysis_key(
     user_id: int, trade_id: int, screenshot_id: int, trade_updated_at
 ) -> str:
+    try:
+        control_version = _analysis_control_fingerprint(user_id, trade_id)
+    except Exception as exc:  # noqa: BLE001 — typed fail-closed cache refusal
+        _log.error("analysis control fingerprint unavailable (%s)", type(exc).__name__)
+        raise AIInputVersionUnavailable("the AI context could not be read") from exc
     return _fingerprint(
         ANALYSIS_JOB_KIND,
         trade_id,
@@ -229,30 +255,27 @@ def analysis_key(
         trade_updated_at,
         ANALYSIS_PROMPT_VERSION,
         ai_input_version(user_id),
+        control_version,
     )
 
 
-def journal_key(
-    user_id: int, trade_id: int, trade_updated_at, analysis_updated_at
-) -> str:
+def journal_key(user_id: int, trade_id: int, trade_updated_at, analysis_job_id) -> str:
     return _fingerprint(
         JOURNAL_JOB_KIND,
         trade_id,
         trade_updated_at,
-        analysis_updated_at,
+        analysis_job_id,
         JOURNAL_PROMPT_VERSION,
         ai_input_version(user_id),
     )
 
 
-def grade_key(
-    user_id: int, trade_id: int, trade_updated_at, analysis_updated_at
-) -> str:
+def grade_key(user_id: int, trade_id: int, trade_updated_at, analysis_job_id) -> str:
     return _fingerprint(
         GRADE_JOB_KIND,
         trade_id,
         trade_updated_at,
-        analysis_updated_at,
+        analysis_job_id,
         GRADE_PROMPT_VERSION,
         ai_input_version(user_id),
     )
@@ -385,7 +408,15 @@ def store_analysis(
                 return WriteOutcome(written=True, superseded=False)
             except IntegrityError:
                 db.rollback()
-                return WriteOutcome(written=False, superseded=True)
+                # Another first-ever worker inserted between our SELECT and
+                # INSERT. The uniqueness loser is not necessarily stale: a
+                # newer job may lose the race to an older one. Re-read and
+                # fall through to the same atomic `< job_id` UPDATE used for
+                # every established row, so ordering—not insertion timing—
+                # decides which result survives.
+                existing = (
+                    db.query(AIAnalysis).filter(AIAnalysis.trade_id == trade_id).one()
+                )
 
         # The confirmation lock. Intersected with `values` first, so a stored
         # name that is not one of this write's own keys — a stray entry, a
@@ -430,7 +461,7 @@ class AnalysisUnavailable(Exception):
     """
 
 
-def _analyse_bytes(data: bytes, on_usage) -> dict:
+def _analyse_bytes(data: bytes, trade_context: dict, strategy, on_usage) -> dict:
     """Quality-check then analyse promoted bytes, returning raw v3 output.
 
     The bytes are materialised to a temp file only because the vision client
@@ -448,7 +479,7 @@ def _analyse_bytes(data: bytes, on_usage) -> dict:
             raise AnalysisUnavailable("that screenshot could not be read")
         try:
             analysis, _usage = analyze_screenshot_v3(
-                temp_path, {}, None, on_usage=on_usage
+                temp_path, trade_context, strategy, on_usage=on_usage
             )
         except ScreenshotAnalysisError as exc:
             raise AnalysisUnavailable(str(exc)) from exc
@@ -458,6 +489,70 @@ def _analyse_bytes(data: bytes, on_usage) -> dict:
             os.unlink(temp_path)
         except OSError:  # pragma: no cover — best effort, never masks a result
             pass
+
+
+def _analysis_trade_context(owner: int, trade_id: int) -> dict:
+    """Owned, bounded trade context for the screenshot review prompt."""
+    db = SessionLocal()
+    try:
+        trade = (
+            db.query(Trade).filter(Trade.id == trade_id, Trade.user_id == owner).first()
+        )
+        if trade is None:
+            raise ValueError("trade not found")
+        raw = {
+            "id": int(trade.id),
+            "asset": trade.asset,
+            "direction": trade.direction,
+            "result": trade.result,
+            "pnl": trade.pnl,
+            "session": trade.session,
+            "setup_type": trade.setup_type,
+            "bias": trade.bias,
+            "strategy_used": trade.strategy_used,
+            "notes": trade.notes,
+            "emotions_before": trade.emotions_before,
+            "emotions_during": trade.emotions_during,
+            "emotions_after": trade.emotions_after,
+            "trade_date": trade.trade_date,
+        }
+    finally:
+        db.close()
+    return _sanitised_trade_context(raw)
+
+
+def _validated_analysis_descriptive(value) -> dict:
+    """Strictly validate the Phase 5 subset before persistence or display."""
+    if not isinstance(value, dict):
+        raise AnalysisUnavailable("the analysis response was not usable")
+    out = dict(value)
+    for field in ("bias", "matched_strategy"):
+        item = out.get(field)
+        if item is not None and not isinstance(item, str):
+            raise AnalysisUnavailable("the analysis response was not usable")
+        if isinstance(item, str):
+            out[field] = bounded_text(item)
+            reject_forward_looking(out[field])
+    quality = out.get("trade_quality")
+    if quality is not None and (
+        isinstance(quality, bool)
+        or not isinstance(quality, int)
+        or not 1 <= quality <= 10
+    ):
+        raise AnalysisUnavailable("the analysis response was not usable")
+    for field in _UNTRUSTED_ANALYSIS_LISTS:
+        items = out.get(field)
+        if items is None:
+            out[field] = []
+            continue
+        if not isinstance(items, list) or any(
+            not isinstance(item, str) for item in items
+        ):
+            raise AnalysisUnavailable("the analysis response was not usable")
+        out[field] = [bounded_text(item) for item in items[:MAX_PROMPT_LIST_ITEMS]]
+        for item in out[field]:
+            reject_forward_looking(item)
+    return out
 
 
 def run_analysis(
@@ -493,8 +588,16 @@ def run_analysis(
         on_usage(usage)
         captured["usage"] = usage
 
-    analysis = _analyse_bytes(data, _capture)
-    descriptive = analysis.get("descriptive") or {}
+    analysis = _analyse_bytes(
+        data,
+        _analysis_trade_context(owner, trade_id),
+        _sanitised_strategy(get_active_strategy(owner)),
+        _capture,
+    )
+    try:
+        descriptive = _validated_analysis_descriptive(analysis.get("descriptive"))
+    except ForwardLookingContent as exc:
+        raise AnalysisUnavailable(str(exc)) from exc
     return store_analysis(
         owner,
         trade_id,
@@ -591,6 +694,16 @@ def _sanitised_analysis_context(ai_dict: dict) -> dict:
     return out
 
 
+def _sanitised_strategy(strategy):
+    """Bound every trader-authored Strategy Profile string before prompting."""
+    if not isinstance(strategy, dict):
+        return strategy
+    return {
+        key: _prompt_scalar(value) if isinstance(value, str) else value
+        for key, value in strategy.items()
+    }
+
+
 def _generate_journal_markdown(trade_dict: dict, ai_dict: dict, strategy, on_usage):
     """The provider call, isolated so tests can replace exactly this seam."""
     # `on_usage` is handed DOWN rather than applied to the return value.
@@ -637,13 +750,16 @@ def run_journal(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteO
     """
     owner = require_user_id(user_id)
     trade, analysis = _load_for_generation(owner, trade_id)
+    source_analysis_job_id = analysis.analysis_job_id
+    source_confirmed_at = analysis.confirmed_at
+    source_trade_updated_at = trade.updated_at
     trade_dict, ai_dict = build_journal_context(trade, analysis)
 
     try:
         markdown = _generate_journal_markdown(
             _sanitised_trade_context(trade_dict),
             _sanitised_analysis_context(ai_dict),
-            get_active_strategy(owner),
+            _sanitised_strategy(get_active_strategy(owner)),
             on_usage,
         )
         reject_forward_looking(markdown)
@@ -657,8 +773,15 @@ def run_journal(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteO
             update(AIAnalysis)
             .where(
                 AIAnalysis.trade_id == trade_id,
+                AIAnalysis.analysis_job_id == source_analysis_job_id,
+                AIAnalysis.confirmed_at == source_confirmed_at,
                 (AIAnalysis.journal_job_id.is_(None))
                 | (AIAnalysis.journal_job_id < job_id),
+                exists().where(
+                    Trade.id == trade_id,
+                    Trade.user_id == owner,
+                    Trade.updated_at == source_trade_updated_at,
+                ),
             )
             .values(journal_entry_md=markdown, journal_job_id=job_id, updated_at=now)
             .execution_options(synchronize_session=False)
@@ -711,15 +834,19 @@ def run_grade(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteOut
     """
     owner = require_user_id(user_id)
     trade, analysis = _load_for_generation(owner, trade_id)
+    source_analysis_job_id = analysis.analysis_job_id
+    source_confirmed_at = analysis.confirmed_at
+    source_trade_updated_at = trade.updated_at
     trade_dict, vision_dict = build_grading_context(trade, analysis)
 
     try:
         result = _generate_grading(
             _sanitised_trade_context(trade_dict),
-            get_active_strategy(owner),
+            _sanitised_strategy(get_active_strategy(owner)),
             _sanitised_analysis_context(vision_dict),
             on_usage,
         )
+        _validate_grading_result(result)
         for text in _grading_free_text(result):
             reject_forward_looking(text)
     except (GradingError, ForwardLookingContent, ValueError) as exc:
@@ -732,8 +859,15 @@ def run_grade(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteOut
             update(AIAnalysis)
             .where(
                 AIAnalysis.trade_id == trade_id,
+                AIAnalysis.analysis_job_id == source_analysis_job_id,
+                AIAnalysis.confirmed_at == source_confirmed_at,
                 (AIAnalysis.grading_job_id.is_(None))
                 | (AIAnalysis.grading_job_id < job_id),
+                exists().where(
+                    Trade.id == trade_id,
+                    Trade.user_id == owner,
+                    Trade.updated_at == source_trade_updated_at,
+                ),
             )
             .values(
                 grading_json=json.dumps(result),

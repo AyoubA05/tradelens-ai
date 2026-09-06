@@ -163,11 +163,11 @@ class AIAnalysisLabelPatch(_Strict):
     values are: it must never become a way to name arbitrary columns.
     """
 
-    bias: Optional[str] = None
-    detected_setup: Optional[str] = None
-    trade_quality: Optional[int] = None
-    matched_strategy: Optional[str] = None
-    user_grade: Optional[str] = None
+    bias: Optional[str] = Field(default=None, max_length=500)
+    detected_setup: Optional[str] = Field(default=None, max_length=500)
+    trade_quality: Optional[int] = Field(default=None, ge=1, le=10)
+    matched_strategy: Optional[str] = Field(default=None, max_length=500)
+    user_grade: Optional[str] = Field(default=None, max_length=500)
     release: List[
         Literal["bias", "detected_setup", "trade_quality", "matched_strategy"]
     ] = []

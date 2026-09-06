@@ -62,9 +62,35 @@ def _validate_grading_result(data: dict) -> None:
     Validate top-level keys AND all 5 rubric dimensions with score+note.
     Raises GradingError with a descriptive message on any violation.
     """
+    if not isinstance(data, dict):
+        raise GradingError("Grading response must be a JSON object.")
     missing_top = _REQUIRED_TOP_KEYS - data.keys()
     if missing_top:
         raise GradingError(f"Grading response missing top-level keys: {missing_top}")
+
+    # Historical/demo rows and the rest of the product support +/- grades,
+    # even though this prompt's compact example names only the base letters.
+    if data.get("grade") not in {
+        "A+",
+        "A",
+        "A-",
+        "B+",
+        "B",
+        "B-",
+        "C+",
+        "C",
+        "C-",
+        "D+",
+        "D",
+        "D-",
+        "F",
+    }:
+        raise GradingError("Grading response has an invalid grade.")
+    score = data.get("score")
+    if isinstance(score, bool) or not isinstance(score, int) or not 1 <= score <= 10:
+        raise GradingError("Grading response score must be an integer from 1 to 10.")
+    if not isinstance(data.get("one_line_verdict"), str):
+        raise GradingError("Grading response verdict must be text.")
 
     rubric = data.get("rubric", {})
     if not isinstance(rubric, dict):
@@ -83,6 +109,17 @@ def _validate_grading_result(data: dict) -> None:
             raise GradingError(
                 f"Rubric dimension '{dim}' missing fields: {missing_fields}"
             )
+        entry_score = entry.get("score")
+        if (
+            isinstance(entry_score, bool)
+            or not isinstance(entry_score, int)
+            or not 1 <= entry_score <= 10
+        ):
+            raise GradingError(
+                f"Rubric dimension '{dim}' score must be an integer from 1 to 10."
+            )
+        if not isinstance(entry.get("note"), str):
+            raise GradingError(f"Rubric dimension '{dim}' note must be text.")
 
 
 def build_grading_context(trade, analysis) -> tuple[dict, dict]:

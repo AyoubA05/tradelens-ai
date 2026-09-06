@@ -180,6 +180,7 @@
           "bias": {
             "anyOf": [
               {
+                "maxLength": 500,
                 "type": "string"
               },
               {
@@ -191,6 +192,7 @@
           "detected_setup": {
             "anyOf": [
               {
+                "maxLength": 500,
                 "type": "string"
               },
               {
@@ -202,6 +204,7 @@
           "matched_strategy": {
             "anyOf": [
               {
+                "maxLength": 500,
                 "type": "string"
               },
               {
@@ -227,6 +230,8 @@
           "trade_quality": {
             "anyOf": [
               {
+                "maximum": 10.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -238,6 +243,7 @@
           "user_grade": {
             "anyOf": [
               {
+                "maxLength": 500,
                 "type": "string"
               },
               {

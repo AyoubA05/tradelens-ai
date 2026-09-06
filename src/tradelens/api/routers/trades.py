@@ -58,6 +58,7 @@ from src.tradelens.api.schemas.trades import (
 )
 from src.tradelens.services import drafts, screenshot_service, url_ingest
 from src.tradelens.services.ai_analysis_service import get_analysis_for_trade
+from src.tradelens.services.ai_text_guard import bounded_text
 from src.tradelens.services.trade_analysis import (
     _UNSET_GRADE,
     CONFIRMABLE_LABEL_FIELDS,
@@ -819,7 +820,11 @@ def _enqueue_derived(
     # placeholder identity that could collide with an earlier job computed
     # under different AI context.
     try:
-        key = key_fn(user_id, trade_id, trade.updated_at, analysis.updated_at)
+        # Key only on the upstream analysis generation, not the row's shared
+        # `updated_at`: journal and grade writes update that timestamp too,
+        # which otherwise invalidates their own idempotency key and turns an
+        # unchanged retry into another paid job.
+        key = key_fn(user_id, trade_id, trade.updated_at, analysis.analysis_job_id)
     except AIInputVersionUnavailable:
         raise HTTPException(status_code=503, detail=_FINGERPRINT_UNAVAILABLE)
 
@@ -1001,7 +1006,7 @@ def _latest_proposals(raw) -> Dict[str, str]:
     if not isinstance(parsed, dict):
         return {}
     return {
-        field: str(parsed[field])
+        field: bounded_text(parsed[field])
         for field in sorted(CONFIRMABLE_LABEL_FIELDS)
         if parsed.get(field) is not None
     }

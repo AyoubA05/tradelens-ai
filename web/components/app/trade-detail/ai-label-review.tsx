@@ -84,6 +84,28 @@ export function AILabelReview({
   tradeId: number;
   onSaved: () => void;
 }) {
+  // A server refresh with a new analysis version is a new editing session.
+  // Keying the stateful child discards stale local values without an effect
+  // that synchronously cascades several state updates.
+  return (
+    <AILabelReviewState
+      key={analysis.updated_at ?? "unversioned"}
+      analysis={analysis}
+      tradeId={tradeId}
+      onSaved={onSaved}
+    />
+  );
+}
+
+function AILabelReviewState({
+  analysis,
+  tradeId,
+  onSaved,
+}: {
+  analysis: AIAnalysisDetail;
+  tradeId: number;
+  onSaved: () => void;
+}) {
   // The baseline is what the server last told us it holds. The diff is taken
   // against it, so "changed" survives a save without a page refetch.
   const [baseline, setBaseline] = useState<Values>(() => valuesOf(analysis));
@@ -122,7 +144,18 @@ export function AILabelReview({
           cache: "no-store",
           credentials: "same-origin",
         });
-        if (!response.ok) throw new Error("patch failed");
+        if (!response.ok) {
+          if (response.status === 409 || response.status === 429) {
+            const payload = (await response.json().catch(() => null)) as
+              | { detail?: unknown }
+              | null;
+            if (typeof payload?.detail === "string" && payload.detail.trim() !== "") {
+              setMessage({ tone: "problem", text: payload.detail });
+              return;
+            }
+          }
+          throw new Error("patch failed");
+        }
         const labels = (await response.json()) as { confirmed_fields?: unknown };
         if (Array.isArray(labels.confirmed_fields)) {
           setConfirmed(labels.confirmed_fields.map(String));

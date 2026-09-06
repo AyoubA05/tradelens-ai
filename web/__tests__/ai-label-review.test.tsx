@@ -52,6 +52,25 @@ afterEach(() => {
 });
 
 describe("AILabelReview", () => {
+  it("replaces stale local values when a refreshed analysis arrives", () => {
+    const view = render(
+      <AILabelReview analysis={ANALYSIS} tradeId={7} onSaved={() => {}} />,
+    );
+    fireEvent.change(screen.getByLabelText(/bias at entry/i), {
+      target: { value: "Unsaved stale edit" },
+    });
+
+    view.rerender(
+      <AILabelReview
+        analysis={{ ...ANALYSIS, bias: "Bearish", updated_at: "2026-09-01T11:00:00Z" }}
+        tradeId={7}
+        onSaved={() => {}}
+      />,
+    );
+
+    expect(screen.getByLabelText(/bias at entry/i)).toHaveValue("Bearish");
+  });
+
   it("marks an unconfirmed label as the AI's reading", () => {
     render(<AILabelReview analysis={ANALYSIS} tradeId={7} onSaved={() => {}} />);
 
@@ -145,6 +164,28 @@ describe("AILabelReview", () => {
     expect(screen.getByLabelText(/matched strategy/i)).toHaveValue("FVG fill");
     // Nothing here suggests the trade or its data is at risk.
     expect(screen.queryByText(/lost|deleted|at risk|corrupt/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the backend's actionable conflict detail without exposing arbitrary errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: async () => ({ detail: "A newer review changed these labels. Refresh and try again." }),
+      }),
+    );
+
+    render(<AILabelReview analysis={ANALYSIS} tradeId={7} onSaved={() => {}} />);
+    fireEvent.change(screen.getByLabelText(/bias at entry/i), {
+      target: { value: "Bearish" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save these labels/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/newer review changed these labels/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText(/bias at entry/i)).toHaveValue("Bearish");
   });
 
   it("fires no request when nothing has been changed", async () => {
