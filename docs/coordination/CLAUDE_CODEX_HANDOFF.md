@@ -7200,3 +7200,111 @@ filter on the grade denormalize (ownership is settled upstream).
 
 **Phase 5 is cleared for development merge. This is not deployment clearance** — the six gates above
 remain mandatory and none has been run.
+
+---
+
+# Codex Independent Phase 5 Review (2026-09-06)
+
+Reviewed merged `main` at `bc8cdff` against the Phase 5 plan, migration design, full Phase 5
+history/diff, and the implementation from the authenticated FastAPI boundary through queue,
+worker, services, persistence, relays, polling, and React state. This review did not start Phase 6.
+
+## Findings and fix-forward work
+
+No Critical finding and no cross-tenant read/write was reproduced. Two-user tests and an explicit
+ownership mutation confirmed that the service-layer `Trade.user_id` predicate remains load-bearing
+for analysis, journal, grade, confirm/release, and result reads; foreign jobs remain owner-and-kind
+scoped 404s.
+
+**High — malformed and forward-looking screenshot-analysis output was stored and displayed.**
+`vision._fill_defaults_v3` guarantees keys, not types or semantic validity. A dict in `bias`, a
+string/out-of-range `trade_quality`, a scalar list field, or forward-looking prose in
+`missed_opportunities` reached `store_analysis`; one case failed only as a database binding error,
+while others persisted and could later make the strict API response fail. Added strict Phase 5
+validation before persistence: scalar/list types, 1–10 quality, bounded strings/lists, and the shared
+post-trade-only output guard. Grading had the same presence-only weakness; grades, overall/rubric
+scores, verdicts, and rubric notes are now type/range checked while preserving the product's
+historical plus/minus grade set. Regression coverage supplies malformed types, ranges, nested list
+items, and forward-looking model prose and asserts that no result is stored.
+
+**Medium — derived results could land after their source changed during the paid call.**
+`run_journal` and `run_grade` guarded only their own monotonic job columns. A re-analysis, label
+confirmation, or trade edit during generation therefore allowed prose/grades computed from an old
+snapshot to commit afterward. Their conditional UPDATEs now also require the captured
+`analysis_job_id`, `confirmed_at`, owner, and trade `updated_at`. Deterministic interleaving tests
+change the source inside the provider seam and prove the result is reported superseded and not
+stored. Removing the new source-version predicate makes the named regression fail.
+
+**Medium — journal and grade invalidated their own idempotency keys.** Both keys used the shared
+`aianalysis.updated_at`, but each successful derived write updates that column. An unchanged click
+after success therefore created another billable job. The keys now use the upstream
+`analysis_job_id`; a new screenshot analysis still creates new derived work, while journal/grade
+writes do not. Mutation back to `updated_at` fails both journal and grade regressions.
+
+**Medium — releasing a confirmed field returned the cached pre-release analysis job.** Analysis
+keys omitted confirmation/release state. Since release records no correction, the correction digest
+did not move and the supposedly new analysis could not populate the newly unlocked field. The key
+now includes an owner-scoped digest of `confirmed_at` plus `confirmed_fields_json`, and that lookup
+fails closed as the same plain 503 as the other context terms. Removing the term reproduces the
+collision; a failing lookup creates no job.
+
+**Medium — the first-result insert race used insertion timing instead of job ordering.** If two
+first-ever analysis workers both observed no row, the uniqueness loser always returned
+`superseded`; a newer job could therefore lose to an older insert. After the integrity collision the
+worker now re-reads and executes the same atomic `< job_id` conditional UPDATE as established rows.
+A deterministic `before_flush` interleaving reproduces the old loss and proves the newer result wins.
+
+**Medium — screenshot analysis discarded inputs included in its fingerprint.** `_analyse_bytes`
+passed `{}` and `None` to the existing v3 service, so the model received neither the owned trade nor
+active Strategy Profile even though trade/profile changes invalidated its cache. It now receives an
+owner-scoped, bounded trade context and the active profile. Strategy Profile strings are also
+bounded and markup-stripped on all three Phase 5 calls; previously this trader-authored text was an
+unbounded prompt-injection lever (still user-role data, never system authority). Correction memory
+remains bounded/escaped and is injected only into the first user turn.
+
+**Low — confirmation inputs and latest proposals were unbounded.** The PATCH schema now caps text
+at 500 characters and enforces quality 1–10; generated OpenAPI was refreshed. `_latest_proposals`
+also applies the shared 500-character bound before model text crosses to the browser.
+
+**Low — three frontend states could mislead or strand the trader.** A 429 permanently removed the
+step button until reload; it now retains an enabled retry for when the rolling window expires.
+Label PATCH discarded the relay's actionable 409/429 detail; those two already-sanitized statuses
+are now shown while other failures remain generic. Finally, label-review local state survived a
+new server `updated_at`, so a refresh could keep stale inputs; a keyed state boundary now starts a
+fresh editing session for each analysis version.
+
+## Mutation evidence
+
+Actually applied and restored during this review:
+
+- removed `Trade.user_id == owner` from `_owned_trade_id`: the two-user analysis write and journal
+  ownership tests failed;
+- removed the journal source `analysis_job_id` predicate: obsolete journal text committed and the
+  deterministic interleaving test failed;
+- restored `analysis.updated_at` as the derived key input: both post-success idempotency tests
+  created a second job and failed;
+- removed the release-control digest from `analysis_key`: the post-release enqueue reused the old
+  job and failed;
+- pre-fix red/green cases also proved the 429 retry, PATCH detail, stale React state, proposal bound,
+  malformed analysis/grading, first-insert race, and non-empty analysis context tests discriminate.
+
+## Verification actually run
+
+- Focused Phase 5 backend after fixes: 186 passed; later focused grade/demo/context additions also
+  passed.
+- Full Python after all fixes: 3,229 passed / 7 skipped.
+- Web: 1,438 passed / 82 files.
+- TypeScript clean. ESLint 0 errors, with the same two pre-existing `modal-trap.ts` warnings.
+- Ruff clean; Black clean; Alembic exactly one head (`g3h4i5j6k7l8`).
+- OpenAPI regenerated and TypeScript client generation completed; production Next.js build passed
+  and protected/app routes remained dynamic.
+
+## Remaining limits and Phase 6 gate
+
+The shared forward-looking detector is still a heuristic, not a proof against every model phrasing.
+The six deployment gates remain open exactly as before: Docker build/start/health; disposable
+PostgreSQL migrations; real PostgreSQL concurrent AI-job verification; broader Python dependency
+audit; live Anthropic injection/model/output smoke for all paid paths; live R2 plus real-browser
+smoke including proper 375px verification. No live provider, R2, Docker, or browser result is claimed.
+
+Phase 5 is cleared to proceed to Phase 6. Do not start Phase 6 from this review task.
