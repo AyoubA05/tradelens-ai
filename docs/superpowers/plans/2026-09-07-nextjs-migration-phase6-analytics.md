@@ -50,6 +50,8 @@ Groups, not per-task gates — the model that has worked since Phase 2.
 
 **In:** the four lenses (Performance, Risk, Timing, Setups); equity curve; daily P&L; drawdown series; R-multiple distribution; breakdowns by day of week, session, strategy, timeframe, asset, setup type and hour of day; killzone performance; confirmation-model performance; mistake frequency; total edge leak; rule adherence; consistency score; expectancy, win rate, profit factor, P&L and max drawdown; period deltas; asset/session/strategy filters; low-sample and incomplete-P&L states; responsive chart and table behaviour.
 
+**Removed from scope during execution, with cause:** the **hour-of-day breakdown**. `metrics.by_hour_of_day` requires an `hour_of_day` column and its docstring asks callers to derive one "from a future time column". There is no such column: `entry_time` is **hash-only** — `trade_service` fingerprints it and drops it before insert — and the `Trade` model stores no clock component at all (`trade_date` is a bare ISO date). The function therefore returns zero rows for every real sample, and a panel built on it would sit permanently empty. An empty "by hour" chart does not read as *this feature has no data source*; it reads as *you have no hourly pattern*, which is a claim about the trader's record that we would be inventing. Restoring it needs a persisted time column, which is a schema change and a different phase. Pinned by `test_the_timing_lens_does_not_offer_an_hour_breakdown_it_cannot_fill`.
+
 **Explicitly not in:** Strategy Profile (Phase 7), AI Partner (Phase 8), Settings (Phase 9), Streamlit retirement (Phase 10). Do not touch the Overview, Journal, Trade Detail or New Trade surfaces beyond reading their existing helpers. Do not add a second date control anywhere.
 
 **Deployment gates tracked separately and NOT addressed here:** Docker build/startup/health; disposable PostgreSQL migration verification; real PostgreSQL concurrent AI-job verification; broader Python dependency audit; live Anthropic key + injection/model smoke; live R2 + browser smoke. They are recorded in the handoff and stay open.
@@ -894,7 +896,6 @@ def build_timing(df: pd.DataFrame) -> Dict[str, Any]:
     return {
         "by_day_of_week": breakdown(by_day_of_week(df), "day_of_week", complete=complete),
         "by_session": breakdown(by_session(df), "session", complete=complete),
-        "by_hour": breakdown(by_hour_of_day(df), "hour_of_day", complete=complete),
         "by_killzone": breakdown(killzone_performance(df), "killzone", complete=complete),
     }
 
@@ -1430,7 +1431,6 @@ class RiskLens(_Strict):
 class TimingLens(_Strict):
     by_day_of_week: Breakdown
     by_session: Breakdown
-    by_hour: Breakdown
     by_killzone: Breakdown
 
 
@@ -1851,7 +1851,7 @@ git commit -m "docs(handoff): Phase 6 record"
 | Requirement | Task |
 |---|---|
 | performance over time (equity curve, daily P&L) | A2, C2, D1 |
-| asset/setup/session/killzone breakdowns | A3, C2, D1 |
+| asset/setup/session/killzone breakdowns | A3, C2, D1 (hour-of-day removed — see Scope) |
 | mistake and confirmation analysis | A3 (`mistakes`, `by_confirmation`), C2 |
 | rule adherence / discipline | A3 (`build_discipline`), C2 |
 | expectancy, win rate, P&L, drawdown | A2 |

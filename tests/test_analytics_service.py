@@ -312,3 +312,31 @@ def test_the_timing_lens_breaks_the_sample_down_by_when_it_traded():
         "London",
     }
     assert built["by_day_of_week"]["comparable"] is True
+
+
+def test_the_timing_lens_does_not_offer_an_hour_breakdown_it_cannot_fill():
+    """`entry_time` is hash-only, so no stored trade carries a clock time.
+
+    `metrics.by_hour_of_day` therefore returns zero rows for every real
+    sample. Shipping the panel anyway would show a trader an empty "by hour"
+    chart, which reads as "you have no hourly pattern" rather than "this app
+    never stored the hour" — a claim about their record that we invented.
+    """
+    df = pd.DataFrame(
+        [
+            {
+                "id": 1,
+                "trade_date": "2026-09-01",
+                "asset": "NQ",
+                "result": "Win",
+                "pnl": 100.0,
+                "session": "New York",
+                "killzone": "ny_am",
+                "setup_type": "FVG",
+                "day_of_week": "Tuesday",
+                "entry_time": "09:35",
+            }
+        ]
+    )
+    assert "by_hour" not in an.build_timing(df)
+    assert "by_hour" not in an.build_timing(pd.DataFrame())

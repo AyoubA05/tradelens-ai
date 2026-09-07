@@ -36,7 +36,6 @@ from src.tradelens.services.metrics import (
 from src.tradelens.services.metrics import (
     by_asset,
     by_day_of_week,
-    by_hour_of_day,
     by_session,
     by_strategy,
     by_timeframe,
@@ -353,14 +352,31 @@ def breakdown(
 
 
 def build_timing(df: pd.DataFrame) -> Dict[str, Any]:
-    """Lens 3 — when does the edge show up?"""
+    """Lens 3 — when does the edge show up?
+
+    **No hour-of-day breakdown, deliberately.** `metrics.by_hour_of_day`
+    needs an `hour_of_day` column and its docstring asks callers to derive
+    one "from a future time column" — but there is no such column to derive
+    from: `entry_time` is HASH-ONLY (`trade_service` fingerprints it and then
+    drops it before insert), and the `Trade` model stores no clock component
+    at all. `trade_date` is a bare ISO date.
+
+    So the function can never return a row from stored data, and a panel
+    built on it would sit permanently empty. An empty "by hour" panel does
+    not read as "this feature has no data source" — it reads as "you have no
+    hourly pattern", which is a claim about the trader's record that we
+    would be inventing. Better to omit the question than to answer it
+    falsely.
+
+    Restoring it needs a persisted time column first; that is a schema
+    change, not an analytics change.
+    """
     complete = pnl_is_complete(df)
     if df.empty:
         empty = {"rows": [], "comparable": False}
         return {
             "by_day_of_week": dict(empty),
             "by_session": dict(empty),
-            "by_hour": dict(empty),
             "by_killzone": dict(empty),
         }
     return {
@@ -368,7 +384,6 @@ def build_timing(df: pd.DataFrame) -> Dict[str, Any]:
             by_day_of_week(df), "day_of_week", complete=complete
         ),
         "by_session": breakdown(by_session(df), "session", complete=complete),
-        "by_hour": breakdown(by_hour_of_day(df), "hour_of_day", complete=complete),
         "by_killzone": breakdown(
             killzone_performance(df), "killzone", complete=complete
         ),
