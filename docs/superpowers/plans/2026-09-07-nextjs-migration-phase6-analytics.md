@@ -600,8 +600,13 @@ def build_performance(df: pd.DataFrame) -> Dict[str, Any]:
         "expectancy": money_pair(compute_expectancy(basic), complete=complete),
         "profit_factor": pair(compute_profit_factor_raw(df)),
         "total_trades": total,
-        "equity_curve": _series(compute_equity_curve(df), "equity"),
-        "daily_pnl": _series(daily_pnl(df), "pnl"),
+        # VERIFIED column names. `compute_equity_curve` emits
+        # `trade_date/pnl/cumulative_pnl` and `daily_pnl` emits
+        # `trade_date/daily_pnl` — not `date`/`equity`/`pnl`. A wrong name
+        # here returns an EMPTY series rather than raising, so the chart
+        # would simply be blank and nothing would say why.
+        "equity_curve": _series(compute_equity_curve(df), "trade_date", "cumulative_pnl"),
+        "daily_pnl": _series(daily_pnl(df), "trade_date", "daily_pnl"),
         "streaks": {
             "current": sample_pair(
                 need(streaks, "current_streak"), insufficient_for(df, 1)
@@ -639,7 +644,7 @@ def build_risk(df: pd.DataFrame) -> Dict[str, Any]:
             compute_max_drawdown(curve),
             insufficient_for(df, MIN_DRAWDOWN_POINTS) or not complete,
         ),
-        "drawdown_series": _series(drawdown_series(df), "drawdown"),
+        "drawdown_series": _series(drawdown_series(df), "trade_date", "drawdown"),
         "r_multiples": _histogram(r_multiple_distribution(df)),
         "avg_win": money_pair(
             need(basic, "avg_win"),
@@ -652,15 +657,24 @@ def build_risk(df: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
-def _series(built: pd.DataFrame, value_column: str) -> List[Dict[str, Any]]:
+def _series(
+    built: pd.DataFrame, date_column: str, value_column: str
+) -> List[Dict[str, Any]]:
     """A dated series as wire rows, dropping points that cannot be plotted.
 
     A NaN in the middle of an equity curve is not a zero and must not be
     drawn as one; the point is omitted and the gap is visible.
     """
-    if built is None or built.empty or value_column not in built.columns:
+    # Both column names are REQUIRED arguments and are asserted present: a
+    # mistyped name must fail loudly, not yield an empty chart that reads as
+    # "no trades". Guessing a date column by position was how the first
+    # draft of this plan would have silently emptied three charts.
+    if built is None or built.empty:
         return []
-    date_column = "date" if "date" in built.columns else built.columns[0]
+    if date_column not in built.columns or value_column not in built.columns:
+        raise KeyError(
+            f"series expects {date_column!r} and {value_column!r}, got {list(built.columns)}"
+        )
     rows: List[Dict[str, Any]] = []
     for _, row in built.iterrows():
         number, _state = finite_or_state(row[value_column])
@@ -671,17 +685,46 @@ def _series(built: pd.DataFrame, value_column: str) -> List[Dict[str, Any]]:
 
 
 def _histogram(built: pd.DataFrame) -> List[Dict[str, Any]]:
+    """R-multiple buckets as `{label, count}`.
+
+    VERIFIED: `r_multiple_distribution` emits `bin_left/bin_right/count`.
+    The label is built from the two edges — taking `columns[0]` would print
+    a bare bin edge like `-1.5` as though it were a category name.
+    """
     if built is None or built.empty:
         return []
-    label_column = built.columns[0]
-    count_column = built.columns[-1]
     return [
-        {"label": str(row[label_column]), "count": int(row[count_column])}
+        {
+            "label": f"{float(row['bin_left']):.1f} to {float(row['bin_right']):.1f}R",
+            "count": int(row["count"]),
+        }
         for _, row in built.iterrows()
     ]
 ```
 
-> Before writing this, run `.venv/bin/python -c "import pandas as pd; from src.tradelens.services.metrics import compute_streaks, compute_equity_curve, daily_pnl, drawdown_series, r_multiple_distribution; ..."` against a small frame and print the actual column names and dict keys. Phase 2 lost time to six wrong metric field names guessed from memory (`net_pnl` for `total_pnl`, and five others), and the plan's `.get(col, 0.0)` would have rendered them as `$0.00`. **Verify every key and column name against the real function output before trusting this code.**
+> **The column names above are VERIFIED against real function output**, not remembered. The first draft of this plan had six of them wrong, and four would have failed *silently* — an empty equity curve, an empty daily-P&L series, setup P&L permanently undefined, and rule adherence permanently undefined. Re-verify before changing any of them:
+>
+> ```
+> compute_basic_metrics  -> avg_loss avg_rr_realized avg_win best_trade breakevens
+>                           loss_rate losses profit_factor total_pnl total_trades
+>                           win_rate wins worst_trade
+> compute_streaks        -> current_streak max_loss_streak max_win_streak streak_type
+> compute_equity_curve   -> trade_date pnl cumulative_pnl
+> daily_pnl              -> trade_date daily_pnl
+> drawdown_series        -> trade_date cumulative_pnl running_peak drawdown
+> r_multiple_distribution-> bin_left bin_right count
+> by_day_of_week/by_session/setup_performance
+>                        -> <key> trades wins losses breakevens win_rate
+>                           avg_rr_realized total_pnl
+> by_setup_type          -> setup_type trades wins losses breakevens   (NO P&L)
+> by_hour_of_day         -> hour_of_day trades total_pnl avg_rr_realized
+> killzone_performance   -> killzone ... win_rate avg_rr_realized profit_factor total_pnl
+> by_asset/by_strategy/by_timeframe/confirmation_model_performance
+>                        -> <key> trades wins losses breakevens win_rate total_pnl profit_factor
+> mistake_frequency      -> mistake_tag count total_pnl avg_pnl
+> RuleAdherenceSummary   -> followed recorded rate          (NOT recorded_trades)
+> EdgeLeakSummary        -> net_pnl qualifying_trades recorded_trades
+> ```
 
 - [ ] **Step 4: Run the tests**
 
@@ -796,6 +839,7 @@ from src.tradelens.services.metrics import (
     killzone_performance,
     mistake_frequency,
     rule_adherence_rate,
+    setup_performance,
     total_edge_leak,
 )
 from src.tradelens.services.sample_policy import (
@@ -850,7 +894,7 @@ def build_timing(df: pd.DataFrame) -> Dict[str, Any]:
     return {
         "by_day_of_week": breakdown(by_day_of_week(df), "day_of_week", complete=complete),
         "by_session": breakdown(by_session(df), "session", complete=complete),
-        "by_hour": breakdown(by_hour_of_day(df), "hour", complete=complete),
+        "by_hour": breakdown(by_hour_of_day(df), "hour_of_day", complete=complete),
         "by_killzone": breakdown(killzone_performance(df), "killzone", complete=complete),
     }
 
@@ -869,7 +913,12 @@ def build_setups(df: pd.DataFrame) -> Dict[str, Any]:
             "mistakes": [],
         }
     return {
-        "by_setup": breakdown(by_setup_type(df), "setup_type", complete=complete),
+        # `setup_performance`, NOT `by_setup_type`. VERIFIED: `by_setup_type`
+        # emits only trades/wins/losses/breakevens — no `total_pnl` and no
+        # `win_rate` — so building the setups lens from it would report every
+        # setup's P&L as undefined forever. Phase 2 hit this exact gap and
+        # added `setup_performance` for it.
+        "by_setup": breakdown(setup_performance(df), "setup_type", complete=complete),
         "by_asset": breakdown(by_asset(df), "asset", complete=complete),
         "by_strategy": breakdown(by_strategy(df), "strategy_used", complete=complete),
         "by_timeframe": breakdown(by_timeframe(df), "timeframe", complete=complete),
@@ -892,38 +941,39 @@ def build_discipline(df: pd.DataFrame) -> Dict[str, Any]:
 
     adherence = rule_adherence_rate(df)
     leak = edge_leak_summary(df)
-    recorded = int(getattr(adherence, "recorded_trades", 0))
+    # `.recorded`, VERIFIED — the field is NOT `recorded_trades`, and a
+    # `getattr(..., "recorded_trades", 0)` default would have made rule
+    # adherence permanently "no data" while looking careful. That is the
+    # `.get(key, 0.0)` disease wearing a different hat.
+    recorded = int(adherence.recorded)
 
     return {
         # A blank `followed_rules` is not a violation. Gating on the RECORDED
         # count, not the row count, is what stops an unfilled field reading
         # as 0% discipline.
-        "rule_adherence": sample_pair(
-            getattr(adherence, "rate", None), recorded < 1
-        ),
+        "rule_adherence": sample_pair(adherence.rate, recorded < 1),
         "consistency": sample_pair(
             consistency_score(df), insufficient_for(df, MIN_CONSISTENCY_TRADES)
         ),
         "edge_leak": money_pair(
             total_edge_leak(df),
-            complete=pnl_is_complete(df) and int(getattr(leak, "qualifying_trades", 0)) > 0,
+            complete=pnl_is_complete(df) and int(leak.qualifying_trades) > 0,
         ),
         "recorded_trades": recorded,
     }
 
 
 def _mistakes(built: pd.DataFrame) -> List[Dict[str, Any]]:
+    """VERIFIED: `mistake_frequency` emits `mistake_tag/count/total_pnl/avg_pnl`."""
     if built is None or built.empty:
         return []
-    label_column = built.columns[0]
-    count_column = "count" if "count" in built.columns else built.columns[-1]
     return [
-        {"tag": str(row[label_column]), "count": int(row[count_column])}
+        {"tag": str(row["mistake_tag"]), "count": int(row["count"])}
         for _, row in built.iterrows()
     ]
 ```
 
-> Same warning as A2, and it applies harder here: **verify every column name against the real function output before trusting this code.** `rule_adherence_rate` returns a `RuleAdherenceSummary` and `edge_leak_summary` returns an `EdgeLeakSummary` — read `services/metrics.py:1124` and `:1168` for their actual attribute names. Phase 2's `EdgeLeakSummary` field names were guessed wrong (`net_pnl`/`qualifying_trades`/`recorded_trades`) and the wrong guess rendered as zeroes.
+> Column names here are VERIFIED too — see the table in Task A2. Two traps this task walks into if they are not respected: `by_setup_type` carries **no** `total_pnl` or `win_rate` (use `setup_performance`), and `RuleAdherenceSummary` exposes `.recorded`, **not** `.recorded_trades`. Both were wrong in this plan's first draft, and both fail silently — a defaulted `getattr` turns a typo into "no data" that looks like a careful undefined state.
 
 - [ ] **Step 4: Run the tests**
 
