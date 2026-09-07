@@ -213,3 +213,102 @@ def test_a_partly_filled_pnl_column_is_not_a_total():
     assert (
         an.build_performance(df)["total_pnl"]["state"] == "undefined_incomplete_sample"
     )
+
+
+def test_a_breakdown_reports_whether_it_can_be_compared():
+    """One category is not a ranking.
+
+    The Streamlit page already refuses to call a single setup "best"; the API
+    has to carry that judgement rather than leaving the browser to guess,
+    or the two surfaces will disagree about the same sample.
+    """
+    df = _trades_frame([_winning_row(), _winning_row(id=2)])  # one setup only
+    built = an.build_setups(df)
+
+    assert built["by_setup"]["comparable"] is False
+    assert len(built["by_setup"]["rows"]) == 1
+
+
+def test_two_categories_are_comparable():
+    df = _trades_frame(
+        [_winning_row(), _winning_row(id=2, setup_type="OB", result="Loss", pnl=-50.0)]
+    )
+    assert an.build_setups(df)["by_setup"]["comparable"] is True
+
+
+def test_a_breakdown_row_with_no_pnl_carries_an_undefined_total():
+    df = _trades_frame([_winning_row(pnl=None), _winning_row(id=2, pnl=None)])
+    rows = an.build_setups(df)["by_setup"]["rows"]
+
+    assert rows[0]["total_pnl"]["state"] == "undefined_incomplete_sample"
+
+
+def test_a_breakdown_row_with_pnl_carries_the_measured_total():
+    """The other direction: gating must not swallow a figure that exists."""
+    df = _trades_frame([_winning_row(pnl=250.0), _winning_row(id=2, pnl=250.0)])
+    rows = an.build_setups(df)["by_setup"]["rows"]
+
+    assert rows[0]["total_pnl"] == {"value": 500.0, "state": None}
+    assert rows[0]["trades"] == 2
+
+
+def test_rule_adherence_over_rows_that_never_recorded_it_is_undefined():
+    """A blank `followed_rules` is not a broken rule.
+
+    Counting unrecorded rows as violations would tell a trader their
+    discipline was 0% when they simply had not filled the field in.
+    """
+    df = _trades_frame(
+        [_winning_row(followed_rules=None), _winning_row(id=2, followed_rules=None)]
+    )
+    assert an.build_discipline(df)["rule_adherence"]["state"] == "undefined_no_sample"
+
+
+def test_rule_adherence_that_was_recorded_is_reported():
+    """The gate is the RECORDED count, not the row count.
+
+    Gating on `len(df)` would look identical on the sample above while
+    silently withholding a discipline figure the trader did record.
+    """
+    df = _trades_frame(
+        [_winning_row(followed_rules=1), _winning_row(id=2, followed_rules=0)]
+    )
+    built = an.build_discipline(df)
+    assert built["rule_adherence"] == {"value": 0.5, "state": None}
+    assert built["recorded_trades"] == 2
+
+
+def test_consistency_below_five_trades_is_undefined_not_zero():
+    """Phase 2 shipped "0 out of 100" to a four-trade trader. Not again."""
+    df = _trades_frame([_winning_row(id=i) for i in range(4)])
+    assert an.build_discipline(df)["consistency"]["state"] == "undefined_no_sample"
+
+
+def test_mistake_frequency_over_an_empty_sample_is_an_empty_list():
+    assert an.build_setups(pd.DataFrame())["mistakes"] == []
+
+
+def test_the_timing_lens_breaks_the_sample_down_by_when_it_traded():
+    """Not vacuous: this asserts the real keys arrive, not that a list exists.
+
+    A wrong key column would yield `{"rows": [], "comparable": False}` —
+    the same shape as an honest empty breakdown, and indistinguishable
+    without pinning the value.
+    """
+    df = _trades_frame(
+        [
+            _winning_row(day_of_week="Tuesday", session="New York"),
+            _winning_row(id=2, day_of_week="Friday", session="London", pnl=-50.0),
+        ]
+    )
+    built = an.build_timing(df)
+
+    assert {row["key"] for row in built["by_day_of_week"]["rows"]} == {
+        "Tuesday",
+        "Friday",
+    }
+    assert {row["key"] for row in built["by_session"]["rows"]} == {
+        "New York",
+        "London",
+    }
+    assert built["by_day_of_week"]["comparable"] is True

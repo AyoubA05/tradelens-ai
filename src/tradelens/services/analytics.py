@@ -33,7 +33,27 @@ from src.tradelens.services.metrics import (
     drawdown_series,
     r_multiple_distribution,
 )
-from src.tradelens.services.sample_policy import _MIN_SERIES_POINTS
+from src.tradelens.services.metrics import (
+    by_asset,
+    by_day_of_week,
+    by_hour_of_day,
+    by_session,
+    by_strategy,
+    by_timeframe,
+    confirmation_model_performance,
+    consistency_score,
+    edge_leak_summary,
+    killzone_performance,
+    mistake_frequency,
+    rule_adherence_rate,
+    setup_performance,
+    total_edge_leak,
+)
+from src.tradelens.services.sample_policy import (
+    _MIN_PATTERN_TRADES,
+    _MIN_SERIES_POINTS,
+    enough_categories,
+)
 
 _UNDEFINED_NO_SAMPLE = {"value": None, "state": "undefined_no_sample"}
 
@@ -293,5 +313,145 @@ def _histogram(built: pd.DataFrame) -> List[Dict[str, Any]]:
             ),
             "count": int(row["count"]),
         }
+        for _, row in built.iterrows()
+    ]
+
+
+MIN_CONSISTENCY_TRADES = _MIN_PATTERN_TRADES
+
+
+def breakdown(
+    built: pd.DataFrame, key_column: str, *, complete: bool
+) -> Dict[str, Any]:
+    """One category breakdown, plus whether it can honestly be compared.
+
+    `comparable` travels on the wire rather than being inferred in the
+    browser: `sample_policy.enough_categories` is the single decision about
+    when a breakdown is a ranking and when it is one bar, and duplicating
+    that rule in TypeScript is how the two surfaces come to disagree about
+    the same sample.
+    """
+    if built is None or built.empty or key_column not in built.columns:
+        return {"rows": [], "comparable": False}
+
+    rows: List[Dict[str, Any]] = []
+    for _, row in built.iterrows():
+        entry: Dict[str, Any] = {"key": str(row[key_column])}
+        entry["trades"] = int(row["trades"]) if "trades" in built.columns else 0
+        if "total_pnl" in built.columns:
+            entry["total_pnl"] = money_pair(row["total_pnl"], complete=complete)
+        else:
+            entry["total_pnl"] = undefined("undefined_no_sample")
+        entry["win_rate"] = (
+            pair(row["win_rate"])
+            if "win_rate" in built.columns
+            else dict(_UNDEFINED_NO_SAMPLE)
+        )
+        rows.append(entry)
+
+    return {"rows": rows, "comparable": bool(enough_categories(built, key_column))}
+
+
+def build_timing(df: pd.DataFrame) -> Dict[str, Any]:
+    """Lens 3 — when does the edge show up?"""
+    complete = pnl_is_complete(df)
+    if df.empty:
+        empty = {"rows": [], "comparable": False}
+        return {
+            "by_day_of_week": dict(empty),
+            "by_session": dict(empty),
+            "by_hour": dict(empty),
+            "by_killzone": dict(empty),
+        }
+    return {
+        "by_day_of_week": breakdown(
+            by_day_of_week(df), "day_of_week", complete=complete
+        ),
+        "by_session": breakdown(by_session(df), "session", complete=complete),
+        "by_hour": breakdown(by_hour_of_day(df), "hour_of_day", complete=complete),
+        "by_killzone": breakdown(
+            killzone_performance(df), "killzone", complete=complete
+        ),
+    }
+
+
+def build_setups(df: pd.DataFrame) -> Dict[str, Any]:
+    """Lens 4 — which setups carry the edge?"""
+    complete = pnl_is_complete(df)
+    if df.empty:
+        empty = {"rows": [], "comparable": False}
+        return {
+            "by_setup": dict(empty),
+            "by_asset": dict(empty),
+            "by_strategy": dict(empty),
+            "by_timeframe": dict(empty),
+            "by_confirmation": dict(empty),
+            "mistakes": [],
+        }
+    return {
+        # `setup_performance`, NOT `by_setup_type`. VERIFIED: `by_setup_type`
+        # emits only trades/wins/losses/breakevens — no `total_pnl` and no
+        # `win_rate` — so building the setups lens from it would report every
+        # setup's P&L as undefined forever. Phase 2 hit this exact gap and
+        # added `setup_performance` for it.
+        "by_setup": breakdown(setup_performance(df), "setup_type", complete=complete),
+        "by_asset": breakdown(by_asset(df), "asset", complete=complete),
+        "by_strategy": breakdown(by_strategy(df), "strategy_used", complete=complete),
+        "by_timeframe": breakdown(by_timeframe(df), "timeframe", complete=complete),
+        "by_confirmation": breakdown(
+            confirmation_model_performance(df), "confirmation_model", complete=complete
+        ),
+        "mistakes": _mistakes(mistake_frequency(df)),
+    }
+
+
+def build_discipline(df: pd.DataFrame) -> Dict[str, Any]:
+    """Rule adherence and consistency — the process figures."""
+    if df.empty:
+        return {
+            "rule_adherence": dict(_UNDEFINED_NO_SAMPLE),
+            "consistency": dict(_UNDEFINED_NO_SAMPLE),
+            "edge_leak": dict(_UNDEFINED_NO_SAMPLE),
+            "recorded_trades": 0,
+        }
+
+    adherence = rule_adherence_rate(df)
+    leak = edge_leak_summary(df)
+    # `.recorded`, VERIFIED — the field is NOT `recorded_trades`, and a
+    # `getattr(..., "recorded_trades", 0)` default would have made rule
+    # adherence permanently "no data" while looking careful. That is the
+    # `.get(key, 0.0)` disease wearing a different hat.
+    recorded = int(adherence.recorded)
+
+    return {
+        # A blank `followed_rules` is not a violation. Gating on the RECORDED
+        # count, not the row count, is what stops an unfilled field reading
+        # as 0% discipline.
+        #
+        # This gate currently has no mutation that kills it, and that is a
+        # fact about `rule_adherence_rate`, not a hole in the tests:
+        # `recorded == 0` and `rate is None` are the same condition there
+        # (metrics.py:1126-1130), so `pair(None)` already yields
+        # `undefined_no_sample` on its own. It is kept as the explicit
+        # statement of the rule — if that function ever returns a rate over
+        # zero recorded rows, this is what stops a fabricated 0%.
+        "rule_adherence": sample_pair(adherence.rate, recorded < 1),
+        "consistency": sample_pair(
+            consistency_score(df), insufficient_for(df, MIN_CONSISTENCY_TRADES)
+        ),
+        "edge_leak": money_pair(
+            total_edge_leak(df),
+            complete=pnl_is_complete(df) and int(leak.qualifying_trades) > 0,
+        ),
+        "recorded_trades": recorded,
+    }
+
+
+def _mistakes(built: pd.DataFrame) -> List[Dict[str, Any]]:
+    """VERIFIED: `mistake_frequency` emits `mistake_tag/count/total_pnl/avg_pnl`."""
+    if built is None or built.empty:
+        return []
+    return [
+        {"tag": str(row["mistake_tag"]), "count": int(row["count"])}
         for _, row in built.iterrows()
     ]
