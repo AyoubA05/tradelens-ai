@@ -202,13 +202,18 @@ describe("The setups lens", () => {
   });
 });
 
-describe("Series panels defer to their own step without inventing a picture", () => {
-  it("labels the performance and risk chart regions instead of drawing nothing", () => {
+describe("Series panels draw the recorded series", () => {
+  it("gives the performance and risk lenses their real chart regions", () => {
     const base = analyticsFixture();
     render(<PerformanceLens performance={base.performance} discipline={base.discipline} />);
-    expect(screen.getByTestId("performance-series-pending")).toBeInTheDocument();
+    expect(screen.getByTestId("chart-equity-curve")).toBeInTheDocument();
+    expect(screen.getByTestId("chart-daily-pnl")).toBeInTheDocument();
     render(<RiskLens risk={base.risk} />);
-    expect(screen.getByTestId("risk-series-pending")).toBeInTheDocument();
+    expect(screen.getByTestId("chart-drawdown")).toBeInTheDocument();
+    expect(screen.getByTestId("chart-r-multiples")).toBeInTheDocument();
+    // No placeholder survives anywhere on either lens.
+    expect(screen.queryByTestId("performance-series-pending")).toBeNull();
+    expect(screen.queryByTestId("risk-series-pending")).toBeNull();
   });
 
   it("shows the discipline figures on the performance lens", () => {

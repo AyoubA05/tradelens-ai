@@ -1,4 +1,5 @@
 import { FigureRow, LensCount, LensFigure } from "@/components/app/analytics/lens-figure";
+import { LineChart } from "@/components/app/analytics/line-chart";
 import type { AnalyticsResponse } from "@/lib/app/analytics";
 
 /**
@@ -38,18 +39,21 @@ export function PerformanceLens({
         <LensFigure testId="figure-streak-max-loss" label="Longest loss streak" value={performance.streaks.max_loss} kind="number" />
       </FigureRow>
 
-      <section
-        data-testid="performance-series-pending"
-        aria-label="Equity curve and daily P&L"
-        className="mt-6 rounded-xl border border-line bg-surface p-4"
-      >
-        <h3 className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
-          Equity curve and daily P&amp;L
-        </h3>
-        <p className="mt-1 text-xs text-muted">
-          {`${performance.equity_curve.length} equity points and ${performance.daily_pnl.length} daily totals are recorded for this period. These series are not drawn yet.`}
-        </p>
-      </section>
+      <LineChart
+        id="equity-curve"
+        title="Equity curve"
+        description="The account's running total through this period, as recorded."
+        points={performance.equity_curve}
+        kind="money"
+      />
+
+      <LineChart
+        id="daily-pnl"
+        title="Daily net P&L"
+        description="What each recorded trading day added or took away."
+        points={performance.daily_pnl}
+        kind="money"
+      />
 
       <section
         data-testid="performance-discipline"

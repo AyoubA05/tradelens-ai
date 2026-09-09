@@ -1,4 +1,4 @@
-import { MetricValueText } from "@/components/app/analytics/metric-value";
+import { BreakdownTable } from "@/components/app/analytics/breakdown-table";
 import type { AnalyticsResponse } from "@/lib/app/analytics";
 
 type Breakdown = AnalyticsResponse["timing"]["by_day_of_week"];
@@ -53,42 +53,7 @@ export function BreakdownSection({
         </p>
       ) : (
         <>
-          <div data-testid={`breakdown-${id}-scroll`} className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[28rem] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-line text-left">
-                  <th scope="col" className="py-2 pr-4 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
-                    Category
-                  </th>
-                  <th scope="col" className="py-2 pr-4 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
-                    Trades
-                  </th>
-                  <th scope="col" className="py-2 pr-4 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
-                    Net P&amp;L
-                  </th>
-                  <th scope="col" className="py-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
-                    Win rate
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {breakdown.rows.map((row) => (
-                  <tr key={row.key} className="border-b border-line/60 last:border-b-0">
-                    <th scope="row" className="py-2 pr-4 text-left font-normal text-text">
-                      {row.key}
-                    </th>
-                    <td className="py-2 pr-4 font-mono text-text">{row.trades}</td>
-                    <td className="py-2 pr-4 font-mono text-text">
-                      <MetricValueText value={row.total_pnl} kind="money" />
-                    </td>
-                    <td className="py-2 font-mono text-text">
-                      <MetricValueText value={row.win_rate} kind="percent" />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <BreakdownTable id={id} breakdown={breakdown} />
 
           {ranked && comparableRows >= 2 ? (
             <p data-testid={`breakdown-${id}-ranking`} className="mt-3 text-xs text-muted">

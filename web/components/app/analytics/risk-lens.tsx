@@ -1,4 +1,6 @@
+import { DistributionChart } from "@/components/app/analytics/distribution-chart";
 import { FigureRow, LensFigure } from "@/components/app/analytics/lens-figure";
+import { LineChart } from "@/components/app/analytics/line-chart";
 import type { AnalyticsResponse } from "@/lib/app/analytics";
 
 /**
@@ -22,18 +24,20 @@ export function RiskLens({ risk }: { risk: AnalyticsResponse["risk"] }) {
         <LensFigure testId="figure-avg-loss" label="Average loss" value={risk.avg_loss} kind="money" />
       </FigureRow>
 
-      <section
-        data-testid="risk-series-pending"
-        aria-label="Drawdown and R-multiples"
-        className="mt-6 rounded-xl border border-line bg-surface p-4"
-      >
-        <h3 className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
-          Drawdown and R-multiples
-        </h3>
-        <p className="mt-1 text-xs text-muted">
-          {`${risk.drawdown_series.length} drawdown points and ${risk.r_multiples.length} R-multiple buckets are recorded for this period. These series are not drawn yet.`}
-        </p>
-      </section>
+      <LineChart
+        id="drawdown"
+        title="Drawdown"
+        description="How far below its own high-water mark the record sat on each dated day."
+        points={risk.drawdown_series}
+        kind="money"
+      />
+
+      <DistributionChart
+        id="r-multiples"
+        title="R-multiple distribution"
+        description="How many recorded trades fell into each R-multiple bucket."
+        buckets={risk.r_multiples}
+      />
     </div>
   );
 }
