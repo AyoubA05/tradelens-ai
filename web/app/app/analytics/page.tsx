@@ -15,6 +15,10 @@ import {
 } from "@/lib/app/analytics-filters";
 import { AnalyticsFilterBar } from "@/components/app/analytics/filter-bar";
 import { LensTabs } from "@/components/app/analytics/lens-tabs";
+import { PerformanceLens } from "@/components/app/analytics/performance-lens";
+import { RiskLens } from "@/components/app/analytics/risk-lens";
+import { TimingLens } from "@/components/app/analytics/timing-lens";
+import { SetupsLens } from "@/components/app/analytics/setups-lens";
 import { EmptyState } from "@/components/app/states/empty-state";
 import { ErrorState } from "@/components/app/states/error-state";
 
@@ -116,11 +120,21 @@ export default async function AnalyticsPage({
               className="mt-6 rounded-xl border border-line bg-surface p-6"
             >
               <h2 className="font-display text-xl font-bold">{entry.label}</h2>
-              <p className="mt-2 text-sm text-muted">
-                {`The ${entry.label.toLowerCase()} readouts for this period are being assembled.`}
-              </p>
+              {entry.id === "performance" ? (
+                <PerformanceLens
+                  performance={analytics.performance}
+                  discipline={analytics.discipline}
+                />
+              ) : entry.id === "risk" ? (
+                <RiskLens risk={analytics.risk} />
+              ) : entry.id === "timing" ? (
+                <TimingLens timing={analytics.timing} />
+              ) : (
+                <SetupsLens setups={analytics.setups} />
+              )}
             </section>
           ))}
+
         </>
       )}
     </div>

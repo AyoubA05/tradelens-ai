@@ -196,3 +196,43 @@ describe("Analytics fetch failure", () => {
     expect(document.body.textContent).not.toContain("10.0.0.4");
   });
 });
+
+describe("Each lens renders its own panel", () => {
+  it("renders the performance figures inside the performance region", async () => {
+    await renderPage();
+    const region = screen.getByTestId("lens-performance");
+    expect(within(region).getByTestId("figure-total-pnl")).toHaveTextContent("$500.00");
+    expect(within(region).getByTestId("figure-win-rate")).toHaveTextContent("50.0%");
+    expect(within(region).getByTestId("figure-rule-adherence")).toHaveTextContent("80.0%");
+  });
+
+  it("renders the risk figures when the risk lens is selected", async () => {
+    await renderPage({ lens: "risk" });
+    const region = screen.getByTestId("lens-risk");
+    expect(within(region).getByTestId("figure-max-drawdown")).toHaveTextContent("-$80.00");
+    expect(screen.queryByTestId("lens-performance")).toBeNull();
+  });
+
+  it("renders the timing breakdowns when the timing lens is selected", async () => {
+    await renderPage({ lens: "timing" });
+    const region = screen.getByTestId("lens-timing");
+    expect(within(region).getByTestId("breakdown-by_day_of_week")).toBeInTheDocument();
+    expect(within(region).getByTestId("breakdown-by_session")).toBeInTheDocument();
+    expect(within(region).getByTestId("breakdown-by_killzone")).toBeInTheDocument();
+  });
+
+  it("renders the setups breakdowns when the setups lens is selected", async () => {
+    await renderPage({ lens: "setups" });
+    const region = screen.getByTestId("lens-setups");
+    expect(within(region).getByTestId("breakdown-by_setup")).toBeInTheDocument();
+    expect(within(region).getByTestId("setups-mistakes")).toHaveTextContent("Moved stop");
+  });
+
+  it("renders no date control of its own inside any lens", async () => {
+    const { container } = await renderPage({ lens: "timing" });
+    expect(container.querySelectorAll('input[type="date"]').length).toBe(0);
+    for (const preset of PERIOD_PRESETS) {
+      expect(screen.queryByRole("button", { name: preset.label })).toBeNull();
+    }
+  });
+});
