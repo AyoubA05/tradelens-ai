@@ -7308,3 +7308,149 @@ audit; live Anthropic injection/model/output smoke for all paid paths; live R2 p
 smoke including proper 375px verification. No live provider, R2, Docker, or browser result is claimed.
 
 Phase 5 is cleared to proceed to Phase 6. Do not start Phase 6 from this review task.
+
+---
+
+# Phase 6 — Analytics (2026-09-09)
+
+Branch `worktree-phase6-analytics`, 12 commits, `8eecca5..HEAD`. Ancestry verified before any work:
+`origin/main` is an ancestor of the branch, so this is a merge, not a divergence. Migrates the
+four-lens analytics experience — performance, risk, timing, setups — onto the FastAPI + Next.js
+boundary with exact metric parity against the existing Python services.
+
+## The invariant this phase exists to hold
+
+**Financial correctness is the security boundary.** A wrong number here is a false claim about a
+trader's money that they cannot detect: an aggregate has no rows on screen to check against, and a
+chart has no digits at all. Three mechanisms, in order of strength:
+
+1. **`services/metrics.py` is byte-untouched** (verified: `git diff` reports 0 lines across the
+   phase). Every figure is READ from its functions. Parity was proven, never achieved by editing.
+2. **Every numeric field crosses as `{value, state}`**, and the contract enforces *exactly one of
+   value or state*. Not defensive style — the type makes a fabricated zero unrepresentable. A field
+   typed as a bare `float` has nowhere to put "not measurable", so it eventually puts a zero there.
+3. **A parity harness compares the projection against the metric functions field by field**, series
+   point by point, breakdown row by row. Deliberately not a snapshot: a snapshot pins whatever the
+   code currently does, including a mistake.
+
+## What the pre-flight caught, before a line was written
+
+The plan instructed its own executor to verify every metric column name against real function
+output. Doing that first found **eight wrong names, four of which would have failed silently**:
+
+* `compute_equity_curve` emits `trade_date/pnl/cumulative_pnl`, not `date`/`equity` — a wrong name
+  returns an EMPTY series rather than raising, so the chart would simply be blank.
+* `daily_pnl` emits `daily_pnl`, not `pnl`. Same silent-empty failure.
+* **`by_setup_type` carries no `total_pnl` and no `win_rate` at all** — the setups lens would have
+  reported every setup's P&L as undefined forever. Phase 2 hit this exact gap and added
+  `setup_performance` for it.
+* **`RuleAdherenceSummary` exposes `.recorded`, not `.recorded_trades`** — behind a defaulting
+  `getattr(..., "recorded_trades", 0)`, rule adherence would have been permanently "no data" while
+  looking careful. That is the `.get(key, 0.0)` disease wearing a different hat.
+
+## Scope removed during execution, with cause
+
+**The hour-of-day breakdown.** `metrics.by_hour_of_day` needs an `hour_of_day` column and asks
+callers to derive one "from a future time column". There is none: **`entry_time` is hash-only** —
+`trade_service` fingerprints it and drops it before insert — and the `Trade` model persists no clock
+component. The function returns zero rows for every real sample. An always-empty panel does not read
+as *this feature has no data source*; it reads as *you have no hourly pattern*, a claim about the
+trader's record that we would be inventing. Restoring it needs a persisted time column: a schema
+change, a different phase. Pinned by
+`test_the_timing_lens_does_not_offer_an_hour_breakdown_it_cannot_fill`.
+
+## Owner constraints, and where each is pinned
+
+* **No recomputation in TypeScript.** Enforced structurally by
+  `test_no_projected_figure_is_computed_rather_than_read`, which scans `services/analytics` for
+  arithmetic on money, and by every lens routing through `MetricValueText`.
+* **Undefined never becomes zero; a measured zero stays zero.** Both directions tested, at the
+  service, the contract and the screen. Over-gating erases a real result as surely as under-gating
+  invents one.
+* **Totals and breakdowns share one filtered set.** ONE frame feeds every lens; pinned by summing
+  breakdown trade counts back to the headline.
+* **Exact filters.** `get_trades` filters `asset`/`strategy` with `ilike('%..%')`; Phase 3 fixed that
+  on the trades list, noting `asset=NQ` also returns MNQ "in both the rows AND the total". Here it is
+  worse — no rows are on screen to count — so the endpoint filters the frame with exact equality.
+* **One date control.** `/app/analytics` reads the global period lens and adds nothing. The
+  prior-period comparison is DERIVED, never selectable.
+* **Win rate and P&L are independently sourced** (decision 6b). A trader who labels outcomes without
+  recording amounts has a valid win rate; no dimming, caveat, shared banner or ordering may imply one
+  validates the other.
+
+## Verification
+
+Python **3303 passed / 7 skipped**; ruff and black clean. Web **1527 passed / 90 files**; `tsc`
+clean; eslint 0 errors (2 pre-existing `modal-trap.ts` warnings). Production build succeeded with
+`/app/analytics` and `/api/analytics` both dynamic. OpenAPI and `schema.d.ts` regenerate with zero
+drift. Single alembic head `g3h4i5j6k7l8`. No Streamlit import reachable from `services/`, `db/` or
+`api/` (70 modules, fresh subprocess each). `prompts/` and `services/metrics.py` byte-untouched. No
+new npm or Python dependencies.
+
+**Final mutation battery: 13 applied, 13 caught by named tests, 0 survived**, tree clean afterwards.
+
+## What review caught that green suites hid
+
+* **Group B, tenant isolation.** Hardcoding `user_id=1` passed all 23 tests, because every isolation
+  test authenticated `two_users[0]` — user 1 in a fresh database — so "the wrong owner" and "the
+  right owner" were the same row. Fixed by authenticating the SECOND user, the only configuration
+  where those differ.
+* **Group B, `MetricValue` was `Undefinable` minus its invariant.** The docstring claimed the type
+  made a fabricated zero unrepresentable. It did not; only the service's discipline did.
+* **Group B, a vacuous runtime guard.** Deleting the period regex pre-check passed on Python 3.9,
+  which already rejects those forms — the guard only bites on CI's 3.11, so the test read green
+  locally while the protection was gone.
+* **Groups C/D, a caption that lied twice.** A client-side gate overrode the server's `comparable`
+  and printed "this range does not hold enough of them" when the range held plenty and only the P&L
+  was incomplete — directly under a complete Win rate column, which is decision 6b broken by copy.
+  This was reported to the controller as a reasonable judgement call and approved without reading the
+  copy it produced.
+* **Groups C/D, an invisible chart.** A run of one recorded point drew a bare `M` with no `L`, so a
+  sparse journal rendered an empty frame captioned "3 recorded points".
+
+## Known survivors and honest gaps
+
+* `apply_filters` silently `continue`s on an unmapped filter name — unreachable from the router,
+  which allowlists parameters, but `raise` would be the consistent choice.
+* `metric-value.tsx` puts an `aria-label` on a bare `<span>`; the five undefined explanations may
+  reach only sighted users via `title`.
+* The "no compare-to control" assertion is scoped to the comparison region, while the date-input and
+  preset-row assertions are page-wide.
+* `line-chart` parses `buildCurvePath`'s output string, coupling it to that format. Worth a note in
+  `equity-curve.tsx` that its output now has a second consumer.
+* **Gaps compress the x axis.** `buildCurvePath` spaces by index, so an unrecorded point costs no
+  horizontal space. Conventional for a per-trade equity curve; the stroke break and an explicit
+  caption carry the honesty. True date-proportional spacing would mean changing `buildCurvePath`.
+* Two vocabularies for an undefined figure now exist: `format.undefinedReason` (Overview) collapses
+  `undefined_nan`, `undefined_no_sample` and any unknown state into "Not enough data", while
+  analytics distinguishes all five. Different space budgets justify different wording; collapsing two
+  genuinely different states does not. Fixing it means touching Overview.
+* `app/app/analytics/` has no route-level `loading.tsx` / `error.tsx`, unlike `app/app/journal/`. The
+  page handles its own fetch failure inline.
+
+## Not run, and why
+
+**The browser smoke at desktop and 375px did NOT run.** The analytics page is behind authentication
+and no dev credentials exist in this environment — there is no `.env.local` in either the worktree or
+the main checkout, and the `tradelens-db` MCP server failed to connect this session. The dev server
+starts cleanly and serves the login page with no errors, but the analytics page itself was never
+rendered in a browser. Its polling-free layout, chart geometry and 375px behaviour are verified in
+jsdom only. **This is a pre-merge gap, distinct from the six deployment gates, and it should be run
+before this page reaches a trader.**
+
+## Carried forward
+
+**The six deployment gates remain open and were not this phase's to close**: Docker build /
+startup / health; disposable PostgreSQL migration verification; real PostgreSQL concurrent AI-job
+verification; broader Python dependency audit; live Anthropic key + injection/model smoke; live R2 +
+browser smoke. Phase 6 adds no AI calls and no new storage, so it does not move any of them.
+
+**Two pre-existing test failures, unrelated to this phase.**
+`tests/test_pages_boot.py::test_analytics_single_setup_readout_does_not_claim_a_ranking` and
+`::test_analytics_category_names_are_escaped_exactly_once` fail deterministically
+(`marker not found: BOS &amp; FVG`). They fail identically at `fc4968d`, the commit that introduced
+them, and at `49b7eed`, which predates Phase 5 — so they are environment-sensitive and were not
+caused by this work. They exercise the **Streamlit** analytics page. Not fixed here.
+
+**Phase 6 is cleared for development merge. This is not deployment clearance** — the six gates above
+remain mandatory, and the browser smoke above is an additional open item.
