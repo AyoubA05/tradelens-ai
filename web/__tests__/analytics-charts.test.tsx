@@ -278,3 +278,36 @@ describe("A breakdown table stays inside its own container", () => {
     expect(screen.queryByTestId("breakdown-by_day_of_week-bar-Monday")).toBeNull();
   });
 });
+
+describe("LineChart — isolated recorded points", () => {
+  it("draws a mark for a lone recorded point instead of an empty frame", () => {
+    // A run of one produces a bare `M` with no `L`, so nothing renders: a
+    // chart captioned "3 recorded points" showing an empty frame. Real
+    // journals are sparse, so alternating gaps are not exotic, and an empty
+    // axis reads as a flat zero — a claim about the trader's record.
+    render(
+      <LineChart
+        id="equity"
+        title="Account equity"
+        description="The account's running total through this period, as recorded."
+        kind="money"
+        points={[
+          { date: "2026-09-01", value: 100 },
+          { date: "2026-09-02", value: null as unknown as number },
+          { date: "2026-09-03", value: -50 },
+          { date: "2026-09-04", value: null as unknown as number },
+          { date: "2026-09-05", value: 200 },
+        ]}
+      />,
+    );
+
+    const region = screen.getByTestId("chart-equity");
+    // Not vacuous: the recorded values are on screen in the text equivalent.
+    expect(within(region).getByText("$100.00")).toBeInTheDocument();
+    expect(within(region).getByText("-$50.00")).toBeInTheDocument();
+
+    // Every recorded point is marked, so none of them is invisible.
+    const marks = region.querySelectorAll("[data-testid='chart-equity-point']");
+    expect(marks.length).toBe(3);
+  });
+});

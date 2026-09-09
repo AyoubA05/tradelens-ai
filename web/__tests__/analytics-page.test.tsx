@@ -3,7 +3,12 @@ import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PERIOD_PRESETS } from "@/lib/app/period";
-import { analyticsFixture, emptyAnalyticsFixture } from "./fixtures/analytics";
+import {
+  analyticsFixture,
+  emptyAnalyticsFixture,
+  undefinedValue,
+  value,
+} from "./fixtures/analytics";
 
 const authenticate = vi.fn();
 const appRedirect = vi.fn();
@@ -234,5 +239,62 @@ describe("Each lens renders its own panel", () => {
     for (const preset of PERIOD_PRESETS) {
       expect(screen.queryByRole("button", { name: preset.label })).toBeNull();
     }
+  });
+});
+
+describe("Analytics comparison figures", () => {
+  it("shows the deltas it says it compared, not just the dates", async () => {
+    // The line promises "compared with the equally long period before it".
+    // Printing only the dates leaves that promise unkept: the four figures
+    // are fetched, typed and never rendered.
+    const base = analyticsFixture();
+    fetchAnalytics.mockResolvedValue({
+      ...base,
+      comparison: {
+        period: { from: "2026-08-02", to: "2026-08-31" },
+        net_pnl: value(250),
+        win_rate: value(0.1),
+        profit_factor: value(0.4),
+        consistency: undefinedValue("undefined_no_sample"),
+      },
+    });
+    await renderPage();
+
+    const region = screen.getByTestId("analytics-comparison");
+    expect(region).toHaveTextContent("2026-08-02");
+    // `toBeVisible`, not just `toHaveTextContent`: a `hidden` element still
+    // carries its text, so a content-only assertion cannot tell "rendered"
+    // from "rendered but invisible" — and an invisible delta keeps the
+    // promise no better than an absent one.
+    const netPnl = within(region).getByTestId("comparison-net_pnl");
+    expect(netPnl).toBeVisible();
+    expect(netPnl).toHaveTextContent("$250.00");
+    const winRate = within(region).getByTestId("comparison-win_rate");
+    expect(winRate).toBeVisible();
+    expect(winRate).toHaveTextContent("10.0%");
+  });
+
+  it("renders an undefined delta as a missing figure, never as no change", async () => {
+    // "Nothing to compare against" is not "held steady". A 0.0 delta would
+    // tell a trader their performance was unchanged against a period that
+    // does not exist.
+    const base = analyticsFixture();
+    fetchAnalytics.mockResolvedValue({
+      ...base,
+      comparison: {
+        period: { from: "2026-08-02", to: "2026-08-31" },
+        net_pnl: undefinedValue("undefined_no_sample"),
+        win_rate: undefinedValue("undefined_no_sample"),
+        profit_factor: undefinedValue("undefined_no_sample"),
+        consistency: undefinedValue("undefined_no_sample"),
+      },
+    });
+    await renderPage();
+
+    const region = screen.getByTestId("analytics-comparison");
+    const missing = within(region).getByTestId("comparison-net_pnl");
+    expect(missing).toBeVisible();
+    expect(missing).toHaveTextContent("—");
+    expect(region.textContent ?? "").not.toMatch(/\$0\.00|\b0\.0%|no change|unchanged/i);
   });
 });

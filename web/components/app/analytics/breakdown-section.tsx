@@ -55,14 +55,29 @@ export function BreakdownSection({
         <>
           <BreakdownTable id={id} breakdown={breakdown} />
 
+          {/*
+            Three outcomes, not two. The server's `comparable` answers one
+            question — are there enough categories — and a local P&L check
+            answers a different one. Collapsing them into a single caption
+            printed a cause that was untrue whenever the server said yes and
+            the money was merely incomplete, AND put a bare "cannot be
+            compared" directly under a Win rate column that is complete and
+            independently sourced. That is the shared caveat decision 6b
+            forbids: an undefined P&L may never discredit a valid win rate.
+          */}
           {ranked && comparableRows >= 2 ? (
             <p data-testid={`breakdown-${id}-ranking`} className="mt-3 text-xs text-muted">
               {`Largest recorded net P&L in this period: ${ranked.key}, over ${ranked.trades} trades.`}
             </p>
+          ) : breakdown.comparable ? (
+            <p data-testid={`breakdown-${id}-pnl-incomplete`} className="mt-3 text-xs text-muted">
+              Too few of these categories record a P&amp;L to order them by money. The win rates
+              above are measured from recorded outcomes and are unaffected.
+            </p>
           ) : (
             <p data-testid={`breakdown-${id}-not-comparable`} className="mt-3 text-xs text-muted">
-              These categories cannot be compared: this range does not hold enough of them, with
-              enough recorded P&amp;L, for one category to be read against another.
+              These categories cannot be compared: this range does not hold enough of them for one
+              category to be read against another.
             </p>
           )}
         </>

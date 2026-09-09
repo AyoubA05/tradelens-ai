@@ -14,6 +14,7 @@ import {
   parseAnalyticsFilters,
 } from "@/lib/app/analytics-filters";
 import { AnalyticsFilterBar } from "@/components/app/analytics/filter-bar";
+import { MetricValueText } from "@/components/app/analytics/metric-value";
 import { LensTabs } from "@/components/app/analytics/lens-tabs";
 import { PerformanceLens } from "@/components/app/analytics/performance-lens";
 import { RiskLens } from "@/components/app/analytics/risk-lens";
@@ -105,12 +106,44 @@ export default async function AnalyticsPage({
         <>
           <LensTabs active={lens} search={params.toString()} />
 
-          <p
-            data-testid="analytics-comparison"
-            className="mt-4 text-xs text-muted"
-          >
-            {`Measured over ${analytics.period.from} → ${analytics.period.to}, compared with the equally long period before it, ${analytics.comparison.period.from} → ${analytics.comparison.period.to}.`}
-          </p>
+          {/*
+            The dates AND the figures. Printing only the window left the
+            sentence's promise unkept: four deltas were fetched, typed and
+            never shown. The window is derived rather than chosen, so its
+            dates have to be legible here — there is no second date control
+            to read them from.
+          */}
+          <div data-testid="analytics-comparison" className="mt-4 text-xs text-muted">
+            <p>
+              {`Measured over ${analytics.period.from} → ${analytics.period.to}, compared with the equally long period before it, ${analytics.comparison.period.from} → ${analytics.comparison.period.to}.`}
+            </p>
+            <dl className="mt-2 flex flex-wrap gap-x-6 gap-y-1">
+              {(
+                [
+                  ["net_pnl", "Net P&L", "money"],
+                  ["win_rate", "Win rate", "percent"],
+                  ["profit_factor", "Profit factor", "ratio"],
+                  ["consistency", "Consistency", "number"],
+                ] as const
+              ).map(([field, label, kind]) => (
+                <div key={field} className="flex items-baseline gap-1.5">
+                  <dt>{label}</dt>
+                  <dd
+                    data-testid={`comparison-${field}`}
+                    className="font-mono text-text"
+                  >
+                    {/*
+                      Through MetricValueText like every other figure: an
+                      empty prior window must read as a missing comparison,
+                      never as a 0.00 delta claiming performance held steady
+                      against a period that does not exist.
+                    */}
+                    <MetricValueText value={analytics.comparison[field]} kind={kind} />
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
 
           {ANALYTICS_LENSES.filter((entry) => entry.id === lens).map((entry) => (
             <section

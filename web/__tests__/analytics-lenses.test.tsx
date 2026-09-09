@@ -135,6 +135,45 @@ describe("Breakdowns only rank when the sample can be compared", () => {
     expect(within(panel).queryByTestId("breakdown-by_day_of_week-not-comparable")).toBeNull();
   });
 
+  it("blames the missing P&L, not the categories, and leaves the win rates alone", () => {
+    // The server said these categories ARE comparable; only the P&L is
+    // incomplete. Printing "this range does not hold enough of them" states
+    // a cause that is untrue, and a bare "cannot be compared" sitting under
+    // a complete Win rate column is a shared caveat implying an undefined
+    // P&L discredits a valid win rate — the thing decision 6b forbids.
+    const base = analyticsFixture();
+    const mixed = [
+      { key: "Monday", trades: 4, pnl: 300, win: 0.5 },
+      { key: "Tuesday", trades: 6, pnl: null, win: 0.25 },
+    ];
+    render(
+      <TimingLens
+        timing={{ ...base.timing, by_day_of_week: breakdown(mixed, true) }}
+      />,
+    );
+    const panel = screen.getByTestId("breakdown-by_day_of_week");
+
+    // Not vacuous: both rows and both win rates are on screen.
+    expect(within(panel).getByText("Monday")).toBeInTheDocument();
+    expect(within(panel).getByText("50.0%")).toBeInTheDocument();
+    expect(within(panel).getByText("25.0%")).toBeInTheDocument();
+
+    // No ranking, because there is not enough money data to order by.
+    expect(within(panel).queryByTestId("breakdown-by_day_of_week-ranking")).toBeNull();
+    expect(panel.textContent ?? "").not.toMatch(RANKING_WORDS);
+
+    // ...but the reason names the P&L, never the category count.
+    const note = within(panel).getByTestId("breakdown-by_day_of_week-pnl-incomplete");
+    expect(note).toHaveTextContent(/P&L/i);
+    expect(note.textContent ?? "").not.toMatch(/enough of them|enough categories/i);
+    // ...and it explicitly does not implicate the win rates.
+    expect(note).toHaveTextContent(/win rate/i);
+    // The not-comparable caption, which blames the categories, must be absent.
+    expect(
+      within(panel).queryByTestId("breakdown-by_day_of_week-not-comparable"),
+    ).toBeNull();
+  });
+
   it("uses no ranking language when the breakdown is not comparable, and says why", () => {
     const base = analyticsFixture();
     render(

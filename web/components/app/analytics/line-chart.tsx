@@ -117,10 +117,20 @@ export function LineChart({
     open.push(coords[cursor]);
     cursor += 1;
   }
-  const d = runs
-    .filter((run) => run.length > 0)
+  const drawn = runs.filter((run) => run.length > 0);
+  const d = drawn
     .map((run) => `M${run[0]}${run.slice(1).map((c) => `L${c}`).join("")}`)
     .join("");
+
+  // Every recorded point also gets a mark. A run of ONE produces a bare `M`
+  // with no `L`, which draws nothing at all — so a sparse journal whose
+  // recorded days never sit adjacent rendered an empty frame captioned "3
+  // recorded points". An empty axis reads as a flat zero, and that is a
+  // claim about the trader's record rather than an absence of one.
+  const marks = drawn.flatMap((run) => run).map((coord) => {
+    const [cx, cy] = coord.split(",");
+    return { cx, cy };
+  });
 
   const last = plotted[plotted.length - 1].value;
   const stroke = last >= 0 ? "#22c55e" : "#f56565";
@@ -156,6 +166,17 @@ export function LineChart({
           strokeWidth="2"
           vectorEffect="non-scaling-stroke"
         />
+        {marks.map((mark, index) => (
+          <circle
+            key={`${mark.cx},${mark.cy},${index}`}
+            data-testid={`chart-${id}-point`}
+            cx={mark.cx}
+            cy={mark.cy}
+            r="3"
+            fill={stroke}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
       </svg>
 
       <p className="mt-2 font-mono text-[11px] text-muted">
