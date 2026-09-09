@@ -160,6 +160,43 @@ def _row(trade: Any) -> Dict[str, Any]:
 MIN_DRAWDOWN_POINTS = _MIN_SERIES_POINTS
 
 
+_FILTER_COLUMNS = {
+    "asset": "asset",
+    "session": "session",
+    "strategy": "strategy_used",
+}
+
+
+def apply_filters(df: pd.DataFrame, filters: Dict[str, str]) -> pd.DataFrame:
+    """Narrow the sample by the allowlisted filters, server-side and EXACTLY.
+
+    Exact equality, deliberately — NOT `get_trades`' `ilike('%..%')`. Phase 3
+    shipped that substring match on the trades list and fixed it there with
+    the note that `asset=NQ` also returns MNQ "in both the rows AND the
+    total". On this page the error is worse: there are no rows on screen to
+    count, so an NQ trader silently gets MNQ's P&L folded into their total
+    with nothing to notice.
+
+    An allowlist, not a passthrough: a caller must not be able to name an
+    arbitrary column, and the wire names (`strategy`) deliberately differ
+    from the column names (`strategy_used`) so the browser is not writing
+    schema into a query string.
+
+    One filtered frame is returned and every lens is built from it, which is
+    what makes the headline total and each breakdown provably describe the
+    same sample.
+    """
+    if df.empty:
+        return df
+    narrowed = df
+    for name, value in filters.items():
+        column = _FILTER_COLUMNS.get(name)
+        if column is None or column not in narrowed.columns:
+            continue
+        narrowed = narrowed[narrowed[column] == value]
+    return narrowed
+
+
 def pnl_is_complete(df: pd.DataFrame) -> bool:
     """Whether every row in this sample records a P&L.
 

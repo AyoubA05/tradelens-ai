@@ -18,7 +18,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from src.tradelens.api.config import is_production, validate_api_runtime
-from src.tradelens.api.routers import overview, session, trades
+from src.tradelens.api.routers import analytics, overview, session, trades
 from src.tradelens.api.serialization import to_jsonable
 
 
@@ -67,6 +67,7 @@ def create_app() -> FastAPI:
     app.include_router(session.router)
     app.include_router(overview.router)
     app.include_router(trades.router)
+    app.include_router(analytics.router)
     return app
 
 

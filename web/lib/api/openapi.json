@@ -502,6 +502,67 @@
         "title": "AIJobStatus",
         "type": "object"
       },
+      "AnalyticsPeriod": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "title": "AnalyticsPeriod",
+        "type": "object"
+      },
+      "AnalyticsResponse": {
+        "additionalProperties": false,
+        "description": "Everything the four lenses need, over ONE sample.\n\nOne response rather than four: the lenses answer four questions about the\nsame filtered sample, and separate requests would give four chances for\none of them to be computed over a slightly different frame \u2014 a different\nperiod rounding, filters applied in a different order. A trader would\nthen see a win rate that disagrees with the breakdown it is built from.",
+        "properties": {
+          "discipline": {
+            "$ref": "#/components/schemas/DisciplineBlock"
+          },
+          "filters": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Filters",
+            "type": "object"
+          },
+          "performance": {
+            "$ref": "#/components/schemas/PerformanceLens"
+          },
+          "period": {
+            "$ref": "#/components/schemas/AnalyticsPeriod"
+          },
+          "risk": {
+            "$ref": "#/components/schemas/RiskLens"
+          },
+          "setups": {
+            "$ref": "#/components/schemas/SetupsLens"
+          },
+          "timing": {
+            "$ref": "#/components/schemas/TimingLens"
+          }
+        },
+        "required": [
+          "period",
+          "filters",
+          "performance",
+          "risk",
+          "timing",
+          "setups",
+          "discipline"
+        ],
+        "title": "AnalyticsResponse",
+        "type": "object"
+      },
       "AutofillSuggestion": {
         "additionalProperties": false,
         "description": "One AI-suggested value for one draft field, with its confidence.\n\nA suggestion is deliberately NOT the field's value. It is provenance-\ntagged metadata that sits beside the draft, so an unreviewed suggestion\nstays distinguishable from something the trader typed right up until they\naccept it \u2014 which is the whole difference between assistive and\nauthoritative.\n\n`autocheck` is not a second confidence policy: it is whatever\n`services.autocheck_policy.should_autocheck` decided, carried on the wire\nso the browser and Streamlit pre-check the same boxes. The policy lives in\n`services/` and not in `ui/components/ai_autofill_review.py`, which only\nre-exports it \u2014 naming the UI module here would teach the layering the\nopposite of what commit `abde2f0` fixed.",
@@ -543,28 +604,27 @@
         "title": "AutofillSuggestion",
         "type": "object"
       },
-      "BreakdownRow": {
+      "Breakdown": {
         "additionalProperties": false,
+        "description": "A category breakdown, plus whether it can honestly be compared.\n\n`comparable` is decided server-side by `sample_policy.enough_categories`.\nOne category is not a ranking, and letting the browser decide that would\nput the rule in two places.",
         "properties": {
-          "label": {
-            "title": "Label",
-            "type": "string"
+          "comparable": {
+            "title": "Comparable",
+            "type": "boolean"
           },
-          "net_pnl": {
-            "title": "Net Pnl",
-            "type": "number"
-          },
-          "trades": {
-            "title": "Trades",
-            "type": "integer"
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/src__tradelens__api__schemas__analytics__BreakdownRow"
+            },
+            "title": "Rows",
+            "type": "array"
           }
         },
         "required": [
-          "label",
-          "net_pnl",
-          "trades"
+          "rows",
+          "comparable"
         ],
-        "title": "BreakdownRow",
+        "title": "Breakdown",
         "type": "object"
       },
       "Calendar": {
@@ -631,6 +691,32 @@
         "title": "CalendarDay",
         "type": "object"
       },
+      "DisciplineBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "consistency": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "edge_leak": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "recorded_trades": {
+            "title": "Recorded Trades",
+            "type": "integer"
+          },
+          "rule_adherence": {
+            "$ref": "#/components/schemas/MetricValue"
+          }
+        },
+        "required": [
+          "rule_adherence",
+          "consistency",
+          "edge_leak",
+          "recorded_trades"
+        ],
+        "title": "DisciplineBlock",
+        "type": "object"
+      },
       "EdgeLeak": {
         "additionalProperties": false,
         "properties": {
@@ -684,6 +770,25 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HistogramBucket": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "count"
+        ],
+        "title": "HistogramBucket",
         "type": "object"
       },
       "Kpi": {
@@ -788,6 +893,65 @@
         "title": "Kpi",
         "type": "object"
       },
+      "MetricValue": {
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "undefined_nan",
+                  "undefined_positive_infinity",
+                  "undefined_negative_infinity",
+                  "undefined_no_sample",
+                  "undefined_incomplete_sample"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "value",
+          "state"
+        ],
+        "title": "MetricValue",
+        "type": "object"
+      },
+      "MistakeCount": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "count"
+        ],
+        "title": "MistakeCount",
+        "type": "object"
+      },
       "NextReviewAction": {
         "additionalProperties": false,
         "description": "The trader's position on the activation path.\n\n`next_key` is a closed set rather than a free string, so the generated\nTypeScript is a union the client can key its copy off exhaustively. It was\na bare `str`, and the web card was written against three invented spellings\n\u2014 two of which no service ever emits, so the card fell through to \"the\nactivation path is complete\" while it displayed \"1 of 3 done\". A union\nmakes that a compile error instead of a contradiction on screen.\n`tests/test_activation.py` pins these members to `activation.STEP_KEYS`.",
@@ -882,6 +1046,57 @@
           "recent_trades"
         ],
         "title": "OverviewResponse",
+        "type": "object"
+      },
+      "PerformanceLens": {
+        "additionalProperties": false,
+        "description": "Lens 1.\n\n`win_rate` and `total_pnl` are INDEPENDENTLY SOURCED \u2014 the first from\n`result`, the second from `pnl` \u2014 so a sample with no monetary data at\nall still carries a valid win rate. The contract keeps them separate\nfields with separate states for that reason; a presentation that\ndegrades one because the other is undefined is misreading this shape.",
+        "properties": {
+          "daily_pnl": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "Daily Pnl",
+            "type": "array"
+          },
+          "equity_curve": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "Equity Curve",
+            "type": "array"
+          },
+          "expectancy": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "profit_factor": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "streaks": {
+            "$ref": "#/components/schemas/StreakBlock"
+          },
+          "total_pnl": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "total_trades": {
+            "title": "Total Trades",
+            "type": "integer"
+          },
+          "win_rate": {
+            "$ref": "#/components/schemas/MetricValue"
+          }
+        },
+        "required": [
+          "total_pnl",
+          "win_rate",
+          "expectancy",
+          "profit_factor",
+          "total_trades",
+          "equity_curve",
+          "daily_pnl",
+          "streaks"
+        ],
+        "title": "PerformanceLens",
         "type": "object"
       },
       "Period": {
@@ -1011,14 +1226,14 @@
         "properties": {
           "killzones": {
             "items": {
-              "$ref": "#/components/schemas/BreakdownRow"
+              "$ref": "#/components/schemas/src__tradelens__api__schemas__overview__BreakdownRow"
             },
             "title": "Killzones",
             "type": "array"
           },
           "setups": {
             "items": {
-              "$ref": "#/components/schemas/BreakdownRow"
+              "$ref": "#/components/schemas/src__tradelens__api__schemas__overview__BreakdownRow"
             },
             "title": "Setups",
             "type": "array"
@@ -1054,6 +1269,43 @@
           "consistency"
         ],
         "title": "Risk",
+        "type": "object"
+      },
+      "RiskLens": {
+        "additionalProperties": false,
+        "properties": {
+          "avg_loss": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "avg_win": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "drawdown_series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesPoint"
+            },
+            "title": "Drawdown Series",
+            "type": "array"
+          },
+          "max_drawdown": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "r_multiples": {
+            "items": {
+              "$ref": "#/components/schemas/HistogramBucket"
+            },
+            "title": "R Multiples",
+            "type": "array"
+          }
+        },
+        "required": [
+          "max_drawdown",
+          "drawdown_series",
+          "r_multiples",
+          "avg_win",
+          "avg_loss"
+        ],
+        "title": "RiskLens",
         "type": "object"
       },
       "RuleAdherence": {
@@ -1321,6 +1573,105 @@
           "url"
         ],
         "title": "ScreenshotUrlRequest",
+        "type": "object"
+      },
+      "SeriesPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "date",
+          "value"
+        ],
+        "title": "SeriesPoint",
+        "type": "object"
+      },
+      "SetupsLens": {
+        "additionalProperties": false,
+        "properties": {
+          "by_asset": {
+            "$ref": "#/components/schemas/Breakdown"
+          },
+          "by_confirmation": {
+            "$ref": "#/components/schemas/Breakdown"
+          },
+          "by_setup": {
+            "$ref": "#/components/schemas/Breakdown"
+          },
+          "by_strategy": {
+            "$ref": "#/components/schemas/Breakdown"
+          },
+          "by_timeframe": {
+            "$ref": "#/components/schemas/Breakdown"
+          },
+          "mistakes": {
+            "items": {
+              "$ref": "#/components/schemas/MistakeCount"
+            },
+            "title": "Mistakes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "by_setup",
+          "by_asset",
+          "by_strategy",
+          "by_timeframe",
+          "by_confirmation",
+          "mistakes"
+        ],
+        "title": "SetupsLens",
+        "type": "object"
+      },
+      "StreakBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "current": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "max_loss": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "max_win": {
+            "$ref": "#/components/schemas/MetricValue"
+          }
+        },
+        "required": [
+          "current",
+          "max_win",
+          "max_loss"
+        ],
+        "title": "StreakBlock",
+        "type": "object"
+      },
+      "TimingLens": {
+        "additionalProperties": false,
+        "description": "Lens 3.\n\nNo `by_hour`: no clock component is persisted (`entry_time` is hash-only\nand the `Trade` model has no time column), so the breakdown could never\nhold a row. An always-empty panel reads as \"you have no hourly pattern\"\nrather than \"this was never recorded\".",
+        "properties": {
+          "by_day_of_week": {
+            "$ref": "#/components/schemas/Breakdown"
+          },
+          "by_killzone": {
+            "$ref": "#/components/schemas/Breakdown"
+          },
+          "by_session": {
+            "$ref": "#/components/schemas/Breakdown"
+          }
+        },
+        "required": [
+          "by_day_of_week",
+          "by_session",
+          "by_killzone"
+        ],
+        "title": "TimingLens",
         "type": "object"
       },
       "TradeAutofillJobAccepted": {
@@ -4453,6 +4804,57 @@
         ],
         "title": "WhoAmI",
         "type": "object"
+      },
+      "src__tradelens__api__schemas__analytics__BreakdownRow": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "total_pnl": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "trades": {
+            "title": "Trades",
+            "type": "integer"
+          },
+          "win_rate": {
+            "$ref": "#/components/schemas/MetricValue"
+          }
+        },
+        "required": [
+          "key",
+          "trades",
+          "total_pnl",
+          "win_rate"
+        ],
+        "title": "BreakdownRow",
+        "type": "object"
+      },
+      "src__tradelens__api__schemas__overview__BreakdownRow": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "net_pnl": {
+            "title": "Net Pnl",
+            "type": "number"
+          },
+          "trades": {
+            "title": "Trades",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "net_pnl",
+          "trades"
+        ],
+        "title": "BreakdownRow",
+        "type": "object"
       }
     }
   },
@@ -4477,6 +4879,106 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/v1/analytics": {
+      "get": {
+        "description": "Every figure the four lenses need, for this owner and this window.\n\nThe owner comes from the session and from nowhere else, and the period is\nvalidated rather than coerced: a range nothing can render is refused, not\nquietly widened into one that returns numbers the trader never asked for.\n\nThe category filters are applied to the FRAME, not through\n`get_trades`' own `asset`/`strategy` arguments \u2014 those use\n`ilike('%..%')`, which would fold MNQ into an NQ trader's total. Dates go\nthrough `get_trades` because its date comparisons are exact.\n\nONE filtered frame feeds every lens below. That is what makes the\nheadline total and each breakdown describe the same sample rather than\nfour samples that happen to look alike.",
+        "operationId": "get_analytics_v1_analytics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "title": "To",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset"
+            }
+          },
+          {
+            "in": "query",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session"
+            }
+          },
+          {
+            "in": "query",
+            "name": "strategy",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Strategy"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Analytics",
+        "tags": [
+          "analytics"
+        ]
       }
     },
     "/v1/overview": {

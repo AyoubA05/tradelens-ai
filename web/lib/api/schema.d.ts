@@ -24,6 +24,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/analytics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Analytics
+         * @description Every figure the four lenses need, for this owner and this window.
+         *
+         *     The owner comes from the session and from nowhere else, and the period is
+         *     validated rather than coerced: a range nothing can render is refused, not
+         *     quietly widened into one that returns numbers the trader never asked for.
+         *
+         *     The category filters are applied to the FRAME, not through
+         *     `get_trades`' own `asset`/`strategy` arguments — those use
+         *     `ilike('%..%')`, which would fold MNQ into an NQ trader's total. Dates go
+         *     through `get_trades` because its date comparisons are exact.
+         *
+         *     ONE filtered frame feeds every lens below. That is what makes the
+         *     headline total and each breakdown describe the same sample rather than
+         *     four samples that happen to look alike.
+         */
+        get: operations["get_analytics_v1_analytics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/overview": {
         parameters: {
             query?: never;
@@ -792,6 +825,35 @@ export interface components {
             /** Superseded */
             superseded: boolean;
         };
+        /** AnalyticsPeriod */
+        AnalyticsPeriod: {
+            /** From */
+            from: string;
+            /** To */
+            to: string;
+        };
+        /**
+         * AnalyticsResponse
+         * @description Everything the four lenses need, over ONE sample.
+         *
+         *     One response rather than four: the lenses answer four questions about the
+         *     same filtered sample, and separate requests would give four chances for
+         *     one of them to be computed over a slightly different frame — a different
+         *     period rounding, filters applied in a different order. A trader would
+         *     then see a win rate that disagrees with the breakdown it is built from.
+         */
+        AnalyticsResponse: {
+            discipline: components["schemas"]["DisciplineBlock"];
+            /** Filters */
+            filters: {
+                [key: string]: string;
+            };
+            performance: components["schemas"]["PerformanceLens"];
+            period: components["schemas"]["AnalyticsPeriod"];
+            risk: components["schemas"]["RiskLens"];
+            setups: components["schemas"]["SetupsLens"];
+            timing: components["schemas"]["TimingLens"];
+        };
         /**
          * AutofillSuggestion
          * @description One AI-suggested value for one draft field, with its confidence.
@@ -820,14 +882,19 @@ export interface components {
             /** Value */
             value?: string | number | null;
         };
-        /** BreakdownRow */
-        BreakdownRow: {
-            /** Label */
-            label: string;
-            /** Net Pnl */
-            net_pnl: number;
-            /** Trades */
-            trades: number;
+        /**
+         * Breakdown
+         * @description A category breakdown, plus whether it can honestly be compared.
+         *
+         *     `comparable` is decided server-side by `sample_policy.enough_categories`.
+         *     One category is not a ranking, and letting the browser decide that would
+         *     put the rule in two places.
+         */
+        Breakdown: {
+            /** Comparable */
+            comparable: boolean;
+            /** Rows */
+            rows: components["schemas"]["src__tradelens__api__schemas__analytics__BreakdownRow"][];
         };
         /** Calendar */
         Calendar: {
@@ -850,6 +917,14 @@ export interface components {
             /** Pnl */
             pnl: number | null;
         };
+        /** DisciplineBlock */
+        DisciplineBlock: {
+            consistency: components["schemas"]["MetricValue"];
+            edge_leak: components["schemas"]["MetricValue"];
+            /** Recorded Trades */
+            recorded_trades: number;
+            rule_adherence: components["schemas"]["MetricValue"];
+        };
         /** EdgeLeak */
         EdgeLeak: {
             amount: components["schemas"]["Undefinable"];
@@ -869,6 +944,13 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HistogramBucket */
+        HistogramBucket: {
+            /** Count */
+            count: number;
+            /** Label */
+            label: string;
         };
         /** Kpi */
         Kpi: {
@@ -890,6 +972,20 @@ export interface components {
             win_rate: components["schemas"]["Undefinable"];
             /** Wins */
             wins: number;
+        };
+        /** MetricValue */
+        MetricValue: {
+            /** State */
+            state: ("undefined_nan" | "undefined_positive_infinity" | "undefined_negative_infinity" | "undefined_no_sample" | "undefined_incomplete_sample") | null;
+            /** Value */
+            value: number | null;
+        };
+        /** MistakeCount */
+        MistakeCount: {
+            /** Count */
+            count: number;
+            /** Tag */
+            tag: string;
         };
         /**
          * NextReviewAction
@@ -928,6 +1024,29 @@ export interface components {
             sample: components["schemas"]["SampleFlags"];
             trajectory: components["schemas"]["Trajectory"];
         };
+        /**
+         * PerformanceLens
+         * @description Lens 1.
+         *
+         *     `win_rate` and `total_pnl` are INDEPENDENTLY SOURCED — the first from
+         *     `result`, the second from `pnl` — so a sample with no monetary data at
+         *     all still carries a valid win rate. The contract keeps them separate
+         *     fields with separate states for that reason; a presentation that
+         *     degrades one because the other is undefined is misreading this shape.
+         */
+        PerformanceLens: {
+            /** Daily Pnl */
+            daily_pnl: components["schemas"]["SeriesPoint"][];
+            /** Equity Curve */
+            equity_curve: components["schemas"]["SeriesPoint"][];
+            expectancy: components["schemas"]["MetricValue"];
+            profit_factor: components["schemas"]["MetricValue"];
+            streaks: components["schemas"]["StreakBlock"];
+            total_pnl: components["schemas"]["MetricValue"];
+            /** Total Trades */
+            total_trades: number;
+            win_rate: components["schemas"]["MetricValue"];
+        };
         /** Period */
         Period: {
             /** From */
@@ -957,9 +1076,9 @@ export interface components {
         /** RecurringEdge */
         RecurringEdge: {
             /** Killzones */
-            killzones: components["schemas"]["BreakdownRow"][];
+            killzones: components["schemas"]["src__tradelens__api__schemas__overview__BreakdownRow"][];
             /** Setups */
-            setups: components["schemas"]["BreakdownRow"][];
+            setups: components["schemas"]["src__tradelens__api__schemas__overview__BreakdownRow"][];
         };
         /** Risk */
         Risk: {
@@ -967,6 +1086,16 @@ export interface components {
             edge_leak: components["schemas"]["EdgeLeak"];
             max_drawdown: components["schemas"]["Undefinable"];
             rule_adherence: components["schemas"]["RuleAdherence"];
+        };
+        /** RiskLens */
+        RiskLens: {
+            avg_loss: components["schemas"]["MetricValue"];
+            avg_win: components["schemas"]["MetricValue"];
+            /** Drawdown Series */
+            drawdown_series: components["schemas"]["SeriesPoint"][];
+            max_drawdown: components["schemas"]["MetricValue"];
+            /** R Multiples */
+            r_multiples: components["schemas"]["HistogramBucket"][];
         };
         /** RuleAdherence */
         RuleAdherence: {
@@ -1106,6 +1235,43 @@ export interface components {
         ScreenshotUrlRequest: {
             /** Url */
             url: string;
+        };
+        /** SeriesPoint */
+        SeriesPoint: {
+            /** Date */
+            date: string;
+            /** Value */
+            value: number;
+        };
+        /** SetupsLens */
+        SetupsLens: {
+            by_asset: components["schemas"]["Breakdown"];
+            by_confirmation: components["schemas"]["Breakdown"];
+            by_setup: components["schemas"]["Breakdown"];
+            by_strategy: components["schemas"]["Breakdown"];
+            by_timeframe: components["schemas"]["Breakdown"];
+            /** Mistakes */
+            mistakes: components["schemas"]["MistakeCount"][];
+        };
+        /** StreakBlock */
+        StreakBlock: {
+            current: components["schemas"]["MetricValue"];
+            max_loss: components["schemas"]["MetricValue"];
+            max_win: components["schemas"]["MetricValue"];
+        };
+        /**
+         * TimingLens
+         * @description Lens 3.
+         *
+         *     No `by_hour`: no clock component is persisted (`entry_time` is hash-only
+         *     and the `Trade` model has no time column), so the breakdown could never
+         *     hold a row. An always-empty panel reads as "you have no hourly pattern"
+         *     rather than "this was never recorded".
+         */
+        TimingLens: {
+            by_day_of_week: components["schemas"]["Breakdown"];
+            by_killzone: components["schemas"]["Breakdown"];
+            by_session: components["schemas"]["Breakdown"];
         };
         /** TradeAutofillJobAccepted */
         TradeAutofillJobAccepted: {
@@ -1843,6 +2009,24 @@ export interface components {
             /** User Id */
             user_id: number;
         };
+        /** BreakdownRow */
+        src__tradelens__api__schemas__analytics__BreakdownRow: {
+            /** Key */
+            key: string;
+            total_pnl: components["schemas"]["MetricValue"];
+            /** Trades */
+            trades: number;
+            win_rate: components["schemas"]["MetricValue"];
+        };
+        /** BreakdownRow */
+        src__tradelens__api__schemas__overview__BreakdownRow: {
+            /** Label */
+            label: string;
+            /** Net Pnl */
+            net_pnl: number;
+            /** Trades */
+            trades: number;
+        };
     };
     responses: never;
     parameters: never;
@@ -1868,6 +2052,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_analytics_v1_analytics_get: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                asset?: string | null;
+                session?: string | null;
+                strategy?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalyticsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

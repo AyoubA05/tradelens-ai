@@ -107,6 +107,11 @@ The Streamlit page and this page must agree to the cent, because a trader who ha
 **6. Filters are URL state, reusing the journal's keys.**
 `asset`, `session` and `strategy` filters live in the URL beside the period, so an analytics view is linkable and back-button-able. The journal's `TRADE_FILTER_KEYS` already defines three of these; `strategy` is added rather than a parallel scheme invented. A filter that round-trips into the URL but is not applied server-side is the failure Phase 3 already hit once.
 
+**6b. Win rate and P&L are independently sourced, and the UI must not imply otherwise.**
+`win_rate` derives from the `result` column; `total_pnl` derives from `pnl`. A trader can label outcomes without recording amounts, so a sample with **no** monetary data at all still has a perfectly valid win rate — and Group A's edge-shape verification confirms exactly that: an all-NaN-P&L sample reports `win_rate: 0.5` beside `total_pnl: undefined_incomplete_sample`.
+
+That combination is correct, and it is also the easiest thing on the page to misread. Placing the two in one KPI row, or greying the win rate when P&L is missing, tells the trader their win rate is unreliable — it is not. Group C must present them as separately sourced: an undefined P&L must not visually degrade, disable, caveat or annotate the win rate beside it, and no shared "incomplete data" banner may cover both.
+
 **7. Low sample is a first-class state, not an empty chart.**
 `sample_policy` already decides this for Streamlit. Reusing it means the two surfaces agree about when a figure has earned the right to be shown. An analytics page that draws a confident trend line through four points is making a claim the data does not support, and this product's whole posture is that a number without its sample size is not an answer.
 
@@ -1714,8 +1719,9 @@ Requirements each test must pin:
 3. Filters (`asset`, `session`, `strategy`) live in the URL beside the period and are sent to the API.
 4. A period with no trades renders the empty state, not four lenses of dashes.
 5. An undefined figure renders through `MetricValueText`, never as a locally formatted number — assert no lens formats a number itself.
-6. A breakdown with `comparable: false` renders **without** ranking language ("best", "strongest", "top"), and says why one category cannot be compared.
-7. The prior-period comparison, if shown, is labelled with its actual dates and is **derived**, never selectable.
+6. **An undefined P&L never visually degrades the win rate beside it** (design decision 6b): no greyed-out state, no shared caveat, no disabled styling spanning both. They are separately sourced and the page must not imply one validates the other.
+7. A breakdown with `comparable: false` renders **without** ranking language ("best", "strongest", "top"), and says why one category cannot be compared.
+8. The prior-period comparison, if shown, is labelled with its actual dates and is **derived**, never selectable.
 
 - [ ] **Step 1–6:** Write the failing tests first, run them, implement, run, mutate each of the seven properties above and confirm a named test fails, commit.
 
