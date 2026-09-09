@@ -525,6 +525,9 @@
         "additionalProperties": false,
         "description": "Everything the four lenses need, over ONE sample.\n\nOne response rather than four: the lenses answer four questions about the\nsame filtered sample, and separate requests would give four chances for\none of them to be computed over a slightly different frame \u2014 a different\nperiod rounding, filters applied in a different order. A trader would\nthen see a win rate that disagrees with the breakdown it is built from.",
         "properties": {
+          "comparison": {
+            "$ref": "#/components/schemas/ComparisonBlock"
+          },
           "discipline": {
             "$ref": "#/components/schemas/DisciplineBlock"
           },
@@ -554,6 +557,7 @@
         "required": [
           "period",
           "filters",
+          "comparison",
           "performance",
           "risk",
           "timing",
@@ -689,6 +693,36 @@
           "outcome"
         ],
         "title": "CalendarDay",
+        "type": "object"
+      },
+      "ComparisonBlock": {
+        "additionalProperties": false,
+        "description": "This period against the equally-long one before it.\n\n`period` states the window actually used, because the comparison is\nDERIVED rather than chosen \u2014 there is no second date control, so the\ndates have to be legible from the response itself.",
+        "properties": {
+          "consistency": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "net_pnl": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "period": {
+            "$ref": "#/components/schemas/AnalyticsPeriod"
+          },
+          "profit_factor": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "win_rate": {
+            "$ref": "#/components/schemas/MetricValue"
+          }
+        },
+        "required": [
+          "period",
+          "net_pnl",
+          "win_rate",
+          "profit_factor",
+          "consistency"
+        ],
+        "title": "ComparisonBlock",
         "type": "object"
       },
       "DisciplineBlock": {
@@ -895,6 +929,7 @@
       },
       "MetricValue": {
         "additionalProperties": false,
+        "description": "One possibly-undefined figure, with the invariant enforced.\n\nExactly one of `value` or `state` is present \u2014 never both, never\nneither. Without this the type merely *describes* the undefined-never-\nzero rule while the service's discipline is the only thing enforcing it,\nand the contract layer is precisely the layer meant to catch the service\ndrifting. A `0.0` riding alongside `undefined_incomplete_sample` would\notherwise serialise happily onto a trader's screen.\n\nMirrors `overview.Undefinable`, which carries the same validator. The\nclass is not aliased to it because the name is the OpenAPI schema name\nand the generated TypeScript is built from it.",
         "properties": {
           "state": {
             "anyOf": [

@@ -1862,6 +1862,7 @@ git commit -m "docs(handoff): Phase 6 record"
 | rule adherence / discipline | A3 (`build_discipline`), C2 |
 | expectancy, win rate, P&L, drawdown | A2 |
 | date/filter interactions | B1 (`apply_filters`), C2 |
+| prior-period comparison (spec: period deltas) | B1 (`build_comparison`, derived window), C2 property 8 |
 | low-sample and incomplete-P&L states | A1–A3 (`sample_pair`, `money_pair`, `comparable`), C1, C2 |
 | responsive chart/table behaviour | D1 |
 | exact tenant isolation | B1 |

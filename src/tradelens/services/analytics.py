@@ -17,7 +17,8 @@ No Streamlit imports here.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+import datetime as dt
+from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 
@@ -44,6 +45,7 @@ from src.tradelens.services.metrics import (
     edge_leak_summary,
     killzone_performance,
     mistake_frequency,
+    period_deltas,
     rule_adherence_rate,
     setup_performance,
     total_edge_leak,
@@ -507,3 +509,48 @@ def _mistakes(built: pd.DataFrame) -> List[Dict[str, Any]]:
         {"tag": str(row["mistake_tag"]), "count": int(row["count"])}
         for _, row in built.iterrows()
     ]
+
+
+def prior_window(start: str, end: str) -> Tuple[str, str]:
+    """The equally-long window immediately before `start..end`.
+
+    DERIVED, never selected. A "compare to" picker would be a second date
+    control on a page that already has the global lens, and a reader could
+    not tell which figure belonged to which window — the exact confusion
+    `period.ts` exists to prevent.
+
+    Date arithmetic, not a financial formula: `metrics.split_periods`
+    assumes a fixed N-day window ending today and cannot express an
+    arbitrary range, so the span is computed here and the COMPARISON itself
+    still comes from `metrics.period_deltas`.
+
+    Inclusive at both ends, like the period it mirrors: a 30-day September
+    yields the 30 days ending 31 August.
+    """
+    first = dt.date.fromisoformat(start)
+    last = dt.date.fromisoformat(end)
+    span = (last - first).days
+    prior_end = first - dt.timedelta(days=1)
+    prior_start = prior_end - dt.timedelta(days=span)
+    return prior_start.isoformat(), prior_end.isoformat()
+
+
+def build_comparison(
+    current: pd.DataFrame, prior: pd.DataFrame, window: Tuple[str, str]
+) -> Dict[str, Any]:
+    """This period against the one before it.
+
+    `period_deltas` returns None for any figure it cannot compute — notably
+    when the prior window holds no trades — and those stay undefined here.
+    "Nothing to compare against" is not "no change", and rendering a 0.0
+    delta would tell a trader their performance held steady against a period
+    that does not exist.
+    """
+    deltas = period_deltas(current, prior)
+    return {
+        "period": {"from": window[0], "to": window[1]},
+        "net_pnl": pair(need(deltas, "net_pnl")),
+        "win_rate": pair(need(deltas, "win_rate")),
+        "profit_factor": pair(need(deltas, "profit_factor")),
+        "consistency": pair(need(deltas, "consistency")),
+    }

@@ -14,14 +14,34 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from src.tradelens.api.schemas.overview import UndefinedState, _Strict
 
 
 class MetricValue(_Strict):
+    """One possibly-undefined figure, with the invariant enforced.
+
+    Exactly one of `value` or `state` is present — never both, never
+    neither. Without this the type merely *describes* the undefined-never-
+    zero rule while the service's discipline is the only thing enforcing it,
+    and the contract layer is precisely the layer meant to catch the service
+    drifting. A `0.0` riding alongside `undefined_incomplete_sample` would
+    otherwise serialise happily onto a trader's screen.
+
+    Mirrors `overview.Undefinable`, which carries the same validator. The
+    class is not aliased to it because the name is the OpenAPI schema name
+    and the generated TypeScript is built from it.
+    """
+
     value: Optional[float]
     state: Optional[UndefinedState]
+
+    @model_validator(mode="after")
+    def value_and_state_are_exclusive(self) -> "MetricValue":
+        if (self.value is None) == (self.state is None):
+            raise ValueError("exactly one of value or state must be present")
+        return self
 
 
 class SeriesPoint(_Strict):
@@ -129,6 +149,21 @@ class AnalyticsPeriod(_Strict):
     model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
 
 
+class ComparisonBlock(_Strict):
+    """This period against the equally-long one before it.
+
+    `period` states the window actually used, because the comparison is
+    DERIVED rather than chosen — there is no second date control, so the
+    dates have to be legible from the response itself.
+    """
+
+    period: AnalyticsPeriod
+    net_pnl: MetricValue
+    win_rate: MetricValue
+    profit_factor: MetricValue
+    consistency: MetricValue
+
+
 class AnalyticsResponse(_Strict):
     """Everything the four lenses need, over ONE sample.
 
@@ -141,6 +176,7 @@ class AnalyticsResponse(_Strict):
 
     period: AnalyticsPeriod
     filters: Dict[str, str]
+    comparison: ComparisonBlock
     performance: PerformanceLens
     risk: RiskLens
     timing: TimingLens

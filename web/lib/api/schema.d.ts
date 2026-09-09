@@ -843,6 +843,7 @@ export interface components {
          *     then see a win rate that disagrees with the breakdown it is built from.
          */
         AnalyticsResponse: {
+            comparison: components["schemas"]["ComparisonBlock"];
             discipline: components["schemas"]["DisciplineBlock"];
             /** Filters */
             filters: {
@@ -917,6 +918,21 @@ export interface components {
             /** Pnl */
             pnl: number | null;
         };
+        /**
+         * ComparisonBlock
+         * @description This period against the equally-long one before it.
+         *
+         *     `period` states the window actually used, because the comparison is
+         *     DERIVED rather than chosen — there is no second date control, so the
+         *     dates have to be legible from the response itself.
+         */
+        ComparisonBlock: {
+            consistency: components["schemas"]["MetricValue"];
+            net_pnl: components["schemas"]["MetricValue"];
+            period: components["schemas"]["AnalyticsPeriod"];
+            profit_factor: components["schemas"]["MetricValue"];
+            win_rate: components["schemas"]["MetricValue"];
+        };
         /** DisciplineBlock */
         DisciplineBlock: {
             consistency: components["schemas"]["MetricValue"];
@@ -973,7 +989,21 @@ export interface components {
             /** Wins */
             wins: number;
         };
-        /** MetricValue */
+        /**
+         * MetricValue
+         * @description One possibly-undefined figure, with the invariant enforced.
+         *
+         *     Exactly one of `value` or `state` is present — never both, never
+         *     neither. Without this the type merely *describes* the undefined-never-
+         *     zero rule while the service's discipline is the only thing enforcing it,
+         *     and the contract layer is precisely the layer meant to catch the service
+         *     drifting. A `0.0` riding alongside `undefined_incomplete_sample` would
+         *     otherwise serialise happily onto a trader's screen.
+         *
+         *     Mirrors `overview.Undefinable`, which carries the same validator. The
+         *     class is not aliased to it because the name is the OpenAPI schema name
+         *     and the generated TypeScript is built from it.
+         */
         MetricValue: {
             /** State */
             state: ("undefined_nan" | "undefined_positive_infinity" | "undefined_negative_infinity" | "undefined_no_sample" | "undefined_incomplete_sample") | null;

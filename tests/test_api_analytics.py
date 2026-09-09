@@ -499,3 +499,146 @@ def test_an_unknown_query_parameter_is_refused_rather_than_ignored(
     response = _get(client, handle, SEPT + "&setup=FVG")
 
     assert response.status_code == 422
+
+
+# ----------------------------------------------- contract invariants
+
+
+def test_a_metric_value_cannot_carry_both_a_number_and_an_undefined_state():
+    """The contract enforces the rule, not just the service's discipline.
+
+    Without this the type only DESCRIBES undefined-never-zero while the
+    projection is the sole thing upholding it — and the contract layer is
+    exactly where service drift is supposed to be caught. A 0.0 riding
+    alongside `undefined_incomplete_sample` would otherwise serialise
+    straight onto a trader's screen.
+    """
+    from pydantic import ValidationError
+
+    from src.tradelens.api.schemas.analytics import MetricValue
+
+    MetricValue(value=1.0, state=None)
+    MetricValue(value=None, state="undefined_no_sample")
+
+    with pytest.raises(ValidationError):
+        MetricValue(value=1.0, state="undefined_nan")
+    with pytest.raises(ValidationError):
+        MetricValue(value=None, state=None)
+
+
+def test_a_multi_category_breakdown_is_reported_as_comparable(
+    client, website_session_handle
+):
+    """The TRUE direction of `comparable`, which nothing else pinned.
+
+    Only the False side was tested, so a flag stuck at False passed the whole
+    suite — and Group C's ranking language rests entirely on this flag, so
+    stuck-False would silently suppress ranking product-wide with nothing
+    failing anywhere.
+    """
+    owner, handle = website_session_handle
+    _seed(owner, setup_type="FVG", pnl=100.0)
+    _seed(owner, setup_type="OB", pnl=-50.0, result="Loss", trade_date="2026-09-11")
+
+    body = _get(client, handle, SEPT).json()
+
+    assert body["setups"]["by_setup"]["comparable"] is True
+    assert len(body["setups"]["by_setup"]["rows"]) == 2
+
+
+def test_a_permissive_fromisoformat_still_cannot_widen_the_period(
+    client, website_session_handle, monkeypatch
+):
+    """The regex pre-check must bite on BOTH runtimes.
+
+    Python 3.9 (the local floor) already rejects `20260901`,
+    `2026-09-01T00:00:00` and `2026-9-1`, so deleting the regex guard reads
+    green here while CI's 3.11 — which accepts all three — would silently
+    widen the window. Stubbing a permissive parser makes the guard's absence
+    visible on the floor runtime too.
+    """
+    import datetime as real_dt
+
+    from src.tradelens.api.routers import overview as overview_router
+
+    class _Permissive(real_dt.date):
+        @classmethod
+        def fromisoformat(cls, value):
+            for fmt in ("%Y-%m-%d", "%Y%m%d", "%Y-%m-%dT%H:%M:%S"):
+                try:
+                    return real_dt.datetime.strptime(value, fmt).date()
+                except ValueError:
+                    continue
+            return real_dt.datetime.strptime(value.replace("-", "-"), "%Y-%m-%d").date()
+
+    monkeypatch.setattr(overview_router.dt, "date", _Permissive)
+    _owner, handle = website_session_handle
+
+    assert _get(client, handle, "from=20260901&to=2026-09-30").status_code == 422
+    assert (
+        _get(client, handle, "from=2026-09-01T00:00:00&to=2026-09-30").status_code
+        == 422
+    )
+
+
+# ------------------------------------------------- the prior-period comparison
+
+
+def test_the_prior_period_is_derived_and_reported_with_its_real_dates(
+    client, website_session_handle
+):
+    """Derived, never selected — that is what keeps ONE date control.
+
+    A "compare to" picker would be a second window on one screen, and a
+    reader could not tell which number belonged to which. The response
+    states the dates it actually used so the comparison is legible without
+    one.
+    """
+    owner, handle = website_session_handle
+    _seed(owner, trade_date="2026-09-10", pnl=100.0)
+    _seed(owner, trade_date="2026-08-20", pnl=40.0)
+
+    body = _get(client, handle, SEPT).json()
+
+    # September has 30 days, so the prior window is the 30 days before it.
+    assert body["comparison"]["period"] == {"from": "2026-08-02", "to": "2026-08-31"}
+    assert body["comparison"]["net_pnl"]["value"] == pytest.approx(60.0)
+
+
+def test_a_comparison_with_no_prior_trades_is_undefined_not_zero(
+    client, website_session_handle
+):
+    """ "No prior period to compare against" is not "no change"."""
+    owner, handle = website_session_handle
+    _seed(owner, trade_date="2026-09-10", pnl=100.0)
+
+    body = _get(client, handle, SEPT).json()
+
+    assert body["comparison"]["net_pnl"]["value"] is None
+    assert body["comparison"]["net_pnl"]["state"] == "undefined_no_sample"
+
+
+def test_the_comparison_uses_the_same_filters_as_the_period_itself(
+    client, website_session_handle
+):
+    """Otherwise the delta compares NQ against everything and calls it change."""
+    owner, handle = website_session_handle
+    _seed(owner, trade_date="2026-09-10", asset="NQ", pnl=100.0)
+    _seed(owner, trade_date="2026-08-20", asset="NQ", pnl=40.0)
+    _seed(owner, trade_date="2026-08-21", asset="ES", pnl=5000.0)
+
+    body = _get(client, handle, SEPT + "&asset=NQ").json()
+
+    assert body["comparison"]["net_pnl"]["value"] == pytest.approx(60.0)
+
+
+def test_the_comparison_is_owner_scoped_like_everything_else(client, two_users):
+    first, second = two_users[0], two_users[1]
+    _seed(first, trade_date="2026-08-20", pnl=9999.0)
+    _seed(second, trade_date="2026-09-10", pnl=100.0)
+    _seed(second, trade_date="2026-08-20", pnl=40.0)
+    handle = _session_handle_for(second)
+
+    body = _get(client, handle, SEPT).json()
+
+    assert body["comparison"]["net_pnl"]["value"] == pytest.approx(60.0)

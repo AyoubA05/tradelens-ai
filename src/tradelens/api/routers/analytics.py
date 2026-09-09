@@ -74,9 +74,17 @@ def get_analytics(
 
     df = analytics.apply_filters(analytics.frame(trades), applied)
 
+    # The prior window is derived from the requested one and fetched with the
+    # SAME owner and the SAME filters. Comparing a filtered period against an
+    # unfiltered one would report the difference as change.
+    prior_from, prior_to = analytics.prior_window(start, end)
+    prior_trades = get_trades(user_id=user_id, start_date=prior_from, end_date=prior_to)
+    prior_df = analytics.apply_filters(analytics.frame(prior_trades), applied)
+
     return AnalyticsResponse(
         period={"from": start, "to": end},
         filters=applied,
+        comparison=analytics.build_comparison(df, prior_df, (prior_from, prior_to)),
         performance=analytics.build_performance(df),
         risk=analytics.build_risk(df),
         timing=analytics.build_timing(df),
