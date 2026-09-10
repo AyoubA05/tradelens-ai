@@ -36,6 +36,16 @@ def _src_component(name: str) -> str:
     return (PAGES.parent / "components" / name).read_text(encoding="utf-8")
 
 
+def _src_service(name: str) -> str:
+    """Source of a `services/` module.
+
+    Phase 7 moved the playbook's section map and completion count into
+    `services/strategy_playbook.py` so the API reads the same definition as
+    this page; `ui/components/strategy_profile.py` now only re-exports it.
+    """
+    return (PAGES.parents[1] / "services" / name).read_text(encoding="utf-8")
+
+
 def _live_ui_sources() -> tuple[Path, ...]:
     """Routed pages plus the UI components they actually import.
 
@@ -1396,7 +1406,7 @@ def test_expander_count_matches_the_five_collapsed_sections():
 
 def test_profile_completion_is_reported():
     src = _strategy_src()
-    component = _src_component("strategy_profile.py")
+    component = _src_service("strategy_playbook.py")
     assert "def profile_completion(" in component
     assert "profile_completion(profile)" in src
     assert "_render_profile_summary(" in src
@@ -1480,7 +1490,7 @@ def test_completion_is_read_from_the_saved_profile_not_the_form():
     it has not been given."""
     src = _strategy_src()
     assert "_render_profile_summary(profile or {})" in src
-    body = _src_component("strategy_profile.py")
+    body = _src_service("strategy_playbook.py")
     assert "profile.get(" in body
     assert "st.session_state" not in body
 

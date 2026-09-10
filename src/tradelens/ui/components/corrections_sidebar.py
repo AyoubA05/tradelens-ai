@@ -10,9 +10,10 @@ import streamlit as st
 
 from src.tradelens.services.corrections import count_corrections, repeated_corrections
 from src.tradelens.services.strategy import append_insight
+from src.tradelens.services.strategy_playbook import (
+    REPEAT_THRESHOLD as _REPEAT_THRESHOLD,
+)
 from src.tradelens.ui.components.auth import current_user_id
-
-_REPEAT_THRESHOLD = 5
 
 
 def render_corrections_sidebar() -> None:
