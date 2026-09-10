@@ -103,6 +103,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/strategy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Strategy
+         * @description The active playbook, its completion, the starter template and suggestions.
+         */
+        get: operations["get_strategy_v1_strategy_get"];
+        /**
+         * Put Strategy
+         * @description Replace the whole playbook, compared against the version it was edited from.
+         *
+         *     Saving is also what completes the first-run step, in the same transaction.
+         *     `response_model` is declared explicitly because the 422 path returns a
+         *     `JSONResponse` directly; without it the generated TypeScript type for a
+         *     successful save would be untyped.
+         */
+        put: operations["put_strategy_v1_strategy_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/strategy/insights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Strategy Insight
+         * @description Add one repeated correction to risk rules. Owner-scoped and idempotent.
+         */
+        post: operations["add_strategy_insight_v1_strategy_insights_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/strategy/skip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Skip Strategy
+         * @description The first-run exit for a trader with no written rules yet.
+         *
+         *     Completes first run and writes no profile — a playbook the trader did not
+         *     write is never invented on their behalf.
+         */
+        post: operations["skip_strategy_v1_strategy_skip_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/trades": {
         parameters: {
             query?: never;
@@ -1294,6 +1366,169 @@ export interface components {
             /** Mistakes */
             mistakes: components["schemas"]["MistakeCount"][];
         };
+        /** StrategyFacets */
+        StrategyFacets: {
+            /** Entry Timeframe */
+            entry_timeframe: string | null;
+            /** Htf Timeframe */
+            htf_timeframe: string | null;
+            /** Markets */
+            markets: string[];
+            /** Setups */
+            setups: string[];
+        };
+        /** StrategyFields */
+        StrategyFields: {
+            /** Common Mistakes */
+            common_mistakes: string | null;
+            /** Entry Rules */
+            entry_rules: string | null;
+            /** Markets */
+            markets: string | null;
+            /** Name */
+            name: string | null;
+            /** News Session Rules */
+            news_session_rules: string | null;
+            /** Risk Rules */
+            risk_rules: string | null;
+            /** Setups Avoided */
+            setups_avoided: string | null;
+            /** Setups Traded */
+            setups_traded: string | null;
+            /** Stop Rules */
+            stop_rules: string | null;
+            /** Take Profit Rules */
+            take_profit_rules: string | null;
+            /** Timeframes */
+            timeframes: string | null;
+            /** Trading Style */
+            trading_style: string | null;
+        };
+        /**
+         * StrategyInsightRequest
+         * @description Names one repeated-correction group. A lookup key, never rule text.
+         *
+         *     There is deliberately no target-field key: the column is fixed server-side.
+         */
+        StrategyInsightRequest: {
+            /** Expected Revision */
+            expected_revision: string | null;
+            /** Field */
+            field: string;
+            /** User Value */
+            user_value: string;
+        };
+        /**
+         * StrategyLimits
+         * @description Maximum characters per field — the one source the editor's counters read.
+         */
+        StrategyLimits: {
+            /** Common Mistakes */
+            common_mistakes: number;
+            /** Entry Rules */
+            entry_rules: number;
+            /** Markets */
+            markets: number;
+            /** Name */
+            name: number;
+            /** News Session Rules */
+            news_session_rules: number;
+            /** Risk Rules */
+            risk_rules: number;
+            /** Setups Avoided */
+            setups_avoided: number;
+            /** Setups Traded */
+            setups_traded: number;
+            /** Stop Rules */
+            stop_rules: number;
+            /** Take Profit Rules */
+            take_profit_rules: number;
+            /** Timeframes */
+            timeframes: number;
+            /** Trading Style */
+            trading_style: number;
+        };
+        /** StrategyResponse */
+        StrategyResponse: {
+            facets: components["schemas"]["StrategyFacets"];
+            /** First Run */
+            first_run: boolean;
+            limits: components["schemas"]["StrategyLimits"];
+            /** Over Limit */
+            over_limit: string[];
+            profile: components["schemas"]["StrategyFields"] | null;
+            /** Revision */
+            revision: string | null;
+            /** Sections */
+            sections: components["schemas"]["StrategySection"][];
+            starter: components["schemas"]["StrategyFields"];
+            /** Suggestions */
+            suggestions: components["schemas"]["StrategySuggestion"][];
+            /** Total */
+            total: number;
+            /** Updated At */
+            updated_at: string | null;
+            /** Written */
+            written: number;
+        };
+        /** StrategySection */
+        StrategySection: {
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "identity" | "entry" | "exit" | "risk" | "setups" | "self_awareness";
+            /** Label */
+            label: string;
+            /** Written */
+            written: boolean;
+        };
+        /** StrategySuggestion */
+        StrategySuggestion: {
+            /** Count */
+            count: number;
+            /** Field */
+            field: string;
+            /** Rule */
+            rule: string;
+            /** User Value */
+            user_value: string;
+        };
+        /**
+         * StrategyWrite
+         * @description The whole playbook, plus the version it was edited from.
+         *
+         *     `expected_revision` is compared, never adopted: the server derives the
+         *     next version itself.
+         */
+        StrategyWrite: {
+            /** Common Mistakes */
+            common_mistakes: string | null;
+            /** Entry Rules */
+            entry_rules: string | null;
+            /** Expected Revision */
+            expected_revision: string | null;
+            /** Markets */
+            markets: string | null;
+            /** Name */
+            name: string | null;
+            /** News Session Rules */
+            news_session_rules: string | null;
+            /** Risk Rules */
+            risk_rules: string | null;
+            /** Setups Avoided */
+            setups_avoided: string | null;
+            /** Setups Traded */
+            setups_traded: string | null;
+            /** Stop Rules */
+            stop_rules: string | null;
+            /** Take Profit Rules */
+            take_profit_rules: string | null;
+            /** Timeframes */
+            timeframes: string | null;
+            /** Trading Style */
+            trading_style: string | null;
+        };
         /** StreakBlock */
         StreakBlock: {
             current: components["schemas"]["MetricValue"];
@@ -2180,6 +2415,131 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WhoAmI"];
+                };
+            };
+        };
+    };
+    get_strategy_v1_strategy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StrategyResponse"];
+                };
+            };
+        };
+    };
+    put_strategy_v1_strategy_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StrategyWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StrategyResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    add_strategy_insight_v1_strategy_insights_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StrategyInsightRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StrategyResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    skip_strategy_v1_strategy_skip_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StrategyResponse"];
                 };
             };
         };

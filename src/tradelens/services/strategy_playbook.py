@@ -61,9 +61,24 @@ SECTION_IDS = ("identity", "entry", "exit", "risk", "setups", "self_awareness")
 REPEAT_THRESHOLD = 5
 
 
+def section_status(profile: Mapping[str, object]) -> list:
+    """`[(section_id, label, written), ...]` in page order.
+
+    The one place "is this section written" is decided. `profile_completion`
+    counts these, so the API's per-section flags and its total cannot drift.
+    """
+    return [
+        (
+            section_id,
+            label,
+            any(str(profile.get(field) or "").strip() for field in fields),
+        )
+        for section_id, label, fields in zip(
+            SECTION_IDS, SECTION_LABELS, SECTION_FIELDS
+        )
+    ]
+
+
 def profile_completion(profile: Mapping[str, object]) -> tuple[int, int]:
-    written = sum(
-        any(str(profile.get(field) or "").strip() for field in fields)
-        for fields in SECTION_FIELDS
-    )
+    written = sum(1 for _id, _label, done in section_status(profile) if done)
     return written, len(SECTION_FIELDS)

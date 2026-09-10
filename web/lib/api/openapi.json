@@ -1697,6 +1697,638 @@
         "title": "SetupsLens",
         "type": "object"
       },
+      "StrategyFacets": {
+        "additionalProperties": false,
+        "properties": {
+          "entry_timeframe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Timeframe"
+          },
+          "htf_timeframe": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Htf Timeframe"
+          },
+          "markets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Markets",
+            "type": "array"
+          },
+          "setups": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Setups",
+            "type": "array"
+          }
+        },
+        "required": [
+          "markets",
+          "entry_timeframe",
+          "htf_timeframe",
+          "setups"
+        ],
+        "title": "StrategyFacets",
+        "type": "object"
+      },
+      "StrategyFields": {
+        "additionalProperties": false,
+        "properties": {
+          "common_mistakes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Common Mistakes"
+          },
+          "entry_rules": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Rules"
+          },
+          "markets": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Markets"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "news_session_rules": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "News Session Rules"
+          },
+          "risk_rules": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Rules"
+          },
+          "setups_avoided": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setups Avoided"
+          },
+          "setups_traded": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setups Traded"
+          },
+          "stop_rules": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Rules"
+          },
+          "take_profit_rules": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Take Profit Rules"
+          },
+          "timeframes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeframes"
+          },
+          "trading_style": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trading Style"
+          }
+        },
+        "required": [
+          "name",
+          "trading_style",
+          "markets",
+          "timeframes",
+          "entry_rules",
+          "stop_rules",
+          "take_profit_rules",
+          "risk_rules",
+          "setups_traded",
+          "setups_avoided",
+          "news_session_rules",
+          "common_mistakes"
+        ],
+        "title": "StrategyFields",
+        "type": "object"
+      },
+      "StrategyInsightRequest": {
+        "additionalProperties": false,
+        "description": "Names one repeated-correction group. A lookup key, never rule text.\n\nThere is deliberately no target-field key: the column is fixed server-side.",
+        "properties": {
+          "expected_revision": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          },
+          "field": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Field",
+            "type": "string"
+          },
+          "user_value": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "User Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "user_value",
+          "expected_revision"
+        ],
+        "title": "StrategyInsightRequest",
+        "type": "object"
+      },
+      "StrategyLimits": {
+        "additionalProperties": false,
+        "description": "Maximum characters per field \u2014 the one source the editor's counters read.",
+        "properties": {
+          "common_mistakes": {
+            "title": "Common Mistakes",
+            "type": "integer"
+          },
+          "entry_rules": {
+            "title": "Entry Rules",
+            "type": "integer"
+          },
+          "markets": {
+            "title": "Markets",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "integer"
+          },
+          "news_session_rules": {
+            "title": "News Session Rules",
+            "type": "integer"
+          },
+          "risk_rules": {
+            "title": "Risk Rules",
+            "type": "integer"
+          },
+          "setups_avoided": {
+            "title": "Setups Avoided",
+            "type": "integer"
+          },
+          "setups_traded": {
+            "title": "Setups Traded",
+            "type": "integer"
+          },
+          "stop_rules": {
+            "title": "Stop Rules",
+            "type": "integer"
+          },
+          "take_profit_rules": {
+            "title": "Take Profit Rules",
+            "type": "integer"
+          },
+          "timeframes": {
+            "title": "Timeframes",
+            "type": "integer"
+          },
+          "trading_style": {
+            "title": "Trading Style",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "trading_style",
+          "markets",
+          "timeframes",
+          "entry_rules",
+          "stop_rules",
+          "take_profit_rules",
+          "risk_rules",
+          "setups_traded",
+          "setups_avoided",
+          "news_session_rules",
+          "common_mistakes"
+        ],
+        "title": "StrategyLimits",
+        "type": "object"
+      },
+      "StrategyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "facets": {
+            "$ref": "#/components/schemas/StrategyFacets"
+          },
+          "first_run": {
+            "title": "First Run",
+            "type": "boolean"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/StrategyLimits"
+          },
+          "over_limit": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Over Limit",
+            "type": "array"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StrategyFields"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/StrategySection"
+            },
+            "title": "Sections",
+            "type": "array"
+          },
+          "starter": {
+            "$ref": "#/components/schemas/StrategyFields"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/StrategySuggestion"
+            },
+            "title": "Suggestions",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "written": {
+            "title": "Written",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "profile",
+          "revision",
+          "updated_at",
+          "sections",
+          "written",
+          "total",
+          "facets",
+          "over_limit",
+          "limits",
+          "starter",
+          "suggestions",
+          "first_run"
+        ],
+        "title": "StrategyResponse",
+        "type": "object"
+      },
+      "StrategySection": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "enum": [
+              "identity",
+              "entry",
+              "exit",
+              "risk",
+              "setups",
+              "self_awareness"
+            ],
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "written": {
+            "title": "Written",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "written"
+        ],
+        "title": "StrategySection",
+        "type": "object"
+      },
+      "StrategySuggestion": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "user_value": {
+            "title": "User Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "user_value",
+          "count",
+          "rule"
+        ],
+        "title": "StrategySuggestion",
+        "type": "object"
+      },
+      "StrategyWrite": {
+        "additionalProperties": false,
+        "description": "The whole playbook, plus the version it was edited from.\n\n`expected_revision` is compared, never adopted: the server derives the\nnext version itself.",
+        "properties": {
+          "common_mistakes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Common Mistakes"
+          },
+          "entry_rules": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entry Rules"
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          },
+          "markets": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Markets"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "news_session_rules": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "News Session Rules"
+          },
+          "risk_rules": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Rules"
+          },
+          "setups_avoided": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setups Avoided"
+          },
+          "setups_traded": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setups Traded"
+          },
+          "stop_rules": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Rules"
+          },
+          "take_profit_rules": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Take Profit Rules"
+          },
+          "timeframes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeframes"
+          },
+          "trading_style": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trading Style"
+          }
+        },
+        "required": [
+          "name",
+          "trading_style",
+          "markets",
+          "timeframes",
+          "entry_rules",
+          "stop_rules",
+          "take_profit_rules",
+          "risk_rules",
+          "setups_traded",
+          "setups_avoided",
+          "news_session_rules",
+          "common_mistakes",
+          "expected_revision"
+        ],
+        "title": "StrategyWrite",
+        "type": "object"
+      },
       "StreakBlock": {
         "additionalProperties": false,
         "properties": {
@@ -5118,6 +5750,134 @@
         "summary": "Whoami",
         "tags": [
           "session"
+        ]
+      }
+    },
+    "/v1/strategy": {
+      "get": {
+        "description": "The active playbook, its completion, the starter template and suggestions.",
+        "operationId": "get_strategy_v1_strategy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Strategy",
+        "tags": [
+          "strategy"
+        ]
+      },
+      "put": {
+        "description": "Replace the whole playbook, compared against the version it was edited from.\n\nSaving is also what completes the first-run step, in the same transaction.\n`response_model` is declared explicitly because the 422 path returns a\n`JSONResponse` directly; without it the generated TypeScript type for a\nsuccessful save would be untyped.",
+        "operationId": "put_strategy_v1_strategy_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Put Strategy",
+        "tags": [
+          "strategy"
+        ]
+      }
+    },
+    "/v1/strategy/insights": {
+      "post": {
+        "description": "Add one repeated correction to risk rules. Owner-scoped and idempotent.",
+        "operationId": "add_strategy_insight_v1_strategy_insights_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyInsightRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Strategy Insight",
+        "tags": [
+          "strategy"
+        ]
+      }
+    },
+    "/v1/strategy/skip": {
+      "post": {
+        "description": "The first-run exit for a trader with no written rules yet.\n\nCompletes first run and writes no profile \u2014 a playbook the trader did not\nwrite is never invented on their behalf.",
+        "operationId": "skip_strategy_v1_strategy_skip_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Skip Strategy",
+        "tags": [
+          "strategy"
         ]
       }
     },
