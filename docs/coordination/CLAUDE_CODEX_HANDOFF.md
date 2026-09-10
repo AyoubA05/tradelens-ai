@@ -7610,3 +7610,122 @@ verification. Phase 6 adds neither AI calls nor storage and does not close any o
 
 **Phase 6 is cleared for merge after the scoped Codex fix-forward commit.** This is development
 merge clearance, not deployment clearance. Do not begin Phase 7 from this review task.
+
+---
+
+# Phase 7 — Strategy Profile (branch `worktree-phase7-strategy`, NOT merged)
+
+Plan: `docs/superpowers/plans/2026-09-10-nextjs-migration-phase7-strategy-profile.md` (`ca7c0d0`).
+Commits: `A1` playbook constants → services; locked CAS save + skip + insight append; fingerprint
++ prompt boundary; Group A review fixes; `6e3fe29` API; `adb8531` relays; `a21e428` page + Overview
+first-run routing.
+
+## The invariant
+
+The profile is the rulebook every AI review reads, so **a profile write is a change to a prompt**.
+Owner-approved invariants, and where each is pinned:
+
+| Invariant | Mechanism | Pinned by |
+|---|---|---|
+| Version server-derived, checked in the same transaction under the owner lock | `strategy_writes._locked_session` (`BEGIN IMMEDIATE` / `users … FOR UPDATE`) then `_check_revision` before any write | `test_a_stale_version_is_refused_and_writes_nothing`, M1/M3 |
+| Stale → 409, no partial write (fields, flag, `is_active`, stamp) | check precedes every mutation; rollback on any exception | same + `test_put_stale_is_409_and_the_stored_profile_is_unchanged` |
+| Two concurrent first saves → one active profile | owner-row lock serialises "no row yet" | `test_two_concurrent_first_saves_leave_exactly_one_active_row` (barrier; 5/5 stable; fails with lock removed) |
+| Version moves on every save, incl. same clock tick | `_next_stamp` (+1µs when `now <= previous`) | `test_the_version_moves_even_inside_one_clock_tick`, `test_an_identical_resave_still_moves_the_version` |
+| Browser never controls ownership/version | strict allowlists; `expected_revision` compared only | `test_an_ownership_key_in_the_fields_is_refused_before_any_write`, API 422 param tests |
+| Over-500 never truncated | refuse (`too_long`), `over_limit` reported, editor shows full text | `test_over_limit_text_is_refused_never_truncated`, `test_a_legacy_over_limit_field_is_reported_intact`, editor tests |
+| Approved normalisation only: CRLF/CR→LF, trim outer boundary of the whole field | one `.strip()` after line-ending normalisation | `test_only_line_endings_and_the_outer_boundary_are_normalised` (M22–M24) |
+| Cached AI results cannot outlive the profile | `_strategy_fingerprint` = sha256 of `_sanitised_strategy(get_active_strategy())`; read failure fails closed | M19, M20, M29 |
+| Profile text never reaches a system message | unchanged; now pinned | `tests/test_strategy_prompt_boundary.py` (grading, journal), M21 |
+
+Limits: `name` 100, every other field `MAX_PROMPT_TEXT_CHARS` (500) — imported, not copied, so a saved
+rule is a rule the model is given in full.
+
+## Approved product decisions and deliberate parity deviations
+
+- **Starter playbook fills the editor; it never saves.** Streamlit's button overwrote the profile in
+  one click. Asks before replacing non-empty text.
+- **Repeated corrections are owner-scoped and idempotent, and the UI says they go to Risk Rules.**
+  The browser names a group only; the server re-derives it from the owner's `Correction` rows and
+  builds the rule text. Target column is fixed. **With no profile → 409 `no_profile`** (Streamlit
+  silently created "My Strategy"). **The rule no longer carries its count** (`… (from repeated
+  corrections in review)`): with the count inside it, a sixth correction produced a duplicate. Lines
+  Streamlit's `append_insight` wrote (`… (corrected Nx in review)`) are recognised as present.
+- **First-run routing is Overview-only**, from the session row, never the URL, and NOT in
+  `appLayoutRedirect` (that gates relays; putting it there would refuse the calls that complete first
+  run and loop `/app/strategy`). **Deploy consequence:** existing `nextjs`-surface accounts whose
+  `strategy_profile_completed` is still false will see the step once on their next Overview visit;
+  the existing skip exit makes it one click.
+- **Demo-mode sample playbook preview deferred to Phase 9** (the API has no demo read path).
+- Explicit save, no autosave; a 409 keeps every typed character; a newer server version replaces the
+  editor only when nothing is unsaved or the trader confirms. A failed load renders **no editor**
+  (the save is a full replacement — an empty editor saved over a failed load would wipe the rules).
+- Renaming is forward-only; the page says earlier trades keep their logged name.
+
+## What review caught that green suites hid (Group A independent review)
+
+1. The rule text embedded the correction count → a sixth correction re-suggested and duplicated it.
+2. The version was checked before "already present" → a real double-click (same version twice) got
+   a 409, not the promised no-op. The existing test sent the *new* version, so it never modelled a
+   double-click.
+3. `_prompt_safe` leaves C0 controls; a correction containing `\x0b` was appended and then made the
+   trader's next ordinary save fail `invalid_characters` — locked out by an invisible character.
+4. The append `rstrip`-ed the trader's text, contradicting its own "byte-for-byte" docstring.
+5. Fail-closed on a profile read error was untested (every test stubbed the fingerprint wholesale).
+6. Dedupe by exact-line match had no test distinguishing it from whole-field match.
+All six fixed with tests; each fix mutation-verified.
+
+Recorded, not fixed here:
+- **Unlocked Streamlit writers** (`upsert_strategy_profile`, `save_profile_and_mark_completed`,
+  `append_insight`) take no lock and check no version. A Streamlit save moves `updated_at`, so a later
+  web save based on the old version is refused; a Streamlit write inside the same microsecond as a web
+  write, or a Streamlit write over a web save, is a lost update. Retires with Streamlit (Phase 10).
+- The version is `updated_at` alone; for legacy stamps Python 3.9 cannot parse, `_next_stamp` returns
+  `now`, which differs (CAS-safe) but may not sort after the old value.
+- **`partner.py` places the Strategy Profile in the system message** (older code, outside this
+  phase). Flag for Phase 8 (AI Partner).
+- Legacy over-limit fields are still cut to 500 at prompt time by `_prompt_scalar`; the product now
+  surfaces them (`over_limit`) instead of hiding it.
+
+## Mutation testing
+
+Pristine copies keyed by full path, sha256 before/after, restore asserted every time.
+- Group A (service, fingerprint, prompt boundary, normalisation): **30 applied / 30 caught**.
+- Group B (API): **12 / 12**.
+- Groups C+D (relays, page, editor, first-run routing): **17 / 17**.
+
+## Verification actually run (at `a21e428`)
+
+- Full Python: **3396 passed / 7 skipped / 3 failed**. Two are the recorded Streamlit
+  `test_pages_boot.py` analytics copy assertions (`marker not found: BOS &amp; FVG`), unchanged and
+  separate from this phase. The third, `test_account_ui.py::test_reset_is_reachable_when_signup_is_enabled_too`,
+  passes alone and the whole file passed 3/3; Phase 7 touches none of its code — a load-sensitive
+  flake (like the Phase 6 `test_analytics_performance_lens_shows_its_readout` one). Not fixed here.
+- Web (run from `web/`): **1602 passed / 93 files**. `tsc` clean. ESLint 0 errors; the two
+  pre-existing `modal-trap.ts` warnings. Ruff and black clean (311 files).
+- Production build passed (with localhost origins — the prebuild correctly refuses reserved
+  placeholder domains); `/app/strategy`, `/api/strategy`, `/api/strategy/skip`,
+  `/api/strategy/insights` are dynamic.
+- OpenAPI + `schema.d.ts` regenerated: no drift. PUT/POST 200 types are `StrategyResponse`.
+- Streamlit leak check: 65 service/API modules import with streamlit blocked — none leak.
+- `metrics.py`, `prompts/`, requirements and package manifests untouched; one Alembic head
+  (`g3h4i5j6k7l8`); no migration.
+
+## Honest gaps
+
+- **The Group B (API) independent review did not complete** — it stopped on an API session limit,
+  not on a finding. Group B has my own 12/12 mutation battery and 35 API tests, but no second pair
+  of eyes yet. **Re-run it before merge.**
+- **Authenticated desktop + 375px browser smoke did NOT run** for Strategy (nor Analytics): no
+  `web/.env.local` exists in either checkout. Layout, 44px targets and 375px behaviour are verified in
+  jsdom only.
+
+## Carried forward, untouched
+
+Authenticated desktop + 375px browser smoke (Analytics and Strategy); Docker build/startup/health;
+disposable PostgreSQL migrations; real PostgreSQL concurrency — **now including the profile CAS and
+owner-row lock, exercised on SQLite only here**; broader Python dependency audit; live Anthropic
+smoke; live R2/browser verification. The two deterministic `test_pages_boot.py` failures remain
+recorded and separate from Phase 7.
+
+**Phase 7 is code-complete on its branch and NOT cleared for merge** until the Group B review is
+re-run. Do not begin Phase 8.
