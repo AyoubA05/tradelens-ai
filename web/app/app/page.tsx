@@ -38,6 +38,18 @@ export default async function OverviewPage({
   const redirectTo = appLayoutRedirect(user);
   if (redirectTo) redirect(redirectTo);
 
+  // First run: a trader who has not yet written a playbook (or said they
+  // have none) is sent to write one before their first review. Read from the
+  // account row the session resolved — never from the URL, which a trader
+  // could edit to skip the step.
+  //
+  // Only this page redirects, matching Streamlit's `strategy_gate.py`, where
+  // only the dashboard does. It is deliberately NOT part of
+  // `appLayoutRedirect`: that function also gates every relay, so putting it
+  // there would refuse the very save and skip calls that complete first run,
+  // and would redirect `/app/strategy` to itself.
+  if (!user.strategyProfileCompleted) redirect("/app/strategy");
+
   const data = await fetchOverview(token, period);
 
   return (

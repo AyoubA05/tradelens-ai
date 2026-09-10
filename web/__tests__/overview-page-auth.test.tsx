@@ -53,7 +53,7 @@ describe("Overview page authorization", () => {
   });
 
   it("forwards the browser token only after the page-local gate passes", async () => {
-    const user = { userId: 7, appSurface: "nextjs" };
+    const user = { userId: 7, appSurface: "nextjs", strategyProfileCompleted: true };
     authenticate.mockResolvedValue(user);
     appRedirect.mockReturnValue(null);
     fetchOverview.mockResolvedValue({});
@@ -64,5 +64,68 @@ describe("Overview page authorization", () => {
     expect(appRedirect).toHaveBeenCalledWith(user);
     expect(fetchOverview).toHaveBeenCalledOnce();
     expect(fetchOverview.mock.calls[0]?.[0]).toBe("browser-token");
+  });
+});
+
+describe("Overview first-run routing", () => {
+  it("sends an account with no playbook step to /app/strategy before any fetch", async () => {
+    authenticate.mockResolvedValue({
+      userId: 7,
+      appSurface: "nextjs",
+      strategyProfileCompleted: false,
+    });
+    appRedirect.mockReturnValue(null);
+
+    await expect(OverviewPage({ searchParams: params })).rejects.toThrow(
+      "redirect:/app/strategy",
+    );
+    expect(fetchOverview).not.toHaveBeenCalled();
+  });
+
+  it("lets a completed account through to its Overview", async () => {
+    authenticate.mockResolvedValue({
+      userId: 7,
+      appSurface: "nextjs",
+      strategyProfileCompleted: true,
+    });
+    appRedirect.mockReturnValue(null);
+    fetchOverview.mockResolvedValue({});
+
+    await OverviewPage({ searchParams: params });
+    expect(redirect).not.toHaveBeenCalled();
+    expect(fetchOverview).toHaveBeenCalledOnce();
+  });
+
+  it("never reads first-run state from the URL", async () => {
+    authenticate.mockResolvedValue({
+      userId: 7,
+      appSurface: "nextjs",
+      strategyProfileCompleted: false,
+    });
+    appRedirect.mockReturnValue(null);
+    const tampered = Promise.resolve<Record<string, string>>({
+      from: "2026-08-01",
+      to: "2026-08-31",
+      first_run: "0",
+      completed: "1",
+      strategyProfileCompleted: "true",
+    });
+
+    await expect(OverviewPage({ searchParams: tampered })).rejects.toThrow(
+      "redirect:/app/strategy",
+    );
+    expect(fetchOverview).not.toHaveBeenCalled();
+  });
+
+  it("sends an ineligible account to its own gate first, not to the playbook", async () => {
+    authenticate.mockResolvedValue({
+      userId: 7,
+      appSurface: "streamlit",
+      strategyProfileCompleted: false,
+    });
+    appRedirect.mockReturnValue("/continue");
+
+    await expect(OverviewPage({ searchParams: params })).rejects.toThrow("redirect:/continue");
+    expect(redirect).toHaveBeenCalledTimes(1);
   });
 });
