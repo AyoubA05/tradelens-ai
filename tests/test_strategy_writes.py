@@ -21,6 +21,10 @@ from src.tradelens.ui.components import strategy_profile as ui_pb
 
 FULL = dict({f: None for f in strategy._PROFILE_FIELDS}, name="Playbook")
 
+# The server-built rule for the `_repeat()` default group. No count inside it:
+# a rule added at five corrections is the same rule at six.
+RULE = "• bias: prefer bearish (from repeated corrections in review)"
+
 
 def _rows(owner):
     db = SessionLocal()
@@ -307,6 +311,42 @@ def test_newlines_and_tabs_survive_and_windows_line_endings_become_newlines(two_
     assert saved["entry_rules"] == "one\ntwo\n\tthree"
 
 
+def test_only_line_endings_and_the_outer_boundary_are_normalised(two_users):
+    """The approved normalisation, and nothing more.
+
+    Exactly two things may change: CRLF/CR become LF, and whitespace at the
+    outer boundaries of the WHOLE field is trimmed. Every internal space,
+    tab, indentation, trailing space on an inner line and blank line is the
+    trader's formatting and must come back byte-for-byte.
+    """
+    owner = two_users[0]
+    raw = (
+        "  \r\n\t Rule one  \r\n"  # outer leading whitespace; inner trailing spaces
+        "\r\n"  # an internal blank line (CRLF)
+        "    - indented   note\r"  # indentation, doubled spaces, lone CR
+        "  with\ttab\n"
+        "\n\n"  # two more internal blank lines (LF)
+        "  last line  \n\t "  # outer trailing whitespace
+    )
+    expected = (
+        "Rule one  \n"
+        "\n"
+        "    - indented   note\n"
+        "  with\ttab\n"
+        "\n\n"
+        "  last line"
+    )
+    saved = sw.save_profile(owner, dict(FULL, risk_rules=raw), expected_revision=None)
+    assert saved["risk_rules"] == expected
+    # What was stored, not just what was returned.
+    assert strategy.get_active_strategy(owner)["risk_rules"] == expected
+    # Re-saving the stored text is a fixed point: nothing drifts on each save.
+    again = sw.save_profile(
+        owner, dict(FULL, risk_rules=expected), expected_revision=saved["updated_at"]
+    )
+    assert again["risk_rules"] == expected
+
+
 def test_the_completion_flag_and_the_profile_commit_together(two_users, monkeypatch):
     owner = two_users[1]
 
@@ -354,7 +394,7 @@ def test_append_uses_the_servers_rule_text_and_the_fixed_field(two_users):
     out = sw.append_repeated_correction(
         owner, field="bias", user_value="bearish", expected_revision=p["updated_at"]
     )
-    assert out["risk_rules"] == "• bias: prefer bearish (corrected 5x in review)"
+    assert out["risk_rules"] == RULE
     assert out["entry_rules"] is None
     assert out["updated_at"] != p["updated_at"]
 
@@ -367,9 +407,22 @@ def test_append_keeps_the_traders_existing_text_byte_for_byte(two_users):
     out = sw.append_repeated_correction(
         owner, field="bias", user_value="bearish", expected_revision=p["updated_at"]
     )
-    assert (
-        out["risk_rules"] == mine + "\n• bias: prefer bearish (corrected 5x in review)"
+    assert out["risk_rules"] == mine + "\n" + RULE
+
+
+def test_append_keeps_trailing_whitespace_the_legacy_path_stored(two_users):
+    """No `rstrip`: the append adds a line, it does not tidy the trader's text."""
+    owner = two_users[0]
+    _repeat(owner)
+    strategy.upsert_strategy_profile(owner, name="Old", risk_rules="mine  \n\n")
+    current = strategy.get_active_strategy(owner)
+    out = sw.append_repeated_correction(
+        owner,
+        field="bias",
+        user_value="bearish",
+        expected_revision=current["updated_at"],
     )
+    assert out["risk_rules"] == "mine  \n\n" + RULE
 
 
 def test_below_threshold_or_another_owners_group_is_not_found(two_users):
@@ -392,18 +445,87 @@ def test_a_double_click_appends_once_and_leaves_the_version_alone(two_users):
     owner = two_users[0]
     _repeat(owner)
     p = sw.save_profile(owner, dict(FULL), expected_revision=None)
-    assert [s["rule"] for s in sw.insight_suggestions(owner, p)] == [
-        "• bias: prefer bearish (corrected 5x in review)"
-    ]
+    suggestions = sw.insight_suggestions(owner, p)
+    assert [(s["rule"], s["count"]) for s in suggestions] == [(RULE, 5)]
+    # A real double-click: BOTH requests carry the version the page loaded.
     once = sw.append_repeated_correction(
         owner, field="bias", user_value="bearish", expected_revision=p["updated_at"]
     )
     twice = sw.append_repeated_correction(
-        owner, field="bias", user_value="bearish", expected_revision=once["updated_at"]
+        owner, field="bias", user_value="bearish", expected_revision=p["updated_at"]
     )
     assert twice["risk_rules"].count("prefer bearish") == 1
     assert twice["updated_at"] == once["updated_at"]
     assert sw.insight_suggestions(owner, twice) == []
+
+
+def test_a_growing_count_does_not_duplicate_the_rule(two_users):
+    """Added at five corrections, it is the same rule at six."""
+    owner = two_users[0]
+    _repeat(owner)
+    p = sw.save_profile(owner, dict(FULL), expected_revision=None)
+    once = sw.append_repeated_correction(
+        owner, field="bias", user_value="bearish", expected_revision=p["updated_at"]
+    )
+    _repeat(owner, n=1)  # the sixth correction
+    assert sw.insight_suggestions(owner, once) == []
+    again = sw.append_repeated_correction(
+        owner, field="bias", user_value="bearish", expected_revision=once["updated_at"]
+    )
+    assert again["risk_rules"] == RULE
+    assert again["updated_at"] == once["updated_at"]
+
+
+def test_a_rule_streamlit_already_added_is_not_offered_or_added_again(two_users):
+    """Streamlit's append_insight wrote the count into the line; it still counts."""
+    owner = two_users[0]
+    _repeat(owner)
+    text = (
+        "Max 1R per trade\n"
+        "   • bias: prefer bearish (corrected 5x in review)   \n"
+        "No revenge trades"
+    )
+    p = sw.save_profile(owner, dict(FULL, risk_rules=text), expected_revision=None)
+    assert sw.insight_suggestions(owner, p) == []
+    out = sw.append_repeated_correction(
+        owner, field="bias", user_value="bearish", expected_revision=p["updated_at"]
+    )
+    assert out["risk_rules"] == text
+    assert out["updated_at"] == p["updated_at"]
+
+
+def test_a_control_character_in_a_correction_cannot_lock_the_profile(two_users):
+    """The appended rule must be something the trader's next save accepts."""
+    owner = two_users[0]
+    _repeat(owner, value="bear\x0bish")
+    p = sw.save_profile(owner, dict(FULL), expected_revision=None)
+    out = sw.append_repeated_correction(
+        owner, field="bias", user_value="bear\x0bish", expected_revision=p["updated_at"]
+    )
+    assert "\x0b" not in out["risk_rules"]
+    assert "prefer bearish" in out["risk_rules"]
+    # The ordinary full save of the unchanged profile still succeeds.
+    resaved = sw.save_profile(
+        owner,
+        {f: out.get(f) for f in strategy._PROFILE_FIELDS},
+        expected_revision=out["updated_at"],
+    )
+    assert resaved["risk_rules"] == out["risk_rules"]
+
+
+def test_a_profile_read_failure_refuses_to_fingerprint(two_users, monkeypatch):
+    """Fail closed: an unreadable profile is never treated as 'no profile'."""
+    from src.tradelens.services import trade_analysis
+
+    owner = two_users[0]
+    sw.save_profile(owner, dict(FULL), expected_revision=None)
+
+    def unreadable(_owner):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(trade_analysis, "get_active_strategy", unreadable)
+    with pytest.raises(trade_analysis.AIInputVersionUnavailable):
+        trade_analysis.ai_input_version(owner)
 
 
 def test_append_with_no_profile_refuses_rather_than_inventing_one(two_users):

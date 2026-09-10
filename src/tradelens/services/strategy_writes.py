@@ -247,27 +247,69 @@ def skip_first_run(user_id: int) -> None:
         db.commit()
 
 
-def insight_rule(group: dict) -> str:
-    """The rule text for one repeated-correction group — built here, never sent."""
-    return "• {}: prefer {} (corrected {}x in review)".format(
-        _prompt_safe(group["field"]),
-        _prompt_safe(group["user_value"]),
-        int(group["count"]),
+_RULE_SUFFIX = " (from repeated corrections in review)"
+
+
+def _rule_text(value) -> str:
+    """One correction value made safe to store AND to re-save.
+
+    `_prompt_safe` removes markup and line breaks; `_CONTROL` removes what
+    `_normalise` would refuse. Without the second, a correction containing an
+    invisible control character would be appended here and then make the
+    trader's next ordinary save of the same profile fail.
+    """
+    return _CONTROL.sub("", _prompt_safe(value))
+
+
+def _rule_stem(group: dict) -> str:
+    return "• {}: prefer {}".format(
+        _rule_text(group["field"]), _rule_text(group["user_value"])
     )
+
+
+def insight_rule(group: dict) -> str:
+    """The rule text for one repeated-correction group — built here, never sent.
+
+    The count is deliberately NOT part of the rule. A rule added at five
+    corrections is the same rule at six; with the count inside it, the sixth
+    correction produced a "new" suggestion and a second copy of the rule.
+    The count still reaches the page as its own field.
+    """
+    return _rule_stem(group) + _RULE_SUFFIX
 
 
 def _lines(value: Optional[str]) -> List[str]:
     return [line.strip() for line in (value or "").split("\n")]
 
 
+def _rule_present(existing: Optional[str], group: dict) -> bool:
+    """Whether this group's rule is already in the text, whatever its count.
+
+    Also recognises the line Streamlit's `append_insight` wrote for the same
+    group — `• {field}: prefer {value} (corrected Nx in review)`, unsanitised —
+    so a rule the trader already accepted there is not offered again here.
+    """
+    stems = {
+        _rule_stem(group),
+        "• {}: prefer {}".format(group["field"], group["user_value"]),
+    }
+    for line in _lines(existing):
+        for stem in stems:
+            if line == stem + _RULE_SUFFIX:
+                return True
+            if line.startswith(stem + " (corrected ") and line.endswith("x in review)"):
+                return True
+    return False
+
+
 def insight_suggestions(user_id: int, profile: Optional[dict]) -> List[dict]:
     """This owner's repeated corrections not already present in risk rules."""
     owner = _require_concrete_user_id(user_id)
-    present = set(_lines((profile or {}).get(_INSIGHT_FIELD)))
+    existing = (profile or {}).get(_INSIGHT_FIELD)
     out = []
     for group in repeated_corrections(threshold=REPEAT_THRESHOLD, user_id=owner):
         rule = insight_rule(group)
-        if rule not in present:
+        if not _rule_present(existing, group):
             out.append(
                 {
                     "field": group["field"],
@@ -292,6 +334,11 @@ def append_repeated_correction(
     this owner's own `Correction` rows and the rule text is built here. The
     target column is fixed. The trader's existing text is kept byte-for-byte;
     the rule is added on a new line after it.
+
+    "Already present" is checked BEFORE the version. A double-click sends the
+    same version twice; checking the version first turned the second click
+    into a 409 instead of the promised no-op. That branch writes nothing, so
+    answering it without the version check cannot overwrite anything.
     """
     owner = _require_concrete_user_id(user_id)
     match = next(
@@ -309,13 +356,15 @@ def append_repeated_correction(
         row = _active_row(db, owner)
         if row is None:
             raise NoProfile()
-        _check_revision(row, expected_revision)
         existing = getattr(row, _INSIGHT_FIELD) or ""
-        if rule in _lines(existing):
+        if _rule_present(existing, match):
             return _to_dict(row)
-        combined = (
-            "{}\n{}".format(existing.rstrip(), rule) if existing.strip() else rule
-        )
+        _check_revision(row, expected_revision)
+        if not existing.strip():
+            combined = rule
+        else:
+            separator = "" if existing.endswith("\n") else "\n"
+            combined = existing + separator + rule
         if len(combined) > FIELD_LIMITS[_INSIGHT_FIELD]:
             raise RulesFull()
         setattr(row, _INSIGHT_FIELD, combined)
