@@ -472,3 +472,62 @@ def test_legacy_duplicate_active_rows_collapse_to_one_on_save(two_users):
     )
     assert sorted(active for _id, active in _rows(owner)) == [0, 1]
     assert strategy.get_active_strategy(owner)["name"] == "Kept"
+
+
+# ── A4: cached AI results cannot outlive the profile they read ────────────
+
+
+def test_a_content_change_under_an_unmoved_stamp_moves_the_fingerprint(two_users):
+    from src.tradelens.services import trade_analysis
+
+    owner = two_users[0]
+    p = sw.save_profile(owner, dict(FULL, entry_rules="A"), expected_revision=None)
+    before = trade_analysis._strategy_fingerprint(owner)
+    # A writer that changed content without moving updated_at: the unlocked
+    # Streamlit upsert can do exactly this inside one clock tick.
+    db = SessionLocal()
+    try:
+        db.query(Strategy).filter(Strategy.id == p["id"]).update({"entry_rules": "B"})
+        db.commit()
+    finally:
+        db.close()
+    assert strategy.get_active_strategy(owner)["updated_at"] == p["updated_at"]
+    assert trade_analysis._strategy_fingerprint(owner) != before
+
+
+def test_every_web_save_moves_the_fingerprint(two_users):
+    from src.tradelens.services import trade_analysis
+
+    owner = two_users[0]
+    p = sw.save_profile(owner, dict(FULL), expected_revision=None)
+    before = trade_analysis._strategy_fingerprint(owner)
+    assert trade_analysis._strategy_fingerprint(owner) == before  # stable
+    sw.save_profile(
+        owner, dict(FULL, risk_rules="1R"), expected_revision=p["updated_at"]
+    )
+    assert trade_analysis._strategy_fingerprint(owner) != before
+
+
+def test_the_fingerprint_follows_the_sanitised_prompt_input(two_users, monkeypatch):
+    from src.tradelens.services import trade_analysis
+
+    owner = two_users[0]
+    sw.save_profile(owner, dict(FULL), expected_revision=None)
+    before = trade_analysis._strategy_fingerprint(owner)
+    # If what the model is given changes, the digest must change with it.
+    monkeypatch.setattr(
+        trade_analysis,
+        "_sanitised_strategy",
+        lambda s: dict(s, name="rendered differently"),
+    )
+    assert trade_analysis._strategy_fingerprint(owner) != before
+
+
+def test_no_profile_and_another_owners_profile_are_different_inputs(two_users):
+    from src.tradelens.services import trade_analysis
+
+    first, second = two_users[0], two_users[1]
+    assert trade_analysis._strategy_fingerprint(second) == "none"
+    sw.save_profile(first, dict(FULL), expected_revision=None)
+    assert trade_analysis._strategy_fingerprint(second) == "none"
+    assert trade_analysis._strategy_fingerprint(first) != "none"

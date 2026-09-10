@@ -36,7 +36,7 @@ from sqlalchemy.exc import IntegrityError
 
 from src.tradelens.api import storage
 from src.tradelens.config import ANTHROPIC_MODEL_ID, settings
-from src.tradelens.db.models import AIAnalysis, Strategy, Trade
+from src.tradelens.db.models import AIAnalysis, Trade
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services.ai_text_guard import (
     MAX_PROMPT_LIST_ITEMS,
@@ -95,34 +95,31 @@ _MARKUP_IN_PROMPT = re.compile(r"[<>]")
 
 
 def _strategy_fingerprint(user_id: int) -> str:
-    """A stable digest of the owner's ACTIVE Strategy Profile.
+    """A digest of the exact Strategy Profile the model is given.
 
-    `generate_journal` and `grade_trade` both take this profile, so editing
-    it in Settings genuinely changes the answer. Its `updated_at` is enough
-    to catch an edit: the profile upsert sets it on every write.
+    Screenshot analysis, `generate_journal` and `grade_trade` all read this
+    profile, so editing it genuinely changes the answer. Two requests may
+    share a job only if they would produce the same answer.
 
-    The `is_active == 1` filter mirrors `strategy.get_active_strategy`, which
-    is what actually feeds those two calls, and it is load-bearing rather
-    than tidy. An owner may hold several profiles. Without it this function
-    takes an arbitrary row, so *switching which profile is active* — a real
-    change of AI input — could leave the digest still, and the cached job
-    would be served back carrying the other profile's reasoning. Two
-    requests may share a job only if they would produce the same answer, and
-    selecting a different row than the caller does breaks exactly that.
+    It fingerprints the RENDERED input — `_sanitised_strategy` of the same
+    `get_active_strategy` call that feeds those prompts — for the reason
+    `_corrections_fingerprint` below gives: a proxy drifts from what it
+    stands for. The earlier proxy was `id:updated_at`. It missed a content
+    change under an unmoved stamp (two writes inside one clock tick on the
+    unlocked Streamlit path), and it could never notice a change to how the
+    profile is sanitised. The dict still carries `id` and `updated_at`, so
+    everything the old digest caught, this one catches too.
 
-    Both columns are included: `id` moves when the active profile changes,
-    `updated_at` when the active one is edited in place.
+    Reading through `get_active_strategy` keeps the `is_active == 1` rule in
+    one place: switching which profile is active moves this digest because
+    it moves what the prompt receives. A read failure propagates, so
+    `ai_input_version` fails closed rather than collapsing inputs.
     """
-    db = SessionLocal()
-    try:
-        row = (
-            db.query(Strategy.id, Strategy.updated_at)
-            .filter(Strategy.user_id == user_id, Strategy.is_active == 1)
-            .first()
-        )
-    finally:
-        db.close()
-    return "none" if row is None else f"{row[0]}:{row[1]}"
+    profile = get_active_strategy(user_id)
+    if profile is None:
+        return "none"
+    rendered = json.dumps(_sanitised_strategy(profile), sort_keys=True, default=str)
+    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
 
 
 def _corrections_fingerprint(user_id: int) -> str:

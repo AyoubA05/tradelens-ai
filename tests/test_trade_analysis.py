@@ -214,8 +214,22 @@ def test_the_strategy_fingerprint_reads_the_same_row_get_active_strategy_does(
     _insert_strategy(owner, name="active", is_active=1, updated_at="t")
 
     active = get_active_strategy(owner)
-    assert active is not None
-    assert ta._strategy_fingerprint(owner).startswith(f"{active['id']}:")
+    assert active is not None and active["name"] == "active"
+
+    # Phase 7: the digest is of the rendered prompt input, not `id:updated_at`.
+    # It must be the digest of THIS row's rendering and not the other's.
+    import hashlib
+    import json
+
+    def digest(profile):
+        rendered = json.dumps(
+            ta._sanitised_strategy(profile), sort_keys=True, default=str
+        )
+        return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+    inactive = dict(active, name="inactive")
+    assert ta._strategy_fingerprint(owner) == digest(active)
+    assert ta._strategy_fingerprint(owner) != digest(inactive)
 
 
 def test_a_new_correction_produces_a_different_key(monkeypatch):
