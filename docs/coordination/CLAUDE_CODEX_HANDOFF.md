@@ -7454,3 +7454,159 @@ caused by this work. They exercise the **Streamlit** analytics page. Not fixed h
 
 **Phase 6 is cleared for development merge. This is not deployment clearance** — the six gates above
 remain mandatory, and the browser smoke above is an additional open item.
+
+---
+
+# Codex Independent Phase 6 Review (2026-09-09)
+
+Reviewed branch `worktree-phase6-analytics` independently at the Phase 6 handoff commit `b07ea26`
+against base `8eecca5`. Read `AGENTS.md`, the approved migration design, the complete Phase 6 plan,
+all Phase 6 commits/diffs, the existing Python metric/sample-policy implementations, the FastAPI
+projection and router, generated OpenAPI/TypeScript contracts, the Next.js relay/page/components,
+and their tests. Phase 7 was not started.
+
+## Findings and fixes
+
+### Critical
+
+None.
+
+### High — incomplete P&L produced authoritative-looking money analytics
+
+`src/tradelens/services/analytics.py` gated headline total and expectancy, but still exposed a
+plausible profit factor and zero-filled equity, daily-P&L, drawdown, and max-drawdown output when one
+or every trade lacked P&L. This is reachable because the parity-pinned metric helpers intentionally
+coerce missing P&L to zero to keep their frames numeric. Reproduced with both all-missing and mixed
+missing samples: the original API projection returned a `0.00x`/positive-infinity ratio and flat or
+partial money curves while its headline correctly said the same sample was incomplete.
+
+The projection now refuses profit factor and every cumulative/drawdown money series unless P&L is
+complete, and returns `undefined_incomplete_sample` for max drawdown rather than mislabelling the
+condition as no sample. Average win/loss are gated only by completeness of their own outcome subset,
+matching the existing Overview semantics, so an unrelated missing breakeven does not erase a valid
+average win. UI chart copy explicitly explains incomplete P&L. Regression tests cover all-missing,
+partly missing, all-breakeven, outcome-specific averages, and all affected series. Mutating the
+equity guard back to unconditional output makes the named incomplete-series test fail.
+
+### Medium — prior-period money comparisons flattened undefined inputs
+
+`period_deltas` inherits the same numeric fallbacks and the projection passed them straight through.
+A current or prior period with missing P&L could therefore display a measured net-P&L delta; two
+all-win or all-breakeven periods displayed a zero profit-factor delta even though no finite ratio
+existed. Comparison money now requires complete P&L in both non-empty samples. Profit-factor deltas
+also require a finite ratio on both sides; a genuine all-loss `0.0` delta remains measured. Tests
+cover mixed missing data, all wins, all breakevens, all losses, and absent prior samples.
+
+### Medium — edge-leak completeness was inferred from the wrong count
+
+The original projection declared edge leak incomplete whenever no violation qualified, turning a
+fully recorded clean process into “not measurable” instead of the legitimate measured zero. In the
+opposite direction, one known violation beside an unrecorded process row could produce a confident
+partial money total. The gate now requires process evidence for every row; P&L completeness is
+required only when a qualifying violation exists. Tests pin both the clean-zero and partial-evidence
+cases and parity-check the projected measured value against `metrics.total_edge_leak`.
+
+### Medium — the browser re-ranked financial breakdowns below the shared evidence threshold
+
+`web/components/app/analytics/breakdown-section.tsx` locally sorted `total_pnl` and named the largest
+category once two categories existed. That duplicated a financial derivation in TypeScript and
+bypassed `sample_policy.leading_category`, which requires five trades before narrating a pattern.
+The strict API contract now includes a nullable server-selected `BreakdownLeader`; the backend uses
+the existing shared policy and refuses a leader for incomplete P&L. The client renders only that
+decision and describes below-threshold rows as measurements, not a pattern. Tests deliberately feed
+the client row ordering that conflicts with the server leader and cover two-category low samples.
+
+### Medium — browser navigation could show controls for a different filter than the data
+
+`AnalyticsFilterBar` copied URL-derived props into local state only at mount. After Back/Forward or
+an RSC navigation, the server fetched the new exact filter while the visible control retained the
+old value. The page now keys the state boundary by the three effective filters. A rerender regression
+proves both the fetched request and visible input move from NQ to ES.
+
+### Low — extreme valid ISO dates escaped as internal errors
+
+The shared period validator overflowed while adding five years to `9999-12-31`; analytics prior-window
+derivation overflowed for `0001-01-01`. The validator now caps the representable upper bound at
+`date.max`, and analytics returns an explicit 422 when no preceding comparison window can exist.
+Tests prove a one-day `9999-12-31` range succeeds and the minimum date returns 422 rather than 500.
+
+### Low — drawdown presentation and trust copy diverged from backend meaning
+
+The frontend fixture invented a negative max drawdown although the Python service returns a positive
+magnitude, masking that the UI would render `$80.00`. The fixture now matches the real service and
+the Risk lens presents that magnitude as a loss while preserving zero. Its caption now says the
+series advances after each dated trade, not once per day. Positive edge leak also receives the
+existing trust warning that profitable rule-breaking is historical, not repeatable edge.
+
+### Hardening
+
+`apply_filters` still silently ignores an unknown internal filter key. The HTTP router independently
+rejects unknown query parameters and constructs the allowlisted mapping, so this is not currently
+reachable from a request; changing the pure helper to fail closed would make future callers safer.
+The response's `filters` mapping is also intentionally broad in generated TypeScript rather than a
+named fixed object, although the server only emits the three allowlisted keys.
+
+## Security and parity verdicts
+
+No tenant-isolation defect was found. Authenticated identity comes only from `current_user`; both
+current and derived prior-window reads call `get_trades` with that owner. Browser-supplied
+`user_id`, `uid`, `owner`, and `accountId` are rejected by FastAPI or omitted by the Next.js relay,
+and no owner identifier is threaded into the signed backend request. Current/prior two-user tests
+and direct request probes confirm this. The service then applies exact allowlisted equality filters
+to the one owner-scoped frame, so headline metrics, breakdowns, tables, and charts share one sample.
+
+Metric parity is cleared after the fixes. Financial values remain sourced from the existing Python
+metric services; `services/metrics.py` is byte-untouched. The projection restores undefined meaning
+where those legacy helpers intentionally flatten missing data, and category narration now delegates
+to the shared sample policy. Equity uses `cumulative_pnl`; no hour-of-day analytics exists because
+time-of-day is not persisted. Edge probes covered no trades, one trade, all wins, all losses, all
+breakeven, mixed/full missing P&L, unusual labels, and real zero totals.
+
+## Mutation evidence actually run
+
+Each mutation was applied to the active Phase 6 file, the named test was run red, and the mutation
+was restored before final verification:
+
+- current-period owner forced to user 1: authenticated-second-user isolation test failed;
+- prior-period owner forced to user 1: comparison isolation test failed;
+- exact asset equality changed to substring matching: NQ incorrectly admitted MNQ and the exact
+  filter test failed;
+- incomplete equity guard changed to unconditional output: incomplete-series test failed;
+- relay error status forced to 200: observable wire-status test failed;
+- an `owner` query parameter threaded into the relay: outbound-argument test failed;
+- pre-fix red/green runs additionally proved the client-side leader, low-sample narrative, stale
+  filter state, max-drawdown sign, boundary-date, incomplete-chart-copy, and positive-edge-warning
+  tests discriminate.
+
+A final source search confirmed none of those mutation forms survived, and `git diff --check` is
+clean.
+
+## Verification actually run
+
+- Focused Phase 6 backend after fixes: 91 passed.
+- Full Python: **3318 passed / 7 skipped / 2 failed** in 7m52s. Both failures are the already-recorded
+  Streamlit `tests/test_pages_boot.py` copy assertions. They reproduce identically on the untouched
+  Phase 6 handoff commit `b07ea26`, and neither failing file is in this review diff. This review does
+  not repeat the original handoff's incorrect all-green claim.
+- Web: **1532 passed / 90 files**.
+- TypeScript clean. ESLint 0 errors; the same two unrelated/pre-existing `modal-trap.ts` hook
+  warnings remain.
+- Ruff clean; Black clean; one Alembic head (`g3h4i5j6k7l8`).
+- OpenAPI and generated TypeScript regenerated successfully; no unexplained drift remains.
+- Production Next.js build passed; `/app/analytics` and `/api/analytics` are dynamic.
+- `services/metrics.py`, prompts, package manifests, and requirements are untouched; no Streamlit
+  import was added to the Phase 6 service/API/web boundary.
+
+## Remaining limitations and merge verdict
+
+The authenticated desktop/375px browser smoke was not run: this environment still lacks usable
+authentication/database access. No live browser result is claimed. It remains a hard pre-release
+gate, but the reviewed code does not expose an additional merge blocker.
+
+The six deployment gates remain open: Docker build/start/health; disposable PostgreSQL migrations;
+real PostgreSQL concurrent AI-job verification; broader Python dependency audit; live Anthropic
+injection/model/output smoke; and live R2 plus authenticated browser smoke including proper 375px
+verification. Phase 6 adds neither AI calls nor storage and does not close any of them.
+
+**Phase 6 is cleared for merge after the scoped Codex fix-forward commit.** This is development
+merge clearance, not deployment clearance. Do not begin Phase 7 from this review task.
