@@ -31,6 +31,7 @@ export function breakdown(
 ): Breakdown {
   return {
     comparable,
+    leader: null,
     rows: rows.map((r) => ({
       key: r.key,
       trades: r.trades,
@@ -67,7 +68,9 @@ export function analyticsFixture(): AnalyticsResponse {
       streaks: { current: value(2), max_win: value(4), max_loss: value(2) },
     },
     risk: {
-      max_drawdown: value(-80),
+      // The Python metric returns a positive magnitude. Presentation writes
+      // it as a fall; fixtures must not invent a sign the API never sends.
+      max_drawdown: value(80),
       drawdown_series: [{ date: "2026-08-01", value: 0 }],
       r_multiples: [{ label: "0.0 to 1.0", count: 3 }],
       avg_win: value(140),

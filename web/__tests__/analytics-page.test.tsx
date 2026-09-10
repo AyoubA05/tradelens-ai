@@ -150,6 +150,17 @@ describe("Analytics filters", () => {
     expect(screen.getByLabelText("Asset")).toHaveValue("NQ");
     expect(screen.getByLabelText("Strategy")).toHaveValue("Silver bullet");
   });
+
+  it("replaces local filter text when navigation changes the measured slice", async () => {
+    const view = render(await AnalyticsPage({ searchParams: searchParams({ asset: "NQ" }) }));
+    expect(screen.getByLabelText("Asset")).toHaveValue("NQ");
+
+    view.rerender(await AnalyticsPage({ searchParams: searchParams({ asset: "ES" }) }));
+
+    // The newly fetched numbers are for ES. Leaving NQ in the field would put
+    // a false label directly above them after Back/Forward navigation.
+    expect(screen.getByLabelText("Asset")).toHaveValue("ES");
+  });
 });
 
 describe("Analytics empty period", () => {

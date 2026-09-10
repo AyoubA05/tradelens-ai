@@ -77,7 +77,16 @@ def get_analytics(
     # The prior window is derived from the requested one and fetched with the
     # SAME owner and the SAME filters. Comparing a filtered period against an
     # unfiltered one would report the difference as change.
-    prior_from, prior_to = analytics.prior_window(start, end)
+    try:
+        prior_from, prior_to = analytics.prior_window(start, end)
+    except OverflowError:
+        # A range beginning at date.min has no equally long preceding window.
+        # Refuse that input rather than leaking an arithmetic fault as a 500 or
+        # silently comparing against a shorter period.
+        raise HTTPException(
+            status_code=422,
+            detail="period has no preceding comparison window",
+        ) from None
     prior_trades = get_trades(user_id=user_id, start_date=prior_from, end_date=prior_to)
     prior_df = analytics.apply_filters(analytics.frame(prior_trades), applied)
 

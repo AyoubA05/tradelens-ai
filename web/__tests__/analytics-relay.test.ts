@@ -120,6 +120,24 @@ describe("GET /api/analytics", () => {
     });
   });
 
+  it("never forwards browser-supplied owner identifiers", async () => {
+    fetchAnalytics.mockResolvedValue({ period: { start: "2026-08-01" } });
+
+    await callGet(
+      req(
+        "?from=2026-08-01&to=2026-08-31&user_id=1&uid=2&owner=3&accountId=4",
+      ),
+    );
+
+    expect(fetchAnalytics).toHaveBeenCalledWith("browser-token", {
+      from: "2026-08-01",
+      to: "2026-08-31",
+      asset: undefined,
+      session: undefined,
+      strategy: undefined,
+    });
+  });
+
   it("forwards the backend's 422 detail, which is the one actionable error body", async () => {
     const { ApiError } = await import("@/lib/api/client");
     fetchAnalytics.mockRejectedValue(

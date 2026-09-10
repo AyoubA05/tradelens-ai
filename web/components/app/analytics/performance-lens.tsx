@@ -21,6 +21,11 @@ export function PerformanceLens({
   performance: AnalyticsResponse["performance"];
   discipline: AnalyticsResponse["discipline"];
 }) {
+  const incompleteMoney = performance.total_pnl.state === "undefined_incomplete_sample";
+  const incompleteSeriesReason = incompleteMoney
+    ? "Not every trade in this range records P&L, so a money series would be misleading."
+    : undefined;
+
   return (
     <div>
       <FigureRow>
@@ -45,6 +50,7 @@ export function PerformanceLens({
         description="The account's running total through this period, as recorded."
         points={performance.equity_curve}
         kind="money"
+        emptyReason={incompleteSeriesReason}
       />
 
       <LineChart
@@ -53,6 +59,7 @@ export function PerformanceLens({
         description="What each recorded trading day added or took away."
         points={performance.daily_pnl}
         kind="money"
+        emptyReason={incompleteSeriesReason}
       />
 
       <section
@@ -84,6 +91,12 @@ export function PerformanceLens({
             count={discipline.recorded_trades}
           />
         </FigureRow>
+        {discipline.edge_leak.value !== null && discipline.edge_leak.value > 0 ? (
+          <p className="mt-2 text-xs text-muted">
+            Rule-breaking trades were profitable in this period; that is a historical result, not
+            repeatable edge.
+          </p>
+        ) : null}
       </section>
     </div>
   );

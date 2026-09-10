@@ -215,6 +215,28 @@ def test_an_inverted_period_is_refused(client, website_session_handle):
     assert _get(client, handle, "from=2026-09-30&to=2026-09-01").status_code == 422
 
 
+def test_the_largest_iso_date_does_not_crash_the_window_validator(
+    client, website_session_handle
+):
+    _owner, handle = website_session_handle
+
+    response = _get(client, handle, "from=9999-12-31&to=9999-12-31")
+
+    assert response.status_code == 200
+    assert response.json()["period"] == {"from": "9999-12-31", "to": "9999-12-31"}
+
+
+def test_a_period_with_no_possible_prior_window_is_a_422_not_a_500(
+    client, website_session_handle
+):
+    _owner, handle = website_session_handle
+
+    response = _get(client, handle, "from=0001-01-01&to=0001-01-01")
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "period has no preceding comparison window"
+
+
 def test_the_response_echoes_the_period_it_actually_used(
     client, website_session_handle
 ):
@@ -524,6 +546,40 @@ def test_a_metric_value_cannot_carry_both_a_number_and_an_undefined_state():
         MetricValue(value=1.0, state="undefined_nan")
     with pytest.raises(ValidationError):
         MetricValue(value=None, state=None)
+
+
+def test_the_full_response_contract_refuses_extra_missing_and_wrongly_typed_fields(
+    client, website_session_handle
+):
+    """Strictness must protect the actual nested payload, not only MetricValue."""
+    from copy import deepcopy
+
+    from pydantic import ValidationError
+
+    from src.tradelens.api.schemas.analytics import AnalyticsResponse
+
+    owner, handle = website_session_handle
+    _seed(owner)
+    valid = _get(client, handle, SEPT).json()
+    AnalyticsResponse.model_validate(valid)
+
+    extra = deepcopy(valid)
+    extra["performance"]["plausible_new_metric"] = {
+        "value": 0.0,
+        "state": None,
+    }
+    with pytest.raises(ValidationError):
+        AnalyticsResponse.model_validate(extra)
+
+    missing = deepcopy(valid)
+    del missing["risk"]["max_drawdown"]
+    with pytest.raises(ValidationError):
+        AnalyticsResponse.model_validate(missing)
+
+    wrong_type = deepcopy(valid)
+    wrong_type["performance"]["total_trades"] = "1"
+    with pytest.raises(ValidationError):
+        AnalyticsResponse.model_validate(wrong_type)
 
 
 def test_a_multi_category_breakdown_is_reported_as_comparable(

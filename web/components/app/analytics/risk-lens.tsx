@@ -19,6 +19,7 @@ export function RiskLens({ risk }: { risk: AnalyticsResponse["risk"] }) {
           label="Max drawdown"
           value={risk.max_drawdown}
           kind="money"
+          magnitudeAsLoss
         />
         <LensFigure testId="figure-avg-win" label="Average win" value={risk.avg_win} kind="money" />
         <LensFigure testId="figure-avg-loss" label="Average loss" value={risk.avg_loss} kind="money" />
@@ -27,9 +28,14 @@ export function RiskLens({ risk }: { risk: AnalyticsResponse["risk"] }) {
       <LineChart
         id="drawdown"
         title="Drawdown"
-        description="How far below its own high-water mark the record sat on each dated day."
+        description="How far below its own high-water mark the record sat after each dated trade."
         points={risk.drawdown_series}
         kind="money"
+        emptyReason={
+          risk.max_drawdown.state === "undefined_incomplete_sample"
+            ? "Not every trade in this range records P&L, so a drawdown series would be misleading."
+            : undefined
+        }
       />
 
       <DistributionChart

@@ -215,6 +215,67 @@ def test_a_partly_filled_pnl_column_is_not_a_total():
     )
 
 
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [_winning_row(pnl=None), _winning_row(id=2, pnl=None, result="Loss")],
+        [_winning_row(pnl=250.0), _winning_row(id=2, pnl=None, result="Loss")],
+    ],
+    ids=["all-missing", "partly-missing"],
+)
+def test_incomplete_pnl_cannot_become_a_ratio_or_money_series(rows):
+    """Metric helpers fill missing P&L with zero; the projection must not.
+
+    The scalar total already refused an incomplete sample, but the same sample
+    still produced a 0.00x/∞ profit factor and flat zero points in the equity,
+    daily-P&L and drawdown charts. Those pictures contradict the scalar and are
+    more likely to be trusted because they look measured.
+    """
+    df = _trades_frame(rows)
+
+    performance = an.build_performance(df)
+    risk = an.build_risk(df)
+
+    assert performance["profit_factor"] == {
+        "value": None,
+        "state": "undefined_incomplete_sample",
+    }
+    assert performance["equity_curve"] == []
+    assert performance["daily_pnl"] == []
+    assert risk["max_drawdown"] == {
+        "value": None,
+        "state": "undefined_incomplete_sample",
+    }
+    assert risk["drawdown_series"] == []
+
+
+def test_an_all_breakeven_sample_has_no_profit_factor_not_a_measured_zero():
+    """With neither profits nor losses there is no ratio to divide."""
+    df = _trades_frame(
+        [
+            _winning_row(result="Breakeven", pnl=0.0),
+            _winning_row(id=2, result="Breakeven", pnl=0.0),
+        ]
+    )
+
+    assert an.build_performance(df)["profit_factor"] == {
+        "value": None,
+        "state": "undefined_no_sample",
+    }
+
+
+def test_average_win_survives_missing_pnl_on_an_unrelated_breakeven():
+    """An incomplete row outside the winner set does not erase a measured mean."""
+    df = _trades_frame(
+        [
+            _winning_row(result="Win", pnl=125.0),
+            _winning_row(id=2, result="Breakeven", pnl=None),
+        ]
+    )
+
+    assert an.build_risk(df)["avg_win"] == {"value": 125.0, "state": None}
+
+
 def test_a_breakdown_reports_whether_it_can_be_compared():
     """One category is not a ranking.
 
@@ -284,8 +345,131 @@ def test_consistency_below_five_trades_is_undefined_not_zero():
     assert an.build_discipline(df)["consistency"]["state"] == "undefined_no_sample"
 
 
+def test_a_fully_recorded_clean_process_keeps_its_measured_zero_edge_leak():
+    """No qualifying rule breaks is exactly zero leak, not missing data."""
+    df = _trades_frame(
+        [
+            _winning_row(followed_rules=1, mistake_tags="[]"),
+            _winning_row(
+                id=2,
+                result="Loss",
+                pnl=-100.0,
+                followed_rules=1,
+                mistake_tags="[]",
+            ),
+        ]
+    )
+
+    assert an.build_discipline(df)["edge_leak"] == {"value": 0.0, "state": None}
+
+
+def test_unrecorded_process_rows_do_not_yield_a_partial_edge_leak_total():
+    """A known breach beside an unknown row is not the whole sample's leak."""
+    df = _trades_frame(
+        [
+            _winning_row(followed_rules=0, pnl=-100.0),
+            _winning_row(id=2, followed_rules=None, mistake_tags="", pnl=-50.0),
+        ]
+    )
+
+    assert an.build_discipline(df)["edge_leak"] == {
+        "value": None,
+        "state": "undefined_incomplete_sample",
+    }
+
+
+def test_a_breakdown_leader_is_not_named_below_the_shared_pattern_threshold():
+    """Two categories can be compared as rows without earning a narrative."""
+    df = _trades_frame(
+        [
+            _winning_row(setup_type="FVG", pnl=500.0),
+            _winning_row(id=2, setup_type="OB", pnl=-50.0, result="Loss"),
+        ]
+    )
+
+    built = an.build_setups(df)["by_setup"]
+    assert built["comparable"] is True
+    assert built["leader"] is None
+
+
+def test_a_breakdown_leader_comes_from_the_shared_metric_policy():
+    rows = [
+        _winning_row(id=index, setup_type="FVG", pnl=100.0) for index in range(1, 5)
+    ]
+    rows.append(_winning_row(id=5, setup_type="OB", pnl=-50.0, result="Loss"))
+
+    built = an.build_setups(_trades_frame(rows))["by_setup"]
+    assert built["leader"] == {"key": "FVG", "trades": 4}
+
+
 def test_mistake_frequency_over_an_empty_sample_is_an_empty_list():
     assert an.build_setups(pd.DataFrame())["mistakes"] == []
+
+
+def test_comparison_money_is_undefined_when_either_period_has_missing_pnl():
+    current = _trades_frame(
+        [_winning_row(pnl=100.0), _winning_row(id=2, pnl=None, result="Loss")]
+    )
+    prior = _trades_frame(
+        [_winning_row(id=3, pnl=50.0), _winning_row(id=4, pnl=-25.0, result="Loss")]
+    )
+
+    built = an.build_comparison(current, prior, ("2026-08-01", "2026-08-31"))
+
+    assert built["net_pnl"] == {
+        "value": None,
+        "state": "undefined_incomplete_sample",
+    }
+    assert built["profit_factor"] == {
+        "value": None,
+        "state": "undefined_incomplete_sample",
+    }
+    # Outcome labels are independently complete and remain measurable.
+    assert built["win_rate"]["value"] is not None
+
+
+@pytest.mark.parametrize("result,pnl", [("Win", 100.0), ("Breakeven", 0.0)])
+def test_comparison_does_not_fabricate_a_profit_factor_delta_without_a_ratio(
+    result, pnl
+):
+    current = _trades_frame(
+        [
+            _winning_row(result=result, pnl=pnl),
+            _winning_row(id=2, result=result, pnl=pnl),
+        ]
+    )
+    prior = _trades_frame(
+        [
+            _winning_row(id=3, result=result, pnl=pnl),
+            _winning_row(id=4, result=result, pnl=pnl),
+        ]
+    )
+
+    built = an.build_comparison(current, prior, ("2026-08-01", "2026-08-31"))
+
+    assert built["profit_factor"] == {
+        "value": None,
+        "state": "undefined_no_sample",
+    }
+
+
+def test_comparison_keeps_a_real_zero_profit_factor_delta_for_all_losses():
+    current = _trades_frame(
+        [
+            _winning_row(result="Loss", pnl=-100.0),
+            _winning_row(id=2, result="Loss", pnl=-50.0),
+        ]
+    )
+    prior = _trades_frame(
+        [
+            _winning_row(id=3, result="Loss", pnl=-25.0),
+            _winning_row(id=4, result="Loss", pnl=-75.0),
+        ]
+    )
+
+    assert an.build_comparison(current, prior, ("2026-08-01", "2026-08-31"))[
+        "profit_factor"
+    ] == {"value": 0.0, "state": None}
 
 
 def test_the_timing_lens_breaks_the_sample_down_by_when_it_traded():

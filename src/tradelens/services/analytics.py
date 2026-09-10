@@ -32,6 +32,7 @@ from src.tradelens.services.metrics import (
     compute_streaks,
     daily_pnl,
     drawdown_series,
+    outcome_masks,
     r_multiple_distribution,
 )
 from src.tradelens.services.metrics import (
@@ -54,6 +55,7 @@ from src.tradelens.services.sample_policy import (
     _MIN_PATTERN_TRADES,
     _MIN_SERIES_POINTS,
     enough_categories,
+    leading_category,
 )
 
 _UNDEFINED_NO_SAMPLE = {"value": None, "state": "undefined_no_sample"}
@@ -239,23 +241,40 @@ def build_performance(df: pd.DataFrame) -> Dict[str, Any]:
     total = len(df)
     streaks = compute_streaks(df)
 
+    if not complete:
+        profit_factor = undefined("undefined_incomplete_sample")
+    elif int(need(basic, "wins")) == 0 and int(need(basic, "losses")) == 0:
+        # With neither side of the ratio present (for example, an all-
+        # breakeven period), 0.00x is not a measured profit factor.
+        profit_factor = undefined("undefined_no_sample")
+    else:
+        profit_factor = pair(compute_profit_factor_raw(df))
+
     return {
         # `need`, not `.get`: a renamed metric key must fail a test, not
         # render as a plausible $0.00.
         "total_pnl": money_pair(need(basic, "total_pnl"), complete=complete),
         "win_rate": sample_pair(need(basic, "win_rate"), insufficient_for(df, 1)),
         "expectancy": money_pair(compute_expectancy(basic), complete=complete),
-        "profit_factor": pair(compute_profit_factor_raw(df)),
+        "profit_factor": profit_factor,
         "total_trades": total,
         # VERIFIED column names. `compute_equity_curve` emits
         # `trade_date/pnl/cumulative_pnl` and `daily_pnl` emits
         # `trade_date/daily_pnl` — not `date`/`equity`/`pnl`. A wrong name
         # here returns an EMPTY series rather than raising, so the chart
         # would simply be blank and nothing would say why.
-        "equity_curve": _series(
-            compute_equity_curve(df), "trade_date", "cumulative_pnl"
+        # The metric services deliberately fill missing P&L with zero so a
+        # running sum remains numeric. At the customer boundary that fallback
+        # would draw an invented flat move, so an incomplete sample has no
+        # money series at all.
+        "equity_curve": (
+            _series(compute_equity_curve(df), "trade_date", "cumulative_pnl")
+            if complete
+            else []
         ),
-        "daily_pnl": _series(daily_pnl(df), "trade_date", "daily_pnl"),
+        "daily_pnl": (
+            _series(daily_pnl(df), "trade_date", "daily_pnl") if complete else []
+        ),
         "streaks": {
             "current": sample_pair(
                 need(streaks, "current_streak"), insufficient_for(df, 1)
@@ -284,24 +303,36 @@ def build_risk(df: pd.DataFrame) -> Dict[str, Any]:
     basic = compute_basic_metrics(df)
     complete = pnl_is_complete(df)
     curve = compute_equity_curve(df)
+    pnl = pd.to_numeric(df["pnl"], errors="coerce")
+    win_mask, loss_mask, _breakeven_mask = outcome_masks(df)
+    wins = int(need(basic, "wins"))
+    losses = int(need(basic, "losses"))
+    win_pnl_complete = wins > 0 and bool(pnl[win_mask].notna().all())
+    loss_pnl_complete = losses > 0 and bool(pnl[loss_mask].notna().all())
 
     return {
         # A drawdown needs at least two points to exist. `compute_max_drawdown`
         # returns a finite 0.0 below that, which `pair` cannot distinguish
         # from a real flat period — hence the caller-side gate.
-        "max_drawdown": sample_pair(
-            compute_max_drawdown(curve),
-            insufficient_for(df, MIN_DRAWDOWN_POINTS) or not complete,
+        "max_drawdown": (
+            undefined("undefined_incomplete_sample")
+            if not complete
+            else sample_pair(
+                compute_max_drawdown(curve),
+                insufficient_for(df, MIN_DRAWDOWN_POINTS),
+            )
         ),
-        "drawdown_series": _series(drawdown_series(df), "trade_date", "drawdown"),
+        "drawdown_series": (
+            _series(drawdown_series(df), "trade_date", "drawdown") if complete else []
+        ),
         "r_multiples": _histogram(r_multiple_distribution(df)),
         "avg_win": money_pair(
             need(basic, "avg_win"),
-            complete=complete and int(need(basic, "wins")) > 0,
+            complete=win_pnl_complete,
         ),
         "avg_loss": money_pair(
             need(basic, "avg_loss"),
-            complete=complete and int(need(basic, "losses")) > 0,
+            complete=loss_pnl_complete,
         ),
     }
 
@@ -359,7 +390,11 @@ MIN_CONSISTENCY_TRADES = _MIN_PATTERN_TRADES
 
 
 def breakdown(
-    built: pd.DataFrame, key_column: str, *, complete: bool
+    built: pd.DataFrame,
+    key_column: str,
+    *,
+    complete: bool,
+    leader: Any = None,
 ) -> Dict[str, Any]:
     """One category breakdown, plus whether it can honestly be compared.
 
@@ -370,7 +405,7 @@ def breakdown(
     the same sample.
     """
     if built is None or built.empty or key_column not in built.columns:
-        return {"rows": [], "comparable": False}
+        return {"rows": [], "comparable": False, "leader": None}
 
     rows: List[Dict[str, Any]] = []
     for _, row in built.iterrows():
@@ -387,7 +422,28 @@ def breakdown(
         )
         rows.append(entry)
 
-    return {"rows": rows, "comparable": bool(enough_categories(built, key_column))}
+    projected_leader = (
+        {"key": leader.key, "trades": int(leader.count)}
+        if leader is not None and not leader.is_only_category
+        else None
+    )
+    return {
+        "rows": rows,
+        "comparable": bool(enough_categories(built, key_column)),
+        "leader": projected_leader,
+    }
+
+
+def _leader(df: pd.DataFrame, column: str, *, complete: bool) -> Any:
+    """Use the shared sample policy for a P&L narrative, or name nobody.
+
+    `leading_category` owns both the five-trade pattern threshold and the
+    grouping. The browser must not sort money locally, and an incomplete P&L
+    sample must not be ranked from only the rows that happened to record it.
+    """
+    if not complete:
+        return None
+    return leading_category(df, column)
 
 
 def build_timing(df: pd.DataFrame) -> Dict[str, Any]:
@@ -412,7 +468,7 @@ def build_timing(df: pd.DataFrame) -> Dict[str, Any]:
     """
     complete = pnl_is_complete(df)
     if df.empty:
-        empty = {"rows": [], "comparable": False}
+        empty = {"rows": [], "comparable": False, "leader": None}
         return {
             "by_day_of_week": dict(empty),
             "by_session": dict(empty),
@@ -420,11 +476,22 @@ def build_timing(df: pd.DataFrame) -> Dict[str, Any]:
         }
     return {
         "by_day_of_week": breakdown(
-            by_day_of_week(df), "day_of_week", complete=complete
+            by_day_of_week(df),
+            "day_of_week",
+            complete=complete,
+            leader=_leader(df, "day_of_week", complete=complete),
         ),
-        "by_session": breakdown(by_session(df), "session", complete=complete),
+        "by_session": breakdown(
+            by_session(df),
+            "session",
+            complete=complete,
+            leader=_leader(df, "session", complete=complete),
+        ),
         "by_killzone": breakdown(
-            killzone_performance(df), "killzone", complete=complete
+            killzone_performance(df),
+            "killzone",
+            complete=complete,
+            leader=_leader(df, "killzone", complete=complete),
         ),
     }
 
@@ -433,7 +500,7 @@ def build_setups(df: pd.DataFrame) -> Dict[str, Any]:
     """Lens 4 — which setups carry the edge?"""
     complete = pnl_is_complete(df)
     if df.empty:
-        empty = {"rows": [], "comparable": False}
+        empty = {"rows": [], "comparable": False, "leader": None}
         return {
             "by_setup": dict(empty),
             "by_asset": dict(empty),
@@ -448,12 +515,35 @@ def build_setups(df: pd.DataFrame) -> Dict[str, Any]:
         # `win_rate` — so building the setups lens from it would report every
         # setup's P&L as undefined forever. Phase 2 hit this exact gap and
         # added `setup_performance` for it.
-        "by_setup": breakdown(setup_performance(df), "setup_type", complete=complete),
-        "by_asset": breakdown(by_asset(df), "asset", complete=complete),
-        "by_strategy": breakdown(by_strategy(df), "strategy_used", complete=complete),
-        "by_timeframe": breakdown(by_timeframe(df), "timeframe", complete=complete),
+        "by_setup": breakdown(
+            setup_performance(df),
+            "setup_type",
+            complete=complete,
+            leader=_leader(df, "setup_type", complete=complete),
+        ),
+        "by_asset": breakdown(
+            by_asset(df),
+            "asset",
+            complete=complete,
+            leader=_leader(df, "asset", complete=complete),
+        ),
+        "by_strategy": breakdown(
+            by_strategy(df),
+            "strategy_used",
+            complete=complete,
+            leader=_leader(df, "strategy_used", complete=complete),
+        ),
+        "by_timeframe": breakdown(
+            by_timeframe(df),
+            "timeframe",
+            complete=complete,
+            leader=_leader(df, "timeframe", complete=complete),
+        ),
         "by_confirmation": breakdown(
-            confirmation_model_performance(df), "confirmation_model", complete=complete
+            confirmation_model_performance(df),
+            "confirmation_model",
+            complete=complete,
+            leader=_leader(df, "confirmation_model", complete=complete),
         ),
         "mistakes": _mistakes(mistake_frequency(df)),
     }
@@ -493,9 +583,11 @@ def build_discipline(df: pd.DataFrame) -> Dict[str, Any]:
         "consistency": sample_pair(
             consistency_score(df), insufficient_for(df, MIN_CONSISTENCY_TRADES)
         ),
-        "edge_leak": money_pair(
-            total_edge_leak(df),
-            complete=pnl_is_complete(df) and int(leak.qualifying_trades) > 0,
+        "edge_leak": (
+            undefined("undefined_incomplete_sample")
+            if int(leak.recorded_trades) != len(df)
+            or (int(leak.qualifying_trades) > 0 and not pnl_is_complete(df))
+            else pair(total_edge_leak(df))
         ),
         "recorded_trades": recorded,
     }
@@ -547,10 +639,40 @@ def build_comparison(
     that does not exist.
     """
     deltas = period_deltas(current, prior)
+    has_both_samples = not current.empty and not prior.empty
+    money_complete = (
+        has_both_samples and pnl_is_complete(current) and pnl_is_complete(prior)
+    )
+
+    def comparison_money(key: str) -> Dict[str, Any]:
+        value = need(deltas, key)
+        if not has_both_samples:
+            return pair(value)
+        return money_pair(value, complete=money_complete)
+
+    def has_finite_profit_factor(sample: pd.DataFrame) -> bool:
+        basic = compute_basic_metrics(sample)
+        if int(need(basic, "wins")) == 0 and int(need(basic, "losses")) == 0:
+            return False
+        number, state = finite_or_state(compute_profit_factor_raw(sample))
+        return number is not None and state is None
+
+    if not has_both_samples:
+        profit_factor = pair(need(deltas, "profit_factor"))
+    elif not money_complete:
+        profit_factor = undefined("undefined_incomplete_sample")
+    elif not (has_finite_profit_factor(current) and has_finite_profit_factor(prior)):
+        # A delta between an unbounded or nonexistent ratio and anything else
+        # is not zero change. `period_deltas` uses the basic metric's flattened
+        # 0.0, so the projection must restore the undefined meaning.
+        profit_factor = undefined("undefined_no_sample")
+    else:
+        profit_factor = pair(need(deltas, "profit_factor"))
+
     return {
         "period": {"from": window[0], "to": window[1]},
-        "net_pnl": pair(need(deltas, "net_pnl")),
+        "net_pnl": comparison_money("net_pnl"),
         "win_rate": pair(need(deltas, "win_rate")),
-        "profit_factor": pair(need(deltas, "profit_factor")),
+        "profit_factor": profit_factor,
         "consistency": pair(need(deltas, "consistency")),
     }

@@ -184,6 +184,7 @@ def test_discipline_figures_match_the_metric_functions():
         m.rule_adherence_rate(df).rate
     )
     assert built["recorded_trades"] == m.rule_adherence_rate(df).recorded
+    assert built["edge_leak"]["value"] == pytest.approx(m.total_edge_leak(df))
 
 
 def test_the_streak_figures_match_the_metric_function():

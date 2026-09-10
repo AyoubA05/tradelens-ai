@@ -66,6 +66,13 @@ class BreakdownRow(_Strict):
     win_rate: MetricValue
 
 
+class BreakdownLeader(_Strict):
+    """A server-selected narrative, only after the shared pattern threshold."""
+
+    key: str
+    trades: int
+
+
 class Breakdown(_Strict):
     """A category breakdown, plus whether it can honestly be compared.
 
@@ -76,6 +83,7 @@ class Breakdown(_Strict):
 
     rows: List[BreakdownRow]
     comparable: bool
+    leader: Optional[BreakdownLeader]
 
 
 class StreakBlock(_Strict):

@@ -123,16 +123,42 @@ describe("Breakdowns only rank when the sample can be compared", () => {
     const base = analyticsFixture();
     render(
       <TimingLens
-        timing={{ ...base.timing, by_day_of_week: breakdown(rows, true) }}
+        timing={{
+          ...base.timing,
+          by_day_of_week: {
+            ...breakdown(rows, true),
+            // Deliberately disagrees with the row values. The browser must
+            // display the backend's policy result, not recalculate money.
+            leader: { key: "Tuesday", trades: 6 },
+          },
+        }}
       />,
     );
     const panel = screen.getByTestId("breakdown-by_day_of_week");
     expect(within(panel).getByText("Monday")).toBeInTheDocument();
     expect(within(panel).getByText("Tuesday")).toBeInTheDocument();
     const ranking = within(panel).getByTestId("breakdown-by_day_of_week-ranking");
-    expect(ranking).toHaveTextContent(/Monday/);
+    expect(ranking).toHaveTextContent(/Tuesday/);
     expect(ranking).toHaveTextContent(/largest recorded/i);
     expect(within(panel).queryByTestId("breakdown-by_day_of_week-not-comparable")).toBeNull();
+  });
+
+  it("does not name a leader when comparable rows are below the pattern threshold", () => {
+    const base = analyticsFixture();
+    render(
+      <TimingLens
+        timing={{
+          ...base.timing,
+          by_day_of_week: { ...breakdown(rows, true), leader: null },
+        }}
+      />,
+    );
+
+    const panel = screen.getByTestId("breakdown-by_day_of_week");
+    expect(within(panel).queryByTestId("breakdown-by_day_of_week-ranking")).toBeNull();
+    expect(within(panel).getByTestId("breakdown-by_day_of_week-low-sample")).toHaveTextContent(
+      /too few trades/i,
+    );
   });
 
   it("blames the missing P&L, not the categories, and leaves the win rates alone", () => {
@@ -261,5 +287,40 @@ describe("Series panels draw the recorded series", () => {
     expect(screen.getByTestId("figure-rule-adherence")).toHaveTextContent("80.0%");
     expect(screen.getByTestId("figure-consistency")).toHaveTextContent("70");
     expect(screen.getByTestId("figure-edge-leak")).toHaveTextContent("-$120.00");
+  });
+
+  it("explains that incomplete P&L suppresses money charts instead of claiming no trades exist", () => {
+    const base = analyticsFixture();
+    render(
+      <PerformanceLens
+        performance={{
+          ...base.performance,
+          total_pnl: undefinedValue("undefined_incomplete_sample"),
+          equity_curve: [],
+          daily_pnl: [],
+        }}
+        discipline={base.discipline}
+      />,
+    );
+
+    for (const id of ["equity-curve", "daily-pnl"]) {
+      const empty = screen.getByTestId(`chart-${id}-empty`);
+      expect(empty).toHaveTextContent(/not every trade.*P&L/i);
+      expect(empty).not.toHaveTextContent(/nothing recorded/i);
+    }
+  });
+
+  it("labels profitable rule-breaking as historical and not repeatable edge", () => {
+    const base = analyticsFixture();
+    render(
+      <PerformanceLens
+        performance={base.performance}
+        discipline={{ ...base.discipline, edge_leak: value(95) }}
+      />,
+    );
+
+    expect(screen.getByTestId("performance-discipline")).toHaveTextContent(
+      /profitable.*not repeatable edge/i,
+    );
   });
 });

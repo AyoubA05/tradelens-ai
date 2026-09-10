@@ -47,12 +47,14 @@ export function LineChart({
   description,
   points,
   kind,
+  emptyReason,
 }: {
   id: string;
   title: string;
   description: string;
   points: SeriesPoint[];
   kind: MetricKind;
+  emptyReason?: string;
 }) {
   const plotted = points.filter(
     (p): p is { date: string; value: number } => p.value !== null && Number.isFinite(p.value),
@@ -74,7 +76,7 @@ export function LineChart({
   if (plotted.length === 0) {
     return frame(
       <p data-testid={`chart-${id}-empty`} className="mt-3 text-sm text-muted">
-        There is nothing recorded in this range to draw, so no line is shown.
+        {emptyReason ?? "There is nothing recorded in this range to draw, so no line is shown."}
       </p>,
     );
   }

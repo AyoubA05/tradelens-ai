@@ -53,7 +53,14 @@ def _validated_period(start: str, end: str) -> Tuple[str, str]:
         ) from None
     if first > last:
         raise HTTPException(status_code=422, detail="period start is after its end")
-    if last > first + relativedelta(years=_MAX_WINDOW_YEARS):
+    try:
+        latest_allowed = first + relativedelta(years=_MAX_WINDOW_YEARS)
+    except (OverflowError, ValueError):
+        # Near date.max there is no representable date five years later. The
+        # requested `last` is already representable, so date.max is the honest
+        # cap rather than turning a valid one-day boundary range into a 500.
+        latest_allowed = dt.date.max
+    if last > latest_allowed:
         raise HTTPException(
             status_code=422,
             detail=f"period cannot span more than {_MAX_WINDOW_YEARS} years",

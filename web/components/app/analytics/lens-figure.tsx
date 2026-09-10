@@ -19,16 +19,22 @@ export function LensFigure({
   value,
   kind,
   testId,
+  magnitudeAsLoss = false,
 }: {
   label: string;
   value: MetricValue;
   kind: MetricKind;
   testId: string;
+  magnitudeAsLoss?: boolean;
 }) {
+  const displayed =
+    magnitudeAsLoss && value.value !== null && value.value > 0
+      ? { value: -value.value, state: null }
+      : value;
   return (
     <div data-testid={testId} className="border-l border-line px-4 py-3 first:border-l-0 first:pl-0">
       <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">{label}</div>
-      <MetricValueText value={value} kind={kind} className="mt-1 block font-mono text-xl text-text" />
+      <MetricValueText value={displayed} kind={kind} className="mt-1 block font-mono text-xl text-text" />
     </div>
   );
 }

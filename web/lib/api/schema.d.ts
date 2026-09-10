@@ -894,8 +894,19 @@ export interface components {
         Breakdown: {
             /** Comparable */
             comparable: boolean;
+            leader: components["schemas"]["BreakdownLeader"] | null;
             /** Rows */
             rows: components["schemas"]["src__tradelens__api__schemas__analytics__BreakdownRow"][];
+        };
+        /**
+         * BreakdownLeader
+         * @description A server-selected narrative, only after the shared pattern threshold.
+         */
+        BreakdownLeader: {
+            /** Key */
+            key: string;
+            /** Trades */
+            trades: number;
         };
         /** Calendar */
         Calendar: {

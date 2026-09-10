@@ -86,7 +86,10 @@ export default async function AnalyticsPage({
       <h1 className="font-display text-3xl font-bold">Analytics</h1>
       <p className="mt-2 text-muted">One question at a time, with the evidence behind the answer.</p>
 
-      <AnalyticsFilterBar filters={filters} />
+      <AnalyticsFilterBar
+        key={`${filters.asset ?? ""}\u0000${filters.session ?? ""}\u0000${filters.strategy ?? ""}`}
+        filters={filters}
+      />
 
       {failed || !analytics ? (
         <div className="mt-8">

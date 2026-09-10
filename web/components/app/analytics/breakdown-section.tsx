@@ -31,11 +31,6 @@ export function BreakdownSection({
   description: string;
   breakdown: Breakdown;
 }) {
-  const ranked = breakdown.comparable
-    ? breakdown.rows
-        .filter((row) => row.total_pnl.value !== null)
-        .sort((a, b) => (b.total_pnl.value ?? 0) - (a.total_pnl.value ?? 0))[0]
-    : undefined;
   const comparableRows = breakdown.rows.filter((row) => row.total_pnl.value !== null).length;
 
   return (
@@ -65,14 +60,19 @@ export function BreakdownSection({
             independently sourced. That is the shared caveat decision 6b
             forbids: an undefined P&L may never discredit a valid win rate.
           */}
-          {ranked && comparableRows >= 2 ? (
+          {breakdown.leader ? (
             <p data-testid={`breakdown-${id}-ranking`} className="mt-3 text-xs text-muted">
-              {`Largest recorded net P&L in this period: ${ranked.key}, over ${ranked.trades} trades.`}
+              {`Largest recorded net P&L in this period: ${breakdown.leader.key}, over ${breakdown.leader.trades} trades.`}
             </p>
-          ) : breakdown.comparable ? (
+          ) : breakdown.comparable && comparableRows < 2 ? (
             <p data-testid={`breakdown-${id}-pnl-incomplete`} className="mt-3 text-xs text-muted">
               Too few of these categories record a P&amp;L to order them by money. The win rates
               above are measured from recorded outcomes and are unaffected.
+            </p>
+          ) : breakdown.comparable ? (
+            <p data-testid={`breakdown-${id}-low-sample`} className="mt-3 text-xs text-muted">
+              This range has too few trades to name a leading category. The rows above are
+              measurements, not yet a pattern.
             </p>
           ) : (
             <p data-testid={`breakdown-${id}-not-comparable`} className="mt-3 text-xs text-muted">

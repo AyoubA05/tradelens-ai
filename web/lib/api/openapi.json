@@ -616,6 +616,16 @@
             "title": "Comparable",
             "type": "boolean"
           },
+          "leader": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BreakdownLeader"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "rows": {
             "items": {
               "$ref": "#/components/schemas/src__tradelens__api__schemas__analytics__BreakdownRow"
@@ -626,9 +636,30 @@
         },
         "required": [
           "rows",
-          "comparable"
+          "comparable",
+          "leader"
         ],
         "title": "Breakdown",
+        "type": "object"
+      },
+      "BreakdownLeader": {
+        "additionalProperties": false,
+        "description": "A server-selected narrative, only after the shared pattern threshold.",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "trades": {
+            "title": "Trades",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "trades"
+        ],
+        "title": "BreakdownLeader",
         "type": "object"
       },
       "Calendar": {
