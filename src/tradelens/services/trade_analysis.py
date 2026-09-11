@@ -92,6 +92,15 @@ _log = logging.getLogger(__name__)
 
 # Same rule `ai_text_guard.fence` applies inside a block.
 _MARKUP_IN_PROMPT = re.compile(r"[<>]")
+_STRATEGY_FINGERPRINT_UNSET = object()
+
+
+def _strategy_digest(prompt_input) -> str:
+    """Digest one already-rendered Strategy Profile prompt value."""
+    if prompt_input is None:
+        return "none"
+    rendered = json.dumps(prompt_input, sort_keys=True, default=str)
+    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
 
 
 def _strategy_fingerprint(user_id: int) -> str:
@@ -116,10 +125,7 @@ def _strategy_fingerprint(user_id: int) -> str:
     `ai_input_version` fails closed rather than collapsing inputs.
     """
     prompt_input = _prompt_strategy(user_id)
-    if prompt_input is None:
-        return "none"
-    rendered = json.dumps(prompt_input, sort_keys=True, default=str)
-    return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+    return _strategy_digest(prompt_input)
 
 
 def _prompt_strategy(owner: int):
@@ -132,6 +138,28 @@ def _prompt_strategy(owner: int):
     the fingerprint never covered.
     """
     return _sanitised_strategy(get_active_strategy(owner))
+
+
+class StrategyInputSuperseded(Exception):
+    """The queued job's profile is no longer the profile the worker read."""
+
+
+def _prompt_strategy_for_job(owner: int, expected=_STRATEGY_FINGERPRINT_UNSET):
+    """Capture the prompt once and prove it is the version in the job key.
+
+    Enqueue and worker execution are separated by an unbounded queue delay.
+    Calling `_prompt_strategy` independently at those two times lets a job
+    keyed under profile A send profile B to the model. New jobs carry the
+    fingerprint used to build their key. The worker supplies an impossible
+    digest for old queued jobs that omit it, so they fail closed before spend.
+    """
+    prompt_input = _prompt_strategy(owner)
+    if (
+        expected is not _STRATEGY_FINGERPRINT_UNSET
+        and _strategy_digest(prompt_input) != expected
+    ):
+        raise StrategyInputSuperseded()
+    return prompt_input
 
 
 def _corrections_fingerprint(user_id: int) -> str:
@@ -168,7 +196,19 @@ class AIInputVersionUnavailable(Exception):
     """
 
 
-def ai_input_version(user_id: int) -> str:
+def strategy_input_fingerprint(user_id: int) -> str:
+    """The current prompt fingerprint, with the cache boundary's typed failure."""
+    owner = require_user_id(user_id)
+    try:
+        return _strategy_fingerprint(owner)
+    except Exception as exc:  # noqa: BLE001 — converted to a fail-closed refusal
+        _log.error("strategy fingerprint unavailable (%s)", type(exc).__name__)
+        raise AIInputVersionUnavailable("the AI context could not be read") from exc
+
+
+def ai_input_version(
+    user_id: int, *, strategy_fingerprint=_STRATEGY_FINGERPRINT_UNSET
+) -> str:
     """Everything OTHER than the trade that can change an AI answer.
 
     Model, effort, demo mode, the Strategy Profile and the correction memory.
@@ -198,7 +238,11 @@ def ai_input_version(user_id: int) -> str:
     owner = require_user_id(user_id)
     try:
         state = (
-            _strategy_fingerprint(owner),
+            (
+                strategy_input_fingerprint(owner)
+                if strategy_fingerprint is _STRATEGY_FINGERPRINT_UNSET
+                else strategy_fingerprint
+            ),
             _corrections_fingerprint(owner),
         )
     except Exception as exc:  # noqa: BLE001 — re-raised as a typed refusal
@@ -250,7 +294,12 @@ def _analysis_control_fingerprint(user_id: int, trade_id: int) -> str:
 
 
 def analysis_key(
-    user_id: int, trade_id: int, screenshot_id: int, trade_updated_at
+    user_id: int,
+    trade_id: int,
+    screenshot_id: int,
+    trade_updated_at,
+    *,
+    strategy_fingerprint=_STRATEGY_FINGERPRINT_UNSET,
 ) -> str:
     try:
         control_version = _analysis_control_fingerprint(user_id, trade_id)
@@ -263,30 +312,44 @@ def analysis_key(
         screenshot_id,
         trade_updated_at,
         ANALYSIS_PROMPT_VERSION,
-        ai_input_version(user_id),
+        ai_input_version(user_id, strategy_fingerprint=strategy_fingerprint),
         control_version,
     )
 
 
-def journal_key(user_id: int, trade_id: int, trade_updated_at, analysis_job_id) -> str:
+def journal_key(
+    user_id: int,
+    trade_id: int,
+    trade_updated_at,
+    analysis_job_id,
+    *,
+    strategy_fingerprint=_STRATEGY_FINGERPRINT_UNSET,
+) -> str:
     return _fingerprint(
         JOURNAL_JOB_KIND,
         trade_id,
         trade_updated_at,
         analysis_job_id,
         JOURNAL_PROMPT_VERSION,
-        ai_input_version(user_id),
+        ai_input_version(user_id, strategy_fingerprint=strategy_fingerprint),
     )
 
 
-def grade_key(user_id: int, trade_id: int, trade_updated_at, analysis_job_id) -> str:
+def grade_key(
+    user_id: int,
+    trade_id: int,
+    trade_updated_at,
+    analysis_job_id,
+    *,
+    strategy_fingerprint=_STRATEGY_FINGERPRINT_UNSET,
+) -> str:
     return _fingerprint(
         GRADE_JOB_KIND,
         trade_id,
         trade_updated_at,
         analysis_job_id,
         GRADE_PROMPT_VERSION,
-        ai_input_version(user_id),
+        ai_input_version(user_id, strategy_fingerprint=strategy_fingerprint),
     )
 
 
@@ -571,6 +634,7 @@ def run_analysis(
     *,
     job_id: int,
     on_usage,
+    expected_strategy_fingerprint=_STRATEGY_FINGERPRINT_UNSET,
 ) -> WriteOutcome:
     """Analyse one owned screenshot and store the result under the guards.
 
@@ -597,10 +661,15 @@ def run_analysis(
         on_usage(usage)
         captured["usage"] = usage
 
+    try:
+        strategy_prompt = _prompt_strategy_for_job(owner, expected_strategy_fingerprint)
+    except StrategyInputSuperseded:
+        return WriteOutcome(written=False, superseded=True)
+
     analysis = _analyse_bytes(
         data,
         _analysis_trade_context(owner, trade_id),
-        _prompt_strategy(owner),
+        strategy_prompt,
         _capture,
     )
     try:
@@ -743,7 +812,14 @@ def _load_for_generation(owner: int, trade_id: int):
         db.close()
 
 
-def run_journal(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteOutcome:
+def run_journal(
+    user_id: int,
+    trade_id: int,
+    *,
+    job_id: int,
+    on_usage,
+    expected_strategy_fingerprint=_STRATEGY_FINGERPRINT_UNSET,
+) -> WriteOutcome:
     """Generate and store one journal entry, under the same ordering guard.
 
     The output is validated twice and stored once: `generate_journal` already
@@ -765,13 +841,16 @@ def run_journal(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteO
     trade_dict, ai_dict = build_journal_context(trade, analysis)
 
     try:
+        strategy_prompt = _prompt_strategy_for_job(owner, expected_strategy_fingerprint)
         markdown = _generate_journal_markdown(
             _sanitised_trade_context(trade_dict),
             _sanitised_analysis_context(ai_dict),
-            _prompt_strategy(owner),
+            strategy_prompt,
             on_usage,
         )
         reject_forward_looking(markdown)
+    except StrategyInputSuperseded:
+        return WriteOutcome(written=False, superseded=True)
     except (JournalStructureError, ForwardLookingContent, ValueError) as exc:
         raise AnalysisUnavailable(str(exc)) from exc
 
@@ -828,7 +907,14 @@ def _grading_free_text(result: dict):
                 yield str(entry.get("note") or "")
 
 
-def run_grade(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteOutcome:
+def run_grade(
+    user_id: int,
+    trade_id: int,
+    *,
+    job_id: int,
+    on_usage,
+    expected_strategy_fingerprint=_STRATEGY_FINGERPRINT_UNSET,
+) -> WriteOutcome:
     """Grade one trade on PROCESS and store it, under the same ordering guard.
 
     `grade_trade` already validates the four top-level keys and all five
@@ -849,15 +935,18 @@ def run_grade(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteOut
     trade_dict, vision_dict = build_grading_context(trade, analysis)
 
     try:
+        strategy_prompt = _prompt_strategy_for_job(owner, expected_strategy_fingerprint)
         result = _generate_grading(
             _sanitised_trade_context(trade_dict),
-            _prompt_strategy(owner),
+            strategy_prompt,
             _sanitised_analysis_context(vision_dict),
             on_usage,
         )
         _validate_grading_result(result)
         for text in _grading_free_text(result):
             reject_forward_looking(text)
+    except StrategyInputSuperseded:
+        return WriteOutcome(written=False, superseded=True)
     except (GradingError, ForwardLookingContent, ValueError) as exc:
         raise AnalysisUnavailable(str(exc)) from exc
 

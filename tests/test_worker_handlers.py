@@ -91,9 +91,18 @@ def test_the_analysis_handler_passes_the_resolved_job_id_to_the_write(
     job_id = _enqueue(owner, "trade_analysis:passed")
     seen = {}
 
-    def fake_run(user_id, trade_id, screenshot_id, *, job_id, on_usage):
+    def fake_run(
+        user_id,
+        trade_id,
+        screenshot_id,
+        *,
+        job_id,
+        on_usage,
+        expected_strategy_fingerprint=None,
+    ):
         seen["job_id"] = job_id
         seen["user_id"] = user_id
+        seen["strategy_fingerprint"] = expected_strategy_fingerprint
 
         class _Outcome:
             written = True
@@ -102,10 +111,22 @@ def test_the_analysis_handler_passes_the_resolved_job_id_to_the_write(
 
     monkeypatch.setattr(worker, "run_analysis", fake_run)
     worker._trade_analysis_handler(
-        owner, {"trade_id": 1, "screenshot_id": 1, "key": "trade_analysis:passed"}
+        owner,
+        {
+            "trade_id": 1,
+            "screenshot_id": 1,
+            "key": "trade_analysis:passed",
+            "strategy_fingerprint": "strategy-v1",
+        },
     )
     assert seen["job_id"] == job_id
     assert seen["user_id"] == owner
+    assert seen["strategy_fingerprint"] == "strategy-v1"
+
+
+def test_a_job_from_before_profile_binding_fails_closed_before_ai_spend():
+    guard = worker._strategy_job_guard({})
+    assert guard == {"expected_strategy_fingerprint": "missing-from-legacy-job"}
 
 
 # --- the two handlers Group B added -------------------------------------
@@ -155,16 +176,28 @@ def test_a_derived_handler_passes_its_own_resolved_job_id(
     job_id = _enqueue_kind(owner, kind, key)
     seen = {}
 
-    def fake_run(user_id, trade_id, *, job_id, on_usage):
+    def fake_run(
+        user_id,
+        trade_id,
+        *,
+        job_id,
+        on_usage,
+        expected_strategy_fingerprint=None,
+    ):
         seen["job_id"] = job_id
         seen["user_id"] = user_id
+        seen["strategy_fingerprint"] = expected_strategy_fingerprint
         return _Written()
 
     monkeypatch.setattr(worker, run_name, fake_run)
-    getattr(worker, handler_name)(owner, {"trade_id": 1, "key": key})
+    getattr(worker, handler_name)(
+        owner,
+        {"trade_id": 1, "key": key, "strategy_fingerprint": "strategy-v1"},
+    )
 
     assert seen["job_id"] == job_id
     assert seen["user_id"] == owner
+    assert seen["strategy_fingerprint"] == "strategy-v1"
 
 
 @pytest.mark.parametrize(
@@ -212,7 +245,14 @@ def test_a_derived_handler_logs_usage_under_the_expected_feature(
     _enqueue_kind(owner, kind, key)
     logged = []
 
-    def fake_run(user_id, trade_id, *, job_id, on_usage):
+    def fake_run(
+        user_id,
+        trade_id,
+        *,
+        job_id,
+        on_usage,
+        expected_strategy_fingerprint=None,
+    ):
         on_usage(object())
         return _Written()
 

@@ -1000,6 +1000,45 @@ def test_analysis_receives_owned_trade_and_active_strategy_context(
     assert seen["strategy"] == {"id": 9, "name": "My rules"}
 
 
+def test_analysis_job_refuses_a_profile_changed_after_its_key_was_built(
+    owned_trade, monkeypatch
+):
+    """An asynchronous worker must not run a different prompt under the old key."""
+    from src.tradelens.services import strategy, strategy_writes
+
+    user_id, trade_id = owned_trade
+    fields = {field: None for field in strategy._PROFILE_FIELDS}
+    fields["name"] = "Rules A"
+    first = strategy_writes.save_profile(user_id, fields, expected_revision=None)
+    expected = ta._strategy_fingerprint(user_id)
+    strategy_writes.save_profile(
+        user_id,
+        dict(fields, name="Rules B"),
+        expected_revision=first["updated_at"],
+    )
+
+    calls = []
+    monkeypatch.setattr(ta.storage, "read_owned_final_object", lambda u, s: b"pixels")
+    monkeypatch.setattr(
+        ta,
+        "_analyse_bytes",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    outcome = ta.run_analysis(
+        user_id,
+        trade_id,
+        44,
+        job_id=1,
+        on_usage=lambda u: None,
+        expected_strategy_fingerprint=expected,
+    )
+
+    assert outcome.superseded is True
+    assert outcome.written is False
+    assert calls == []
+
+
 def test_an_unreadable_screenshot_fails_terminally_and_costs_nothing(
     owned_trade, monkeypatch
 ):

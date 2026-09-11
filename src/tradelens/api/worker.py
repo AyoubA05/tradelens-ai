@@ -97,6 +97,19 @@ def _phase5_job_id(user_id: int, kind: str, payload: dict) -> int:
     return int(job.id)
 
 
+def _strategy_job_guard(payload: dict) -> dict:
+    """Forward the enqueue-time profile identity when this job carries one.
+
+    Jobs queued before the Phase 7 deploy have no such field and cannot prove
+    which profile their key describes. Give those jobs an impossible digest so
+    they supersede before a paid call. Every newly queued job carries the real
+    digest, so a profile edit during queue delay has the same result.
+    """
+    if "strategy_fingerprint" not in payload:
+        return {"expected_strategy_fingerprint": "missing-from-legacy-job"}
+    return {"expected_strategy_fingerprint": payload["strategy_fingerprint"]}
+
+
 def _trade_analysis_handler(user_id: int, payload: dict) -> str:
     # Same usage discipline as the summary and autofill handlers: the
     # callback is handed down to the provider call so a response that then
@@ -107,6 +120,7 @@ def _trade_analysis_handler(user_id: int, payload: dict) -> str:
         int(payload["screenshot_id"]),
         job_id=_phase5_job_id(user_id, ANALYSIS_JOB_KIND, payload),
         on_usage=lambda usage: log_ai_usage("Trade Analysis", usage, user_id=user_id),
+        **_strategy_job_guard(payload),
     )
     return (
         f"{ANALYSIS_JOB_KIND}:{payload['trade_id']}:"
@@ -123,6 +137,7 @@ def _trade_journal_handler(user_id: int, payload: dict) -> str:
         int(payload["trade_id"]),
         job_id=_phase5_job_id(user_id, JOURNAL_JOB_KIND, payload),
         on_usage=lambda usage: log_ai_usage("AI Journal", usage, user_id=user_id),
+        **_strategy_job_guard(payload),
     )
     return (
         f"{JOURNAL_JOB_KIND}:{payload['trade_id']}:"
@@ -136,6 +151,7 @@ def _trade_grade_handler(user_id: int, payload: dict) -> str:
         int(payload["trade_id"]),
         job_id=_phase5_job_id(user_id, GRADE_JOB_KIND, payload),
         on_usage=lambda usage: log_ai_usage("Trade Grading", usage, user_id=user_id),
+        **_strategy_job_guard(payload),
     )
     return (
         f"{GRADE_JOB_KIND}:{payload['trade_id']}:"

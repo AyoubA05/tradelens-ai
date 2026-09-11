@@ -225,6 +225,49 @@ def test_the_same_request_twice_is_one_job(client, website_session_handle):
     assert _jobs_of(_owner) == 1
 
 
+def test_analysis_job_carries_the_profile_fingerprint_its_key_was_built_from(
+    client, website_session_handle
+):
+    """The worker runs later, so it must know which profile the key describes."""
+    owner, handle = website_session_handle
+    trade_id, shot_id = _trade_with_screenshot(owner)
+
+    response = _enqueue_analysis(client, handle, trade_id, shot_id)
+
+    assert response.status_code == 202
+    db = SessionLocal()
+    try:
+        job = db.query(AIJob).filter(AIJob.id == response.json()["job_id"]).one()
+        payload = json.loads(job.payload)
+    finally:
+        db.close()
+    assert payload["strategy_fingerprint"] == trade_analysis._strategy_fingerprint(
+        owner
+    )
+
+
+@pytest.mark.parametrize("what", ["journal", "grade"])
+def test_derived_job_carries_the_profile_fingerprint_its_key_was_built_from(
+    client, website_session_handle, what
+):
+    owner, handle = website_session_handle
+    trade_id, _shot_id = _trade_with_screenshot(owner)
+    _analysed(owner, trade_id)
+
+    response = _enqueue(client, handle, trade_id, what)
+
+    assert response.status_code == 202
+    db = SessionLocal()
+    try:
+        job = db.query(AIJob).filter(AIJob.id == response.json()["job_id"]).one()
+        payload = json.loads(job.payload)
+    finally:
+        db.close()
+    assert payload["strategy_fingerprint"] == trade_analysis._strategy_fingerprint(
+        owner
+    )
+
+
 def test_correcting_the_ai_makes_the_next_analysis_a_new_job(
     client, website_session_handle, monkeypatch
 ):

@@ -760,5 +760,5 @@ def test_every_ai_consumer_reads_the_profile_through_the_one_prompt_input(consum
     from src.tradelens.services import trade_analysis
 
     source = inspect.getsource(getattr(trade_analysis, consumer))
-    assert "_prompt_strategy(owner)" in source
+    assert "_prompt_strategy_for_job(" in source
     assert "get_active_strategy(" not in source

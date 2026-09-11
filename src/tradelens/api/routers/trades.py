@@ -75,6 +75,7 @@ from src.tradelens.services.trade_analysis import (
     analysis_key,
     grade_key,
     journal_key,
+    strategy_input_fingerprint,
 )
 from src.tradelens.services.trade_autofill import (
     AUTOFILL_WINDOW_HOURS,
@@ -755,8 +756,13 @@ def enqueue_trade_analysis(
     # enqueue under a placeholder identity that could collide with an earlier
     # job computed under different AI context. Nothing is created or spent.
     try:
+        strategy_fingerprint = strategy_input_fingerprint(user_id)
         key = analysis_key(
-            user_id, trade_id, int(payload.screenshot_id), trade.updated_at
+            user_id,
+            trade_id,
+            int(payload.screenshot_id),
+            trade.updated_at,
+            strategy_fingerprint=strategy_fingerprint,
         )
     except AIInputVersionUnavailable:
         raise HTTPException(status_code=503, detail=_FINGERPRINT_UNAVAILABLE)
@@ -769,6 +775,7 @@ def enqueue_trade_analysis(
             "trade_id": int(trade_id),
             "screenshot_id": int(payload.screenshot_id),
             "key": key,
+            "strategy_fingerprint": strategy_fingerprint,
         },
         since=datetime.now(timezone.utc) - timedelta(hours=ANALYSIS_WINDOW_HOURS),
         limit=MAX_ANALYSES_PER_WINDOW,
@@ -820,11 +827,18 @@ def _enqueue_derived(
     # placeholder identity that could collide with an earlier job computed
     # under different AI context.
     try:
+        strategy_fingerprint = strategy_input_fingerprint(user_id)
         # Key only on the upstream analysis generation, not the row's shared
         # `updated_at`: journal and grade writes update that timestamp too,
         # which otherwise invalidates their own idempotency key and turns an
         # unchanged retry into another paid job.
-        key = key_fn(user_id, trade_id, trade.updated_at, analysis.analysis_job_id)
+        key = key_fn(
+            user_id,
+            trade_id,
+            trade.updated_at,
+            analysis.analysis_job_id,
+            strategy_fingerprint=strategy_fingerprint,
+        )
     except AIInputVersionUnavailable:
         raise HTTPException(status_code=503, detail=_FINGERPRINT_UNAVAILABLE)
 
@@ -832,7 +846,11 @@ def _enqueue_derived(
         user_id,
         kind,
         key,
-        {"trade_id": int(trade_id), "key": key},
+        {
+            "trade_id": int(trade_id),
+            "key": key,
+            "strategy_fingerprint": strategy_fingerprint,
+        },
         since=datetime.now(timezone.utc) - timedelta(hours=ANALYSIS_WINDOW_HOURS),
         limit=limit,
     )
