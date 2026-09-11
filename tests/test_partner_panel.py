@@ -797,7 +797,9 @@ def _markdown_below(block):
     return values
 
 
-def test_owned_unavailable_partner_apptest_keeps_one_status_per_width(monkeypatch):
+def test_owned_unavailable_partner_apptest_keeps_one_status_per_width(
+    two_users, monkeypatch
+):
     """The real page builds both complementary presentations server-side.
     Their placement, combined with the responsive contract, leaves exactly
     one no-trades status visible at either width."""
@@ -808,7 +810,8 @@ def test_owned_unavailable_partner_apptest_keeps_one_status_per_width(monkeypatc
     from src.tradelens.ui.components import partner_panel as pp
     from src.tradelens.ui.components.partner_turn import NO_TRADES_ERROR
 
-    monkeypatch.setattr(auth, "current_user_id", lambda: 7)
+    owner = two_users[0]
+    monkeypatch.setattr(auth, "current_user_id", lambda: owner)
     monkeypatch.setattr(pp, "ai_available", lambda: True)
     monkeypatch.setattr(
         pp, "build_global_partner_context", lambda *, user_id: _Ctx(trades=0)
@@ -818,7 +821,7 @@ def test_owned_unavailable_partner_apptest_keeps_one_status_per_width(monkeypatc
     at.session_state["authenticated"] = True
     # The shared auth gate reads session state directly, not through the
     # patched current_user_id() above — it must see the same owner.
-    at.session_state["current_user_id"] = 7
+    at.session_state["current_user_id"] = owner
     at = at.run()
 
     assert not at.exception
