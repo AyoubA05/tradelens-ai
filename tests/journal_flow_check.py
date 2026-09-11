@@ -28,10 +28,11 @@ BOOT_UID = 1
 
 def _seed():
     """Three dated trades on two days, so a calendar day has two openers."""
-    from src.tradelens.db.models import Trade
+    from src.tradelens.db.models import Trade, User
     from src.tradelens.db.session import SessionLocal
 
     session = SessionLocal()
+    session.add(User(id=BOOT_UID, username="journal-flow", password_hash="x"))
     session.add_all(
         [
             Trade(

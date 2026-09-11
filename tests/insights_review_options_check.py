@@ -56,6 +56,14 @@ def main() -> int:
 
     init_db()
 
+    from src.tradelens.db.models import User
+    from src.tradelens.db.session import SessionLocal
+
+    session = SessionLocal()
+    session.add(User(id=1, username="insights-options", password_hash="x"))
+    session.commit()
+    session.close()
+
     from src.tradelens.services import cost as cost_service
     from src.tradelens.services import debrief as debrief_service
     from src.tradelens.services import demo, strategy, weekly as weekly_service

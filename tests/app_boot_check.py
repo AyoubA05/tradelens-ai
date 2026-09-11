@@ -68,6 +68,20 @@ def main() -> int:
 
     init_db()
 
+    # `require_auth` revalidates legacy Streamlit session state against the
+    # owner row on every run. Seed the account as well as its data so these
+    # subprocess boots exercise a real session rather than a dangling id.
+    if isinstance(seed_uid, int) and not isinstance(seed_uid, bool):
+        from src.tradelens.db.models import User
+        from src.tradelens.db.session import SessionLocal
+
+        session = SessionLocal()
+        session.add(
+            User(id=seed_uid, username=f"booter-{seed_uid}", password_hash="x")
+        )
+        session.commit()
+        session.close()
+
     if seed == "fixedrisk":
         # Several dated trades that all risked the SAME amount. A "risk per
         # trade" line through one repeated value is a flat rule drawn at
@@ -166,14 +180,7 @@ def main() -> int:
         # Strategy page reads it through get_active_strategy(uid), which
         # rejects a None user id, so the row and the account both have to
         # exist — and the caller must preset current_user_id in state.
-        from src.tradelens.db.models import User
-        from src.tradelens.db.session import SessionLocal
         from src.tradelens.services.strategy import upsert_strategy_profile
-
-        s = SessionLocal()
-        s.add(User(id=seed_uid, username="booter", password_hash="x"))
-        s.commit()
-        s.close()
         upsert_strategy_profile(
             seed_uid,
             name="ICT Continuation",

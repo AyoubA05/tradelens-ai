@@ -45,10 +45,11 @@ def main() -> int:
 
     init_db()
 
-    from src.tradelens.db.models import Trade
+    from src.tradelens.db.models import Trade, User
     from src.tradelens.db.session import SessionLocal
 
     session = SessionLocal()
+    session.add(User(id=1, username="insights-regen", password_hash="x"))
     session.add(
         Trade(
             trade_date=DAY,

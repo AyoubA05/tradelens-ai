@@ -37,6 +37,12 @@ from src.tradelens.ui.components.trade_wizard import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _real_streamlit_owner(two_users):
+    """AppTest sessions use id 1, so make that signed-in owner a real account."""
+    assert two_users[0] == 1
+
+
 # ---------------------------------------------------------------------------
 # Shape
 # ---------------------------------------------------------------------------
