@@ -116,6 +116,7 @@ On every request the server recomputes the whole chain from `"genesis"` and refu
 - **reordered** turns (position and `prev` both bound);
 - an **edited** turn (text hash bound);
 - a turn from **another conversation, mode or owner**, including a whole valid chain replayed under another `conv`;
+- a turn from a **sibling continuation** of the same conversation: two forks legitimately issued from the same prefix `T0..Tk` cannot be mixed (`T0..Tk, A(k+1), B(k+2)` is refused), because `B(k+2)`'s MAC commits to `B(k+1)`'s MAC. This holds only if the verifier threads **its own recomputed MAC** forward as `prev` — never the MAC the browser sent for the previous turn (otherwise `A(k+1)`'s text carrying `B(k+1)`'s MAC, then `B(k+2)`, would verify);
 - roles not strictly alternating user → assistant from index 0; more than `MAX_TRANSCRIPT_TURNS = 40`; any `iat` older than 12 hours or in the future beyond 60 s skew.
 The new question is the only unsigned text in a request. **Truncation of the tail** (the browser dropping its newest turns) still yields a valid prefix; that is the trader discarding their own latest exchange, which carries no authority the server did not already grant, and is accepted and documented rather than prevented (preventing it would require storing the chain head server-side).
 
@@ -398,6 +399,12 @@ def turn_key(conv: str, position: int, client_turn_id: str) -> str: ...  # sha25
   - `test_the_raw_service_secret_is_never_the_mac_key` (domain separation)
   - `test_the_turn_key_is_a_digest_and_contains_no_conversation_text`
   - `test_the_refusal_says_nothing_about_which_check_failed` (every case raises the same class with the same message)
+  - `test_a_turn_from_a_sibling_fork_cannot_be_spliced_after_the_shared_prefix` — from prefix `T0..T3`, fork A (`A4,A5`) and fork B (`B4,B5`) both issued by the server: `T0..T3,A4,B5` and `T0..T3,B4,A5` are refused; `T0..T3`, `T0..T3,A4,A5` and `T0..T3,B4,B5` each verify
+  - `test_a_middle_turn_carrying_a_sibling_forks_mac_is_refused` — `T0..T3` + (A4's text with B4's MAC) + B5; this is the test that catches a verifier trusting the browser-sent MAC as `prev`
+  - `test_forks_with_identical_assistant_text_but_different_iat_are_not_interchangeable`
+  - `test_resuming_at_a_shared_prefix_with_a_new_question_is_accepted` (documents the accepted fork-resumption case)
+  - `test_the_wire_turn_carries_no_prev_field_or_it_is_ignored` (`prev` is recomputed, never read from the request)
+  - `test_the_server_signs_the_text_it_returned_after_the_scope_guard` (B3: a replaced reply is signed as the redirect text, not the raw model output)
 - [ ] **Step 2: Run → FAIL. Step 3: Implement** with `hmac.compare_digest`, `json.dumps(..., sort_keys=True, separators=(",", ":"))`, keys derived per secret from `api.config.service_secrets()`; verification walks the list once, recomputing each expected MAC from the previous verified MAC (never from the `mac` the browser sent for the previous turn without verifying it first). **Step 4: Run → PASS.**
 - [ ] **Step 5: Mutation check** — each must fail a named test: drop `prev` from the digest; drop `owner`; drop `conv`; drop `mode`; drop `idx`; hash the text length instead of the text; accept a missing MAC; start the chain from the browser-supplied first `prev` instead of `GENESIS`; skip the TTL; use the raw secret as the key; include `client_turn_id` text un-hashed in `turn_key`.
 - [ ] **Step 6: Commit** `feat(partner): signed, stateless conversation transcript`
