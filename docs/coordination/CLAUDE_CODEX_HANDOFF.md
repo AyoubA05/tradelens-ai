@@ -7808,3 +7808,118 @@ and the Streamlit/web dual-write path is closed at every entry. This is developm
 not deployment clearance — the authenticated desktop/375px browser smoke remains explicitly
 unexecuted (no usable credentials here) and the deployment gates above remain open. Do not begin
 Phase 8.
+
+---
+
+# Codex independent Phase 7 review — second lens (2026-09-11)
+
+Reviewed the complete Phase 7 history/diff through `7360f65`, then made five scoped fix-forward
+commits on `worktree-phase7-strategy`. Nothing was merged or pushed, and Phase 8 was not started.
+
+## Confirmed findings and fixes
+
+### High — two legacy Streamlit credentials bypassed the dual-surface gate (`560fa14`)
+
+`src/tradelens/ui/components/auth.py` accepted its older signed `?auth=` credential using only the
+user id embedded in the token. It also trusted an already-authenticated `st.session_state` forever.
+Neither path re-read `users.app_surface`. A Next.js account that retained either credential from
+before migration could therefore re-enter Streamlit and reach its unlocked Strategy writers,
+defeating the web path's owner lock and optimistic concurrency.
+
+Both restoration and every authenticated legacy rerun now re-read the concrete owner, require an
+active `streamlit` account, and fail closed on lookup failure. Refusal clears the rotating URL token
+and in-memory authentication state. New tests independently cover the signed-URL and surviving
+session-state paths. Removing either new gate makes only its corresponding regression fail.
+
+### Medium — queued AI work could hash Profile A and prompt with Profile B (`67b49f3`)
+
+Phase 7 added the rendered Strategy Profile to the idempotency key at enqueue time, but the worker
+called `_prompt_strategy` again after an unbounded queue delay. An intervening save therefore made
+the key describe A while the paid provider call received B. Enqueue now captures the exact rendered
+profile digest once, uses it in the key, and stores it in the internal job payload. Analysis,
+journal and grade handlers forward it; each runner captures the prompt once and supersedes before
+spend if it no longer matches. Jobs queued before this binding cannot prove what they hashed and
+now fail closed with an impossible digest instead of spending under ambiguous context. Analysis and
+both derived enqueue paths, all three worker handoffs, and the pre-spend mismatch are covered.
+
+### Medium — AI Partner gave trader-authored Strategy text system authority (`8552e01`)
+
+`src/tradelens/services/partner.py::build_partner_system` inserted the raw active Strategy Profile
+into the system message. The path predates Phase 7 but is still reachable by Streamlit accounts and
+violated this review's explicit role boundary. The profile is now clearly labelled untrusted data
+and prefixed to the first user turn; the trusted scope guard remains in the system prompt. Tests
+assert the actual outbound provider arguments. Re-injecting the marker into the system message
+makes the regression fail.
+
+### Low — literal NUL byte hid inside a TypeScript source file (`26830bc`)
+
+`web/components/app/strategy/insight-suggestions.tsx` contained an actual NUL in its React key.
+Runtime behaviour happened to work, but Git treated the source as binary and ordinary review/search
+tools could not reliably inspect it. It is now the visible source escape `\u0000`, with a byte-level
+source-hygiene regression.
+
+### Test integrity — old Streamlit harnesses authenticated dangling ids (`02f110f`)
+
+The new fail-closed rerun check correctly exposed several AppTest/subprocess harnesses that set
+`current_user_id = 1` or `7` without creating that user. The tests now seed real active Streamlit
+owners; no production gate was weakened.
+
+## Properties independently rechecked
+
+- Strategy read, save, skip and correction-to-risk-rule paths derive the owner only from
+  `current_user`; service reads/writes include the owner predicate. Removing `_active_row`'s owner
+  predicate is caught by the two-user foreign-version test.
+- Save normalisation is a positive twelve-field allowlist; browser-supplied owner, id, active state
+  or version columns are forbidden. Legacy over-limit fields are returned intact and flagged; they
+  are not truncated.
+- The stale revision is compared before mutation inside the same `_locked_session` as the owner-row
+  lock and commit. Removing `_check_revision` is caught at both service and wire boundaries and
+  demonstrates that 409 plus zero partial writes is load-bearing.
+- Every successful save advances the server-derived revision, including identical saves and a
+  frozen clock. The correction addition is owner-scoped, fixed to `risk_rules`, server-rendered,
+  bounded and idempotent under a repeated request.
+- First-run completion and skip are owner-row writes; only Overview redirects incomplete accounts,
+  while Strategy and its relays remain reachable to complete the step. Strategy pages authenticate
+  and enforce `app_surface` before a backend call. Schema 422 responses contain only type/location/
+  fixed messages and never echo playbook input.
+- Direct handoff mint, handoff exchange, DB Streamlit-session restore, emergency login, legacy URL
+  restore and surviving legacy session state each enforce the one-account/one-surface boundary.
+
+## Mutations actually run
+
+Each temporary mutation was restored and the tree rechecked clean: removed the owner predicate;
+disabled stale-version comparison; disabled SQLite `BEGIN IMMEDIATE`; removed each of the six
+Streamlit/Next.js surface gates independently; dropped the enqueue-time profile digest from derived
+jobs; dropped worker forwarding; disabled the worker-time digest comparison; promoted vision profile
+text to the system message; and promoted Partner profile text to the system message. Every targeted
+regression failed. The SQLite two-first-save interleaving changed from `saved + stale` to two saves
+when its lock was removed.
+
+## Verification actually run after fixes
+
+- Full Python: **3429 passed / 7 skipped / 2 failed** in 551.27s. The two failures are the already
+  recorded Phase 6 Streamlit Analytics copy assertions
+  (`test_analytics_single_setup_readout_does_not_claim_a_ranking` and
+  `test_analytics_category_names_are_escaped_exactly_once`), unrelated to Phase 7.
+- Web: **1606 passed / 93 files**. TypeScript clean. ESLint **0 errors** with the two pre-existing
+  `modal-trap.ts` warnings.
+- Ruff (`src/`, `scripts/`) clean; Black check clean (**290 files unchanged**).
+- Production Next.js build passed. `/app/strategy`, all `/api/strategy*`, `/api/auth/handoff`, and
+  all other `/app` routes are dynamic.
+- OpenAPI and generated TypeScript were regenerated with no diff. Alembic has one head:
+  `g3h4i5j6k7l8`.
+
+## Remaining limitations and verdict
+
+No Docker executable, `psql`, PostgreSQL/Neon test URL, or usable authenticated browser environment
+was available. The PostgreSQL `users ... FOR UPDATE` implementation is structurally in the correct
+transaction before the active-profile read, but **real PostgreSQL concurrent first-save behavior was
+not verified**. This remains a hard pre-release/deployment gate, as do authenticated desktop/375px,
+Docker, live Anthropic, dependency-audit, and live R2/browser verification already carried above.
+One Streamlit request already past its auth gate at the exact moment an operator changes
+`app_surface` can still finish; subsequent requests and every credential-restoration route are
+refused. The residual retires with Streamlit and should be considered during account cutover.
+
+**Independent verdict: Phase 7 is cleared for development merge at `02f110f` plus this handoff
+commit, but not for production deployment until the PostgreSQL concurrency gate and the carried
+deployment gates pass. Do not begin Phase 8 as part of this review.**
