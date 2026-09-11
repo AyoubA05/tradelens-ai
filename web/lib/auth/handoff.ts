@@ -42,7 +42,8 @@ function hashToken(token: string): string {
 export type HandoffRefusal =
   | "no_session"
   | "email_unverified"
-  | "onboarding_incomplete";
+  | "onboarding_incomplete"
+  | "moved_to_web_app";
 
 export type HandoffEligibility =
   | { eligible: true }
@@ -66,6 +67,16 @@ export function handoffEligibility(user: WebsiteUser | null): HandoffEligibility
   if (!emailGatePassed(user)) return { eligible: false, reason: "email_unverified" };
   if (!user.onboardingCompleted) {
     return { eligible: false, reason: "onboarding_incomplete" };
+  }
+  // An account moved to the Next.js app never crosses into Streamlit. This
+  // was enforced only by `/continue`'s page redirect, so a direct POST to
+  // `/api/auth/handoff` still minted a Streamlit handoff — and one account on
+  // both surfaces lets the unlocked Streamlit writers overwrite a locked,
+  // version-checked web save. Checked here so the page and the route share
+  // one rule; the Streamlit exchange and session restore enforce it again
+  // server-side in Python.
+  if (user.appSurface === "nextjs") {
+    return { eligible: false, reason: "moved_to_web_app" };
   }
   return { eligible: true };
 }

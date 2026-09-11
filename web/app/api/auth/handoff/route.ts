@@ -46,7 +46,8 @@ export async function POST(request: Request) {
     logAuthEvent("handoff", eligibility.reason === "no_session" ? "unknown_identifier"
       : eligibility.reason === "email_unverified" ? "email_unverified" : "inactive_account");
     const next = eligibility.reason === "no_session" ? "/login"
-      : eligibility.reason === "email_unverified" ? "/verify-email" : "/onboarding";
+      : eligibility.reason === "email_unverified" ? "/verify-email"
+      : eligibility.reason === "moved_to_web_app" ? "/app" : "/onboarding";
     return NextResponse.json(
       { ok: false, next }, { status: eligibility.reason === "no_session" ? 401 : 403, headers: NO_STORE });
   }

@@ -119,8 +119,16 @@ def exchange_handoff_for_streamlit_session(
                           AND onboarding_completed = true
                           AND NOT (email_verification_required = true
                                    AND email_verified_at IS NULL)
+                          AND app_surface = 'streamlit'
                    )
                 """
+                # `app_surface = 'streamlit'`: an account moved to the Next.js
+                # app never becomes a Streamlit session, however the handoff
+                # was obtained. Checked in the same conditional UPDATE as the
+                # rest of eligibility, so there is no window between the check
+                # and the claim. One account on both surfaces would let the
+                # unlocked Streamlit writers overwrite a locked, version-checked
+                # web save of the same Strategy Profile.
             ),
             {"h": token_hash, "now": at},
         )

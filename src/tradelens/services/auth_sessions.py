@@ -177,6 +177,22 @@ def restore_streamlit_session(token, now: Optional[datetime] = None) -> Optional
         if at - _as_aware(last_seen_at) > timedelta(seconds=IDLE_TIMEOUT_S):
             return None
 
+        # A Streamlit session is valid only while its owner is a Streamlit
+        # account. `app_surface` is read here, on every restore, rather than
+        # when the session was minted: an account moved to the Next.js app may
+        # still hold a session from before the move (sessions live up to the
+        # idle/absolute timeouts), and honouring it would let one account
+        # write the same Strategy Profile through both surfaces — the web
+        # path is locked and version-checked, the Streamlit writers are not,
+        # so that is a lost update. Anything other than 'streamlit' fails
+        # closed, and the idle window is not slid.
+        surface = db.execute(
+            text("SELECT app_surface FROM users WHERE id = :u"),
+            {"u": user_id},
+        ).scalar()
+        if surface != "streamlit":
+            return None
+
         # Slide the idle window only. expires_at is never touched here.
         db.execute(
             text(

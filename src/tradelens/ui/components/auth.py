@@ -290,6 +290,13 @@ def authenticate_login(username, password):
             )
             raise AuthUnavailableError("user store unavailable") from exc
         if user is not None:
+            # An account moved to the Next.js app does not sign in here, even
+            # on the opt-in emergency path: one account on both surfaces lets
+            # the unlocked Streamlit writers overwrite a version-checked web
+            # save. The same rule is enforced on Streamlit session restore and
+            # on the handoff exchange.
+            if getattr(user, "app_surface", "streamlit") != "streamlit":
+                return False, None, None
             return True, user.username, user.id
         # No fallthrough. A deployment with accounts authenticates against
         # those accounts or not at all; dropping to the legacy path here would

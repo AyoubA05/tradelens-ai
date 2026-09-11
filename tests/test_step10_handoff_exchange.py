@@ -318,6 +318,33 @@ def test_eligibility_is_rechecked_not_trusted_from_issuance(db):
     assert auth_exchange.exchange_handoff_for_streamlit_session(ht) is not None
 
 
+def test_an_account_moved_to_nextjs_cannot_exchange(db):
+    """One account, one surface: a Next.js account never becomes a Streamlit
+    session, however its handoff was obtained (a direct POST to the website's
+    handoff route, or a link minted before the move)."""
+    ht = auth_handoff.issue_handoff(1)
+    _set(db, 1, app_surface="nextjs")
+    assert auth_exchange.exchange_handoff_for_streamlit_session(ht) is None
+    # The refusal is the claim itself failing, so the handoff is not consumed:
+    # moving the account back makes the same link work, as with every other
+    # eligibility re-check here.
+    _set(db, 1, app_surface="streamlit")
+    assert auth_exchange.exchange_handoff_for_streamlit_session(ht) is not None
+
+
+def test_the_streamlit_entry_path_refuses_a_moved_accounts_session(db):
+    """End to end through site_auth: the page never authenticates it."""
+    ht = auth_handoff.issue_handoff(1)
+    st = FakeStreamlit(ht=ht)
+    assert site_auth.authenticate(st) == 1
+    session_token = st.query_params.get(site_auth.SESSION_PARAM)
+    assert session_token
+
+    _set(db, 1, app_surface="nextjs")
+    again = FakeStreamlit(**{site_auth.SESSION_PARAM: session_token})
+    assert site_auth.authenticate(again) is None
+
+
 # ---------------------------------------------------------------------------
 # Streamlit entry path
 # ---------------------------------------------------------------------------

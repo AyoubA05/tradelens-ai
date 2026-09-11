@@ -276,3 +276,62 @@ def test_concurrent_restores_all_succeed(db):
             pool.map(lambda _: auth_sessions.restore_streamlit_session(token), range(8))
         )
     assert results == [1] * 8
+
+
+# ---------------------------------------------------------------------------
+# One account, one surface (Phase 7)
+# ---------------------------------------------------------------------------
+
+
+def _set_surface(db, user_id, surface):
+    s = db()
+    try:
+        s.execute(
+            text("UPDATE users SET app_surface = :v WHERE id = :u"),
+            {"v": surface, "u": user_id},
+        )
+        s.commit()
+    finally:
+        s.close()
+
+
+def _last_seen(db, token):
+    s = db()
+    try:
+        return s.execute(
+            text("SELECT last_seen_at FROM auth_sessions WHERE token_hash = :h"),
+            {"h": auth_sessions._hash(token, auth_sessions.STREAMLIT_DOMAIN)},
+        ).scalar()
+    finally:
+        s.close()
+
+
+def test_a_session_from_before_the_move_to_nextjs_no_longer_restores(db):
+    """An account moved to the Next.js app must not keep a Streamlit session.
+
+    Otherwise one account writes the same Strategy Profile through both
+    surfaces, and the unlocked Streamlit writers can overwrite a locked,
+    version-checked web save. The check is on every restore, not at mint.
+    """
+    token = auth_sessions.open_streamlit_session(1)
+    other = auth_sessions.open_streamlit_session(2)
+    assert auth_sessions.restore_streamlit_session(token) == 1
+    seen = _last_seen(db, token)
+
+    _set_surface(db, 1, "nextjs")
+    later = _now() + timedelta(minutes=5)
+    assert auth_sessions.restore_streamlit_session(token, now=later) is None
+    # Refused, and not kept alive: the idle window did not slide.
+    assert _last_seen(db, token) == seen
+    # The other account is untouched.
+    assert auth_sessions.restore_streamlit_session(other) == 2
+
+    _set_surface(db, 1, "streamlit")
+    assert auth_sessions.restore_streamlit_session(token) == 1
+
+
+@pytest.mark.parametrize("surface", ["nextjs", "", "NEXTJS", "web"])
+def test_only_the_exact_streamlit_surface_restores(db, surface):
+    token = auth_sessions.open_streamlit_session(1)
+    _set_surface(db, 1, surface)
+    assert auth_sessions.restore_streamlit_session(token) is None

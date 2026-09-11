@@ -207,6 +207,7 @@ describe("eligibility", () => {
     ["no session", null, "no_session"],
     ["unverified", { ...ELIGIBLE, emailVerificationRequired: true, emailVerifiedAt: null }, "email_unverified"],
     ["onboarding incomplete", { ...ELIGIBLE, onboardingCompleted: false }, "onboarding_incomplete"],
+    ["an account moved to the Next.js app", { ...ELIGIBLE, appSurface: "nextjs" }, "moved_to_web_app"],
   ])("refuses %s", (_l, user, reason) => {
     const r = handoffEligibility(user as WebsiteUser | null);
     expect(r.eligible).toBe(false);
@@ -370,6 +371,18 @@ describe("route", () => {
     authenticate.mockResolvedValue(user);
     stubTransaction();
     expect((await post({ cookie: "tl_session=x" })).status).toBe(status);
+    expect(runTransaction).not.toHaveBeenCalled();
+  });
+
+  it("mints nothing for an account moved to the Next.js app, even on a direct POST", async () => {
+    // The /continue page already redirected these accounts to /app, but the
+    // route itself did not check, so a crafted same-origin POST still minted
+    // a Streamlit handoff — one account on both surfaces.
+    authenticate.mockResolvedValue({ ...ELIGIBLE, appSurface: "nextjs" });
+    stubTransaction();
+    const response = await post({ cookie: "tl_session=x" });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ ok: false, next: "/app" });
     expect(runTransaction).not.toHaveBeenCalled();
   });
 

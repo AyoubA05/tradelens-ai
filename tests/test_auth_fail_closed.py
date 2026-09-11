@@ -151,6 +151,27 @@ def test_explicitly_configured_legacy_login_still_works_on_an_empty_db(monkeypat
     assert auth.authenticate_login("ayoub", "wrong")[0] is False
 
 
+@pytest.mark.parametrize(
+    "surface, allowed", [("streamlit", True), ("nextjs", False), ("", False)]
+)
+def test_the_emergency_login_refuses_an_account_moved_to_nextjs(
+    monkeypatch, surface, allowed
+):
+    """One account, one surface — on the opt-in legacy path too.
+
+    A Next.js account signing in to Streamlit would let the unlocked Streamlit
+    writers overwrite a locked, version-checked web save of the same profile.
+    """
+    import types
+
+    account = types.SimpleNamespace(username="trader", id=7, app_surface=surface)
+    _users_module(monkeypatch, exists=True, authenticate=lambda u, p: account)
+
+    ok, uname, uid = auth.authenticate_login("trader", "correct-password")
+    assert ok is allowed
+    assert (uid == 7) is allowed
+
+
 # ── database exceptions fail closed ───────────────────────────────────────
 
 
