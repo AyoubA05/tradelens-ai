@@ -7710,22 +7710,101 @@ Pristine copies keyed by full path, sha256 before/after, restore asserted every 
 - `metrics.py`, `prompts/`, requirements and package manifests untouched; one Alembic head
   (`g3h4i5j6k7l8`); no migration.
 
+## Strategy API re-review (on the completed branch, `d5e9dc8`)
+
+Run in a private `git archive d5e9dc8` extraction, never in a worktree. All 14 of the reviewer's own
+mutations restored by sha256; a `diff -r` against a fresh extraction showed no content difference
+(only two pre-existing dangling `.claude/skills` symlinks and an empty `data/` created by
+`session.py`); the worktree's `git status` was empty afterwards. **No blocking findings; no area
+broken.** Verdicts: owner isolation, lock+version in one transaction, stale→409 with zero partial
+writes, version always moves, no browser-chosen columns, legacy >500 intact, correction→risk rules,
+fingerprint = model input, first-run routing, user-role-only profile text — all HOLD. Concurrent
+first save HOLDS on SQLite and is UNPROVEN on PostgreSQL (removing `with_for_update()` survived:
+the path never runs in tests) — carried in the PostgreSQL concurrency gate below.
+
+Fixed in `65f75b3`, each with a regression test and a mutation (R1–R8, **8/8 caught**):
+- **The app-wide 422 handler echoed request input.** For a missing field pydantic's `input` is the
+  whole body — the trader's playbook — returned to anything that logs a 422. The web relays already
+  dropped it; the API now emits only `type`/`loc`/`msg`
+  (`test_a_schema_422_never_echoes_the_request`).
+- **Nothing pinned the AI consumers to the fingerprinted input.** `_prompt_strategy(owner)` is now the
+  one source for `run_analysis`, `run_journal`, `run_grade` and `_strategy_fingerprint`.
+- **A confirmed "Load the saved version" was untested while the editor was dirty.** Now asserted to
+  really replace the text.
+- A legacy `9999-12-31T23:59:59.999999` stamp 500'd every save (`OverflowError` in `_next_stamp`);
+  a field exactly at its limit is pinned as not over; an unsanitised legacy Streamlit rule line is
+  pinned as present.
+
+Recorded, not changed: a legacy active row with `updated_at IS NULL` has revision `null`, so one
+"no profile" tab can overwrite it once before the version moves (low risk, legacy data only);
+invisible Unicode (bidi override, U+2028, C1) is accepted and reaches prompts — refusing it now
+would lock legacy profiles out of saving, so it is a decision for a later phase; the editor counts
+UTF-16 units and the server code points (web is only stricter); the prompt receives the whole
+profile dict including `id`/`user_id`/timestamps (consistent with the fingerprint; noise to the
+model); vision has no role-boundary test (verified by reading only).
+
+## The legacy Streamlit save-path race — REACHABLE, fixed (`9916c26`)
+
+Question: could one `nextjs`-surface account write the Strategy Profile through Streamlit and the
+web at the same time? **Yes, two ways**, so it was treated as a merge blocker:
+1. `handoffEligibility` checked email and onboarding only; `app_surface` was enforced solely by the
+   `/continue` page's redirect. A direct same-origin POST to `/api/auth/handoff` minted a Streamlit
+   handoff for a `nextjs` account.
+2. No Python code read `app_surface` (only `db/models.py` declared it). A Streamlit session minted
+   before an account was moved stayed valid up to the idle (8h) / absolute timeouts.
+The Streamlit writers (`upsert_strategy_profile`, `save_profile_and_mark_completed`,
+`append_insight`) take no lock and check no version, so either path allowed a lost update over a
+locked, version-checked web save.
+
+**Fix — one account, one surface**, refused at every entry:
+- `handoffEligibility` → `moved_to_web_app` (page and route share it); the route answers
+  403 `{next: "/app"}` and mints nothing.
+- The Streamlit handoff exchange's conditional claim requires `app_surface = 'streamlit'` — in the
+  same UPDATE as the rest of eligibility, so there is no check/claim window.
+- `restore_streamlit_session` refuses any non-`'streamlit'` owner on every restore and does not
+  slide the idle window.
+- The opt-in legacy Streamlit login refuses a non-`'streamlit'` account.
+- The web side already refused `streamlit` accounts on every relay (`appLayoutRedirect`).
+`open_streamlit_session` has no caller outside the exchange, so these cover every Streamlit entry.
+Mutations S1–S7: **7/7 caught** (a first run reported S1/S3 as survivors — that was a harness key
+that selected no test; with the key fixed both are caught, and the re-review battery now reports
+0-selected runs as NOT-RUN rather than a verdict).
+
+Residual, recorded: a Streamlit request already past `require_auth` at the instant an operator flips
+the account can still complete one unlocked write. Every later Streamlit request is refused. The
+unlocked writers themselves retire with Streamlit in Phase 10.
+
 ## Honest gaps
 
-- **The Group B (API) independent review did not complete** — it stopped on an API session limit,
-  not on a finding. Group B has my own 12/12 mutation battery and 35 API tests, but no second pair
-  of eyes yet. **Re-run it before merge.**
 - **Authenticated desktop + 375px browser smoke did NOT run** for Strategy (nor Analytics): no
   `web/.env.local` exists in either checkout. Layout, 44px targets and 375px behaviour are verified in
   jsdom only.
+- The dual-surface fix (`9916c26`) and the re-review fixes (`65f75b3`) post-date the reviewed commit
+  `d5e9dc8`; they are covered by their own regression tests and mutation batteries, not by the
+  independent reviewer.
+
+## Verification after the fixes (at `65f75b3`)
+
+- Full Python: **3419 passed / 7 skipped / 2 failed** — exactly the two recorded Streamlit
+  `test_pages_boot.py` analytics copy assertions, unchanged and separate from Phase 7. (The
+  `test_account_ui.py` load-sensitive flake seen once earlier did not recur.)
+- Web (from `web/`): **1605 passed / 93 files**; `tsc` clean; ESLint 0 errors (the two pre-existing
+  `modal-trap.ts` warnings); ruff and black clean.
+- Production build passed; `/app/strategy`, `/api/strategy*` and `/api/auth/handoff` are dynamic.
+- OpenAPI + `schema.d.ts` regenerated from the repo root: no drift.
+- Mutations this round: S1–S7 7/7, R1–R8 8/8. Phase total with Groups A–D: 74/74.
 
 ## Carried forward, untouched
 
 Authenticated desktop + 375px browser smoke (Analytics and Strategy); Docker build/startup/health;
 disposable PostgreSQL migrations; real PostgreSQL concurrency — **now including the profile CAS and
-owner-row lock, exercised on SQLite only here**; broader Python dependency audit; live Anthropic
-smoke; live R2/browser verification. The two deterministic `test_pages_boot.py` failures remain
-recorded and separate from Phase 7.
+owner-row lock, exercised on SQLite only here (removing `with_for_update()` is not caught by any
+test)**; broader Python dependency audit; live Anthropic smoke; live R2/browser verification. The two
+deterministic `test_pages_boot.py` failures remain recorded and separate from Phase 7.
 
-**Phase 7 is code-complete on its branch and NOT cleared for merge** until the Group B review is
-re-run. Do not begin Phase 8.
+**Phase 7 is cleared for development merge** at `65f75b3` plus this handoff commit: the Strategy API
+re-review found no blocker, its confirmed findings are fixed with regression and mutation coverage,
+and the Streamlit/web dual-write path is closed at every entry. This is development merge clearance,
+not deployment clearance — the authenticated desktop/375px browser smoke remains explicitly
+unexecuted (no usable credentials here) and the deployment gates above remain open. Do not begin
+Phase 8.
