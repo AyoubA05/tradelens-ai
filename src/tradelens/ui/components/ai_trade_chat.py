@@ -47,7 +47,7 @@ def _send(st, chat_key: str, trade, strategy_profile, user_message, analysis) ->
             reply, usage = partner_reply(
                 history,
                 trade_context=build_trade_context(trade, analysis),
-                strategy_profile=strategy_profile,
+                strategy_input=strategy_profile,
                 per_trade_qa=True,
             )
         # Cost telemetry: partner chat has no persistence row of its own, so log

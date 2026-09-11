@@ -399,8 +399,10 @@ def send_turn(
     try:
         reply, usage = partner_reply(
             to_api_messages(history),
-            trade_context=context.context_text,
-            strategy_profile=context.strategy_profile,
+            # The global journal record: trader-written, user-role data
+            # (Phase 8 trust boundary — never the system message).
+            reflective_context=context.context_text,
+            strategy_input=context.strategy_profile,
             per_trade_qa=False,
         )
     except partner_error as exc:

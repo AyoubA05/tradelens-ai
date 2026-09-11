@@ -25,7 +25,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -91,7 +90,14 @@ ANALYSIS_WINDOW_HOURS = 24
 _log = logging.getLogger(__name__)
 
 # Same rule `ai_text_guard.fence` applies inside a block.
-_MARKUP_IN_PROMPT = re.compile(r"[<>]")
+# Re-exported under the historical private names: `test_partner_trust_boundary`
+# pins that these ARE the shared objects, and Phase 5/7 tests monkeypatch them.
+from src.tradelens.services.prompt_inputs import (  # noqa: E402 — one sanitiser
+    MARKUP_IN_PROMPT as _MARKUP_IN_PROMPT,  # noqa: F401 — re-exported
+    prompt_scalar as _prompt_scalar,
+    sanitised_strategy as _sanitised_strategy,
+)
+
 _STRATEGY_FINGERPRINT_UNSET = object()
 
 
@@ -741,11 +747,6 @@ def _sanitised_trade_context(trade_dict: dict) -> dict:
     return out
 
 
-def _prompt_scalar(value) -> str:
-    """One short untrusted value: bounded, and stripped of anything markup-shaped."""
-    return _MARKUP_IN_PROMPT.sub("", bounded_text(value))
-
-
 def _sanitised_analysis_context(ai_dict: dict) -> dict:
     """Bound and strip the model-read chart text before it re-enters a prompt.
 
@@ -770,16 +771,6 @@ def _sanitised_analysis_context(ai_dict: dict) -> dict:
                 _prompt_scalar(item) for item in value[:MAX_PROMPT_LIST_ITEMS]
             ]
     return out
-
-
-def _sanitised_strategy(strategy):
-    """Bound every trader-authored Strategy Profile string before prompting."""
-    if not isinstance(strategy, dict):
-        return strategy
-    return {
-        key: _prompt_scalar(value) if isinstance(value, str) else value
-        for key, value in strategy.items()
-    }
 
 
 def _generate_journal_markdown(trade_dict: dict, ai_dict: dict, strategy, on_usage):
