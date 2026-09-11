@@ -446,3 +446,36 @@ def test_the_response_schema_rejects_drift(client, two_users):
     renamed["sections_written"] = renamed.pop("written")
     with pytest.raises(Exception):
         StrategyResponse.model_validate(renamed)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda b: b.pop(
+            "markets"
+        ),  # missing field: pydantic's `input` is the WHOLE body
+        lambda b: b.update(user_id="SENSITIVE-OWNER-KEY"),  # forbidden extra key
+        lambda b: b.update(markets=["SENSITIVE-LIST"]),  # wrong type
+        lambda b: b.update(expected_revision=12345),  # wrong type on the version
+    ],
+)
+def test_a_schema_422_never_echoes_the_request(client, two_users, mutate):
+    """FastAPI's own 422 (not the service's) must not carry the trader's text.
+
+    Pydantic's error records include `input`; for a missing field that is the
+    entire body — here, the whole playbook — echoed to anything that logs it.
+    """
+    body = dict(
+        BLANK,
+        name="SENSITIVE-PLAYBOOK-NAME",
+        risk_rules="SENSITIVE-RISK-RULE",
+        expected_revision=None,
+    )
+    mutate(body)
+    r = _call(client, _session_handle_for(two_users[1]), "PUT", "/v1/strategy", body)
+    assert r.status_code == 422
+    assert "SENSITIVE" not in r.text
+    assert "12345" not in r.text
+    for err in r.json()["detail"]:
+        assert set(err) <= {"type", "loc", "msg"}
+    assert strategy.get_active_strategy(two_users[1]) is None

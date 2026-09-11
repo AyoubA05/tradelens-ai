@@ -103,10 +103,13 @@ def _next_stamp(previous: Optional[str]) -> str:
         return now
     try:
         bumped = datetime.fromisoformat(previous) + timedelta(microseconds=1)
-    except ValueError:
-        # A legacy stamp we cannot parse. `now` differs from it unless the
-        # legacy text happens to equal a fresh ISO stamp, which it cannot
-        # (it failed to parse as one).
+    except (ValueError, OverflowError):
+        # A legacy stamp we cannot parse, or one at the very end of the
+        # datetime range (`9999-12-31T23:59:59.999999`) that cannot be bumped.
+        # `now` differs from it either way — it is earlier, or it failed to
+        # parse as a stamp at all — so the CAS still cannot pass a stale
+        # writer. Without OverflowError here that legacy row answered every
+        # save with a 500, forever.
         return now
     return bumped.isoformat()
 

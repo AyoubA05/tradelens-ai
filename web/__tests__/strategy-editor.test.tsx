@@ -124,6 +124,30 @@ describe("A stale tab", () => {
     expect(refresh).toHaveBeenCalledOnce();
   });
 
+  it("really replaces unsaved text with the saved version once the trader confirms", async () => {
+    // Asserting only that `refresh` ran is not enough: the editor ignores a
+    // newer version while it holds unsaved text, and only an explicit
+    // confirmed reload may override that. Without it, a trader who hit a
+    // 409 could never load the version that beat them.
+    vi.stubGlobal("fetch", respond(409, { ok: false, detail: "stale_profile" }));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { rerender } = render(<PlaybookEditor data={strategyFixture()} />);
+    fireEvent.change(screen.getByLabelText("Strategy Name"), { target: { value: "My unsaved name" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save playbook" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Load the saved version" }));
+
+    rerender(
+      <PlaybookEditor
+        data={strategyFixture({
+          revision: "the-other-tab",
+          profile: { ...strategyFixture().profile!, name: "Saved in the other tab" },
+        })}
+      />,
+    );
+    expect(screen.getByLabelText("Strategy Name")).toHaveValue("Saved in the other tab");
+    expect(screen.queryByTestId("playbook-conflict")).toBeNull();
+  });
+
   it("does not let a newer server version overwrite unsaved typing", () => {
     const { rerender } = render(<PlaybookEditor data={strategyFixture()} />);
     fireEvent.change(screen.getByLabelText("Strategy Name"), { target: { value: "Typing…" } });

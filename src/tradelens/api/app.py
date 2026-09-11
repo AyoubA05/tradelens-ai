@@ -38,14 +38,23 @@ def create_app() -> FastAPI:
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         del request
-        # Pydantic correctly rejects a JSON number such as ``1e400`` as
-        # infinity, but its error record includes that original value. The
-        # default Starlette renderer then raises while serializing the error,
-        # converting a safe 422 into a 500. Scrub non-finite diagnostic input
-        # using the same strict serializer as successful API payloads.
+        # Only `type`, `loc` and `msg` leave. Pydantic's record also carries
+        # `input` — the offending value, or for a missing field the WHOLE
+        # request body — plus `ctx` and `url`. On a Strategy Profile write
+        # that body is the trader's playbook, echoed back verbatim to anything
+        # that logs a 422. The web relays already drop it; the API must not
+        # rely on every caller doing so.
+        #
+        # `to_jsonable` still runs: `loc`/`msg` are ordinary, but the strict
+        # serializer is the one place non-finite values are refused, so a
+        # future field added here cannot turn a 422 into a 500.
+        errors = [
+            {key: err[key] for key in ("type", "loc", "msg") if key in err}
+            for err in exc.errors()
+        ]
         return JSONResponse(
             status_code=422,
-            content={"detail": to_jsonable(jsonable_encoder(exc.errors()))},
+            content={"detail": to_jsonable(jsonable_encoder(errors))},
         )
 
     @app.middleware("http")

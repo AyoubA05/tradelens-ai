@@ -115,11 +115,23 @@ def _strategy_fingerprint(user_id: int) -> str:
     it moves what the prompt receives. A read failure propagates, so
     `ai_input_version` fails closed rather than collapsing inputs.
     """
-    profile = get_active_strategy(user_id)
-    if profile is None:
+    prompt_input = _prompt_strategy(user_id)
+    if prompt_input is None:
         return "none"
-    rendered = json.dumps(_sanitised_strategy(profile), sort_keys=True, default=str)
+    rendered = json.dumps(prompt_input, sort_keys=True, default=str)
     return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+
+def _prompt_strategy(owner: int):
+    """The Strategy Profile exactly as every AI prompt receives it.
+
+    The ONE place that decides it. `run_analysis`, `run_journal`,
+    `run_grade` and `_strategy_fingerprint` all call this, so what the model
+    reads and what identifies a cached job cannot drift apart: a consumer
+    that reached for the raw `get_active_strategy` would hand the model text
+    the fingerprint never covered.
+    """
+    return _sanitised_strategy(get_active_strategy(owner))
 
 
 def _corrections_fingerprint(user_id: int) -> str:
@@ -588,7 +600,7 @@ def run_analysis(
     analysis = _analyse_bytes(
         data,
         _analysis_trade_context(owner, trade_id),
-        _sanitised_strategy(get_active_strategy(owner)),
+        _prompt_strategy(owner),
         _capture,
     )
     try:
@@ -756,7 +768,7 @@ def run_journal(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteO
         markdown = _generate_journal_markdown(
             _sanitised_trade_context(trade_dict),
             _sanitised_analysis_context(ai_dict),
-            _sanitised_strategy(get_active_strategy(owner)),
+            _prompt_strategy(owner),
             on_usage,
         )
         reject_forward_looking(markdown)
@@ -839,7 +851,7 @@ def run_grade(user_id: int, trade_id: int, *, job_id: int, on_usage) -> WriteOut
     try:
         result = _generate_grading(
             _sanitised_trade_context(trade_dict),
-            _sanitised_strategy(get_active_strategy(owner)),
+            _prompt_strategy(owner),
             _sanitised_analysis_context(vision_dict),
             on_usage,
         )
