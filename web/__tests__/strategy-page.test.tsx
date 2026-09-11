@@ -1,4 +1,6 @@
 import "@testing-library/jest-dom/vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -158,5 +160,14 @@ describe("First run and suggestions follow the server", () => {
   it("renders no suggestions region when there are none", async () => {
     await renderPage();
     expect(screen.queryByTestId("insight-suggestions")).toBeNull();
+  });
+});
+
+describe("Strategy source hygiene", () => {
+  it("does not hide literal NUL bytes in the suggestion identity separator", () => {
+    const source = readFileSync(
+      path.resolve(process.cwd(), "components/app/strategy/insight-suggestions.tsx"),
+    );
+    expect(source.includes(0)).toBe(false);
   });
 });
