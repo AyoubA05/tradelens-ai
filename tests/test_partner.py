@@ -184,11 +184,11 @@ def test_to_api_messages_attaches_image_to_first_user_turn():
     from src.tradelens.services.partner import _to_api_messages
 
     api = _to_api_messages(
-        [{"role": "user", "content": "review this"}], image_png_b64="B64"
+        [{"role": "user", "content": "review this"}], image_png_b64="iVBORw0KGgoB64"
     )
     first = api[0]["content"]
     assert first[0]["type"] == "image"
-    assert first[0]["source"]["data"] == "B64"
+    assert first[0]["source"]["data"] == "iVBORw0KGgoB64"
     assert first[1]["text"] == "review this"
 
 
@@ -239,7 +239,9 @@ def test_partner_reply_sends_trader_playbook_as_user_role_context(mock_client):
 def test_partner_reply_includes_vision_block_when_image(mock_client):
     from src.tradelens.services.partner import partner_reply
 
-    partner_reply([{"role": "user", "content": "review"}], image_png_b64="B64DATA")
+    partner_reply(
+        [{"role": "user", "content": "review"}], image_png_b64="iVBORw0KGgoDATA"
+    )
     out_messages = mock_client.messages.create.call_args[1]["messages"]
     image_blocks = [
         b
@@ -247,7 +249,7 @@ def test_partner_reply_includes_vision_block_when_image(mock_client):
         if isinstance(b, dict) and b.get("type") == "image"
     ]
     assert len(image_blocks) == 1
-    assert image_blocks[0]["source"]["data"] == "B64DATA"
+    assert image_blocks[0]["source"]["data"] == "iVBORw0KGgoDATA"
 
 
 def test_partner_reply_scope_guard_post_check_fires(monkeypatch):

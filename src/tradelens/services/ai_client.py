@@ -260,7 +260,12 @@ def _inject_corrections(messages: list, corrections: str) -> list:
 
 def _build_system(system_message: str, few_shot: Optional[str], cache_system: bool):
     """Assemble the system field. When `cache_system`, return a content-block list
-    carrying a cache_control breakpoint (used for the repeated Strategy Profile)."""
+    carrying a cache_control breakpoint, so an unchanging system prompt is
+    cached across turns.
+
+    The system field is trusted instruction text only. No caller may route
+    trader-authored or model-read text here — `converse` (the AI Partner)
+    does not accept `few_shot` at all for exactly that reason."""
     text = system_message or ""
     if few_shot:
         text = f"{text}\n\n{few_shot}".strip()
@@ -509,7 +514,6 @@ def converse(
     *,
     effort: Optional[str] = None,
     cache_system: bool = False,
-    few_shot: Optional[str] = None,
     demo_response: Optional[str] = None,
     max_tokens: int = 8192,
 ) -> tuple[Union[str, AIUnavailable], Usage]:
@@ -517,13 +521,19 @@ def converse(
 
     Routes through the same core path as chat()/vision(), so correction memory is
     injected centrally and DEMO_MODE / refusal handling apply uniformly. The
-    caller is responsible for the message list shape (image blocks, ordering)."""
+    caller is responsible for the message list shape (image blocks, ordering).
+
+    Deliberately no `few_shot` parameter. `few_shot` is appended to the SYSTEM
+    field (`_build_system`), and the only caller of this function is the AI
+    Partner, whose system message must be trusted constants only. Correction
+    memory still reaches the model — in the first user turn, via
+    `_inject_corrections`."""
     return _complete(
         messages,
         system_message=system_message,
         effort=effort,
         cache_system=cache_system,
-        few_shot=few_shot,
+        few_shot=None,
         demo_response=demo_response,
         max_tokens=max_tokens,
     )
