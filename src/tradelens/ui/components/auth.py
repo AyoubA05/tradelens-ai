@@ -136,12 +136,46 @@ def _verify_token(token, now: float | None = None):
     return payload.get("u"), payload.get("i")
 
 
+def _legacy_session_owner_is_streamlit(user_id) -> bool:
+    """Re-check the database owner behind a legacy signed session.
+
+    The signed URL token predates `app_surface` and carries its user id inside
+    the credential. Its signature proves who received it, not that the account
+    is still allowed to use Streamlit. A pre-move token can therefore be
+    accepted only after a fresh owner lookup. Lookup failures fail closed and
+    log the exception type only; database messages may contain a DSN.
+
+    The ownerless emergency preview is handled separately by `require_auth`.
+    It can restore far enough to show that explicit refusal, but it cannot
+    reach any owner-scoped service.
+    """
+    if user_id is None:
+        return True
+    from src.tradelens.services import users
+
+    try:
+        user = users.get_user_by_id(user_id)
+    except Exception as exc:  # noqa: BLE001 — authentication must fail closed
+        _log.error(
+            "Authentication unavailable: session owner lookup failed (%s)",
+            type(exc).__name__,
+        )
+        return False
+    return bool(
+        user is not None
+        and user.is_active
+        and getattr(user, "app_surface", "streamlit") == "streamlit"
+    )
+
+
 def _try_restore(st) -> None:
     """Rebuild the session from the signed URL token after a full page reload."""
     verified = _verify_token(st.query_params.get(_TOKEN_PARAM))
     if verified is None:
         return
     username, uid = verified
+    if not _legacy_session_owner_is_streamlit(uid):
+        return
     st.session_state[_AUTH_KEY] = True
     st.session_state[_USER_KEY] = username
     st.session_state[_UID_KEY] = uid
@@ -418,6 +452,18 @@ def require_auth() -> None:
             # than letting the page crash on its first scoped service call.
             st.title("Sign in to TradeLens AI")
             st.write(OWNERLESS_SESSION_MESSAGE)
+            st.stop()
+        if not _legacy_session_owner_is_streamlit(uid):
+            # `st.session_state` survives reruns and could otherwise keep an
+            # account on Streamlit indefinitely after the account moved. Clear
+            # both the in-memory state and its rotating URL credential before
+            # stopping, so the next run cannot restore the same authority.
+            _clear_session_state_for_sign_out(st.session_state)
+            st.session_state[_AUTH_KEY] = False
+            st.query_params.pop(_TOKEN_PARAM, None)
+            st.title("Sign in to TradeLens AI")
+            st.write("This account now uses the secure web app.")
+            st.link_button("Open TradeLens AI", site_auth.return_to_site_url())
             st.stop()
         # Scope correction memory to the signed-in user for this script run, so
         # the few-shot injection in ai_client never mixes traders' corrections.

@@ -99,13 +99,13 @@ def test_opt_in_flag_restores_legacy_login(monkeypatch):
     assert len(at.text_input) >= 2  # username + password fields
 
 
-def test_require_auth_passes_when_legacy_authenticated(monkeypatch):
+def test_require_auth_passes_when_legacy_authenticated(two_users, monkeypatch):
     from streamlit.testing.v1 import AppTest
 
     monkeypatch.setenv("ENABLE_LEGACY_STREAMLIT_AUTH", "true")
     at = AppTest.from_string(_GATE_SCRIPT)
     at.session_state["authenticated"] = True
-    at.session_state["current_user_id"] = 1
+    at.session_state["current_user_id"] = two_users[0]
     at.run()
     assert not at.exception
     assert "SECRET_DASHBOARD_BODY" in _markdowns(at)
@@ -172,20 +172,50 @@ def test_verify_token_rejects_expired():
     assert auth._verify_token(old) is None
 
 
-def test_reload_restores_session_from_url_token():
+def test_reload_restores_session_from_url_token(two_users):
     """Simulates a full page reload: empty session_state, token still in URL."""
     from types import SimpleNamespace
 
     from src.tradelens.ui.components import auth
 
+    owner = two_users[0]
     fake_st = SimpleNamespace(
         session_state={},
-        query_params={"auth": auth._issue_token("ayoub", 3)},
+        query_params={"auth": auth._issue_token("ayoub", owner)},
     )
     auth._try_restore(fake_st)
     assert fake_st.session_state["authenticated"] is True
     assert fake_st.session_state["current_user"] == "ayoub"
-    assert fake_st.session_state["current_user_id"] == 3
+    assert fake_st.session_state["current_user_id"] == owner
+
+
+def test_reload_token_cannot_restore_an_account_moved_to_nextjs(two_users):
+    """The legacy URL token is not a second route around app_surface.
+
+    A token can outlive the operator action that moves an account. Accepting
+    its embedded user id without re-reading the account would put that owner
+    back on the unlocked Streamlit Strategy write path.
+    """
+    from types import SimpleNamespace
+
+    from src.tradelens.db.models import User
+    from src.tradelens.db.session import SessionLocal
+    from src.tradelens.ui.components import auth
+
+    owner = two_users[1]
+    db = SessionLocal()
+    try:
+        db.query(User).filter(User.id == owner).update({"app_surface": "nextjs"})
+        db.commit()
+    finally:
+        db.close()
+
+    token = auth._issue_token("moved-owner", owner)
+    fake_st = SimpleNamespace(session_state={}, query_params={"auth": token})
+
+    auth._try_restore(fake_st)
+
+    assert "authenticated" not in fake_st.session_state
 
 
 def test_restore_ignores_forged_token():
@@ -198,7 +228,58 @@ def test_restore_ignores_forged_token():
     assert "authenticated" not in fake_st.session_state
 
 
-def test_full_reload_survives_auth_gate_apptest(tmp_path, monkeypatch):
+def test_existing_legacy_session_is_stopped_after_its_account_moves_to_nextjs(
+    two_users, monkeypatch
+):
+    """An in-memory Streamlit session is rechecked on every script run."""
+    import sys
+    from types import SimpleNamespace
+
+    from src.tradelens.db.models import User
+    from src.tradelens.db.session import SessionLocal
+    from src.tradelens.ui.components import auth, site_auth
+
+    owner = two_users[1]
+    db = SessionLocal()
+    try:
+        db.query(User).filter(User.id == owner).update({"app_surface": "nextjs"})
+        db.commit()
+    finally:
+        db.close()
+
+    token = auth._issue_token("moved-owner", owner)
+
+    class Stopped(Exception):
+        pass
+
+    def stop():
+        raise Stopped()
+
+    fake_st = SimpleNamespace(
+        session_state={
+            "authenticated": True,
+            "current_user": "moved-owner",
+            "current_user_id": owner,
+            "_auth_token": token,
+        },
+        query_params={"auth": token},
+        title=lambda *_a, **_k: None,
+        write=lambda *_a, **_k: None,
+        link_button=lambda *_a, **_k: None,
+        stop=stop,
+    )
+    monkeypatch.setitem(sys.modules, "streamlit", fake_st)
+    monkeypatch.setattr(site_auth, "authenticate", lambda _st: None)
+    monkeypatch.setattr(auth, "legacy_streamlit_auth_enabled", lambda: True)
+
+    with pytest.raises(Stopped):
+        auth.require_auth()
+
+    assert fake_st.session_state["authenticated"] is False
+    assert "auth" not in fake_st.query_params
+
+
+def test_full_reload_survives_auth_gate_apptest(two_users, monkeypatch):
     """End-to-end: a fresh Streamlit session (reload) with a valid URL token
     for a concrete owner passes require_auth and reaches page content — no
     login page, no st.stop.
@@ -226,11 +307,11 @@ def test_full_reload_survives_auth_gate_apptest(tmp_path, monkeypatch):
         'st.write("DASHBOARD_OK")\n'
     )
     at = AppTest.from_string(script)
-    at.query_params["auth"] = auth._issue_token("demo", 7)
+    at.query_params["auth"] = auth._issue_token("demo", two_users[0])
     at.run()
     assert not at.exception
     assert at.session_state["authenticated"] is True
-    assert at.session_state["current_user_id"] == 7
+    assert at.session_state["current_user_id"] == two_users[0]
     assert any("DASHBOARD_OK" in str(el.value) for el in at.markdown) or any(
         "DASHBOARD_OK" in str(getattr(el, "value", "")) for el in at.get("text")
     )
