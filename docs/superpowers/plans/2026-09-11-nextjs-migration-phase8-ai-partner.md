@@ -96,10 +96,32 @@ It is prefixed to the first user turn in the model-visible window (the same turn
 
 **D3 — One sanitiser for every prompt.** Move `_MARKUP_IN_PROMPT`, `_prompt_scalar` and `_sanitised_strategy` from `trade_analysis.py` into a new `services/prompt_inputs.py` (`prompt_scalar`, `sanitised_strategy`). `trade_analysis` keeps its private names as aliases, so Phase 5/7 behaviour, fingerprints and monkeypatch-based tests are unchanged. The Partner uses `sanitised_strategy(get_active_strategy(owner))` — the same bounded text every other prompt receives.
 
-**D4 — Stateless, signed transcript.** The browser keeps the conversation in component state only (cleared on reload or sign-out — the Streamlit promise, kept truthfully). Each accepted turn is returned with a MAC:
-`mac = HMAC_SHA256(k, canonical_json({"v":1,"owner":u,"conv":c,"mode":m,"idx":i,"role":r,"text_sha256":h,"iat":t}))`, with `k = HMAC_SHA256(secret, b"tl.partner.transcript.v1")` for each of `service_secrets()` (rotation). `conv` is a 128-bit server-issued id; `mode` is `"global"` or `"trade:<id>"`. On every request the server verifies **every** prior turn: all MACs valid under the current or previous secret, same `owner`/`conv`/`mode`, `idx` contiguous from 0, roles alternating user→assistant, `iat` within 12 hours, at most `MAX_TRANSCRIPT_TURNS = 40`. Any failure → 409 `transcript_invalid` and no model call. The new question is the only unsigned text. Result: the browser cannot author an assistant turn, alter a prior turn, splice turns from another conversation, mode or owner, or replay beyond 12 hours — and nothing is stored.
+**D4 — Stateless, signed, hash-chained transcript (owner-approved tightening).** The browser keeps the conversation in component state only (cleared on reload or sign-out — the Streamlit promise, kept truthfully). **No server-side conversation persistence is introduced**, in any table, including `ai_jobs`.
 
-**D5 — Synchronous turns; a text-free ticket for the limit.** A turn is one request/response through the relay (`maxDuration = 60`). Before the model call, the service takes a ticket: `jobs.enqueue_with_limit(owner, "partner_turn", idempotency_key=client_turn_id, payload={}, limit=MAX_PARTNER_TURNS_PER_WINDOW=60, since=24h, initial_status="running")`. The ticket stores **no text**. `initial_status="running"` is a new keyword (default `"queued"`, so every existing caller is unchanged) so `claim_next()` never hands a ticket to the worker. Over the limit → 429 `rate_limited`, no spend. The same `client_turn_id` again → 409 `duplicate_turn`, no spend (a double submit). The ticket is completed (`partner:ok`) or failed (`partner:error`) in a `finally`.
+Each accepted turn is returned with a MAC that binds **owner, conversation id, turn position, role, exact text, and the previous turn's MAC**:
+
+```
+digest_i = sha256(canonical_json({
+  "v": 1, "owner": u, "conv": c, "mode": m, "idx": i, "role": r,
+  "text_sha256": sha256(text_i), "prev": mac_{i-1} or "genesis", "iat": t_i
+}))
+mac_i = HMAC_SHA256(k, digest_i)        k = HMAC_SHA256(secret, b"tl.partner.transcript.v1")
+```
+
+`k` is derived for each of `service_secrets()` (current and previous — rotation). `conv` is a 128-bit server-issued id; `mode` is `"global"` or `"trade:<id>"`. Because every MAC covers its predecessor's MAC, the transcript is a chain: the only valid transcripts are the prefixes the server itself issued, in order.
+
+On every request the server recomputes the whole chain from `"genesis"` and refuses (409 `transcript_invalid`, **no ticket, no provider call**) any of:
+- a **missing** turn (a gap breaks the chain at the next turn);
+- a **duplicated** turn (its `prev` no longer matches);
+- **reordered** turns (position and `prev` both bound);
+- an **edited** turn (text hash bound);
+- a turn from **another conversation, mode or owner**, including a whole valid chain replayed under another `conv`;
+- roles not strictly alternating user → assistant from index 0; more than `MAX_TRANSCRIPT_TURNS = 40`; any `iat` older than 12 hours or in the future beyond 60 s skew.
+The new question is the only unsigned text in a request. **Truncation of the tail** (the browser dropping its newest turns) still yields a valid prefix; that is the trader discarding their own latest exchange, which carries no authority the server did not already grant, and is accepted and documented rather than prevented (preventing it would require storing the chain head server-side).
+
+**D5 — Synchronous turns; a text-free ticket for the limit and the duplicate check.** A turn is one request/response through the relay (`maxDuration = 60`). Order is fixed and pinned by tests: **question validation → full chain verification → owner-scoped context → ticket → provider call.** The ticket is `jobs.enqueue_with_limit(owner, "partner_turn", idempotency_key=turn_key, payload={}, limit=MAX_PARTNER_TURNS_PER_WINDOW=60, since=24h, initial_status="running")`, where `turn_key = sha256("partner|" + conv + "|" + str(len(transcript)) + "|" + client_turn_id)` — a digest, never text. The ticket row stores **no conversation text** (`payload == "{}"`, `result_ref` is `"partner:ok"` / `"partner:error"`, `error` is a fixed code, never exception text), so the rate-limit/idempotency table cannot become a transcript store; a test reads the row back after a turn and asserts exactly that. `initial_status="running"` is a new keyword (default `"queued"`, every existing caller unchanged) so `claim_next()` never hands a ticket to the worker.
+
+**Duplicate submit is resolved before any paid call:** `enqueue_with_limit` returns `(existing_id, False)` for a key already used — decided under the same owner-row lock as the count — and the service raises `DuplicateTurn` (409 `duplicate_turn`) before `partner_reply` is reachable. A retry after a genuine failure uses a fresh `client_turn_id`. Two concurrent identical submits are serialised by the owner lock: exactly one proceeds to the provider (pinned with the barrier test shape). Over the limit → 429 `rate_limited`, no spend. The ticket is completed or failed in a `finally`.
 
 **D6 — Billing exactly once.** `partner_reply(..., on_usage=callback)` calls `on_usage(usage)` immediately after `converse` returns — before the `AIUnavailable` check and before the scope guard — so a refused, replaced or failed-after-billing response is still logged. The turn service's callback is `log_ai_usage("AI Partner", usage, user_id=owner)`, guarded so a logging failure never costs the trader the answer (parity: `test_a_failed_cost_write_never_costs_the_trader_the_answer`).
 
@@ -337,34 +359,47 @@ class TranscriptTurn:
     role: str          # "user" | "assistant"
     text: str
     iat: int           # epoch seconds
-    mac: str           # hex
+    mac: str           # 64 hex chars; covers the previous turn's mac
 
-class TranscriptInvalid(Exception): ...
+class TranscriptInvalid(Exception): ...   # one class; the reason is logged, never returned
 
+GENESIS = "genesis"
 MAX_TRANSCRIPT_TURNS = 40
 TRANSCRIPT_TTL_SECONDS = 12 * 3600
+CLOCK_SKEW_SECONDS = 60
 
 def new_conversation_id() -> str: ...  # secrets.token_urlsafe(16)
-def sign_turn(*, owner: int, conv: str, mode: str, idx: int, role: str, text: str, iat: int) -> TranscriptTurn: ...
-def verify_transcript(turns: list, *, owner: int, conv: str, mode: str, now: int) -> list: ...  # returns [{"role","content"}]
+def sign_turn(*, owner: int, conv: str, mode: str, idx: int, role: str, text: str,
+              prev_mac: str, iat: int) -> TranscriptTurn: ...
+def verify_transcript(turns: list, *, owner: int, conv: str, mode: str, now: int) -> list: ...
+    # recomputes the chain from GENESIS; returns [{"role","content"}]; raises TranscriptInvalid
+def chain_head(turns: list) -> str: ...  # the last verified mac, or GENESIS for an empty transcript
+def turn_key(conv: str, position: int, client_turn_id: str) -> str: ...  # sha256 hex; text-free
 ```
 
-- [ ] **Step 1: Failing tests** — each constructs turns with `sign_turn` and mutates exactly one thing:
-  - `test_a_valid_transcript_verifies_to_role_content_pairs`
-  - `test_an_edited_turn_text_is_refused` (change one character of an assistant turn)
-  - `test_a_forged_assistant_turn_without_a_mac_is_refused`
-  - `test_a_turn_from_another_owner_is_refused` (signed for user 1, verified as user 2)
-  - `test_a_turn_from_another_conversation_or_mode_is_refused`
-  - `test_reordered_duplicated_or_gapped_indexes_are_refused`
-  - `test_two_consecutive_user_or_assistant_turns_are_refused`
-  - `test_an_expired_turn_is_refused_and_one_inside_the_window_is_not` (freeze `now`)
+- [ ] **Step 1: Failing tests** — each builds a valid chain with `sign_turn` (threading `prev_mac`) and changes exactly one thing:
+  - `test_a_valid_chain_verifies_to_role_content_pairs`
+  - `test_an_edited_turn_text_is_refused` (one character of an assistant turn)
+  - `test_an_edited_turn_is_refused_even_with_its_own_mac_recomputed_by_someone_without_the_key`
+  - `test_a_forged_assistant_turn_without_a_valid_mac_is_refused`
+  - `test_a_missing_middle_turn_is_refused` (remove turn 2 of 6; renumbering the rest does not help)
+  - `test_a_duplicated_turn_is_refused` (repeat turn 1 at position 2)
+  - `test_swapped_turns_are_refused_even_when_their_idx_fields_are_swapped_too`
+  - `test_a_turn_from_another_owner_is_refused` (chain signed for user 1, verified as user 2)
+  - `test_a_whole_valid_chain_replayed_under_another_conversation_is_refused`
+  - `test_a_turn_spliced_from_another_conversation_is_refused` (same owner, same position)
+  - `test_a_global_chain_cannot_be_used_in_a_trade_conversation_or_another_trade`
+  - `test_roles_must_alternate_from_a_user_turn_at_index_zero`
+  - `test_an_expired_or_future_dated_turn_is_refused_and_one_inside_the_window_is_not`
   - `test_more_than_the_maximum_turns_is_refused`
-  - `test_a_turn_signed_under_the_previous_secret_still_verifies` (monkeypatch `TL_SERVICE_SECRET_PREVIOUS`)
-  - `test_a_turn_signed_under_an_unknown_secret_is_refused`
-  - `test_the_mac_covers_the_text_hash_not_the_text_length` (same-length substitution refused)
-  - `test_the_raw_service_secret_is_never_the_mac_key` (domain separation: a MAC computed with the raw secret does not verify)
-- [ ] **Step 2: Run → FAIL. Step 3: Implement** with `hmac.compare_digest`, `json.dumps(..., sort_keys=True, separators=(",", ":"))`, keys derived per secret from `api.config.service_secrets()`. **Step 4: Run → PASS.**
-- [ ] **Step 5: Mutation check** — drop the owner from the canonical message; drop `mode`; accept a missing MAC; skip the contiguity check; skip the TTL; use the raw secret as the key. Each fails a named test.
+  - `test_a_dropped_tail_is_a_valid_prefix_and_is_accepted` (documents D4's accepted case)
+  - `test_a_chain_signed_under_the_previous_secret_still_verifies`
+  - `test_a_chain_signed_under_an_unknown_secret_is_refused`
+  - `test_the_raw_service_secret_is_never_the_mac_key` (domain separation)
+  - `test_the_turn_key_is_a_digest_and_contains_no_conversation_text`
+  - `test_the_refusal_says_nothing_about_which_check_failed` (every case raises the same class with the same message)
+- [ ] **Step 2: Run → FAIL. Step 3: Implement** with `hmac.compare_digest`, `json.dumps(..., sort_keys=True, separators=(",", ":"))`, keys derived per secret from `api.config.service_secrets()`; verification walks the list once, recomputing each expected MAC from the previous verified MAC (never from the `mac` the browser sent for the previous turn without verifying it first). **Step 4: Run → PASS.**
+- [ ] **Step 5: Mutation check** — each must fail a named test: drop `prev` from the digest; drop `owner`; drop `conv`; drop `mode`; drop `idx`; hash the text length instead of the text; accept a missing MAC; start the chain from the browser-supplied first `prev` instead of `GENESIS`; skip the TTL; use the raw secret as the key; include `client_turn_id` text un-hashed in `turn_key`.
 - [ ] **Step 6: Commit** `feat(partner): signed, stateless conversation transcript`
 
 ### Task B2: The rate-limit ticket
@@ -413,6 +448,10 @@ Order inside each (tests pin it): validate question → verify transcript (new c
   - `test_zero_completed_trades_takes_no_ticket_and_no_model_call`
   - `test_the_limit_refuses_before_any_spend` (patch the limit to 1)
   - `test_a_double_submit_is_refused_without_a_second_model_call`
+  - `test_two_concurrent_identical_submits_reach_the_provider_exactly_once` (barrier between chain verification and the ticket; spy counts provider calls)
+  - `test_the_duplicate_check_runs_before_partner_reply_is_reachable` (patch `partner_reply` to raise if called; a duplicate must still return 409)
+  - `test_after_a_turn_the_ticket_row_holds_no_question_reply_or_transcript_text` (read the `ai_jobs` row: `payload == "{}"`, `result_ref in {"partner:ok","partner:error"}`, `error` a fixed code, `idempotency_key` a 64-hex digest; grep the whole row for the question and reply text)
+  - `test_a_tampered_chain_takes_no_ticket_and_calls_no_provider`
   - `test_usage_is_logged_once_even_when_the_scope_guard_replaces_the_reply`
   - `test_usage_is_logged_when_the_model_refuses_after_billing`
   - `test_a_failed_cost_write_never_costs_the_trader_the_answer`
