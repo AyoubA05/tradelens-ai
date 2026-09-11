@@ -305,8 +305,8 @@ def _invoke_partner(tmp_path):
     partner_reply(
         [{"role": "user", "content": "Review my trade process."}],
         trade_context="COMPLETED TRADE",
-        strategy_profile=None,
-        image_b64=None,
+        strategy_input=None,
+        image_png_b64=None,
     )
 
 
