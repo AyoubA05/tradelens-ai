@@ -78,6 +78,7 @@ def enqueue_with_limit(
     *,
     since: datetime,
     limit: int,
+    initial_status: str = "queued",
 ) -> Tuple[Optional[int], bool]:
     """Idempotently enqueue without racing an owner-scoped rolling limit.
 
@@ -91,10 +92,18 @@ def enqueue_with_limit(
     acquired before both the idempotency lookup and count; separating either
     read from the insert recreates a window where many distinct screenshots
     can all observe ``limit - 1`` and enqueue billable work together.
+
+    ``initial_status="running"`` inserts a TICKET rather than work for the
+    worker: a synchronous paid call (the AI Partner turn) takes the same
+    atomic limit and the same duplicate check, but `claim_next()` — which
+    claims only ``queued`` rows — never hands it to the worker. Every existing
+    caller keeps the ``"queued"`` default.
     """
     owner = require_user_id(user_id)
     if isinstance(limit, bool) or limit <= 0:
         raise ValueError("limit must be positive")
+    if initial_status not in ("queued", "running"):
+        raise ValueError("initial_status must be 'queued' or 'running'")
 
     db = SessionLocal()
     try:
@@ -137,7 +146,7 @@ def enqueue_with_limit(
             kind=kind,
             idempotency_key=idempotency_key,
             payload=json.dumps(payload),
-            status="queued",
+            status=initial_status,
             created_at=_now(),
         )
         db.add(job)
