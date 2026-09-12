@@ -37,12 +37,13 @@ export const EMPTY_CONVERSATION: PartnerConversation = {
 };
 
 /**
- * A fresh id for one *question*, not one request.
+ * A fresh id for one *attempt* — every send, retries included (plan D5).
  *
- * A retry of the same question must carry the same id, so the server can
- * recognise the second arrival as the duplicate it is and answer without
- * paying for a second call. Minting a new id on retry would buy the same
- * answer twice.
+ * The server keeps a failed attempt's ticket and answers its id with
+ * `duplicate_turn` from then on, so an id reused for a retry is refused
+ * forever. The id's job is narrower: two tabs racing the SAME send are
+ * recognised as one and paid for once. Double-clicks within one tab are
+ * stopped before they are sent.
  */
 export function newClientTurnId(): string {
   const uuid =

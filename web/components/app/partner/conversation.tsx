@@ -26,8 +26,9 @@ import {
  *    a 409 the trader could not act on.
  * 3. It does not retry on its own. Each turn is a paid model call, and a
  *    retry the trader did not ask for is money they did not agree to spend.
- *    The retry button reuses the SAME client turn id, so a question that in
- *    fact went through is recognised rather than bought twice.
+ *    "Ask that again" is a NEW attempt with a fresh client turn id (plan D5):
+ *    the server refuses a failed attempt's id for good, so reusing it would
+ *    jam the conversation. A double-click is stopped before it is sent.
  */
 
 export type PartnerConversationProps = {
@@ -53,19 +54,27 @@ export function PartnerConversation({
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<PartnerFailure | null>(null);
-  // Belongs to the QUESTION, not the request: a retry must carry the id the
-  // first attempt used, or the duplicate check cannot see it is a retry.
-  const turnId = useRef<string | null>(null);
+  // Set synchronously on the first click, so a second click in the same frame
+  // is refused here rather than sent. `pending` is state and would only be
+  // seen by the NEXT render — both clicks would pass a check on it.
+  const inFlight = useRef(false);
+  // The question the last attempt carried, so "Ask that again" re-sends that
+  // question — never whatever is in the box by the time the trader clicks.
   const lastAsked = useRef("");
 
   const ended = failure?.endsConversation ?? false;
 
   async function ask(text: string) {
-    if (!text.trim() || pending) return;
-    if (turnId.current === null) {
-      turnId.current = newClientTurnId();
-      lastAsked.current = text;
-    }
+    if (!text.trim() || inFlight.current) return;
+    inFlight.current = true;
+    lastAsked.current = text;
+    // A fresh id for EVERY attempt (plan D5). The server keeps an attempt's
+    // ticket after it fails and answers that id with `duplicate_turn` from
+    // then on, so an id reused for a retry — or for the next question — is
+    // refused forever and the conversation jams. Double-submits are stopped
+    // by `inFlight` above; the server's duplicate check still covers two
+    // tabs racing one id.
+    const clientTurnId = newClientTurnId();
     setPending(true);
     setFailure(null);
     try {
@@ -76,7 +85,7 @@ export function PartnerConversation({
           question: text,
           conversation_id: conversation.conversationId,
           transcript: conversation.turns,
-          client_turn_id: turnId.current,
+          client_turn_id: clientTurnId,
           ...(includeScreenshot === undefined
             ? {}
             : { include_screenshot: includeScreenshot }),
@@ -94,18 +103,20 @@ export function PartnerConversation({
           return;
         }
         setConversation(next);
-        setDraft("");
-        turnId.current = null;
+        // Only the question that was answered leaves the box. A retry of an
+        // earlier question must not wipe what the trader has typed since.
+        setDraft((current) => (current === text ? "" : current));
         return;
       }
 
       const body = (await response.json().catch(() => ({}))) as { detail?: unknown };
       setFailure(failureMessage(response.status, body.detail));
     } catch {
-      // A dropped connection is indistinguishable from a slow answer that
-      // arrived: the same id on retry is what makes that safe.
+      // A dropped connection may still have been answered and billed; the
+      // trader decides whether to ask again, and that attempt is a new one.
       setFailure(failureMessage(0, null));
     } finally {
+      inFlight.current = false;
       setPending(false);
     }
   }
@@ -114,7 +125,6 @@ export function PartnerConversation({
     setConversation(EMPTY_CONVERSATION);
     setFailure(null);
     setDraft("");
-    turnId.current = null;
     lastAsked.current = "";
   }
 
@@ -181,8 +191,8 @@ export function PartnerConversation({
           <button
             type="button"
             // Read in the handler, not during render: the retry re-sends the
-            // question that was asked, not whatever is in the box now.
-            onClick={() => ask(turnId.current === null ? draft : lastAsked.current)}
+            // question that failed, not whatever is in the box now.
+            onClick={() => ask(lastAsked.current)}
             disabled={pending}
             className="mt-2 min-h-[44px] rounded-lg border border-line-strong px-3 py-1.5 text-sm text-text transition-colors duration-150 ease-tl hover:bg-surface-2 disabled:opacity-60"
           >

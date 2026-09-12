@@ -102,19 +102,89 @@ describe("what a turn sends", () => {
   });
 });
 
+/**
+ * A fetch that behaves like the real API's ticket, not like a mock that says
+ * yes: an id whose attempt failed is answered `duplicate_turn` from then on
+ * (`enqueue_with_limit` returns the existing ticket whatever its status).
+ * The earlier retry tests mocked a 200 for a reused id — a response the real
+ * server never gives — and so pinned the very bug that jammed conversations.
+ */
+function serverLikeTicket(outcomes: Array<"unavailable" | "drop" | "ok">) {
+  const burned = new Set<string>();
+  let okAt = 0;
+  fetchMock.mockImplementation(async (_url: string, init: { body: string }) => {
+    const { client_turn_id: id } = JSON.parse(init.body);
+    if (burned.has(id)) return fail(409, "duplicate_turn");
+    burned.add(id);
+    const outcome = outcomes.shift() ?? "ok";
+    if (outcome === "drop") throw new TypeError("Failed to fetch");
+    if (outcome === "unavailable") return fail(503, "partner_unavailable");
+    const r = reply("c-1", okAt);
+    okAt += 2;
+    return ok(r);
+  });
+}
+
+async function retry() {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /ask that again/i }));
+  });
+}
+
 describe("retrying", () => {
-  it("reuses the SAME client turn id, so a question that went through is not bought twice", async () => {
-    fetchMock
-      .mockResolvedValueOnce(fail(503, "partner_unavailable"))
-      .mockResolvedValueOnce(ok(reply("c-1", 0)));
+  it("retries with a FRESH client turn id, so a failed attempt's ticket cannot jam it", async () => {
+    serverLikeTicket(["unavailable", "ok"]);
     renderIt();
     await ask("Why?");
     expect(screen.getByText(/unavailable right now/i)).toBeInTheDocument();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /ask that again/i }));
-    });
-    expect(sent(1).client_turn_id).toBe(sent(0).client_turn_id);
+    await retry();
+    expect(sent(1).client_turn_id).not.toBe(sent(0).client_turn_id);
     expect(sent(1).question).toBe("Why?");
+    // Against a server that refuses a reused id, only a fresh id gets here.
+    expect(screen.getAllByTestId("partner-turn-assistant")).toHaveLength(1);
+    expect(screen.queryByText(/another tab/i)).toBeNull();
+  });
+
+  it("recovers from a dropped connection the same way", async () => {
+    serverLikeTicket(["drop", "ok"]);
+    renderIt();
+    await ask("Why?");
+    await retry();
+    expect(sent(1).client_turn_id).not.toBe(sent(0).client_turn_id);
+    expect(screen.getAllByTestId("partner-turn-assistant")).toHaveLength(1);
+  });
+
+  it("does not jam the NEXT question after a failure either", async () => {
+    serverLikeTicket(["unavailable", "ok"]);
+    renderIt();
+    await ask("Why?");
+    await ask("A different question");
+    expect(sent(1).client_turn_id).not.toBe(sent(0).client_turn_id);
+    expect(sent(1).question).toBe("A different question");
+    expect(screen.getAllByTestId("partner-turn-assistant")).toHaveLength(1);
+  });
+
+  it("retries the question that failed, not whatever is in the box now", async () => {
+    serverLikeTicket(["unavailable", "ok"]);
+    renderIt();
+    await ask("Why?");
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "half-typed next" } });
+    await retry();
+    expect(sent(1).question).toBe("Why?");
+    // The trader's unsent typing survives a retry of the earlier question.
+    expect(screen.getByRole("textbox")).toHaveValue("half-typed next");
+  });
+
+  it("sends an edited question as its own attempt, and retries THAT one", async () => {
+    serverLikeTicket(["unavailable", "unavailable", "ok"]);
+    renderIt();
+    await ask("Question A");
+    await ask("Question B");
+    expect(sent(1).question).toBe("Question B");
+    expect(sent(1).client_turn_id).not.toBe(sent(0).client_turn_id);
+    await retry();
+    expect(sent(2).question).toBe("Question B");
+    expect(new Set([0, 1, 2].map((n) => sent(n).client_turn_id)).size).toBe(3);
   });
 
   it("never retries on its own — each attempt is a paid call", async () => {
@@ -125,16 +195,30 @@ describe("retrying", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("treats a dropped connection as retryable with the same id", async () => {
-    fetchMock
-      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
-      .mockResolvedValueOnce(ok(reply("c-1", 0)));
+  it("sends ONE request for a double-click, even inside one frame", async () => {
+    let release: (v: unknown) => void = () => {};
+    fetchMock.mockImplementation(() => new Promise((r) => (release = r)));
+    renderIt();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Why?" } });
+    const button = screen.getByRole("button", { name: /^ask$/i });
+    await act(async () => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+      fireEvent.submit(button.closest("form")!);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => release(ok(reply("c-1", 0))));
+    expect(screen.getAllByTestId("partner-turn-assistant")).toHaveLength(1);
+  });
+
+  it("clears an earlier failure message once an answer arrives", async () => {
+    serverLikeTicket(["unavailable", "ok"]);
     renderIt();
     await ask("Why?");
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /ask that again/i }));
-    });
-    expect(sent(1).client_turn_id).toBe(sent(0).client_turn_id);
+    expect(screen.getByText(/unavailable right now/i)).toBeInTheDocument();
+    await retry();
+    expect(screen.queryByText(/unavailable right now/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /ask that again/i })).toBeNull();
   });
 });
 
