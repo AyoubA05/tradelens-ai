@@ -277,6 +277,9 @@ def _is_module_target(expr, modules):
     services legitimately write fields with `setattr(row, key, value)`."""
     if isinstance(expr, ast.Subscript):
         value = expr.value
+        if isinstance(value, ast.Call):
+            # `getattr(sys, "modules")[__name__]` (round-4 review R2).
+            return True
         return (isinstance(value, ast.Attribute) and value.attr == "modules") or (
             isinstance(value, ast.Name) and value.id == "modules"
         )
@@ -495,7 +498,16 @@ _DYNAMIC_NAMES = {
     "compile",
     "__import__",
 }
-_DYNAMIC_ATTRS = {"__dict__", "__globals__", "import_module"}
+_DYNAMIC_ATTRS = {
+    "__dict__",
+    "__globals__",
+    "import_module",
+    # Round-4 review: `_me = sys.modules[__name__]` then `setattr(_me, …)` (R1),
+    # and `object.__setattr__(module, …)` (R3).
+    "modules",
+    "__setattr__",
+    "__delattr__",
+}
 
 
 def _dynamic_namespace_access(tree):
@@ -783,3 +795,83 @@ def test_setattr_on_a_data_object_is_not_a_module_rewrite():
         tree = ast.parse(source)
         assert _dynamic_namespace_access(tree), source
         assert _rebindings(tree, "load_prompt", is_ai_client=False), source
+
+
+# ── Round-4 review: AI entry points used as values, or under another name ──
+
+
+def _indirect_references(tree):
+    """An AI entry point that is not simply called.
+
+    `_ask = functools.partial(chat, system_message=notes)` then `_ask([])`
+    (round-4 review R4) and `from …ai_client import chat as ask` both produce
+    calls the pinned call-site set cannot see, because they are not named
+    `chat`. In services these functions may only ever be called directly.
+    A literal `getattr(x, "modules")` is the R2 route to the same place.
+    """
+    call_funcs = {id(n.func) for n in ast.walk(tree) if isinstance(n, ast.Call)}
+    found = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Name)
+            and node.id in _AI_CLIENT_FUNCTIONS
+            and isinstance(node.ctx, ast.Load)
+            and id(node) not in call_funcs
+        ):
+            found.append(("used as a value", node.id))
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name in _AI_CLIENT_FUNCTIONS and alias.asname not in (
+                    None,
+                    alias.name,
+                ):
+                    found.append(("imported under another name", alias.name))
+        elif _call_name(node) == "getattr" and len(node.args) >= 2:
+            attr = node.args[1]
+            if isinstance(attr, ast.Constant) and (
+                attr.value in _DYNAMIC_ATTRS or attr.value in _AI_CLIENT_FUNCTIONS
+            ):
+                found.append(("getattr", attr.value))
+    return found
+
+
+def test_ai_entry_points_are_only_ever_called_directly_in_services():
+    for path, tree in _service_trees():
+        assert _indirect_references(tree) == [], path.name
+
+
+def test_the_indirect_reference_detector_fires_on_hostile_modules():
+    hostile = [
+        "import functools\n_ask = functools.partial(chat, system_message=notes)\n",
+        "ask = converse\n",
+        "run(vision, image)\n",
+        "handlers = {'prompt': load_prompt}\n",
+        "from src.tradelens.services.ai_client import chat as ask\n",
+        "import sys\nmods = getattr(sys, 'modules')\n",
+        "fn = getattr(ai_client, 'converse')\n",
+    ]
+    for source in hostile:
+        assert _indirect_references(ast.parse(source)), source
+    clean = [
+        "from src.tradelens.services.ai_client import chat, load_prompt\n"
+        "content = chat([], system_message=load_prompt('journal_v1'))\n",
+        "value = getattr(obj, key, None)\n",
+    ]
+    for source in clean:
+        assert _indirect_references(ast.parse(source)) == [], source
+
+
+def test_the_dynamic_detector_catches_the_round_4_module_routes():
+    hostile = [
+        "import sys\n_me = sys.modules[__name__]\nsetattr(_me, 'a' + 'b', 1)\n",
+        "object.__setattr__(target, 'a' + 'b', 1)\n",
+        "object.__delattr__(target, 'a')\n",
+    ]
+    for source in hostile:
+        assert _dynamic_namespace_access(ast.parse(source)), source
+    tree = ast.parse(
+        "import sys\nsetattr(getattr(sys, 'modules')[__name__], 'a' + 'b', 1)\n"
+    )
+    assert _indirect_references(tree) and _rebindings(
+        tree, "load_prompt", is_ai_client=False
+    )
