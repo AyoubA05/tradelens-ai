@@ -270,6 +270,19 @@ def test_a_chain_signed_under_the_previous_secret_still_verifies(monkeypatch):
     assert len(verify(old)) == len(BASE)
 
 
+def test_new_turns_are_signed_with_the_current_secret_not_the_previous(monkeypatch):
+    """Rotation has a direction. Signing new turns with the RETIRED secret
+    verifies fine while both are configured — and dies the moment the old one
+    is dropped, with every live conversation signed by a secret that is on its
+    way out. Mutation testing showed the rotation test above cannot see this.
+    """
+    monkeypatch.setenv("TL_SERVICE_SECRET", SECRET)
+    monkeypatch.setenv("TL_SERVICE_SECRET_PREVIOUS", PREVIOUS)
+    fresh = as_wire(chain(BASE))
+    monkeypatch.delenv("TL_SERVICE_SECRET_PREVIOUS")
+    assert len(verify(fresh)) == len(BASE)
+
+
 def test_a_chain_signed_under_an_unknown_secret_is_refused(monkeypatch):
     monkeypatch.setenv("TL_SERVICE_SECRET", "some-other-secret-value-at-least-32-bytes")
     foreign = as_wire(chain(BASE))

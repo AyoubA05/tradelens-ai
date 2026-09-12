@@ -343,6 +343,28 @@ def test_a_double_submitted_later_question_reaches_the_provider_once(
     assert len(provider.calls) == 2
 
 
+def test_one_client_turn_id_reused_at_two_positions_is_not_a_duplicate(
+    two_users, provider, usage_log
+):
+    """The ticket key binds the position as well as the id. A browser that
+    reuses one id across questions in the same conversation must not have its
+    later question swallowed as a duplicate of the earlier one."""
+    owner = two_users[1]
+    _trade(owner)
+    first = _global(owner, n=1)
+    second = _global(
+        owner, question="q2", transcript=_wire(first), conv=first.conversation_id, n=9
+    )
+    _global(
+        owner,
+        question="q3",
+        transcript=_wire(first) + _wire(second),
+        conv=first.conversation_id,
+        n=9,
+    )
+    assert len(provider.calls) == 3
+
+
 def test_a_new_question_with_a_new_client_turn_id_is_not_a_duplicate(
     two_users, provider, usage_log
 ):
@@ -625,6 +647,25 @@ def test_no_screenshot_or_no_flag_means_nothing_attached(
     monkeypatch.setattr(turns.storage, "read_owned_final_object", lambda *a: PNG)
     assert (
         _trade_turn(owner, trade_id, include_screenshot=False, n=2).screenshot_attached
+        is False
+    )
+    assert provider.calls[-1]["image_png_b64"] is None
+
+
+@pytest.mark.parametrize("flag", ["false", "0", "true", 1, [1], {"on": True}])
+def test_only_a_real_true_attaches_the_screenshot(
+    two_users, provider, usage_log, monkeypatch, flag
+):
+    """`include_screenshot is True`, not truthiness: the relay forwards the
+    browser's JSON, and a stringified "false" is the classic way a flag turns
+    itself on. Mutation testing showed only `False` was pinned."""
+    owner = two_users[1]
+    trade_id = _trade(owner)
+    _screenshot(trade_id)
+    monkeypatch.setattr(turns.storage, "screenshot_belongs_to_trade", lambda *a: True)
+    monkeypatch.setattr(turns.storage, "read_owned_final_object", lambda *a: PNG)
+    assert (
+        _trade_turn(owner, trade_id, include_screenshot=flag).screenshot_attached
         is False
     )
     assert provider.calls[-1]["image_png_b64"] is None
