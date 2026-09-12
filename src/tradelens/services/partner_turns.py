@@ -17,6 +17,17 @@ A double submit is decided at step 4, before the partner is reachable. The
 ticket row carries no conversation text: payload "{}", a digest key, and a
 fixed result/error code. No conversation is stored anywhere.
 
+What duplicate protection does and does not promise (plan D5): ONE paid call
+per in-flight send — one `client_turn_id`, whether double-submitted, raced by
+two tabs, or replayed. It does NOT promise one paid call per question. A
+failed attempt's ticket answers its id with `DuplicateTurn` for good, so a
+retry is a new attempt with a fresh id; and if the provider answered and was
+billed but the response was lost on the way to the browser, that retry calls
+the provider a second time. This is deliberate: the Partner does not persist
+reply content, so there is no stored answer to hand back instead, and keeping
+one would be the server-side transcript this service exists not to have. Both
+calls are usage-logged and both count against the owner's limit.
+
 No Streamlit imports here.
 """
 

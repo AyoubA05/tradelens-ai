@@ -633,6 +633,30 @@ def test_the_trade_screenshot_is_read_through_the_owner_scoped_storage_path(
     assert base64.b64decode(sent) == PNG
 
 
+def test_a_screenshot_that_is_not_this_trades_is_never_read_or_attached(
+    two_users, provider, usage_log, monkeypatch
+):
+    """`screenshot_belongs_to_trade` keeps another of the owner's OWN trades'
+    images out of this trade's conversation. The read is owner-scoped either
+    way, so without this test the trade binding could be deleted and every
+    other screenshot assertion would still pass (E6 review, mutant M8)."""
+    owner = two_users[1]
+    trade_id = _trade(owner)
+    _screenshot(trade_id)
+    reads = []
+
+    def read(*args):
+        reads.append(args)
+        return PNG
+
+    monkeypatch.setattr(turns.storage, "screenshot_belongs_to_trade", lambda *a: False)
+    monkeypatch.setattr(turns.storage, "read_owned_final_object", read)
+    result = _trade_turn(owner, trade_id, include_screenshot=True)
+    assert result.screenshot_attached is False
+    assert reads == []
+    assert provider.calls[-1]["image_png_b64"] is None
+
+
 def test_no_screenshot_or_no_flag_means_nothing_attached(
     two_users, provider, usage_log, monkeypatch
 ):

@@ -4,14 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { MessageSquareText, X } from "lucide-react";
 
 import { PartnerConversation } from "@/components/app/partner/conversation";
+import { GLOBAL_SUGGESTED_QUESTIONS } from "@/lib/app/partner-conversation";
 import { useModalTrap } from "@/lib/app/modal-trap";
 
 /**
- * The AI partner drawer — frame only.
+ * The AI partner drawer: the global, journal-grounded conversation.
  *
- * Phase 1 ships the shell: how it opens, how it traps focus, how it closes, and
- * what it says it is for. The conversation itself arrives with the phase that
- * has something to talk about.
+ * Phase 1 shipped the frame — how it opens, traps focus, closes, and what it
+ * says it is for. Phase 8 mounts the conversation inside it (see
+ * `components/app/partner/conversation.tsx`), which is discarded on close.
  *
  * Open state lives in a module-level store rather than a context because the
  * launcher sits in the top bar and the drawer is mounted by the layout, and
@@ -110,6 +111,7 @@ export function PartnerDrawer() {
           endpoint="/api/partner/turns"
           intro="The partner reads your journal and answers questions about trades that already happened — what you did, what you wrote, and how it held up against your own rules. It does not suggest what to trade next."
           placeholder="e.g. Where did I break my own risk rules this week?"
+          suggestions={GLOBAL_SUGGESTED_QUESTIONS}
         />
       </div>
     </div>

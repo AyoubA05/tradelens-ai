@@ -91,19 +91,41 @@ export function applyReply(
  * Every message names something the trader can do. None of them repeats a
  * code, a status, or anything the backend said: the relay already reduced
  * the failure to one of these, and a trader cannot act on "503".
+ *
+ * `retryable` decides whether "Ask that again" is offered, and it is offered
+ * only where asking again can help. Never for `duplicate_turn`: that send is
+ * already in flight elsewhere, and a retry is a fresh attempt — a second paid
+ * call for an answer that is on its way. Never where the same text would be
+ * refused again by rule.
  */
 const CONFLICT_MESSAGES: Record<string, string> = {
-  transcript_invalid:
-    "This conversation can no longer be continued — it was changed or is from another session. Start a new one.",
+  transcript_invalid: "This conversation can no longer continue. Start a new one to keep going.",
   conversation_full: "This conversation is full. Start a new one to keep going.",
-  no_trades: "Log a trade first. The partner only reflects on trades you have already logged.",
+  no_trades: "The partner reflects on trades you have already logged, and there are none yet.",
   duplicate_turn: "This question is already being answered in another tab.",
 };
 
 /** Refusals after which continuing the same transcript is pointless. */
 const ENDS_CONVERSATION = new Set(["transcript_invalid", "conversation_full"]);
 
-export type PartnerFailure = { text: string; endsConversation: boolean };
+export type PartnerFailure = {
+  text: string;
+  endsConversation: boolean;
+  retryable: boolean;
+  action?: { href: string; label: string };
+};
+
+/**
+ * The Streamlit panel's starter questions (`ui/components/partner_panel.py`),
+ * retrospective by construction: none can be answered with a view about what
+ * to trade next. Offered by the global drawer only — they ask about the
+ * journal, not about one trade.
+ */
+export const GLOBAL_SUGGESTED_QUESTIONS = [
+  "What did I repeat most last week?",
+  "Where did I break my own rules?",
+  "Which of my logged mistakes cost the most?",
+] as const;
 
 export function failureMessage(status: number, detail: unknown): PartnerFailure {
   const code = typeof detail === "string" ? detail : "";
@@ -111,30 +133,36 @@ export function failureMessage(status: number, detail: unknown): PartnerFailure 
     return {
       text: CONFLICT_MESSAGES[code],
       endsConversation: ENDS_CONVERSATION.has(code),
+      retryable: false,
+      ...(code === "no_trades"
+        ? { action: { href: "/app/trades/new", label: "Log a trade" } }
+        : {}),
     };
   }
   if (status === 422) {
     return {
       text: "That question cannot be sent as written. Shorten it and try again.",
       endsConversation: false,
+      retryable: false,
     };
   }
   if (status === 429) {
+    // The limit is a rolling 24-hour window, so this does not say "today".
     return {
-      text: "You have reached the limit for partner questions. Try again later.",
+      text: "You have reached the limit for AI Partner questions for now. Try again later.",
       endsConversation: false,
+      retryable: false,
     };
   }
   if (status === 404) {
-    return {
-      text: "That trade is no longer available.",
-      endsConversation: true,
-    };
+    return { text: "That trade is no longer available.", endsConversation: true, retryable: false };
   }
-  // 503, 502, and anything unforeseen: the turn did not happen, and trying
-  // the same question again is the right next move.
+  // 503, 502, a dropped connection, anything unforeseen: the turn did not
+  // reach the trader, and asking again is the right next move. The draft is
+  // kept, so the question really is still there.
   return {
-    text: "The partner is unavailable right now. Try that question again in a moment.",
+    text: "The partner could not answer just now. Your question is still here.",
     endsConversation: false,
+    retryable: true,
   };
 }

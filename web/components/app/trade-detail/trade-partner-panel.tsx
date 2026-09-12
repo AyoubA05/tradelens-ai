@@ -24,6 +24,9 @@ export function TradePartnerPanel({
   hasScreenshot: boolean;
 }) {
   const [withScreenshot, setWithScreenshot] = useState(false);
+  // Changing the choice remounts the conversation. Mid-flight that would
+  // throw away an answer the trader is already paying for, so it waits.
+  const [pending, setPending] = useState(false);
 
   return (
     <section
@@ -45,6 +48,7 @@ export function TradePartnerPanel({
               type="checkbox"
               checked={withScreenshot}
               onChange={(event) => setWithScreenshot(event.target.checked)}
+              disabled={pending}
               className="h-4 w-4 accent-current"
             />
             Let the partner look at this trade&apos;s screenshot
@@ -57,6 +61,7 @@ export function TradePartnerPanel({
         includeScreenshot={hasScreenshot && withScreenshot}
         intro="Ask about an entry, an exit, or a rule you set for yourself."
         placeholder="e.g. Did my exit follow my take-profit rules?"
+        onPendingChange={setPending}
       />
     </section>
   );

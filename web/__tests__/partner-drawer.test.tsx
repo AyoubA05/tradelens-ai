@@ -83,6 +83,18 @@ describe("partner drawer", () => {
     }
   });
 
+  it("offers the retrospective suggested questions on an empty conversation", () => {
+    renderBoth();
+    fireEvent.click(screen.getByRole("button", { name: /ask about a trade/i }));
+    for (const question of [
+      "What did I repeat most last week?",
+      "Where did I break my own rules?",
+      "Which of my logged mistakes cost the most?",
+    ]) {
+      expect(screen.getByRole("button", { name: question })).toBeInTheDocument();
+    }
+  });
+
   it("forgets the conversation when closed — the server keeps no copy either", () => {
     renderBoth();
     fireEvent.click(screen.getByRole("button", { name: /ask about a trade/i }));

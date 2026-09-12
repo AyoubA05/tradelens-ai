@@ -80,6 +80,8 @@ def _is_literal_prompt(expr):
     """`load_prompt("name")` with a string literal and nothing else."""
     return (
         _call_name(expr) == "load_prompt"
+        # A bare name, not `anything.load_prompt(...)`, whatever `anything` is.
+        and isinstance(expr.func, ast.Name)
         and len(expr.args) == 1
         and not expr.keywords
         and isinstance(expr.args[0], ast.Constant)
@@ -232,4 +234,197 @@ def test_the_sweep_itself_would_catch_data_in_the_system_slot():
     )
     assert not _is_partner_system(
         ast.parse("build_partner_system(notes)").body[0].value
+    )
+
+
+# ── E6 review: the ways around this sweep, closed ─────────────────────────
+#
+# The checks above trust two things they never verified: that `load_prompt`
+# in a service IS ai_client's function, and that the Partner's named
+# constants still hold the literal they were bound to. The E6 reviewer broke
+# the first (a module-level `def load_prompt(name): return str(notes)` in
+# weekly.py passed every test above) and described the second
+# (`global _SCOPE_GUARD; _SCOPE_GUARD += notes`). Each detector below is also
+# run against a hostile snippet, so an all-clear cannot come from a matcher
+# that never fires.
+
+AI_CLIENT = SERVICES / "ai_client.py"
+AI_CLIENT_MODULE = "src.tradelens.services.ai_client"
+_STORE = (ast.Store, ast.Del)
+
+
+def _service_trees():
+    for path in sorted(SERVICES.glob("*.py")):
+        yield path, ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+
+def _load_prompt_rebindings(tree, *, is_ai_client):
+    """Every way a module could make `load_prompt` mean something else."""
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id == "load_prompt":
+            if isinstance(node.ctx, _STORE):
+                found.append("assigned")
+        elif isinstance(node, ast.arg) and node.arg == "load_prompt":
+            found.append("parameter")
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name == "load_prompt" and not (is_ai_client and node in tree.body):
+                found.append("defined")
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                if alias.name == "*":
+                    found.append("star import")
+                elif (alias.asname or alias.name.split(".")[-1]) == "load_prompt":
+                    if not (
+                        isinstance(node, ast.ImportFrom)
+                        and node.level == 0
+                        and node.module == AI_CLIENT_MODULE
+                        and alias.name == "load_prompt"
+                    ):
+                        found.append("imported from elsewhere")
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            if "load_prompt" in node.names:
+                found.append("global")
+        elif _call_name(node) == "setattr" and len(node.args) >= 2:
+            name = node.args[1]
+            if isinstance(name, ast.Constant) and name.value == "load_prompt":
+                found.append("setattr")
+    return found
+
+
+def _constant_rebindings(tree, names):
+    """Stores to the Partner's system constants beyond their one binding."""
+    found = []
+    for name in names:
+        top = [
+            n
+            for n in tree.body
+            if isinstance(n, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == name for t in n.targets)
+        ]
+        stores = [
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Name) and n.id == name and isinstance(n.ctx, _STORE)
+        ]
+        if len(top) != 1 or len(stores) != 1:
+            found.append((name, "rebound"))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Global, ast.Nonlocal)):
+            found += [(n, "global") for n in node.names if n in names]
+        elif isinstance(node, ast.Attribute) and node.attr in names:
+            if isinstance(node.ctx, _STORE):
+                found.append((node.attr, "attribute store"))
+        elif _call_name(node) == "setattr" and len(node.args) >= 2:
+            name = node.args[1]
+            if isinstance(name, ast.Constant) and name.value in names:
+                found.append((name.value, "setattr"))
+    return found
+
+
+def test_load_prompt_is_only_ever_ai_clients_function():
+    for path, tree in _service_trees():
+        assert (
+            _load_prompt_rebindings(tree, is_ai_client=path == AI_CLIENT) == []
+        ), path.name
+
+
+def test_the_load_prompt_detector_fires_on_hostile_modules():
+    hostile = [
+        "def load_prompt(name):\n    return str(notes)\n",
+        "load_prompt = lambda name: notes\n",
+        "from src.tradelens.services.other import load_prompt\n",
+        "from src.tradelens.services.ai_client import chat as load_prompt\n",
+        "from src.tradelens.services.ai_client import *\n",
+        "from .ai_client import load_prompt\n",
+        "def f():\n    global load_prompt\n    load_prompt = g\n",
+        "def f(load_prompt=g):\n    pass\n",
+        "setattr(module, 'load_prompt', g)\n",
+        "for load_prompt in things:\n    pass\n",
+    ]
+    for source in hostile:
+        assert _load_prompt_rebindings(ast.parse(source), is_ai_client=False), source
+    clean = "from src.tradelens.services.ai_client import chat, load_prompt\n"
+    assert _load_prompt_rebindings(ast.parse(clean), is_ai_client=False) == []
+
+
+def test_the_partner_system_constants_are_bound_once_and_never_rebound():
+    for path, tree in _service_trees():
+        if path.name == "partner.py":
+            assert _constant_rebindings(tree, PARTNER_SYSTEM_CONSTANTS) == []
+        else:
+            # Other modules may not bind these names at all, nor reach in.
+            stray = [
+                n
+                for n in ast.walk(tree)
+                if (isinstance(n, ast.Name) and n.id in PARTNER_SYSTEM_CONSTANTS)
+                or (
+                    isinstance(n, ast.Attribute)
+                    and n.attr in PARTNER_SYSTEM_CONSTANTS
+                    and isinstance(n.ctx, _STORE)
+                )
+            ]
+            assert stray == [], path.name
+
+
+def test_the_constant_detector_fires_on_hostile_modules():
+    names = {"_SCOPE_GUARD"}
+    base = '_SCOPE_GUARD = "literal"\n'
+    hostile = [
+        base + "def f():\n    global _SCOPE_GUARD\n    _SCOPE_GUARD += notes\n",
+        base + "_SCOPE_GUARD = _SCOPE_GUARD + notes\n",
+        base + "partner._SCOPE_GUARD = notes\n",
+        base + "setattr(partner, '_SCOPE_GUARD', notes)\n",
+        "if flag:\n    _SCOPE_GUARD = 'a'\nelse:\n    _SCOPE_GUARD = 'b'\n",
+    ]
+    for source in hostile:
+        assert _constant_rebindings(ast.parse(source), names), source
+    assert _constant_rebindings(ast.parse(base), names) == []
+
+
+def test_ai_client_builds_the_system_field_only_from_its_own_parameters():
+    """`_build_system` is where a system message becomes the API's system field.
+
+    It may compose `system_message` and `few_shot` and nothing else — and no
+    service passes `few_shot` (pinned above) while `converse` does not accept
+    it at all. `_complete` may bind the outgoing `system` only from it.
+    """
+    tree = ast.parse(AI_CLIENT.read_text(encoding="utf-8"))
+    build = next(f for f in _functions(tree) if f.name == "_build_system")
+    assert [a.arg for a in build.args.args] == [
+        "system_message",
+        "few_shot",
+        "cache_system",
+    ]
+    names = {n.id for n in ast.walk(build) if isinstance(n, ast.Name)}
+    allowed = {
+        "system_message",
+        "few_shot",
+        "cache_system",
+        "text",
+        "Optional",
+        "str",
+        "bool",
+    }
+    assert names <= allowed, names - allowed
+
+    complete = next(f for f in _functions(tree) if f.name == "_complete")
+    binds = [
+        n
+        for n in ast.walk(complete)
+        if isinstance(n, (ast.Assign, ast.AugAssign, ast.AnnAssign))
+        and any(
+            isinstance(t, ast.Name) and t.id == "system"
+            for t in (n.targets if isinstance(n, ast.Assign) else [n.target])
+        )
+    ]
+    assert binds, "no outgoing system field found in _complete"
+    for node in binds:
+        assert isinstance(node, ast.Assign), ast.dump(node)[:120]
+        assert _call_name(node.value) == "_build_system", ast.dump(node.value)[:120]
+
+
+def test_an_attribute_call_is_not_a_literal_prompt():
+    assert not _is_literal_prompt(
+        ast.parse('other.load_prompt("journal_v1")').body[0].value
     )

@@ -106,6 +106,17 @@ describe("folding a reply into the conversation", () => {
     expect(applyReply(first, misplaced)).toBeNull();
   });
 
+  it.each([
+    ["the user turn's role", 0, "assistant"],
+    ["the assistant turn's role", 1, "user"],
+  ] as const)("abandons the conversation when only %s is wrong", (_label, which, role) => {
+    // One role at a time: a swapped pair breaks BOTH checks, so a test that
+    // only swaps them cannot tell whether either check is still there.
+    const r = reply("c-1", 0);
+    const turns = r.turns.map((t, i) => (i === which ? { ...t, role } : t));
+    expect(applyReply(EMPTY_CONVERSATION, { ...r, turns })).toBeNull();
+  });
+
   it("abandons the conversation when the pair is not user-then-assistant", () => {
     const swapped = {
       ...reply("c-1", 0),
@@ -137,13 +148,16 @@ describe("what a refused turn tells the trader", () => {
   });
 
   it("tells a trader with no trades what to do first", () => {
-    expect(failureMessage(409, "no_trades").text).toContain("Log a trade");
+    const failure = failureMessage(409, "no_trades");
+    expect(failure.action).toEqual({ href: "/app/trades/new", label: "Log a trade" });
+    expect(failure.retryable).toBe(false);
   });
 
   it("does not end the conversation when the partner is merely unavailable", () => {
     const failure = failureMessage(503, "partner_unavailable");
     expect(failure.endsConversation).toBe(false);
-    expect(failure.text).toContain("again");
+    expect(failure.text).toContain("still here");
+    expect(failure.retryable).toBe(true);
   });
 
   it.each([
@@ -151,7 +165,8 @@ describe("what a refused turn tells the trader", () => {
     [502, null],
     [500, { nested: "object" }],
   ])("falls back to the retry message for %i / %j", (status, detail) => {
-    expect(failureMessage(status, detail).text).toContain("unavailable");
+    expect(failureMessage(status, detail).text).toContain("could not answer");
+    expect(failureMessage(status, detail).retryable).toBe(true);
   });
 
   it("never repeats a status code or a backend code back to the trader", () => {
@@ -169,5 +184,25 @@ describe("what a refused turn tells the trader", () => {
       expect(text).not.toContain(String(status));
       expect(text).not.toContain("_");
     }
+  });
+});
+
+describe("which refusals offer a retry", () => {
+  it.each([
+    [409, "duplicate_turn"],
+    [409, "transcript_invalid"],
+    [409, "conversation_full"],
+    [409, "no_trades"],
+    [422, null],
+    [429, "rate_limited"],
+    [404, null],
+  ] as const)("offers none for %i / %s", (status, detail) => {
+    // duplicate_turn above all: that send is already in flight, and a retry is
+    // a fresh attempt — a second paid call for an answer on its way.
+    expect(failureMessage(status, detail).retryable).toBe(false);
+  });
+
+  it.each([503, 502, 500, 0])("offers one for %i", (status) => {
+    expect(failureMessage(status, null).retryable).toBe(true);
   });
 });

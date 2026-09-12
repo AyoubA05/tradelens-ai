@@ -136,7 +136,7 @@ describe("retrying", () => {
     serverLikeTicket(["unavailable", "ok"]);
     renderIt();
     await ask("Why?");
-    expect(screen.getByText(/unavailable right now/i)).toBeInTheDocument();
+    expect(screen.getByText(/could not answer just now/i)).toBeInTheDocument();
     await retry();
     expect(sent(1).client_turn_id).not.toBe(sent(0).client_turn_id);
     expect(sent(1).question).toBe("Why?");
@@ -215,9 +215,9 @@ describe("retrying", () => {
     serverLikeTicket(["unavailable", "ok"]);
     renderIt();
     await ask("Why?");
-    expect(screen.getByText(/unavailable right now/i)).toBeInTheDocument();
+    expect(screen.getByText(/could not answer just now/i)).toBeInTheDocument();
     await retry();
-    expect(screen.queryByText(/unavailable right now/i)).toBeNull();
+    expect(screen.queryByText(/could not answer just now/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /ask that again/i })).toBeNull();
   });
 });
@@ -258,7 +258,7 @@ describe("refusals", () => {
     renderIt();
     await ask("Why?");
     await ask("And then?");
-    expect(screen.getByText(/can no longer be continued/i)).toBeInTheDocument();
+    expect(screen.getByText(/can no longer continue/i)).toBeInTheDocument();
     expect(screen.getAllByTestId("partner-turn-assistant")).toHaveLength(1);
   });
 
@@ -298,3 +298,142 @@ describe("rendering", () => {
     expect(screen.getByText("Your playbook").closest("a")).toBeNull();
   });
 });
+
+describe("the plan's Group D contract", () => {
+  it("sends exactly question, conversation_id, transcript and client_turn_id", async () => {
+    fetchMock.mockResolvedValue(ok(reply("c-1", 0)));
+    renderIt();
+    await ask("Why?");
+    expect(Object.keys(sent(0)).sort()).toEqual([
+      "client_turn_id",
+      "conversation_id",
+      "question",
+      "transcript",
+    ]);
+  });
+
+  it("adds only include_screenshot on the trade panel", async () => {
+    fetchMock.mockResolvedValue(ok(reply("c-1", 0)));
+    renderIt({ endpoint: "/api/trades/42/partner/turns", includeScreenshot: false });
+    await ask("Why?");
+    expect(Object.keys(sent(0)).sort()).toEqual([
+      "client_turn_id",
+      "conversation_id",
+      "include_screenshot",
+      "question",
+      "transcript",
+    ]);
+  });
+
+  it("writes nothing to localStorage or sessionStorage", async () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    try {
+      fetchMock
+        .mockResolvedValueOnce(ok(reply("c-1", 0)))
+        .mockResolvedValueOnce(ok(reply("c-1", 2)));
+      renderIt();
+      await ask("Why?");
+      await ask("And then?");
+      expect(setItem).not.toHaveBeenCalled();
+      expect(window.localStorage.length).toBe(0);
+      expect(window.sessionStorage.length).toBe(0);
+    } finally {
+      setItem.mockRestore();
+    }
+  });
+
+  it("keeps the typed question when a request fails", async () => {
+    fetchMock.mockResolvedValue(fail(503, "partner_unavailable"));
+    renderIt();
+    await ask("Why did I size up?");
+    expect(screen.getByRole("textbox")).toHaveValue("Why did I size up?");
+    expect(screen.getByText(/your question is still here/i)).toBeInTheDocument();
+  });
+
+  it("labels evidence 'Context used', never as citations", async () => {
+    fetchMock.mockResolvedValue(
+      ok({
+        ...reply("c-1", 0),
+        evidence: [{ kind: "trade", label: "NQ long", occurred_on: "2026-09-01", trade_id: 42 }],
+      }),
+    );
+    renderIt();
+    await ask("Why?");
+    const evidence = screen.getByTestId("partner-evidence");
+    expect(evidence).toHaveTextContent("Context used");
+    expect(evidence.textContent).not.toMatch(/source|cite/i);
+  });
+
+  it("offers suggestions only on an empty conversation, and a suggestion never sends by itself", async () => {
+    fetchMock.mockResolvedValue(ok(reply("c-1", 0)));
+    renderIt({ suggestions: ["Where did I break my own rules?"] });
+    fireEvent.click(screen.getByRole("button", { name: "Where did I break my own rules?" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox")).toHaveValue("Where did I break my own rules?");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^ask$/i }));
+    });
+    expect(sent(0).question).toBe("Where did I break my own rules?");
+    expect(screen.queryByRole("button", { name: "Where did I break my own rules?" })).toBeNull();
+  });
+
+  it("offers no suggestions unless the caller supplies them", () => {
+    renderIt();
+    expect(screen.queryByRole("list", { name: /suggested questions/i })).toBeNull();
+  });
+
+  it("disables the composer while a question is pending", async () => {
+    let release: (v: unknown) => void = () => {};
+    fetchMock.mockImplementation(() => new Promise((r) => (release = r)));
+    renderIt();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Why?" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^ask$/i }));
+    });
+    expect(screen.getByRole("textbox")).toBeDisabled();
+    await act(async () => release(ok(reply("c-1", 0))));
+    expect(screen.getByRole("textbox")).toBeEnabled();
+  });
+
+  it("says the conversation is not saved", () => {
+    renderIt();
+    expect(
+      screen.getByText("This conversation is not saved — it clears when you reload or sign out."),
+    ).toBeInTheDocument();
+  });
+
+  it("links a trader with no trades to logging one, and offers no pointless retry", async () => {
+    fetchMock.mockResolvedValue(fail(409, "no_trades"));
+    renderIt();
+    await ask("Why?");
+    expect(screen.getByRole("link", { name: /log a trade/i })).toHaveAttribute(
+      "href",
+      "/app/trades/new",
+    );
+    expect(screen.queryByRole("button", { name: /ask that again/i })).toBeNull();
+  });
+
+  it("never offers a retry for a send already in flight in another tab — that would pay twice", async () => {
+    fetchMock.mockResolvedValue(fail(409, "duplicate_turn"));
+    renderIt();
+    await ask("Why?");
+    expect(screen.getByText(/another tab/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ask that again/i })).toBeNull();
+  });
+
+  it("contains no advice or signal language", async () => {
+    fetchMock.mockResolvedValue(fail(503, "partner_unavailable"));
+    const { container } = renderIt({
+      suggestions: [
+        "What did I repeat most last week?",
+        "Where did I break my own rules?",
+        "Which of my logged mistakes cost the most?",
+      ],
+    });
+    await ask("q");
+    expect(container.textContent).not.toMatch(
+      /\b(you should|buy|sell|signal|guaranteed|recommend)/i,
+    );
+  });
+});
+

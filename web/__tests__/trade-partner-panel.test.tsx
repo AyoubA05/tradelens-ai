@@ -79,3 +79,24 @@ describe("the trade partner panel", () => {
     expect(screen.getByText(/never comments on future market direction/i)).toBeInTheDocument();
   });
 });
+
+describe("the screenshot choice while a question is in flight", () => {
+  it("cannot be changed until the answer arrives", async () => {
+    let release: (v: unknown) => void = () => {};
+    fetchMock.mockImplementation(() => new Promise((r) => (release = r)));
+    render(<TradePartnerPanel tradeId={42} hasScreenshot />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Why?" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^ask$/i }));
+    });
+    expect(screen.getByRole("checkbox")).toBeDisabled();
+    await act(async () => release(reply()));
+    expect(screen.getByRole("checkbox")).toBeEnabled();
+  });
+
+  it("offers no journal-wide suggested questions about a single trade", () => {
+    render(<TradePartnerPanel tradeId={42} hasScreenshot={false} />);
+    expect(screen.queryByRole("list", { name: /suggested questions/i })).toBeNull();
+  });
+});
+
