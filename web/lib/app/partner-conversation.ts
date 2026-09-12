@@ -154,6 +154,23 @@ export function failureMessage(status: number, detail: unknown): PartnerFailure 
       retryable: false,
     };
   }
+  if (status === 401 || status === 403) {
+    // Signed out, or refused by the relay before the partner was reached.
+    // Nothing was spent, and asking again from this page fails the same way.
+    return {
+      text: "Your session has ended. Sign in again to keep asking.",
+      endsConversation: false,
+      retryable: false,
+      action: { href: "/login", label: "Sign in" },
+    };
+  }
+  if (status === 400) {
+    return {
+      text: "That question could not be sent. Reload the page and try again.",
+      endsConversation: false,
+      retryable: false,
+    };
+  }
   if (status === 404) {
     return { text: "That trade is no longer available.", endsConversation: true, retryable: false };
   }

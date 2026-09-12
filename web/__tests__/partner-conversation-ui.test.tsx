@@ -6,7 +6,7 @@ import { PartnerConversation } from "@/components/app/partner/conversation";
 
 /**
  * The conversation island. What matters is what it SENDS: the transcript
- * exactly as the server signed it, the same client turn id on a retry, and
+ * exactly as the server signed it, a fresh client turn id for every attempt, and
  * the screenshot flag only where one was asked for.
  */
 
@@ -437,3 +437,12 @@ describe("the plan's Group D contract", () => {
   });
 });
 
+describe("a signed-out session", () => {
+  it("links to sign in and offers no retry that would fail the same way", async () => {
+    fetchMock.mockResolvedValue(fail(401));
+    renderIt();
+    await ask("Why?");
+    expect(screen.getByRole("link", { name: /sign in/i })).toHaveAttribute("href", "/login");
+    expect(screen.queryByRole("button", { name: /ask that again/i })).toBeNull();
+  });
+});

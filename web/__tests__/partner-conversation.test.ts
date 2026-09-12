@@ -206,3 +206,19 @@ describe("which refusals offer a retry", () => {
     expect(failureMessage(status, null).retryable).toBe(true);
   });
 });
+
+describe("refusals the relay decides before any spend", () => {
+  it.each([401, 403])("sends a %i to sign in again, with no retry", (status) => {
+    const failure = failureMessage(status, null);
+    expect(failure.retryable).toBe(false);
+    expect(failure.action).toEqual({ href: "/login", label: "Sign in" });
+  });
+
+  it("offers no retry for a malformed request", () => {
+    expect(failureMessage(400, null).retryable).toBe(false);
+  });
+
+  it("never says the rolling 24-hour limit resets at a time of day", () => {
+    expect(failureMessage(429, "rate_limited").text).not.toMatch(/today|tomorrow|midnight/i);
+  });
+});

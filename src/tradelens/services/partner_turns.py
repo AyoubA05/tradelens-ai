@@ -205,8 +205,10 @@ def _converse(
     # conversation `conv` is freshly generated on every request, so keying on
     # it would give a double-clicked first question two different keys and
     # two paid calls. Key on what the REQUEST supplied: its conversation id,
-    # or a fixed per-mode marker when it started a new one. The browser reuses
-    # one client_turn_id per question, so a resend is the same key.
+    # or a fixed per-mode marker when it started a new one. The browser mints
+    # a fresh client_turn_id for every attempt (plan D5), so this key names one
+    # in-flight send: a double-submit or two tabs racing it share the key and
+    # pay once, while a deliberate retry is a new key and a new paid call.
     key_base = supplied_conversation_id or "new:{}".format(mode)
     ticket = _take_ticket(owner, key_base, position, client_turn_id)
     ok = False

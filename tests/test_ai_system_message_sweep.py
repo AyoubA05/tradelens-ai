@@ -267,6 +267,10 @@ def _load_prompt_rebindings(tree, *, is_ai_client):
                 found.append("assigned")
         elif isinstance(node, ast.arg) and node.arg == "load_prompt":
             found.append("parameter")
+        elif isinstance(node, ast.Attribute) and node.attr == "load_prompt":
+            # `import …ai_client as ai; ai.load_prompt = g` (delta review M1).
+            if isinstance(node.ctx, _STORE):
+                found.append("attribute store")
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             if node.name == "load_prompt" and not (is_ai_client and node in tree.body):
                 found.append("defined")
@@ -341,6 +345,7 @@ def test_the_load_prompt_detector_fires_on_hostile_modules():
         "def f(load_prompt=g):\n    pass\n",
         "setattr(module, 'load_prompt', g)\n",
         "for load_prompt in things:\n    pass\n",
+        "import src.tradelens.services.ai_client as ai\nai.load_prompt = g\n",
     ]
     for source in hostile:
         assert _load_prompt_rebindings(ast.parse(source), is_ai_client=False), source
@@ -428,3 +433,150 @@ def test_an_attribute_call_is_not_a_literal_prompt():
     assert not _is_literal_prompt(
         ast.parse('other.load_prompt("journal_v1")').body[0].value
     )
+
+
+# ── Delta review (post-f9444f6): four more evasions, closed ───────────────
+
+_DYNAMIC_NAMES = {"globals", "vars", "locals", "exec", "eval", "compile", "__import__"}
+_DYNAMIC_ATTRS = {"__dict__", "__globals__", "import_module"}
+
+
+def _dynamic_namespace_access(tree):
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in _DYNAMIC_NAMES:
+            found.append(node.id)
+        elif isinstance(node, ast.Attribute) and node.attr in _DYNAMIC_ATTRS:
+            found.append(node.attr)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            modules = [a.name for a in node.names]
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules.append(node.module)
+            if any(m == "importlib" or m.startswith("importlib.") for m in modules):
+                found.append("importlib")
+    return found
+
+
+def test_no_service_reaches_a_module_namespace_dynamically():
+    """`globals()["_SCOPE" + "_GUARD"] = notes` rebinds a system constant with no
+    Name or Attribute store for the detectors above to see (delta review M3).
+    No service needs dynamic namespace access, so none may have it."""
+    for path, tree in _service_trees():
+        assert _dynamic_namespace_access(tree) == [], path.name
+
+
+def test_the_dynamic_access_detector_fires_on_hostile_modules():
+    hostile = [
+        'globals()["_SCOPE" + "_GUARD"] = notes\n',
+        'vars(partner)["_SCOPE_GUARD"] = notes\n',
+        'partner.__dict__["_SCOPE_GUARD"] = notes\n',
+        'build.__globals__["_SCOPE_GUARD"] = notes\n',
+        "import importlib\n",
+        "from importlib import import_module\n",
+        'exec("_SCOPE_GUARD = notes")\n',
+    ]
+    for source in hostile:
+        assert _dynamic_namespace_access(ast.parse(source)), source
+    assert _dynamic_namespace_access(ast.parse("import re\nre.compile('x')\n")) == []
+
+
+def test_load_prompt_reads_only_the_versioned_prompt_file():
+    """ai_client's own `load_prompt` is exempt from the rebinding check because
+    it IS the function, so its body is pinned instead: it reads
+    prompts/{name}.txt and nothing else. No environment variable, database,
+    network or module state can reach a system message through it (delta
+    review M2)."""
+    tree = ast.parse(AI_CLIENT.read_text(encoding="utf-8"))
+    func = next(
+        f
+        for f in tree.body
+        if isinstance(f, ast.FunctionDef) and f.name == "load_prompt"
+    )
+    assert [a.arg for a in func.args.args] == ["name"]
+    names = {n.id for n in ast.walk(func) if isinstance(n, ast.Name)}
+    assert names <= {"name", "path", "_PROMPTS_DIR", "FileNotFoundError", "str"}, names
+    attrs = {n.attr for n in ast.walk(func) if isinstance(n, ast.Attribute)}
+    assert attrs <= {"exists", "read_text", "strip"}, attrs
+    # The one operator allowed is the path join `_PROMPTS_DIR / f"{name}.txt"`.
+    # Anything else — `+ os.environ[...]`, `% extra` — is text composition.
+    for node in ast.walk(func):
+        if isinstance(node, ast.BinOp):
+            assert isinstance(node.op, ast.Div), ast.dump(node)[:120]
+            assert isinstance(node.left, ast.Name) and node.left.id == "_PROMPTS_DIR"
+
+    prompts_dir = next(
+        n
+        for n in tree.body
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "_PROMPTS_DIR" for t in n.targets)
+    )
+    dir_names = {n.id for n in ast.walk(prompts_dir.value) if isinstance(n, ast.Name)}
+    dir_attrs = {
+        n.attr for n in ast.walk(prompts_dir.value) if isinstance(n, ast.Attribute)
+    }
+    assert "os" not in dir_names and not dir_attrs & {"environ", "getenv"}, (
+        dir_names,
+        dir_attrs,
+    )
+
+
+_AI_ENTRY_POINTS = {
+    "chat",
+    "vision",
+    "converse",
+    "_complete",
+    "_build_system",
+    "load_prompt",
+}
+
+
+def _ai_entry_points_used(tree):
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == "ai_client":
+                    found.append("imports the ai_client module")
+                elif (node.module or "").endswith("ai_client") and (
+                    alias.name in _AI_ENTRY_POINTS or alias.name == "*"
+                ):
+                    found.append(alias.name)
+        elif isinstance(node, ast.Import):
+            found += [a.name for a in node.names if a.name.endswith("ai_client")]
+        elif isinstance(node, ast.Attribute) and node.attr in (
+            _AI_ENTRY_POINTS - {"chat", "vision"}
+        ):
+            found.append(node.attr)
+    return found
+
+
+def test_no_ai_entry_point_is_reachable_outside_services():
+    """The call-site sweep reads services/ only, so a new
+    `converse(system_message=…)` under api/, ui/ or scripts/ would be invisible
+    to it (delta review M4). Nothing outside services/ may import or reach an
+    AI entry point; every call site therefore stays inside the pinned set."""
+    root = SERVICES.parents[2]
+    paths = [
+        p
+        for base in ("src", "scripts")
+        for p in sorted((root / base).rglob("*.py"))
+        if SERVICES not in p.parents
+    ]
+    assert len(paths) > 20
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        assert _ai_entry_points_used(tree) == [], str(path.relative_to(root))
+
+
+def test_the_outside_services_detector_fires_on_hostile_modules():
+    hostile = [
+        "from src.tradelens.services.ai_client import converse\n",
+        "from src.tradelens.services.ai_client import *\n",
+        "from src.tradelens.services import ai_client\n",
+        "import src.tradelens.services.ai_client as ai\n",
+        "reply = client.converse(system_message=text)\n",
+    ]
+    for source in hostile:
+        assert _ai_entry_points_used(ast.parse(source)), source
+    allowed = "from src.tradelens.services.ai_client import AIParseError, has_api_key\n"
+    assert _ai_entry_points_used(ast.parse(allowed)) == []
