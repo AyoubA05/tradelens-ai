@@ -258,42 +258,85 @@ def _service_trees():
         yield path, ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
 
-def _load_prompt_rebindings(tree, *, is_ai_client):
-    """Every way a module could make `load_prompt` mean something else."""
+def _module_names(tree):
+    """Names this module binds to modules through an import statement."""
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                names.add(alias.asname or alias.name)
+    return names
+
+
+def _is_module_target(expr, modules):
+    """`sys.modules[...]`, an imported module name (or an attribute of one), or a
+    dynamic import. An ORM row or any other data object is not a module target:
+    services legitimately write fields with `setattr(row, key, value)`."""
+    if isinstance(expr, ast.Subscript):
+        value = expr.value
+        return (isinstance(value, ast.Attribute) and value.attr == "modules") or (
+            isinstance(value, ast.Name) and value.id == "modules"
+        )
+    if isinstance(expr, ast.Call):
+        return _call_name(expr) in ("__import__", "import_module")
+    root = expr
+    while isinstance(root, ast.Attribute):
+        root = root.value
+    return isinstance(root, ast.Name) and root.id in modules
+
+
+_AI_CLIENT_FUNCTIONS = ("load_prompt", "chat", "vision", "converse")
+
+
+def _rebindings(tree, name, *, is_ai_client):
+    """Every way a module could make `name` mean something other than ai_client's."""
     found = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and node.id == "load_prompt":
+        if isinstance(node, ast.Name) and node.id == name:
             if isinstance(node.ctx, _STORE):
                 found.append("assigned")
-        elif isinstance(node, ast.arg) and node.arg == "load_prompt":
+        elif isinstance(node, ast.arg) and node.arg == name:
             found.append("parameter")
-        elif isinstance(node, ast.Attribute) and node.attr == "load_prompt":
+        elif isinstance(node, ast.Attribute) and node.attr == name:
             # `import …ai_client as ai; ai.load_prompt = g` (delta review M1).
             if isinstance(node.ctx, _STORE):
                 found.append("attribute store")
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if node.name == "load_prompt" and not (is_ai_client and node in tree.body):
+            if node.name == name and not (is_ai_client and node in tree.body):
                 found.append("defined")
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             for alias in node.names:
                 if alias.name == "*":
                     found.append("star import")
-                elif (alias.asname or alias.name.split(".")[-1]) == "load_prompt":
+                elif (alias.asname or alias.name.split(".")[-1]) == name:
                     if not (
                         isinstance(node, ast.ImportFrom)
                         and node.level == 0
                         and node.module == AI_CLIENT_MODULE
-                        and alias.name == "load_prompt"
+                        and alias.name == name
                     ):
                         found.append("imported from elsewhere")
         elif isinstance(node, (ast.Global, ast.Nonlocal)):
-            if "load_prompt" in node.names:
+            if name in node.names:
                 found.append("global")
-        elif _call_name(node) == "setattr" and len(node.args) >= 2:
-            name = node.args[1]
-            if isinstance(name, ast.Constant) and name.value == "load_prompt":
+        elif _call_name(node) in ("setattr", "delattr") and len(node.args) >= 2:
+            attr = node.args[1]
+            # A built-up name (`"load" + "_prompt"`) is refused outright: a
+            # detector that reads only literals cannot see what it rebinds
+            # (round-3 review N1).
+            literal = isinstance(attr, ast.Constant)
+            if (literal and attr.value == name) or (
+                not literal and _is_module_target(node.args[0], _module_names(tree))
+            ):
                 found.append("setattr")
     return found
+
+
+def _load_prompt_rebindings(tree, *, is_ai_client):
+    return _rebindings(tree, "load_prompt", is_ai_client=is_ai_client)
 
 
 def _constant_rebindings(tree, names):
@@ -319,10 +362,13 @@ def _constant_rebindings(tree, names):
         elif isinstance(node, ast.Attribute) and node.attr in names:
             if isinstance(node.ctx, _STORE):
                 found.append((node.attr, "attribute store"))
-        elif _call_name(node) == "setattr" and len(node.args) >= 2:
+        elif _call_name(node) in ("setattr", "delattr") and len(node.args) >= 2:
             name = node.args[1]
-            if isinstance(name, ast.Constant) and name.value in names:
-                found.append((name.value, "setattr"))
+            literal = isinstance(name, ast.Constant)
+            if (literal and name.value in names) or (
+                not literal and _is_module_target(node.args[0], _module_names(tree))
+            ):
+                found.append((getattr(name, "value", "<built>"), "setattr"))
     return found
 
 
@@ -344,6 +390,8 @@ def test_the_load_prompt_detector_fires_on_hostile_modules():
         "def f():\n    global load_prompt\n    load_prompt = g\n",
         "def f(load_prompt=g):\n    pass\n",
         "setattr(module, 'load_prompt', g)\n",
+        'setattr(_s.modules[__name__], "load" + "_prompt", g)\n',
+        'delattr(ai_client, "load_prompt")\n',
         "for load_prompt in things:\n    pass\n",
         "import src.tradelens.services.ai_client as ai\nai.load_prompt = g\n",
     ]
@@ -380,6 +428,7 @@ def test_the_constant_detector_fires_on_hostile_modules():
         base + "_SCOPE_GUARD = _SCOPE_GUARD + notes\n",
         base + "partner._SCOPE_GUARD = notes\n",
         base + "setattr(partner, '_SCOPE_GUARD', notes)\n",
+        base + 'setattr(_s.modules[__name__], "_SCOPE" + "_GUARD", "x")\n',
         "if flag:\n    _SCOPE_GUARD = 'a'\nelse:\n    _SCOPE_GUARD = 'b'\n",
     ]
     for source in hostile:
@@ -437,7 +486,15 @@ def test_an_attribute_call_is_not_a_literal_prompt():
 
 # ── Delta review (post-f9444f6): four more evasions, closed ───────────────
 
-_DYNAMIC_NAMES = {"globals", "vars", "locals", "exec", "eval", "compile", "__import__"}
+_DYNAMIC_NAMES = {
+    "globals",
+    "vars",
+    "locals",
+    "exec",
+    "eval",
+    "compile",
+    "__import__",
+}
 _DYNAMIC_ATTRS = {"__dict__", "__globals__", "import_module"}
 
 
@@ -448,6 +505,12 @@ def _dynamic_namespace_access(tree):
             found.append(node.id)
         elif isinstance(node, ast.Attribute) and node.attr in _DYNAMIC_ATTRS:
             found.append(node.attr)
+        elif _call_name(node) in ("setattr", "delattr") and len(node.args) >= 2:
+            # A built-up attribute name on a MODULE (round-3 review N1/N6).
+            if not isinstance(node.args[1], ast.Constant) and _is_module_target(
+                node.args[0], _module_names(tree)
+            ):
+                found.append("module " + _call_name(node))
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
             modules = [a.name for a in node.names]
             if isinstance(node, ast.ImportFrom) and node.module:
@@ -472,6 +535,8 @@ def test_the_dynamic_access_detector_fires_on_hostile_modules():
         'partner.__dict__["_SCOPE_GUARD"] = notes\n',
         'build.__globals__["_SCOPE_GUARD"] = notes\n',
         "import importlib\n",
+        'import sys\nsetattr(sys.modules[__name__], "_SCOPE" + "_GUARD", "x")\n',
+        'import src.tradelens.services.partner as p\ndelattr(p, "_SCOPE" + "_GUARD")\n',
         "from importlib import import_module\n",
         'exec("_SCOPE_GUARD = notes")\n',
     ]
@@ -530,23 +595,47 @@ _AI_ENTRY_POINTS = {
 }
 
 
+_PROTECTED_ATTRS = _AI_ENTRY_POINTS | {
+    "_PROMPTS_DIR",
+    "_SCOPE_GUARD",
+    "_PER_TRADE_QA_PREAMBLE",
+    "build_partner_system",
+    "partner_reply",
+}
+
+
 def _ai_entry_points_used(tree):
+    """Outside services/: no AI entry point may be imported, called or rewired."""
     found = []
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             for alias in node.names:
                 if alias.name == "ai_client":
                     found.append("imports the ai_client module")
-                elif (node.module or "").endswith("ai_client") and (
-                    alias.name in _AI_ENTRY_POINTS or alias.name == "*"
+                elif alias.name == "*" and (node.module or "").startswith(
+                    "src.tradelens.services"
                 ):
+                    found.append("star import from services")
+                elif alias.name in _AI_ENTRY_POINTS:
+                    # From ANY module: a service re-exports `converse` simply by
+                    # importing it (round-3 review N4).
                     found.append(alias.name)
         elif isinstance(node, ast.Import):
             found += [a.name for a in node.names if a.name.endswith("ai_client")]
-        elif isinstance(node, ast.Attribute) and node.attr in (
-            _AI_ENTRY_POINTS - {"chat", "vision"}
-        ):
-            found.append(node.attr)
+        elif isinstance(node, ast.Call) and _call_name(node) in {
+            "chat",
+            "vision",
+            "converse",
+            "setattr",
+            "delattr",
+        }:
+            # Bare or through any module attribute, e.g. `weekly.chat(...)` (N5).
+            found.append("calls " + _call_name(node))
+        elif isinstance(node, ast.Attribute) and node.attr in _PROTECTED_ATTRS:
+            if isinstance(node.ctx, _STORE) or node.attr in (
+                _AI_ENTRY_POINTS - {"chat", "vision"}
+            ):
+                found.append(node.attr)
     return found
 
 
@@ -575,8 +664,122 @@ def test_the_outside_services_detector_fires_on_hostile_modules():
         "from src.tradelens.services import ai_client\n",
         "import src.tradelens.services.ai_client as ai\n",
         "reply = client.converse(system_message=text)\n",
+        "from src.tradelens.services.partner import converse\n",
+        "from src.tradelens.services import weekly as w\nw.chat([], system_message=n)\n",
+        "import src.tradelens.services.weekly as w\nw.vision(img, notes)\n",
+        "import src.tradelens.services.ai_client\n",
+        'setattr(module, "load" + "_prompt", g)\n',
+        "partner._SCOPE_GUARD = notes\n",
+        "ai._PROMPTS_DIR = somewhere\n",
     ]
     for source in hostile:
         assert _ai_entry_points_used(ast.parse(source)), source
     allowed = "from src.tradelens.services.ai_client import AIParseError, has_api_key\n"
     assert _ai_entry_points_used(ast.parse(allowed)) == []
+
+
+# ── Round-3 review: the prompts directory and the other ai_client functions ─
+
+
+def _repo_trees():
+    root = SERVICES.parents[2]
+    for base in ("src", "scripts"):
+        for path in sorted((root / base).rglob("*.py")):
+            yield path, ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+
+def test_the_ai_client_functions_are_never_rebound_in_a_service():
+    """`chat = functools.partial(chat, system_message=…)` would leave every call
+    site looking pinned while changing what reaches the model (round-3 review
+    N7). `chat`, `vision` and `converse` are held to the same rule as
+    `load_prompt`."""
+    for path, tree in _service_trees():
+        for name in _AI_CLIENT_FUNCTIONS:
+            found = _rebindings(tree, name, is_ai_client=path == AI_CLIENT)
+            assert found == [], (path.name, name, found)
+
+
+def test_the_rebinding_detector_fires_for_every_ai_client_function():
+    for name in ("chat", "vision", "converse"):
+        hostile = [
+            "import functools\n{0} = functools.partial({0}, system_message=x)\n",
+            "from src.tradelens.services.partner import {0}\n",
+            "def {0}(*a, **k):\n    return None\n",
+        ]
+        for template in hostile:
+            source = template.format(name)
+            assert _rebindings(ast.parse(source), name, is_ai_client=False), source
+        clean = "from src.tradelens.services.ai_client import {}\n".format(name)
+        assert _rebindings(ast.parse(clean), name, is_ai_client=False) == []
+
+
+def test_the_prompts_directory_is_bound_once_to_the_repository_and_never_moved():
+    """`load_prompt` reads `_PROMPTS_DIR / name`, so moving the directory moves
+    every system prompt. A second binding inside ai_client (round-3 review N3)
+    or a store from any other module (N2) could point it at a directory a user
+    can write. It is bound exactly once, to exactly this expression, and
+    `Path` there is pathlib's."""
+    tree = ast.parse(AI_CLIENT.read_text(encoding="utf-8"))
+    stores = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Name)
+        and n.id == "_PROMPTS_DIR"
+        and isinstance(n.ctx, _STORE)
+    ]
+    assert len(stores) == 1, len(stores)
+    binding = next(
+        n
+        for n in tree.body
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "_PROMPTS_DIR" for t in n.targets)
+    )
+    expected = ast.parse('Path(__file__).resolve().parents[3] / "prompts"', mode="eval")
+    assert ast.dump(binding.value) == ast.dump(expected.body)
+    assert any(
+        isinstance(n, ast.ImportFrom)
+        and n.module == "pathlib"
+        and any(a.name == "Path" and a.asname is None for a in n.names)
+        for n in tree.body
+    )
+    assert not [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Name) and n.id == "Path" and isinstance(n.ctx, _STORE)
+    ]
+
+    for path, other in _repo_trees():
+        for node in ast.walk(other):
+            if isinstance(node, ast.Attribute) and node.attr == "_PROMPTS_DIR":
+                assert not isinstance(node.ctx, _STORE), str(path)
+            if isinstance(node, ast.Name) and node.id == "_PROMPTS_DIR":
+                assert path == AI_CLIENT, str(path)
+
+
+# What this file is, stated plainly: an AST tripwire over the evasions review
+# has actually found (four rounds, listed in the Phase 8 handoff). It makes each
+# of them fail loudly and keeps new AI call sites inside a reviewed set. It is
+# not a proof that no route to the system slot exists; Python can always reach
+# further than a static reading. Reviewers should keep adding the next one.
+
+
+def test_setattr_on_a_data_object_is_not_a_module_rewrite():
+    """Services write ORM fields with `setattr(row, key, value)` (eight call
+    sites today). The module-rewrite detectors must leave those alone while
+    still refusing the same call aimed at a module."""
+    for source in [
+        "setattr(row, key, value)\n",
+        "setattr(trade, field, f'{existing}')\n",
+        "delattr(obj, name)\n",
+    ]:
+        tree = ast.parse(source)
+        assert _dynamic_namespace_access(tree) == [], source
+        assert _rebindings(tree, "load_prompt", is_ai_client=False) == [], source
+    for source in [
+        "import src.tradelens.services.ai_client as ai\nsetattr(ai, name, g)\n",
+        "import sys\nsetattr(sys.modules[__name__], name, g)\n",
+        "setattr(__import__('x'), name, g)\n",
+    ]:
+        tree = ast.parse(source)
+        assert _dynamic_namespace_access(tree), source
+        assert _rebindings(tree, "load_prompt", is_ai_client=False), source

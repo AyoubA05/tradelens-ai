@@ -222,3 +222,11 @@ describe("refusals the relay decides before any spend", () => {
     expect(failureMessage(429, "rate_limited").text).not.toMatch(/today|tomorrow|midnight/i);
   });
 });
+
+describe("the 401 and 403 wording", () => {
+  it("says a session ended only when it did", () => {
+    expect(failureMessage(401, null).text).toMatch(/session has ended/i);
+    expect(failureMessage(403, null).text).not.toMatch(/session/i);
+    expect(failureMessage(403, null).text).toMatch(/sign in again/i);
+  });
+});

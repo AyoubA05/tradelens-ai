@@ -155,10 +155,15 @@ export function failureMessage(status: number, detail: unknown): PartnerFailure 
     };
   }
   if (status === 401 || status === 403) {
-    // Signed out, or refused by the relay before the partner was reached.
-    // Nothing was spent, and asking again from this page fails the same way.
+    // Signed out (401), or refused by the relay before the partner was reached
+    // (403: another origin, or an account this app does not serve). Nothing was
+    // spent, and asking again from this page fails the same way. A 403 is not
+    // always an ended session, so it does not claim one.
     return {
-      text: "Your session has ended. Sign in again to keep asking.",
+      text:
+        status === 401
+          ? "Your session has ended. Sign in again to keep asking."
+          : "This page can't send questions right now. Sign in again to continue.",
       endsConversation: false,
       retryable: false,
       action: { href: "/login", label: "Sign in" },
