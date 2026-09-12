@@ -10,6 +10,7 @@ import { AIReviewPanel } from "@/components/app/trade-detail/ai-review-panel";
 import { DeleteTradeDialog } from "@/components/app/trade-detail/delete-trade-dialog";
 import { TradeReadView } from "@/components/app/trade-detail/trade-read-view";
 import { ScreenshotGallery } from "@/components/app/trade-detail/screenshot-gallery";
+import { TradePartnerPanel } from "@/components/app/trade-detail/trade-partner-panel";
 import type { AIAnalysisDetail } from "@/lib/app/trade-analysis";
 import type { TradeDetail } from "@/lib/app/trades";
 
@@ -85,6 +86,10 @@ export function TradeDetailView({
             <TradeReadView trade={trade} />
             <AIReviewPanel trade={trade} analysis={analysis} />
             <ScreenshotGallery screenshots={trade.screenshots} asset={trade.asset} />
+            <TradePartnerPanel
+              tradeId={trade.id}
+              hasScreenshot={trade.screenshots.length > 0}
+            />
           </>
         )}
       </div>

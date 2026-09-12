@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageSquareText, X } from "lucide-react";
 
+import { PartnerConversation } from "@/components/app/partner/conversation";
 import { useModalTrap } from "@/lib/app/modal-trap";
 
 /**
@@ -102,12 +103,14 @@ export function PartnerDrawer() {
           </button>
         </div>
 
-        <div className="flex flex-1 items-center justify-center px-6 text-center">
-          <p className="max-w-xs text-sm text-muted">
-            The partner reads your journal and answers questions about what already
-            happened. It arrives with the review features.
-          </p>
-        </div>
+        {/* Mounted only while open, so closing the drawer ends the
+            conversation: the server keeps no copy, and a transcript that
+            outlived the drawer in memory would be one nobody can see. */}
+        <PartnerConversation
+          endpoint="/api/partner/turns"
+          intro="The partner reads your journal and answers questions about trades that already happened — what you did, what you wrote, and how it held up against your own rules. It does not suggest what to trade next."
+          placeholder="e.g. Where did I break my own risk rules this week?"
+        />
       </div>
     </div>
   );

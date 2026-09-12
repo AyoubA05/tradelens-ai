@@ -59,10 +59,20 @@ describe("partner drawer", () => {
     expect(screen.getByText(/already logged/i)).toBeInTheDocument();
   });
 
-  it("carries no conversation yet", () => {
+  it("holds the global conversation, sent to the global relay", () => {
     renderBoth();
     fireEvent.click(screen.getByRole("button", { name: /ask about a trade/i }));
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+    expect(screen.getByText(/does not suggest what to trade next/i)).toBeInTheDocument();
+  });
+
+  it("forgets the conversation when closed — the server keeps no copy either", () => {
+    renderBoth();
+    fireEvent.click(screen.getByRole("button", { name: /ask about a trade/i }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "half-typed" } });
+    fireEvent.click(screen.getByRole("button", { name: /close/i }));
+    fireEvent.click(screen.getByRole("button", { name: /ask about a trade/i }));
+    expect(screen.getByRole("textbox")).toHaveValue("");
   });
 
   it("does not leak open state into a fresh mount after unmounting", () => {
