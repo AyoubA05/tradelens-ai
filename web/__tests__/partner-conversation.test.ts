@@ -94,6 +94,18 @@ describe("folding a reply into the conversation", () => {
     expect(applyReply(first, reply("c-1", at))).toBeNull();
   });
 
+  it("checks EACH turn's position, not just the last one", () => {
+    // The assistant turn lands exactly where it should; only the user turn
+    // is out of place. A check that looked at one end of the pair would
+    // accept a user turn from anywhere in the chain.
+    const first = applyReply(EMPTY_CONVERSATION, reply("c-1", 0)) as PartnerConversation;
+    const misplaced = {
+      ...reply("c-1", 2),
+      turns: [turn(9, "user", "Why?"), turn(3, "assistant", "Because.")],
+    };
+    expect(applyReply(first, misplaced)).toBeNull();
+  });
+
   it("abandons the conversation when the pair is not user-then-assistant", () => {
     const swapped = {
       ...reply("c-1", 0),

@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { PartnerDrawer, PartnerLauncher } from "@/components/app/partner-drawer";
 
@@ -59,11 +59,28 @@ describe("partner drawer", () => {
     expect(screen.getByText(/already logged/i)).toBeInTheDocument();
   });
 
-  it("holds the global conversation, sent to the global relay", () => {
-    renderBoth();
-    fireEvent.click(screen.getByRole("button", { name: /ask about a trade/i }));
-    expect(screen.getByRole("textbox")).toBeInTheDocument();
-    expect(screen.getByText(/does not suggest what to trade next/i)).toBeInTheDocument();
+  it("holds the global conversation, sent to the global relay", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ ok: false, detail: "partner_unavailable" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      renderBoth();
+      fireEvent.click(screen.getByRole("button", { name: /ask about a trade/i }));
+      expect(screen.getByText(/does not suggest what to trade next/i)).toBeInTheDocument();
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: "Why?" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^ask$/i }));
+      });
+      // The drawer is not about one trade: a trade-scoped path here would
+      // quietly narrow every answer to whichever trade the path named.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0][0]).toBe("/api/partner/turns");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("forgets the conversation when closed — the server keeps no copy either", () => {
