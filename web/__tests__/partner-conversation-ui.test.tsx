@@ -239,9 +239,15 @@ describe("refusals", () => {
       await ask("Why?");
       await ask("And then?");
       expect(screen.getByRole("textbox")).toBeDisabled();
+      // The conversation clears only when the trader presses the button (plan
+      // Group D) — until then the earlier answer stays on screen. Without this,
+      // clearing it on the refusal itself went unnoticed (battery R2-U9).
+      expect(screen.getAllByTestId("partner-turn-assistant")).toHaveLength(1);
+      expect(screen.getByText("Because.")).toBeInTheDocument();
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: /start a new conversation/i }));
       });
+      expect(screen.queryAllByTestId("partner-turn-assistant")).toHaveLength(0);
       expect(screen.getByRole("textbox")).toBeEnabled();
       expect(screen.getByText("Intro copy.")).toBeInTheDocument();
 
