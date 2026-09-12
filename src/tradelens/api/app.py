@@ -64,6 +64,23 @@ def create_app() -> FastAPI:
             content={"detail": to_jsonable(jsonable_encoder(errors))},
         )
 
+    @app.exception_handler(Exception)
+    async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:
+        del request, exc
+        # Starlette converts an unhandled exception in its OUTERMOST
+        # middleware, above the `no_store` middleware below — so without this
+        # handler a 500 leaves as `text/plain` with no `Cache-Control`, which
+        # makes an authenticated route's error response cacheable and gives it
+        # a header set distinguishable from every other status.
+        #
+        # The body is fixed. Starlette's default 500 body is already text-free,
+        # but "already safe today" is not the same as "cannot regress".
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "internal_error"},
+            headers={"Cache-Control": "no-store, private"},
+        )
+
     @app.middleware("http")
     async def no_store(request, call_next):
         """Authenticated responses must not be cached anywhere.

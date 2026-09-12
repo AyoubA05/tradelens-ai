@@ -65,9 +65,16 @@ def _evidence(sources) -> list:
                 label=source.label,
                 occurred_on=source.occurred_on,
                 # Only a trade row is linkable; a journal note IS a trade row.
+                #
+                # The digit check is not paranoia about the service: this runs
+                # AFTER the provider has been paid and the turns signed, so a
+                # legacy or NULL `record_id` raising here would cost the trader
+                # the answer they just bought. An unlinkable source is shown
+                # without a link instead.
                 trade_id=(
                     int(source.record_id)
                     if source.kind in ("trade", "journal")
+                    and str(source.record_id or "").isdigit()
                     else None
                 ),
             )
