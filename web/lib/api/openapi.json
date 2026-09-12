@@ -1114,6 +1114,175 @@
         "title": "OverviewResponse",
         "type": "object"
       },
+      "PartnerEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "journal",
+              "trade",
+              "strategy"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "occurred_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred On"
+          },
+          "trade_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Id"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "occurred_on",
+          "trade_id"
+        ],
+        "title": "PartnerEvidence",
+        "type": "object"
+      },
+      "PartnerTranscriptTurn": {
+        "additionalProperties": false,
+        "properties": {
+          "iat": {
+            "title": "Iat",
+            "type": "integer"
+          },
+          "idx": {
+            "maximum": 39.0,
+            "minimum": 0.0,
+            "title": "Idx",
+            "type": "integer"
+          },
+          "mac": {
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Mac",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 20000,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "idx",
+          "role",
+          "text",
+          "iat",
+          "mac"
+        ],
+        "title": "PartnerTranscriptTurn",
+        "type": "object"
+      },
+      "PartnerTurnRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "client_turn_id": {
+            "maxLength": 64,
+            "minLength": 16,
+            "title": "Client Turn Id",
+            "type": "string"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "question": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "transcript": {
+            "items": {
+              "$ref": "#/components/schemas/PartnerTranscriptTurn"
+            },
+            "maxItems": 40,
+            "title": "Transcript",
+            "type": "array"
+          }
+        },
+        "required": [
+          "question",
+          "client_turn_id"
+        ],
+        "title": "PartnerTurnRequest",
+        "type": "object"
+      },
+      "PartnerTurnResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "conversation_id": {
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/PartnerEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "screenshot_attached": {
+            "title": "Screenshot Attached",
+            "type": "boolean"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/PartnerTranscriptTurn"
+            },
+            "title": "Turns",
+            "type": "array"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "turns",
+          "evidence",
+          "screenshot_attached"
+        ],
+        "title": "PartnerTurnResponse",
+        "type": "object"
+      },
       "PerformanceLens": {
         "additionalProperties": false,
         "description": "Lens 1.\n\n`win_rate` and `total_pnl` are INDEPENDENTLY SOURCED \u2014 the first from\n`result`, the second from `pnl` \u2014 so a sample with no monetary data at\nall still carries a valid win rate. The contract keeps them separate\nfields with separate states for that reason; a presentation that\ndegrades one because the other is undefined is misreading this shape.",
@@ -4787,6 +4956,55 @@
         "title": "TradeListResponse",
         "type": "object"
       },
+      "TradePartnerTurnRequest": {
+        "additionalProperties": false,
+        "description": "`include_screenshot` is a boolean and nothing else.\n\nThe service also requires exactly `True` (a stringified \"false\" is the\nclassic way a flag turns itself on); `strict=True` refuses it here first.\nThe request never names a screenshot: the server chooses the trade's own.",
+        "properties": {
+          "client_turn_id": {
+            "maxLength": 64,
+            "minLength": 16,
+            "title": "Client Turn Id",
+            "type": "string"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "include_screenshot": {
+            "default": false,
+            "title": "Include Screenshot",
+            "type": "boolean"
+          },
+          "question": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "transcript": {
+            "items": {
+              "$ref": "#/components/schemas/PartnerTranscriptTurn"
+            },
+            "maxItems": 40,
+            "title": "Transcript",
+            "type": "array"
+          }
+        },
+        "required": [
+          "question",
+          "client_turn_id"
+        ],
+        "title": "TradePartnerTurnRequest",
+        "type": "object"
+      },
       "TradeSummary": {
         "additionalProperties": false,
         "description": "One row of the Trades list \u2014 deliberately narrower than TradeDetail.\n\nThe list view does not need every SMC/ICT annotation field; Trade Detail\n(below) is where the full record lives.",
@@ -5728,6 +5946,53 @@
         "summary": "Get Overview",
         "tags": [
           "overview"
+        ]
+      }
+    },
+    "/v1/partner/turns": {
+      "post": {
+        "description": "One turn of the global, journal-grounded conversation.",
+        "operationId": "post_partner_turn_v1_partner_turns_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartnerTurnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerTurnResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Post Partner Turn",
+        "tags": [
+          "partner"
         ]
       }
     },
@@ -6794,6 +7059,64 @@
         "summary": "Enqueue Trade Journal",
         "tags": [
           "trades"
+        ]
+      }
+    },
+    "/v1/trades/{trade_id}/partner/turns": {
+      "post": {
+        "description": "One turn about ONE completed trade of this owner's.",
+        "operationId": "post_trade_partner_turn_v1_trades__trade_id__partner_turns_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trade_id",
+            "required": true,
+            "schema": {
+              "title": "Trade Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradePartnerTurnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerTurnResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Post Trade Partner Turn",
+        "tags": [
+          "partner"
         ]
       }
     },

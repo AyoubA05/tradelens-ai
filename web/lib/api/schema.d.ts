@@ -80,6 +80,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/partner/turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Partner Turn
+         * @description One turn of the global, journal-grounded conversation.
+         */
+        post: operations["post_partner_turn_v1_partner_turns_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/session/whoami": {
         parameters: {
             query?: never;
@@ -577,6 +597,26 @@ export interface paths {
          * @description Queue a written journal entry for one of the caller's own trades.
          */
         post: operations["enqueue_trade_journal_v1_trades__trade_id__journal_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/trades/{trade_id}/partner/turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Trade Partner Turn
+         * @description One turn about ONE completed trade of this owner's.
+         */
+        post: operations["post_trade_partner_turn_v1_trades__trade_id__partner_turns_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1136,6 +1176,58 @@ export interface components {
             risk: components["schemas"]["Risk"];
             sample: components["schemas"]["SampleFlags"];
             trajectory: components["schemas"]["Trajectory"];
+        };
+        /** PartnerEvidence */
+        PartnerEvidence: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "journal" | "trade" | "strategy";
+            /** Label */
+            label: string;
+            /** Occurred On */
+            occurred_on: string | null;
+            /** Trade Id */
+            trade_id: number | null;
+        };
+        /** PartnerTranscriptTurn */
+        PartnerTranscriptTurn: {
+            /** Iat */
+            iat: number;
+            /** Idx */
+            idx: number;
+            /** Mac */
+            mac: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
+            /** Text */
+            text: string;
+        };
+        /** PartnerTurnRequest */
+        PartnerTurnRequest: {
+            /** Client Turn Id */
+            client_turn_id: string;
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /** Question */
+            question: string;
+            /** Transcript */
+            transcript?: components["schemas"]["PartnerTranscriptTurn"][];
+        };
+        /** PartnerTurnResponse */
+        PartnerTurnResponse: {
+            /** Conversation Id */
+            conversation_id: string;
+            /** Evidence */
+            evidence: components["schemas"]["PartnerEvidence"][];
+            /** Screenshot Attached */
+            screenshot_attached: boolean;
+            /** Turns */
+            turns: components["schemas"]["PartnerTranscriptTurn"][];
         };
         /**
          * PerformanceLens
@@ -2081,6 +2173,29 @@ export interface components {
             trades: components["schemas"]["TradeSummary"][];
         };
         /**
+         * TradePartnerTurnRequest
+         * @description `include_screenshot` is a boolean and nothing else.
+         *
+         *     The service also requires exactly `True` (a stringified "false" is the
+         *     classic way a flag turns itself on); `strict=True` refuses it here first.
+         *     The request never names a screenshot: the server chooses the trade's own.
+         */
+        TradePartnerTurnRequest: {
+            /** Client Turn Id */
+            client_turn_id: string;
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /**
+             * Include Screenshot
+             * @default false
+             */
+            include_screenshot: boolean;
+            /** Question */
+            question: string;
+            /** Transcript */
+            transcript?: components["schemas"]["PartnerTranscriptTurn"][];
+        };
+        /**
          * TradeSummary
          * @description One row of the Trades list — deliberately narrower than TradeDetail.
          *
@@ -2396,6 +2511,65 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    post_partner_turn_v1_partner_turns_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartnerTurnRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartnerTurnResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -3162,6 +3336,67 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    post_trade_partner_turn_v1_trades__trade_id__partner_turns_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trade_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TradePartnerTurnRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartnerTurnResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
