@@ -506,8 +506,15 @@ def test_current_date_is_derived_from_each_owner_s_timezone(two_users):
     from src.tradelens.services import app_settings
 
     east_of_dateline, west_of_utc = two_users
-    app_settings.set_timezone(east_of_dateline, "Pacific/Kiritimati")
-    app_settings.set_timezone(west_of_utc, "America/Los_Angeles")
+    # Stored values, not picks from the Settings allowlist (Phase 9, S6): the
+    # date rule must hold for any saved zone, including legacy ones outside
+    # the six a trader can choose today, so they are seeded directly.
+    app_settings.set_setting(
+        east_of_dateline, app_settings._TIMEZONE_KEY, "Pacific/Kiritimati"
+    )
+    app_settings.set_setting(
+        west_of_utc, app_settings._TIMEZONE_KEY, "America/Los_Angeles"
+    )
     instant = dt.datetime(2026, 8, 22, 11, 30, tzinfo=dt.timezone.utc)
 
     assert overview._today_for_owner(east_of_dateline, now_utc=instant) == dt.date(

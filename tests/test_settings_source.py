@@ -86,3 +86,33 @@ def test_no_module_reads_a_deployment_setting_via_os_getenv_directly():
         "these read a deployment setting directly and will miss st.secrets "
         f"on Streamlit Cloud: {offenders}"
     )
+
+
+# ── Phase 9: deletions go through the object-aware services ───────────────
+
+import re as _re  # noqa: E402
+from pathlib import Path as _Path  # noqa: E402
+
+_PAGE = (
+    _Path(__file__).resolve().parents[1] / "src/tradelens/ui/pages/9_Settings.py"
+).read_text(encoding="utf-8")
+
+
+def test_the_streamlit_page_deletes_through_the_object_aware_services():
+    assert "delete_all_trades_and_objects(uid)" in _PAGE
+    assert "delete_account_and_objects(uid)" in _PAGE
+    # The row-only services are no longer imported by the page at all.
+    assert not _re.search(r"^\s+delete_all_trades,\s*$", _PAGE, _re.M)
+    assert not _re.search(r"import delete_account\b", _PAGE)
+    assert not _re.search(r"\bdelete_all_trades\(uid\)", _PAGE)
+    assert not _re.search(r"\bdelete_account\(uid\)", _PAGE)
+
+
+def test_a_blocked_deletion_says_nothing_was_deleted_and_never_reports_success():
+    assert "Some screenshots could not be removed, so nothing was deleted." in _PAGE
+    # Both handlers branch on the outcome before any success message.
+    assert _PAGE.count("if outcome.blocked:") == 2
+
+
+def test_an_unlisted_timezone_has_its_own_fixed_message():
+    assert "Choose one of the listed timezones." in _PAGE

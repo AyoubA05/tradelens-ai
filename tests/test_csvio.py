@@ -104,3 +104,86 @@ def test_import_reports_bad_rows_individually(in_memory_db, monkeypatch):
 
     assert inserted == 1
     assert len(errors) == 1 and "Row 3" in errors[0]
+
+
+# ── Phase 9, decisions S4 and S5 ──────────────────────────────────────────
+
+import pandas as _pd  # noqa: E402
+import pytest as _pytest  # noqa: E402
+
+from src.tradelens.services import csvio as _csvio  # noqa: E402
+
+
+@_pytest.mark.parametrize("prefix", ["=", "+", "-", "@", "\t", "\r"])
+def test_a_formula_leading_text_cell_is_neutralised_and_restored(prefix):
+    raw = prefix + 'HYPERLINK("http://x")'
+    assert _csvio.neutralise_formula(raw) == "'" + raw
+    assert _csvio.restore_formula(_csvio.neutralise_formula(raw)) == raw
+
+
+@_pytest.mark.parametrize("text", ["took the sweep", "'quoted on purpose", "", "'"])
+def test_ordinary_text_is_untouched_both_ways(text):
+    assert _csvio.neutralise_formula(text) == text
+    assert _csvio.restore_formula(text) == text
+
+
+def test_numeric_columns_are_never_treated_as_text():
+    assert _csvio.NUMERIC_COLUMNS <= set(_csvio.CSV_COLUMNS)
+    assert not (_csvio.NUMERIC_COLUMNS & _csvio.TEXT_COLUMNS)
+    assert "notes" in _csvio.TEXT_COLUMNS and "pnl" in _csvio.NUMERIC_COLUMNS
+
+
+def test_export_neutralises_every_text_column_but_not_negative_numbers():
+    frame = _pd.DataFrame(
+        [
+            {
+                "notes": "=cmd|' /C calc'!A0",
+                "setup_type": "@SUM(A1)",
+                "emotions_after": "+1 confident",
+                "pnl": -120.5,
+                "rr_realized": -1.2,
+            }
+        ]
+    )
+    text = _csvio.export_trades_csv(frame).decode("utf-8")
+    assert "'=cmd" in text and "'@SUM" in text and "'+1 confident" in text
+    assert ",-120.5," in text and "-1.2" in text
+    assert "'-120.5" not in text
+
+
+def test_an_import_over_the_row_cap_inserts_nothing(monkeypatch):
+    header = "trade_date,asset,direction,result,pnl\n"
+    body = "2026-09-01,NQ,Long,Win,1\n" * (_csvio.MAX_IMPORT_ROWS + 1)
+    inserted = []
+    monkeypatch.setattr(
+        _csvio, "create_trade", lambda data, user_id: inserted.append(data)
+    )
+    monkeypatch.setattr(_csvio, "trade_hash_exists", lambda h, user_id: False)
+    with _pytest.raises(_csvio.TooManyRows):
+        _csvio.import_trades_csv_text(header + body, 1)
+    assert inserted == []
+
+
+def test_an_import_exactly_at_the_row_cap_is_allowed(monkeypatch):
+    monkeypatch.setattr(_csvio, "MAX_IMPORT_ROWS", 3)
+    header = "trade_date,asset,direction,result,pnl\n"
+    rows = "".join("2026-09-0%d,NQ,Long,Win,%d\n" % (i + 1, i) for i in range(3))
+    inserted = []
+    monkeypatch.setattr(
+        _csvio, "create_trade", lambda data, user_id: inserted.append(data)
+    )
+    monkeypatch.setattr(_csvio, "trade_hash_exists", lambda h, user_id: False)
+    assert _csvio.import_trades_csv_text(header + rows, 1) == (3, 0, [])
+    assert len(inserted) == 3
+
+
+def test_a_neutralised_export_cell_imports_back_as_the_original_text(monkeypatch):
+    header = "trade_date,asset,direction,result,pnl,notes\n"
+    row = "2026-09-01,NQ,Long,Win,10,'=not a formula\n"
+    inserted = []
+    monkeypatch.setattr(
+        _csvio, "create_trade", lambda data, user_id: inserted.append(data)
+    )
+    monkeypatch.setattr(_csvio, "trade_hash_exists", lambda h, user_id: False)
+    _csvio.import_trades_csv_text(header + row, 1)
+    assert inserted[0]["notes"] == "=not a formula"

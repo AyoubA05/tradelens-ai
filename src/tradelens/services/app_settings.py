@@ -78,9 +78,30 @@ def get_timezone(user_id: int) -> str:
     return get_setting(user_id, _TIMEZONE_KEY, DEFAULT_TIMEZONE) or DEFAULT_TIMEZONE
 
 
+# The six options the Streamlit page offered, kept as a strict allowlist
+# (decision S6): no new dependency, and nothing relies on the host's tz
+# database. `DEFAULT_TIMEZONE` is the first entry.
+TIMEZONE_OPTIONS = (
+    "America/New_York",
+    "America/Chicago",
+    "Europe/London",
+    "Asia/Tokyo",
+    "Asia/Dubai",
+    "UTC",
+)
+
+
 def set_timezone(user_id: int, tz: str) -> None:
-    """Persist one user's timezone; a blank value becomes the default."""
-    set_setting(user_id, _TIMEZONE_KEY, tz or DEFAULT_TIMEZONE)
+    """Persist one user's timezone; a blank value becomes the default.
+
+    Anything outside `TIMEZONE_OPTIONS` is refused before it is stored: every
+    date the app derives for this owner — "today", the trading week, New
+    Trade's session — is read through this value, and nothing validated it.
+    """
+    value = tz or DEFAULT_TIMEZONE
+    if value not in TIMEZONE_OPTIONS:
+        raise ValueError("unsupported_timezone")
+    set_setting(user_id, _TIMEZONE_KEY, value)
 
 
 def today_for_owner(owner: int, *, now_utc: Optional[datetime] = None) -> date:

@@ -1851,8 +1851,10 @@ def test_settings_keeps_every_action_it_had():
         "clear_sample_trades(",
         "set_timezone(",
         "set_email(",
-        "delete_all_trades(",
-        "delete_account(",
+        # Phase 9: both deletions go through the object-aware services, which
+        # remove stored screenshots before any row (services/data_deletion.py).
+        "delete_all_trades_and_objects(",
+        "delete_account_and_objects(",
         "monthly_cost_by_feature(",
     ):
         assert call in src, call

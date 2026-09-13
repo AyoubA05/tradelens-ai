@@ -42,11 +42,11 @@ from src.tradelens.services.sample_data import (  # noqa: E402
     count_sample_trades,
     load_sample_trades,
 )
-from src.tradelens.services.trade_service import (  # noqa: E402
-    delete_all_trades,
-    get_trades,
+from src.tradelens.services.trade_service import get_trades  # noqa: E402
+from src.tradelens.services.data_deletion import (  # noqa: E402
+    delete_account_and_objects,
+    delete_all_trades_and_objects,
 )
-from src.tradelens.services.account import delete_account  # noqa: E402
 from src.tradelens.services.password_reset import (  # noqa: E402
     email_configured as reset_email_configured,
 )
@@ -89,6 +89,10 @@ _log = logging.getLogger(__name__)
 # log with its stack, and the trader gets a sentence they can act on. Driver
 # text can carry a database URL or a fragment of the row.
 _GENERIC_FAILURE = "That did not work. Try again."
+
+# A deletion that could not remove every stored screenshot deletes nothing
+# (services/data_deletion.py). Said plainly, so it is never read as success.
+_CLEANUP_BLOCKED = "Some screenshots could not be removed, so nothing was deleted."
 
 
 def _render_setting_status(saved: bool, message: str) -> None:
@@ -236,6 +240,10 @@ _chosen_tz = st.selectbox(
 if _has_settings_owner and _chosen_tz != _current_tz:
     try:
         set_timezone(uid, _chosen_tz)
+    except ValueError:
+        # The only ValueError is the allowlist refusing the value (S6); the
+        # reason is fixed, so it is safe to say.
+        _render_setting_status(False, "Choose one of the listed timezones.")
     except Exception:  # noqa: BLE001 — never crash the page
         _log.exception("timezone save failed for user %s", uid)
         _render_setting_status(False, _GENERIC_FAILURE)
@@ -406,12 +414,17 @@ with st.container(key="tl_danger_zone"):
             disabled=not _has_settings_owner or typed != "DELETE",
         ):
             try:
-                deleted = delete_all_trades(uid)
+                outcome = delete_all_trades_and_objects(uid)
             except Exception:  # noqa: BLE001 — never crash the page
                 _log.exception("delete-all-trades failed for user %s", uid)
                 _render_setting_status(False, _GENERIC_FAILURE)
             else:
-                _render_setting_status(True, f"Deleted {deleted} trades.")
+                if outcome.blocked:
+                    # Never a success message while an owned screenshot that
+                    # should have been removed is still stored.
+                    _render_setting_status(False, _CLEANUP_BLOCKED)
+                else:
+                    _render_setting_status(True, f"Deleted {outcome.deleted} trades.")
 
     with st.expander("Delete my account"):
         _note(
@@ -440,11 +453,15 @@ with st.container(key="tl_danger_zone"):
             or _confirm_account.strip() != "DELETE MY ACCOUNT",
         ):
             try:
-                if delete_account(uid):
+                outcome = delete_account_and_objects(uid)
+            except Exception:  # noqa: BLE001 — never crash the page
+                _log.exception("account deletion failed for user %s", uid)
+                _render_setting_status(False, _GENERIC_FAILURE)
+            else:
+                if outcome.blocked:
+                    _render_setting_status(False, _CLEANUP_BLOCKED)
+                elif outcome.deleted:
                     sign_out()
                     st.stop()
                 else:
                     _render_setting_status(False, "That account no longer exists.")
-            except Exception:  # noqa: BLE001 — never crash the page
-                _log.exception("account deletion failed for user %s", uid)
-                _render_setting_status(False, _GENERIC_FAILURE)

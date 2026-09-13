@@ -331,3 +331,56 @@ def test_settings_stays_the_quietest_destination():
     src = _src()
     assert 'type="primary"' not in src
     assert "plotly_chart" not in src
+
+
+# ── Phase 9, decision S6: a strict server-side allowlist ──────────────────
+
+
+def test_timezone_options_are_the_streamlit_six_in_order():
+    assert app_settings.TIMEZONE_OPTIONS == (
+        "America/New_York",
+        "America/Chicago",
+        "Europe/London",
+        "Asia/Tokyo",
+        "Asia/Dubai",
+        "UTC",
+    )
+    assert app_settings.DEFAULT_TIMEZONE == app_settings.TIMEZONE_OPTIONS[0]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["Mars/Olympus", "america/new_york", " UTC", "UTC ", "EST", "Etc/GMT+5", "../UTC"],
+)
+def test_an_unlisted_timezone_is_refused_and_nothing_is_stored(
+    in_memory_db, two_users, bad
+):
+    _alice, bob = two_users
+    app_settings.set_timezone(bob.id, "Europe/London")
+    with pytest.raises(ValueError, match="unsupported_timezone"):
+        app_settings.set_timezone(bob.id, bad)
+    assert app_settings.get_timezone(bob.id) == "Europe/London"
+
+
+@pytest.mark.parametrize(
+    "good",
+    [
+        "America/New_York",
+        "America/Chicago",
+        "Europe/London",
+        "Asia/Tokyo",
+        "Asia/Dubai",
+        "UTC",
+    ],
+)
+def test_every_listed_timezone_is_accepted(in_memory_db, two_users, good):
+    _alice, bob = two_users
+    app_settings.set_timezone(bob.id, good)
+    assert app_settings.get_timezone(bob.id) == good
+
+
+def test_a_blank_timezone_still_means_the_default(in_memory_db, two_users):
+    _alice, bob = two_users
+    app_settings.set_timezone(bob.id, "UTC")
+    app_settings.set_timezone(bob.id, "")
+    assert app_settings.get_timezone(bob.id) == app_settings.DEFAULT_TIMEZONE

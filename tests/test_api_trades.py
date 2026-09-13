@@ -1998,15 +1998,17 @@ def test_create_todays_date_in_a_zone_ahead_of_utc_is_accepted(
     UTC-only ceiling it is tomorrow and gets refused — see the mutation
     check in this file's companion report.
 
-    The timezone is set through `app_settings.set_timezone`, the app's own
-    mechanism, not by patching resolution internals — the only thing patched
-    is the wall clock (`frozen_clock`), never the owner-date computation
-    itself.
+    The timezone is stored through `app_settings.set_setting`, the app's own
+    storage, not by patching resolution internals — the only thing patched is
+    the wall clock (`frozen_clock`), never the owner-date computation itself.
+    It is seeded rather than chosen through `set_timezone` because Phase 9
+    (S6) limits new choices to six zones, while a saved legacy zone such as
+    Kiritimati must still resolve correctly.
     """
     from src.tradelens.services import app_settings
 
     user_id, handle = website_session_handle
-    app_settings.set_timezone(user_id, "Pacific/Kiritimati")
+    app_settings.set_setting(user_id, app_settings._TIMEZONE_KEY, "Pacific/Kiritimati")
 
     r = _post(client, handle, _create_body(trade_date="2026-08-21"))
 
@@ -2021,7 +2023,7 @@ def test_create_tomorrow_in_the_owner_s_own_zone_is_still_422(
     from src.tradelens.services import app_settings
 
     user_id, handle = website_session_handle
-    app_settings.set_timezone(user_id, "Pacific/Kiritimati")
+    app_settings.set_setting(user_id, app_settings._TIMEZONE_KEY, "Pacific/Kiritimati")
 
     # At the frozen instant, Kiritimati's own today is 2026-08-21 (see the
     # headline test above); 08-22 is tomorrow in that same zone.
@@ -2046,7 +2048,9 @@ def test_create_with_an_invalid_saved_timezone_falls_back_and_still_creates(
     from src.tradelens.services import app_settings
 
     user_id, handle = website_session_handle
-    app_settings.set_timezone(user_id, "Not/AZone")
+    # A corrupted saved value cannot be written through `set_timezone` any
+    # more (S6), so it is seeded directly — the fallback must still hold.
+    app_settings.set_setting(user_id, app_settings._TIMEZONE_KEY, "Not/AZone")
 
     r = _post(client, handle, _create_body(trade_date="2026-08-10"))
 
