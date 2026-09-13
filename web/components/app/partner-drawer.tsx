@@ -68,10 +68,12 @@ export function PartnerDrawer() {
     initialFocusRef: closeRef,
   });
 
-  if (!open) return null;
-
   return (
-    <div ref={rootRef} className="fixed inset-0 z-40">
+    <div
+      ref={rootRef}
+      hidden={!open}
+      className={open ? "fixed inset-0 z-40" : "hidden"}
+    >
       <button
         type="button"
         aria-label="Dismiss AI Partner"
@@ -104,9 +106,10 @@ export function PartnerDrawer() {
           </button>
         </div>
 
-        {/* Mounted only while open, so closing the drawer ends the
-            conversation: the server keeps no copy, and a transcript that
-            outlived the drawer in memory would be one nobody can see. */}
+        {/* Kept mounted while the drawer is dismissed. The browser owns the
+            only transcript, and the footer promises it clears on reload or
+            sign-out—not on an ordinary close. An ended conversation likewise
+            stays available until the trader explicitly starts a new one. */}
         <PartnerConversation
           endpoint="/api/partner/turns"
           intro="The partner reads your journal and answers questions about trades that already happened — what you did, what you wrote, and how it held up against your own rules. It does not suggest what to trade next."

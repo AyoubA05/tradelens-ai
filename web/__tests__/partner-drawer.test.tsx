@@ -2,7 +2,10 @@ import "@testing-library/jest-dom/vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { PartnerDrawer, PartnerLauncher } from "@/components/app/partner-drawer";
+import {
+  PartnerDrawer,
+  PartnerLauncher,
+} from "@/components/app/partner-drawer";
 
 function renderBoth() {
   return render(
@@ -68,9 +71,15 @@ describe("partner drawer", () => {
     vi.stubGlobal("fetch", fetchMock);
     try {
       renderBoth();
-      fireEvent.click(screen.getByRole("button", { name: /ask about a trade/i }));
-      expect(screen.getByText(/does not suggest what to trade next/i)).toBeInTheDocument();
-      fireEvent.change(screen.getByRole("textbox"), { target: { value: "Why?" } });
+      fireEvent.click(
+        screen.getByRole("button", { name: /ask about a trade/i }),
+      );
+      expect(
+        screen.getByText(/does not suggest what to trade next/i),
+      ).toBeInTheDocument();
+      fireEvent.change(screen.getByRole("textbox"), {
+        target: { value: "Why?" },
+      });
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: /^ask$/i }));
       });
@@ -91,17 +100,84 @@ describe("partner drawer", () => {
       "Where did I break my own rules?",
       "Which of my logged mistakes cost the most?",
     ]) {
-      expect(screen.getByRole("button", { name: question })).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: question }),
+      ).toBeInTheDocument();
     }
   });
 
-  it("forgets the conversation when closed — the server keeps no copy either", () => {
+  it("keeps the conversation when dismissed and clears it only on a fresh mount", () => {
     renderBoth();
     fireEvent.click(screen.getByRole("button", { name: /ask about a trade/i }));
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "half-typed" } });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "half-typed" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /close/i }));
     fireEvent.click(screen.getByRole("button", { name: /ask about a trade/i }));
-    expect(screen.getByRole("textbox")).toHaveValue("");
+    expect(screen.getByRole("textbox")).toHaveValue("half-typed");
+  });
+
+  it("keeps an ended conversation visible across dismiss and reopen", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          conversation_id: "conversation-0001",
+          turns: [
+            { idx: 0, role: "user", text: "Why?", iat: 1, mac: "a".repeat(64) },
+            {
+              idx: 1,
+              role: "assistant",
+              text: "Because.",
+              iat: 1,
+              mac: "b".repeat(64),
+            },
+          ],
+          evidence: [],
+          screenshot_attached: false,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({ ok: false, detail: "transcript_invalid" }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      renderBoth();
+      fireEvent.click(
+        screen.getByRole("button", { name: /ask about a trade/i }),
+      );
+      fireEvent.change(screen.getByRole("textbox"), {
+        target: { value: "Why?" },
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^ask$/i }));
+      });
+      fireEvent.change(screen.getByRole("textbox"), {
+        target: { value: "And then?" },
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^ask$/i }));
+      });
+      expect(screen.getByText("Because.")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /start a new conversation/i }),
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: /close/i }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /ask about a trade/i }),
+      );
+      expect(screen.getByText("Because.")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /start a new conversation/i }),
+      ).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("does not leak open state into a fresh mount after unmounting", () => {
