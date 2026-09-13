@@ -133,6 +133,14 @@ def test_no_trader_text_reaches_the_system_message_through_the_real_client(
     partner.partner_reply(
         _every_source_history(),
         reflective_context=f"{M}-journal-note",
+        trade_context=partner.build_trade_context(
+            {"notes": f"{M}-trade-note"},
+            {
+                "raw_response_json": (
+                    '{"notes_to_user":"%s-image-observation"}' % M
+                )
+            },
+        ),
         strategy_input={"name": f"{M}-playbook"},
     )
     kwargs = client.messages.create.call_args[1]
@@ -143,7 +151,15 @@ def test_no_trader_text_reaches_the_system_message_through_the_real_client(
     assert M not in system_text
     assert partner.build_partner_system() in system_text
     sent = str(kwargs["messages"])
-    for source in ("journal-note", "playbook", "correction", "old-question-0"):
+    for source in (
+        "journal-note",
+        "trade-note",
+        "image-observation",
+        "playbook",
+        "correction",
+        "old-question-0",
+        "old-answer-0",
+    ):
         assert f"{M}-{source}" in sent, source
 
 

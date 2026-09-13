@@ -158,6 +158,12 @@ def test_apply_scope_guard_fires_on_signal_seeking():
         "Open a short position in EURUSD at 1.08 with a stop at 1.09.",
         "Purchase TSLA tomorrow at the open.",
         "Consider going long NQ on the next pullback.",
+        "Go long NQ tomorrow at the open.",
+        "Short ES at 5000 with a stop at 5010.",
+        "Your next trade should be long after the pullback.",
+        "I would buy NQ if it breaks 20000.",
+        "Place a buy order at 20000 tomorrow.",
+        "Look to sell EURUSD next week.",
     ),
 )
 def test_apply_scope_guard_rejects_position_instructions(unsafe_reply):
@@ -166,6 +172,29 @@ def test_apply_scope_guard_rejects_position_instructions(unsafe_reply):
     from src.tradelens.services.partner import _REDIRECT_MESSAGE, _apply_scope_guard
 
     assert _apply_scope_guard(unsafe_reply) == _REDIRECT_MESSAGE
+
+
+@pytest.mark.parametrize(
+    "bad_reply", ["", "   ", None, {"text": "review"}, "x" * 20_001]
+)
+def test_partner_reply_fails_closed_on_a_malformed_provider_reply(
+    monkeypatch, bad_reply
+):
+    """A billed response without usable text must not become a blank or invalid
+    signed assistant turn. Usage is still reported before the fixed failure."""
+    from src.tradelens.services.partner import PartnerError, partner_reply
+
+    reported = []
+    monkeypatch.setattr(
+        "src.tradelens.services.partner.converse",
+        lambda *_a, **_k: (bad_reply, "USAGE"),
+    )
+    with pytest.raises(PartnerError):
+        partner_reply(
+            [{"role": "user", "content": "Review my completed trade."}],
+            on_usage=reported.append,
+        )
+    assert reported == ["USAGE"]
 
 
 def test_apply_scope_guard_passes_normal_review():

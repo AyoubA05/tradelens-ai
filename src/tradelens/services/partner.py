@@ -26,6 +26,10 @@ import re
 from typing import Callable, Optional
 
 from src.tradelens.services.ai_client import AIUnavailable, Usage, converse, load_prompt
+from src.tradelens.services.ai_text_guard import (
+    ForwardLookingContent,
+    reject_forward_looking,
+)
 from src.tradelens.services.partner_context import MAX_CONTEXT_CHARS
 from src.tradelens.services.prompt_inputs import (
     MARKUP_IN_PROMPT,
@@ -38,6 +42,9 @@ PARTNER_EFFORT = "medium"
 # A conversational reply, not an essay. Also keeps a 40-turn signed transcript
 # far below the API's 1 MiB request cap.
 PARTNER_MAX_TOKENS = 1500
+# Must stay aligned with the signed-turn wire contract. Refuse before signing
+# rather than letting response-model validation fail after a paid call.
+PARTNER_MAX_REPLY_CHARS = 20_000
 
 # Hardcoded scope guard — ALWAYS present in the system prompt, regardless of
 # trade, strategy, or conversation state. The post-check below is the backstop.
@@ -92,6 +99,8 @@ _POSITION_INSTRUCTION_PATTERNS = (
     r"\b(?:open|enter|take)\s+(?:a\s+)?(?:long|short)\s+(?:position|trade)\b",
     r"\bpurchase\b[^\n.!?]{0,80}\b(?:tomorrow|next\s+(?:session|week)|at\s+the\s+open)\b",
     r"\bconsider\s+(?:going|getting)\s+(?:long|short)\b",
+    r"\bnext\s+trade\b[^\n.!?]{0,60}\b(?:buy|sell|long|short|enter)\b",
+    r"\bi\s+would\s+(?:buy|sell|long|short|go\s+(?:long|short))\b",
 )
 
 _DEMO_PARTNER_REPLY = (
@@ -378,9 +387,17 @@ def _summarize(older: list) -> str:
 def _apply_scope_guard(text: str) -> str:
     """Replace any signal-seeking / predictive reply with the redirect message."""
     low = text.lower()
-    if any(marker in low for marker in _SIGNAL_MARKERS) or any(
+    unsafe = any(marker in low for marker in _SIGNAL_MARKERS) or any(
         re.search(pattern, low) for pattern in _POSITION_INSTRUCTION_PATTERNS
-    ):
+    )
+    try:
+        # Use the same broader output policy as summaries, journals and grades
+        # as well as the Partner-specific phrases above. A separate, narrower
+        # copy had drifted and let ordinary live instructions through.
+        reject_forward_looking(text)
+    except ForwardLookingContent:
+        unsafe = True
+    if unsafe:
         return _REDIRECT_MESSAGE
     return text
 
@@ -498,5 +515,14 @@ def partner_reply(
 
     if isinstance(content, AIUnavailable):
         raise PartnerError(content.reason)
+    if (
+        not isinstance(content, str)
+        or not content.strip()
+        or len(content) > PARTNER_MAX_REPLY_CHARS
+    ):
+        # The provider call may already have been billed, so this check stays
+        # after `on_usage`. Never sign or display a blank/non-text assistant
+        # turn, and keep the API failure on its fixed 503 path.
+        raise PartnerError("The AI Partner returned no usable text.")
 
     return _apply_scope_guard(content), usage
