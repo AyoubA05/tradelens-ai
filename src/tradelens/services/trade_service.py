@@ -8,7 +8,13 @@ from typing import List, Optional
 from sqlalchemy import func, update
 from sqlalchemy.orm import Session, selectinload
 
-from src.tradelens.db.models import AIAnalysis, Correction, Screenshot, Trade
+from src.tradelens.db.models import (
+    AIAnalysis,
+    Correction,
+    Screenshot,
+    Trade,
+    TradeSummaryResult,
+)
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services.app_settings import get_timezone
 from src.tradelens.services.assets import detect_asset_class
@@ -486,7 +492,14 @@ def delete_all_trades(user_id: int) -> int:
             trade_id
             for (trade_id,) in db.query(Trade.id).filter(Trade.user_id == user_id).all()
         ]
+        # Decision S7: summaries are derived from this owner's trades and can
+        # quote their notes, so "every trade you have logged" takes them too —
+        # including summaries left over after the trades themselves are gone.
+        db.query(TradeSummaryResult).filter(
+            TradeSummaryResult.user_id == user_id
+        ).delete(synchronize_session=False)
         if not trade_ids:
+            db.commit()
             return 0
 
         db.query(Correction).filter(Correction.trade_id.in_(trade_ids)).delete(

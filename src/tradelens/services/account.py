@@ -21,18 +21,25 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional
 
 from sqlalchemy.orm import Session
 
 from src.tradelens.db.models import (
     AIAnalysis,
+    AIJob,
     AIUsageLog,
+    AuthHandoff,
+    AuthSession,
     Correction,
+    EmailVerification,
+    PasswordReset,
     PerformanceMetrics,
     Screenshot,
     Strategy,
     Trade,
+    TradeDraft,
+    TradeSummaryResult,
     User,
     UserSetting,
     WeeklyReview,
@@ -51,23 +58,45 @@ ANONYMISED = frozenset({"ai_usage_log"})
 
 # Deleted wholesale by owner. Kept as a list so the sweep is explicit and a
 # reviewer can see every table that holds personal data in one place.
+#
+# Deleted AFTER the owner's trades: `trades.strategy_id` references
+# `strategies` without cascading.
+#
+# The auth and job tables are listed even where PostgreSQL would cascade.
+# `auth_sessions` and `auth_handoffs` do NOT cascade (NOT NULL, no ondelete),
+# so a single remaining row makes the user delete fail on PostgreSQL, and
+# `revoke_all_for_user` only marks sessions revoked. The cascading ones are
+# deleted explicitly so SQLite, which does not enforce foreign keys here,
+# behaves the same as PostgreSQL. `tests/test_account_deletion_references.py`
+# fails if a table with a `user_id` column has no deletion decision.
 _OWNED_BY_USER = (
     Strategy,
     UserSetting,
     WeeklyReview,
     PerformanceMetrics,
     Correction,
+    AuthSession,
+    AuthHandoff,
+    EmailVerification,
+    PasswordReset,
+    AIJob,
+    TradeSummaryResult,
+    TradeDraft,
 )
 
 
-def _resolve_owned_files(paths: Iterable[str]) -> list[Path]:
+def _resolve_owned_files(
+    paths: Iterable[str], root: Optional[Path] = None
+) -> list[Path]:
     """Absolute paths that are genuinely inside the screenshots directory.
 
-    Anything else — an absolute path elsewhere, or one escaping via `..` —
-    is dropped rather than deleted.
+    Anything else — an absolute path elsewhere, one escaping via `..`, or a
+    symlink that resolves outside the root — is dropped rather than deleted.
+    `root` defaults to `SCREENSHOTS_DIR`; `data_deletion` passes it explicitly
+    so the confinement check is shared rather than copied.
     """
     try:
-        root = SCREENSHOTS_DIR.resolve()
+        root = (root if root is not None else SCREENSHOTS_DIR).resolve()
     except OSError:  # pragma: no cover — unreadable root
         return []
 
