@@ -8203,8 +8203,8 @@ next mutation:
 ## Verification actually run after fixes
 
 - Phase 8 Python focus: **181 passed**; expanded Partner service/API subset after the safety fix:
-  **157 passed**.
-- Web Partner focus: **137 passed / 5 files**; post-lifecycle subset: **89 passed / 4 files**; drawer
+  **157 passed**; final post-commit Partner boundary subset: **198 passed**.
+- Web Partner focus: **138 passed / 5 files**; post-lifecycle subset: **89 passed / 4 files**; drawer
   regression: **12 passed**.
 - Full web: **1735 passed / 97 files**. TypeScript clean. ESLint 0 errors with the two existing
   `modal-trap.ts` warnings.

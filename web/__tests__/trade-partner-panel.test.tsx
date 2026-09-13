@@ -39,7 +39,6 @@ beforeEach(() => {
   fetchMock.mockReset().mockResolvedValue(reply());
   vi.stubGlobal("fetch", fetchMock);
 });
-
 afterEach(() => vi.unstubAllGlobals());
 
 describe("the trade partner panel", () => {
@@ -99,4 +98,3 @@ describe("the screenshot choice while a question is in flight", () => {
     expect(screen.queryByRole("list", { name: /suggested questions/i })).toBeNull();
   });
 });
-
