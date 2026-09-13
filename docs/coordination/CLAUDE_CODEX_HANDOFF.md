@@ -8241,3 +8241,31 @@ Streamlit Analytics assertions also remain carried forward.
 **Independent verdict: Phase 8 is cleared for development merge with fix-forward commits `c26f182`
 and `374d508`. It is not cleared for production deployment until the carried gates pass. Do not
 begin Phase 9 as part of this review.**
+
+## Merge note — the Partner output guard, and the hard pre-release gates (2026-09-13)
+
+**The Partner output guard is defense-in-depth, not a semantic guarantee.** `_apply_scope_guard`
+(`src/tradelens/services/partner.py`) replaces a reply with the fixed redirect when it matches a
+Partner marker phrase (`_SIGNAL_MARKERS`), a position-instruction pattern
+(`_POSITION_INSTRUCTION_PATTERNS`), or the shared forward-looking policy (`reject_forward_looking`,
+also used by summaries, journals and grades). It is a lexical check over text. It catches the
+phrasings and bypasses that tests and review have reproduced; it cannot recognise a trade idea,
+prediction or signal expressed in words it has no pattern for, and passing it is not evidence that a
+reply is in scope. The primary controls remain structural — the constant system message and scope
+guard prompt, user-role-only trader data, and no streaming so every reply is checked before display —
+and the guard backs them up. Only the live Anthropic adversarial smoke below can probe semantic
+variants. Do not describe this guard as preventing advice.
+
+**Hard pre-release gates.** Phase 8 is merged for development only. None of these has run, and none
+may be waived by this merge:
+
+1. Real PostgreSQL concurrency — the Partner ticket's owner-row lock and Phase 7's first-save CAS,
+   exercised on PostgreSQL, not SQLite.
+2. Authenticated desktop + true 375px browser smoke — the drawer and the per-trade panel, signed in.
+3. Docker build, startup and health.
+4. Live Anthropic adversarial smoke — the Partner and its scope guard against semantic variants.
+5. Dependency audit.
+6. Live R2/browser verification — including the per-trade screenshot attachment.
+
+Also carried forward unchanged: the narrow in-flight Streamlit request race until Phase 10, and the
+two known pre-existing Streamlit Analytics assertions in `test_pages_boot.py`.
