@@ -7982,8 +7982,9 @@ and never offers a retry for `duplicate_turn` (that send is already in flight). 
 
 1. **No token streaming** — the whole reply passes the scope guard before any of it is shown.
 2. **Screenshot by reference** — never an id or key from the browser.
-3. **Browser-held transcript** — signed turns in React state only; no Web Storage; discarded on reload,
-   sign-out or closing the drawer.
+3. **Browser-held transcript** — signed turns in React state only; no Web Storage; discarded on reload
+   or sign-out. Dismissing and reopening the drawer preserves the in-memory transcript; only the
+   explicit "Start a new conversation" action resets an ended conversation.
 
 ## Where each invariant is pinned
 
@@ -8127,3 +8128,116 @@ the narrow in-flight Streamlit request race until Phase 10; the two deterministi
 Streamlit analytics failures.
 
 **Phase 8 is not merged.** Development-merge readiness is the reviewer's call: every independent review finding is fixed with regression and mutation coverage, and the gates above are as recorded — including the two known Python failures and the unexecuted signed-in browser smoke. This is not deployment clearance; the carried-forward gates remain open. Do not begin Phase 9.
+
+---
+
+# Phase 8 — Codex independent review (2026-09-13)
+
+Reviewed the complete Phase 8 implementation range `c088abf..9051152` on
+`worktree-phase8-partner`, independently tracing the actual provider call, transcript verifier,
+owner-scoped context and screenshot reads, rate-limit ticket, FastAPI routes, Next.js relays, and
+conversation lifecycle. Phase 9 was not started. The branch remains unmerged and unpushed.
+
+## Findings and fixes
+
+- **High — the final output scope guard allowed ordinary live-position instructions**
+  (`services/partner.py:_apply_scope_guard`). Reproduced with “Go long NQ tomorrow at the open”,
+  “Short ES at 5000 with a stop at 5010”, “Place a buy order at 20000 tomorrow”, “Look to sell
+  EURUSD next week”, “Your next trade should be long”, and “I would buy NQ if…”. These replies
+  passed through unchanged, so prompt injection or an ordinary model mistake could put the exact
+  forward-looking guidance this product promises to block onto the trader's screen. Root cause was
+  a narrower Partner-only phrase list drifting from the shared output policy. Fixed in `c26f182` by
+  applying the shared `reject_forward_looking` policy plus Partner-specific missing forms before any
+  reply is signed or displayed. Regression cases are in `tests/test_partner.py`; removing the shared
+  guard makes four of the new cases fail.
+- **Low — malformed/oversized provider text could become a blank turn or a late response-model 500**
+  (`services/partner.py:partner_reply`). Empty strings were signed and displayed as empty assistant
+  turns; non-string values raised an incidental exception; a reply over the wire contract's 20,000
+  character cap would be signed and paid for, then fail response validation. Fixed in `c26f182` with
+  an explicit post-usage, pre-signing validation that maps all three cases to the fixed Partner
+  unavailable path. Tests cover empty, whitespace, non-string and over-limit replies and prove usage
+  is still reported first.
+- **Low — dismissing the drawer silently erased conversations, including ended conversations**
+  (`web/components/app/partner-drawer.tsx`). This contradicted both the footer (“clears when you
+  reload or sign out”) and the requirement that an ended conversation stay visible until explicit
+  reset. Fixed in `374d508` by keeping the conversation mounted behind a hidden drawer. Regression
+  tests prove draft and ended transcript survive close/reopen and a fresh mount still clears them;
+  restoring the old conditional unmount makes both tests fail.
+
+No Critical or additional High/Medium tenant-isolation, transcript-integrity, billing/idempotency,
+secret-boundary, or relay-status defect was found. The HMAC chain binds owner, conversation, mode,
+position, role, exact UTF-8 text, previous verified MAC and issuance time; mixed current/previous
+secret chains verify during rotation. Missing, reordered, edited, duplicated, cross-owner,
+cross-conversation, cross-mode and sibling-branch splices are rejected. A genuine prefix remains
+intentionally resumable. The browser cannot mint an assistant turn without the service secret.
+
+The actual outbound Anthropic call was captured with distinct markers in journal context, trade
+notes, screenshot-derived observations, Strategy Profile, correction memory, an older user turn and
+an older assistant turn. None appeared in the provider `system` field; all appeared under user-role
+messages. The system field contained only the repository-owned Partner prompt, scope guard and (for
+trade mode) fixed per-trade preamble.
+
+Every Partner data read is owner-scoped from the restored website-session handle. Global context,
+active strategy, trade, analysis and screenshot joins use that owner; a missing and foreign trade
+remain byte-identical 404s. The request cannot name an owner, mode, screenshot id/key or system text.
+Screenshot selection is server-side, requires both the owner-scoped final-object read and the
+screenshot-to-trade predicate, and the provider sees `image/png` only from the private final
+namespace. No question, answer, transcript or conversation id is persisted in Partner jobs: tickets
+remain owner-scoped with `{}` payload, digest idempotency key and fixed result/error values.
+
+## Independent mutations actually run
+
+Each mutation was applied to the intended file, exercised by a named test, then restored before the
+next mutation:
+
+- removed `owner` from the transcript digest: cross-user replay service/API tests failed;
+- replaced predecessor chaining with `GENESIS`: valid-chain/fork tests failed;
+- bypassed `screenshot_belongs_to_trade`: the wrong-trade screenshot test attached the image and
+  failed;
+- ignored the duplicate-ticket `created` result: duplicate first-submit service/API tests made a
+  second provider call and failed;
+- replaced observable relay statuses with 204: all fixed 404/409/422/429/503 relay tests failed;
+- removed the shared output guard: four new forward-advice cases failed;
+- restored drawer unmount-on-close: both draft-preservation and ended-conversation tests failed.
+
+## Verification actually run after fixes
+
+- Phase 8 Python focus: **181 passed**; expanded Partner service/API subset after the safety fix:
+  **157 passed**.
+- Web Partner focus: **137 passed / 5 files**; post-lifecycle subset: **89 passed / 4 files**; drawer
+  regression: **12 passed**.
+- Full web: **1735 passed / 97 files**. TypeScript clean. ESLint 0 errors with the two existing
+  `modal-trap.ts` warnings.
+- Production Next.js build passed with localhost origins. Both Partner relays and every `/app` route
+  are dynamic.
+- Ruff's project gate (`src/`, `scripts/`) passed. An intentionally wider Ruff run including tests
+  found two pre-existing issues in `tests/test_api_trades.py` and `tests/test_weekly.py`, both outside
+  the Phase 8 diff. Black is clean for the files changed by this review; the repository-wide check
+  still reports only pre-existing `tests/app_boot_check.py`.
+- OpenAPI and generated TypeScript regenerated with no diff. Alembic has one head,
+  `g3h4i5j6k7l8`. Metrics, locked prompts, requirements, npm manifests and migrations remain
+  unchanged from the Phase 7 review base.
+- Full Python: **3635 passed / 7 skipped / 2 failed** in 605.86s. The only failures are the two
+  already-recorded Streamlit Analytics assertions
+  (`test_analytics_single_setup_readout_does_not_claim_a_ranking` and
+  `test_analytics_category_names_are_escaped_exactly_once`), outside the Phase 8 diff.
+
+## Remaining limits and merge verdict
+
+The safety backstop is necessarily lexical; it now shares the broader policy used by summaries,
+journals and grades and covers the reproduced bypasses, but a live model smoke remains necessary to
+probe semantic variants. Final screenshots are trusted because only server-side finalization can
+write their private final keys; the live R2/browser test must still prove the deployed policy and
+object behavior. A process killed after inserting a running Partner ticket can consume one rolling
+quota slot until it ages out; no transcript or extra spend results, but there is no reaper.
+
+No Docker executable, PostgreSQL/Neon URL, Anthropic key, R2 credentials, or authenticated browser
+session was available. Therefore the six deployment gates remain open exactly as requested: real
+PostgreSQL concurrency; authenticated desktop and true 375px browser verification; Docker
+build/startup/health; live Anthropic Partner/scope-guard smoke; dependency audit; and live
+R2/browser screenshot attachment. The narrow in-flight Streamlit cutover race and the two known
+Streamlit Analytics assertions also remain carried forward.
+
+**Independent verdict: Phase 8 is cleared for development merge with fix-forward commits `c26f182`
+and `374d508`. It is not cleared for production deployment until the carried gates pass. Do not
+begin Phase 9 as part of this review.**

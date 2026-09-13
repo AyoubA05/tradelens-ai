@@ -135,11 +135,7 @@ def test_no_trader_text_reaches_the_system_message_through_the_real_client(
         reflective_context=f"{M}-journal-note",
         trade_context=partner.build_trade_context(
             {"notes": f"{M}-trade-note"},
-            {
-                "raw_response_json": (
-                    '{"notes_to_user":"%s-image-observation"}' % M
-                )
-            },
+            {"raw_response_json": ('{"notes_to_user":"%s-image-observation"}' % M)},
         ),
         strategy_input={"name": f"{M}-playbook"},
     )
