@@ -618,3 +618,57 @@ def test_an_account_whose_trades_keep_arriving_is_not_deleted(two_users, monkeyp
     outcome = data_deletion.delete_account_and_objects(owner)
     assert outcome == data_deletion.DeletionOutcome(0, 1, 0, True)
     assert _count(User, id=owner) == 1
+
+
+def test_a_symlink_named_for_my_trade_to_another_trades_file_is_never_followed(
+    two_users, monkeypatch, tmp_path
+):
+    """Re-review M30: ownership is read from the RESOLVED file name, so a link
+    named for my trade that points at another trade's file deletes nothing."""
+    first, owner = two_users
+    root = tmp_path / "screenshots"
+    root.mkdir()
+    theirs = _trade(first)
+    their_file = root / ("%d_their_chart.png" % theirs)
+    their_file.write_bytes(b"theirs")
+    mine = _trade(owner)
+    link = root / ("%d_mine.png" % mine)
+    link.symlink_to(their_file)
+    _add_shot(mine, str(link))
+    monkeypatch.setattr(data_deletion._account, "SCREENSHOTS_DIR", root)
+    monkeypatch.setattr(
+        data_deletion.storage,
+        "delete_trade_objects",
+        lambda u, t: ObjectCleanup(deleted=[], failed=[], skipped=_paths(t)),
+    )
+    outcome = data_deletion.delete_all_trades_and_objects(owner)
+    assert outcome == data_deletion.DeletionOutcome(0, 0, 1, True)
+    assert their_file.read_bytes() == b"theirs"
+    assert _count(Trade, id=mine) == 1
+
+
+def test_trade_ones_cleanup_never_removes_trade_twelves_file(monkeypatch, tmp_path):
+    """Re-review M06: the prefix is the id AND the separator, so trade 1 does
+    not own `12_*`."""
+    root = tmp_path / "screenshots"
+    root.mkdir()
+    other = root / "12_chart.png"
+    other.write_bytes(b"twelve")
+    monkeypatch.setattr(data_deletion._account, "SCREENSHOTS_DIR", root)
+    assert data_deletion._legacy_local_path_resolved(str(other), 1) is False
+    assert other.read_bytes() == b"twelve"
+    own = root / "1_chart.png"
+    own.write_bytes(b"one")
+    assert data_deletion._legacy_local_path_resolved(str(own), 1) is True
+    assert not own.exists()
+
+
+def test_project_root_is_the_repository_root():
+    """Re-review M08: relative legacy paths are anchored here (S1), so it must
+    be the directory that holds `src/` and the migrations, not `src/` itself."""
+    from src.tradelens.services import screenshot_service
+
+    root = screenshot_service.PROJECT_ROOT
+    assert (root / "src" / "tradelens").is_dir()
+    assert (root / "alembic.ini").is_file()
+    assert screenshot_service.SCREENSHOTS_DIR == root / "data" / "screenshots"

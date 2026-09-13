@@ -1023,3 +1023,27 @@ def test_delete_trade_objects_needs_no_r2_for_legacy_only_rows(two_users, monkey
 
     assert cleanup.deleted == [] and cleanup.failed == []
     assert cleanup.skipped == [legacy]
+
+
+def test_delete_trade_objects_reports_an_object_store_setup_fault_as_failed(
+    two_users, monkeypatch
+):
+    """Re-review should-fix 1: missing R2 configuration or a client that cannot
+    be built is a failed cleanup the caller can report, never an exception."""
+    a, _ = two_users
+    mine = _create({"user_id": a, "trade_date": "2026-08-12", "asset": "NQ"})
+    first = storage.build_object_key(a, mine.id, "image/png")
+    second = storage.build_object_key(a, mine.id, "image/png")
+    _screenshot(mine.id, first)
+    _screenshot(mine.id, second)
+
+    def _no_store():
+        raise RuntimeError("R2 is not configured")
+
+    monkeypatch.setattr(storage, "_client", _no_store)
+
+    cleanup = storage.delete_trade_objects(a, mine.id)
+
+    assert sorted(cleanup.failed) == sorted([first, second])
+    assert cleanup.deleted == []
+    assert cleanup.complete is False

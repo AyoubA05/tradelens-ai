@@ -54,6 +54,10 @@ describe("export (review should-fix: no bare JSON page on failure)", () => {
     });
     expect(fetchMock.mock.calls[0][0]).toBe("/api/settings/export");
     expect(click).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:trades");
     expect(screen.queryByRole("status")).toBeNull();
     click.mockRestore();
@@ -61,7 +65,13 @@ describe("export (review should-fix: no bare JSON page on failure)", () => {
 
   it.each([401, 403, 502])("shows a fixed sentence instead of navigating on %i", async (status) => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    fetchMock.mockResolvedValue({ ok: false, status, json: async () => ({ ok: false }) });
+    // A real failure body is readable as a blob; it must never be saved.
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status,
+      json: async () => ({ ok: false }),
+      blob: async () => new Blob(['{"ok":false}']),
+    });
     render(<DataSection data={data} cost={emptyCost} />);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Export 12 trades as CSV" }));

@@ -125,7 +125,9 @@ export function DataSection({
       document.body.appendChild(link);
       link.click();
       link.remove();
-      URL.revokeObjectURL(url);
+      // Deferred: revoking in the same task can cancel the download in
+      // some browsers (older WebKit) before it has started.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch {
       setExportStatus({ tone: "fail", text: EXPORT_FAILED });
     } finally {

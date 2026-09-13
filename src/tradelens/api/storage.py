@@ -610,15 +610,28 @@ def delete_trade_objects(user_id: int, trade_id: int) -> ObjectCleanup:
     # without R2 could never delete it (Phase 9 Group A review, N1).
     bucket = None
     client = None
-    for key in keys:
+    for index, key in enumerate(keys):
         if not _is_final_key(key, owner, trade_id):
             # A legacy local path, or a row pointing outside this owner's
             # prefix. Neither names an object we may delete.
             skipped.append(key)
             continue
         if client is None:
-            bucket = r2_config()["bucket"]
-            client = _client()
+            try:
+                bucket = r2_config()["bucket"]
+                client = _client()
+            except Exception:  # noqa: BLE001 — a setup fault is a failed cleanup
+                # Missing configuration or an unreachable store: every object
+                # still to go stays behind, and says so (re-review should-fix 1).
+                _log.warning(
+                    "Could not reach the object store for trade %s", int(trade_id)
+                )
+                for rest in keys[index:]:
+                    if _is_final_key(rest, owner, trade_id):
+                        failed.append(rest)
+                    else:
+                        skipped.append(rest)
+                break
         try:
             client.delete_object(Bucket=bucket, Key=key)
             deleted.append(key)

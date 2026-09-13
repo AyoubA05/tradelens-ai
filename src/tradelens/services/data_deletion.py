@@ -163,7 +163,11 @@ def _lock_and_verify(db, owner: int, handled: Dict[int, FrozenSet[str]]) -> bool
     `FOR UPDATE` on PostgreSQL makes a concurrent screenshot insert for these
     trades wait for this transaction (and then fail its foreign key, because
     the trade is gone) instead of slipping in between the check and the delete.
-    SQLite serialises writers, and ignores the clause.
+    SQLite ignores the clause, and pysqlite opens the write transaction only
+    at the first DELETE, so on SQLite a screenshot committed by another
+    connection between this check and the delete is NOT excluded. The race
+    guarantee holds on PostgreSQL only; real-PostgreSQL concurrency remains a
+    pre-release gate (re-review should-fix 2).
     """
     ids = sorted(handled)
     if not ids:
