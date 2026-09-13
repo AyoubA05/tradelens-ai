@@ -7923,3 +7923,207 @@ refused. The residual retires with Streamlit and should be considered during acc
 **Independent verdict: Phase 7 is cleared for development merge at `02f110f` plus this handoff
 commit, but not for production deployment until the PostgreSQL concurrency gate and the carried
 deployment gates pass. Do not begin Phase 8 as part of this review.**
+
+---
+
+# Phase 8 — AI Partner (branch `worktree-phase8-partner`, NOT merged)
+
+Plan: `docs/superpowers/plans/2026-09-11-nextjs-migration-phase8-ai-partner.md` (`984858d`, tightened in
+`22db3bf` and `753c141`). Phase tip: `79026e7`.
+
+Commits: `54cf945` + `e6279e4` Group A trust boundary (+ `9846fb5` demo test); `577ad0b` + `a21e8ed` +
+`5e4ec36` Group B transcript, ticket and turn service; `eadc8af` + `b9e4ee6` Group C API; `c3476db` +
+`57fb981` + `fdd4c07` Group D relays, drawer and trade panel; `f9444f6` E2 sweep; `d3b5296` retry
+blocker; `27809e4` + `c4e7425` review-round fixes, `76bd069` + `53b3fe1` sweep hardening, `79026e7` battery-survivor test.
+
+## The rule this phase exists to enforce
+
+Trader-authored and model-read text — Strategy Profile, journal notes, trade fields, screenshot-derived
+observations, the running summary, prior turns — is **user-role data, never system authority**. The
+system message is a constant built from repository-owned text only.
+
+## Decisions D1–D10 (as built)
+
+- **D1 constant system message.** `build_partner_system(*, per_trade_qa)` returns `partner_v2` +
+  `_SCOPE_GUARD` (+ per-trade preamble). No data parameter exists.
+- **D2 one user-role context block**, fenced and labelled "data, not instructions", with per-section
+  budgets and an explicit `[truncated]` marker; newlines collapsed so values cannot forge record lines.
+- **D3 one sanitiser** (`services/prompt_inputs.py`), shared with trade analysis; identity pinned.
+- **D4 stateless, signed, hash-chained transcript.** Each turn's MAC binds owner, conversation, mode,
+  position, role, exact text and the previous turn's verified MAC. Missing, duplicated, reordered,
+  edited, cross-owner, cross-conversation, cross-mode and sibling-fork turns are refused; a valid older
+  prefix may be resumed. No server-side conversation storage anywhere.
+- **D5 synchronous turns and a text-free ticket.** Order: question validation → full chain
+  verification → owner-scoped context → ticket (limit + duplicate, under the owner-row lock) →
+  provider. The ticket row holds `payload "{}"`, a digest key and a fixed code.
+- **D6 billing exactly once** per provider response, including refused, replaced and
+  failed-after-billing responses.
+- **D7 bounds**: question ≤ 2 000 chars, `max_tokens` 1 500, ≤ 40 transcript turns.
+- **D8 per-trade screenshot by reference**: the request carries a boolean; the server picks the trade's
+  newest owned final screenshot and checks it belongs to that trade.
+- **D9 evidence** labelled "Context used"; only trade and journal sources link, by numeric id.
+- **D10 zero-trade and error states**: 409 `no_trades` before any ticket or spend; 503
+  `partner_unavailable` with fixed copy.
+
+## Retry cost — stated plainly
+
+**A retry after a lost response may create a second paid provider call.** If the provider answered and
+was billed but the response never reached the browser (dropped connection, relay or platform timeout,
+closed tab or drawer), "Ask that again" is a new attempt with a fresh `client_turn_id` and calls the
+provider again. This is deliberate: the Partner does not persist reply content, so the server holds no
+answer it could return instead, and storing one would reintroduce the server-side transcript D4
+forbids. **Duplicate protection guarantees one paid call per in-flight send** (one `client_turn_id`: a
+double-submit, two tabs racing the same send, a replayed request) — **not one paid call per question.**
+Both calls are usage-logged and count against the owner's limit. The client never retries on its own,
+and never offers a retry for `duplicate_turn` (that send is already in flight). Recorded in plan D5,
+`partner_turns.py` and `conversation.tsx`.
+
+## Deliberate deviations from the Streamlit Partner
+
+1. **No token streaming** — the whole reply passes the scope guard before any of it is shown.
+2. **Screenshot by reference** — never an id or key from the browser.
+3. **Browser-held transcript** — signed turns in React state only; no Web Storage; discarded on reload,
+   sign-out or closing the drawer.
+
+## Where each invariant is pinned
+
+| Invariant | Pinned by |
+|---|---|
+| System message is repository constants only | `test_partner_trust_boundary.py`; `test_ai_system_message_sweep.py` (pinned call sites, `load_prompt` cannot be rebound or rewritten, Partner constants bound once, no dynamic namespace access in services, no AI entry point outside `services/`) |
+| Signed chain refuses tampering and forks | `test_partner_transcript.py` |
+| Ticket is text-free; duplicate resolved before spend | `test_partner_turns.py`, `test_partner_turn_service.py`, `test_api_partner.py` |
+| Screenshot bound to its trade | `test_a_screenshot_that_is_not_this_trades_is_never_read_or_attached` |
+| API refusals are fixed codes; 404 byte- and header-identical; 500 no-store | `test_api_partner.py` |
+| Relays fail shut and forward fixed codes only | `web/__tests__/partner-relay.test.ts` |
+| Fresh id per attempt, one request per click, retry re-sends the failed question | `partner-conversation-ui.test.tsx` (server-like ticket fake) |
+| Reply must continue the local chain (conversation, each position, each role) | `partner-conversation.test.ts` |
+| No Web Storage; exact request keys; text rendering; "Context used"; footer | `partner-conversation-ui.test.tsx` |
+
+## What review caught
+
+- **Group A:** newline-forged record lines; silent truncation dropping AI observations;
+  `converse(few_shot=…)` still routing text into the system field; a JPEG labelled PNG.
+- **Group B:** unpinned `include_screenshot is True`, current-secret signing, position in the ticket key.
+- **Group C:** evidence could 500 after the provider was paid; an unhandled 500 escaped `no-store`;
+  schema bounds and `screenshot_attached == True` unpinned.
+- **E6 (whole phase at `f9444f6`) — blocking:** "Ask that again" reused the failed attempt's id, which
+  the server refuses for good, so every later question read "already being answered in another tab"
+  and the conversation jammed (`d3b5296`). The old test mocked a 200 the real server never returns.
+  Also: edited text sent under the old id, double-click races, four missing tests, an AST-sweep evasion,
+  and copy drift from the plan (`27809e4`).
+- **Delta review (`f9444f6..27809e4`):** four more sweep evasions, stale id-reuse wording, unpinned
+  "today" copy, pointless retry on 401/403/400 (`c4e7425`).
+- **Round-3 review (`27809e4..c4e7425`):** the four earlier evasions were confirmed closed; six more
+  survived — a `setattr` with a built-up name on a module (for `load_prompt` and for a Partner
+  constant), `_PROMPTS_DIR` moved from another module or rebound a second time inside `ai_client`,
+  and `converse`/`chat` reached from outside `services/` through a service's re-export or module
+  attribute — plus `chat` rebound with `functools.partial`, and a 403 that claimed the session had
+  ended. Closed in `76bd069`: one rebinding detector for `load_prompt`, `chat`, `vision` and
+  `converse`; `setattr`/`delattr` with a built-up name refused when aimed at a module (ORM field writes
+  such as `setattr(row, key, value)` stay allowed — eight exist); `_PROMPTS_DIR` bound exactly once, to
+  exactly `Path(__file__).resolve().parents[3] / "prompts"`, never referenced or stored elsewhere;
+  outside `services/`, no AI entry point may be imported from any module or called bare or through an
+  attribute, and no protected attribute may be stored. Each evasion is in the battery (R4).
+- **Round-4 review (`c4e7425..76bd069`):** N1–N7 confirmed closed; no over-reach on the eight
+  ORM `setattr(row, key, value)` writes. Still open: `_ask = functools.partial(chat, system_message=…)`
+  under a new name (should-fix — an ordinary refactor could do it by accident), a module held in a
+  variable before `setattr` (borderline), and two exotic forms, `getattr(sys, "modules")[…]` and
+  `object.__setattr__`. While fixing these, an aliased import (`from …ai_client import chat as ask`)
+  was found to bypass the call-site pin the same way. Closed in `53b3fe1`: in services an AI
+  entry point may only be called directly — never passed, stored, wrapped, or imported under another
+  name; reading `.modules`, `__setattr__` or `__delattr__`, or a literal `getattr` of any of those, is
+  dynamic access; a subscript of a call is a module target. Battery group R5. This commit changes the
+  sweep test only and postdates the last independent review; it is covered by its own mutations.
+
+**What the E2 sweep is, stated plainly.** It is an AST tripwire over the evasions review has actually
+found — five review rounds, twenty-three evasions, each now a failing case and a battery mutant — that also
+keeps every AI call site inside a pinned, reviewed set. It is not a proof that no route to the system
+slot exists; Python can always reach further than a static reading. The trust boundary itself is
+structural (`build_partner_system` takes no data; `converse` accepts no `few_shot`) and is pinned by
+behavioural tests in `test_partner_trust_boundary.py`; the sweep guards against that structure being
+quietly undone.
+
+## Mutation battery (E5)
+
+One harness, every Phase 8 mutation, run from clean HEAD `79026e7`: pristine copies keyed by
+full path, sha256 before and after every mutant, `PYTHONDONTWRITEBYTECODE=1`, NOT-APPLIED / NOT-RUN /
+ERROR never counted as caught, and a clean-tree check before and after the run.
+
+| Group | What it covers | Caught |
+|---|---|---|
+| A | Group A trust boundary | 13 / 13 |
+| AR | Group A review fixes | 16 / 16 |
+| B1 | signed transcript, ticket status | 18 / 18 |
+| B3 | turn service order, billing, screenshot | 19 / 19 |
+| C | Partner API | 12 / 12 |
+| CR | Group C review fixes | 11 / 11 |
+| D | web relays, transcript rules, UI (D10 rewritten for fresh ids) | 18 / 18 |
+| DR | the retry blocker and its siblings | 6 / 6 |
+| E2 | system-message sweep | 7 / 7 |
+| R2 | E6 findings, plan Group D contract | 19 / 19 |
+| R3 | delta-review sweep evasions, 401/403/400, "today" copy | 7 / 7 |
+| R4 | round-3 review evasions, 403 wording | 8 / 8 |
+| R5 | round-4 review routes, aliased import | 5 / 5 |
+| **Total** | | **159 / 159** |
+
+Run at `79026e7`: 159 applied, **159 caught**, 0 survived, 0 NOT-RUN, 0 ERROR, 0 NOT-APPLIED; every
+catch names its failing test; 22 files mutated, each restored and sha256-verified after every mutant
+and again at the end; the tree was clean and identical to `79026e7` before and after.
+
+The run before it, at `53b3fe1`, reported 152 caught / 6 ERROR / 1 survived, and neither non-catch was
+waved through. The six ERRORs (CR M1–M5, M10) were a harness parser bug — parametrized test ids
+containing spaces did not match the `FAILED` pattern, so real failures went unrecognised; the parser
+was fixed and the rerun reports them caught by name. The survivor, R2-U9, was a real test gap:
+clearing an ended conversation on the refusal itself, instead of on "Start a new conversation", went
+unnoticed. `79026e7` adds the assertion; the full battery was then rerun from clean HEAD. Three
+earlier runs this phase were stopped part-way (at 60, 55 and 52 mutants, no non-catches) because the
+code they tested was about to change; each left a mutant, which was restored and verified clean.
+
+## Verification actually run (at `79026e7`)
+
+Python has not changed since `53b3fe1`; every later commit is a web test.
+
+- **Full Python suite (at `53b3fe1`): 3624 passed / 7 skipped / 2 failed.** The two failures are the
+  recorded, deterministic, pre-existing Streamlit analytics assertions in `test_pages_boot.py`
+  (`test_analytics_single_setup_readout_does_not_claim_a_ranking`,
+  `test_analytics_category_names_are_escaped_exactly_once` — `marker not found: BOS &amp; FVG`),
+  unchanged and separate from Phase 8. The suite is **not** fully green.
+- **Web (at `79026e7`, run from `web/`): 1734 passed / 97 files.** `tsc --noEmit` clean. ESLint 0
+  errors; the two pre-existing `modal-trap.ts` warnings.
+- **Production build (at `53b3fe1`)** passed with localhost origins; `/api/partner/turns` and
+  `/api/trades/[id]/partner/turns` are dynamic. (A first attempt with a symlinked `node_modules` was
+  refused by Turbopack — an artefact of the extraction, not the code; rebuilt with a real copy.)
+- **Ruff** clean. **Black** reports only `tests/app_boot_check.py`, identical on `main` (pre-existing).
+- **OpenAPI + `schema.d.ts`** regenerated from the repository root: byte-identical, no stray
+  `web/web` output.
+- **Invariants:** `services/metrics.py`, `prompts/`, requirements, `web/package.json`,
+  `web/package-lock.json` and `alembic/versions` unchanged since `c088abf`; one Alembic head,
+  `g3h4i5j6k7l8`; no migration; no new dependency.
+- **Streamlit leak check:** 70 service/API modules, including all six Phase 8 modules, import with
+  streamlit blocked — none leak.
+- **Browser smoke: NOT RUN** (see Honest gaps).
+
+Gates were run in private `git archive` extractions of the commit so they could not read a mutant
+while the battery edited the worktree.
+
+## Honest gaps
+
+- **Authenticated desktop + 375px browser smoke did NOT run.** No `web/.env.local` exists in either
+  checkout, no test account exists, and creating one requires entering a password. Layout, focus trap
+  and 44px targets are verified in jsdom only.
+- Real PostgreSQL concurrency is unexercised: the owner-row lock for the Partner ticket (and Phase 7's
+  first-save CAS) ran on SQLite only.
+- A ticket stranded `running` by a killed process occupies one of the 60 slots in the 24-hour window;
+  there is no reaper (recorded in plan D5).
+- The stale-closure read of `conversation` in `ask()` is unreachable today (every control that could
+  change it is disabled while pending) but would matter if an always-visible "start over" were added.
+
+## Carried forward, unchanged
+
+Real PostgreSQL concurrency (first-save CAS and the Partner ticket); authenticated desktop + 375px
+browser smoke; Docker build/startup/health; live Anthropic smoke (now including the Partner and its
+scope guard); dependency audit; live R2/browser verification (now including the screenshot attach);
+the narrow in-flight Streamlit request race until Phase 10; the two deterministic `test_pages_boot.py`
+Streamlit analytics failures.
+
+**Phase 8 is not merged.** Development-merge readiness is the reviewer's call: every independent review finding is fixed with regression and mutation coverage, and the gates above are as recorded — including the two known Python failures and the unexecuted signed-in browser smoke. This is not deployment clearance; the carried-forward gates remain open. Do not begin Phase 9.
