@@ -47,6 +47,8 @@
 
 **Explicitly not in:** changing the sign-in email (see decision S1 — needs its own verified-change flow), password change on this page (the existing forgot/reset flow already covers it), Streamlit retirement (Phase 10), a historical cost browser beyond the current month, background CSV import jobs, and a Strategy demo-playbook preview (see S3).
 
+**Carried into Phase 10 (parity checklist):** the Strategy demo-playbook preview deferred by Phase 7 and not in Phase 9's scope (S3). Phase 10's plan must list it as an explicit parity item — implement it or record a deliberate removal — before Streamlit is retired.
+
 **Carried forward, NOT this phase's to close (hard pre-release gates, unchanged):** real PostgreSQL concurrency; authenticated desktop + true 375px browser smoke; Docker build/startup/health; live Anthropic adversarial smoke; dependency audit; live R2/browser verification (now including bulk and account-deletion object cleanup). The narrow in-flight Streamlit request race until Phase 10. The two deterministic `test_pages_boot.py` Streamlit analytics failures. The lexical Partner output guard remains defense-in-depth, not a semantic guarantee.
 
 ---
@@ -76,9 +78,23 @@ Verified on `main` at `2de1d6c`:
 
 ---
 
-## Decisions that need owner approval
+## Decisions — approved by the owner (2026-09-13)
 
-Each has a recommended default. The tasks below implement the default; a different choice changes only the task named.
+All nine defaults below are **approved as written**, with these clarifications binding on the implementation:
+
+- **S1** — the email is display-only.
+- **S2** — AI availability status only.
+- **S3** — Settings shows demo status only. **The deferred Strategy demo-playbook preview is carried into the Phase 10 parity checklist** (see "Carried into Phase 10" below) so it is resolved deliberately there, not silently dropped.
+- **S4** — synchronous CSV import, capped at 1 MB and 5,000 rows.
+- **S5** — spreadsheet-formula cells are neutralised on export.
+- **S6** — the six current timezone choices, with strict server-side validation.
+- **S7** — delete-all-trades also removes derived AI trade summaries.
+- **S8** — legacy screenshot cleanup is **idempotent and confined to the approved legacy screenshot root** (`account.SCREENSHOTS_DIR`): a missing file counts as already gone; an arbitrary path, a path outside that root, or a symlink resolving outside it is never deleted and stays `unresolvable`.
+- **S9** — the typed confirmation phrase only, for account deletion.
+
+**Blocking correctness work** (owner-designated): R2 object cleanup on bulk and account deletion, PostgreSQL-safe account deletion, and timezone validation. The destructive paths get the deepest review and mutation testing in the phase. Tenant isolation and failure-aware cleanup are absolute: **no path may report a successful deletion while an owned private object that should have been removed failed cleanup.**
+
+The original decision text follows, unchanged, for reference.
 
 **S1 — The email on the web Settings page is shown, not edited (recommended).** On the website the email is the sign-in identity (`lib/auth/login.ts` resolves `@` input by email only) and verification gates the app (`appLayoutRedirect`). Streamlit's `set_email` clears verification on any change, so porting the "Save recovery email" control would change how the trader signs in and immediately send them to `/verify-email`. Phase 9 shows the email and whether it is verified; changing it needs a verify-the-new-address-before-switching flow, planned separately. *Alternative:* add that flow now (a new token table would breach "no schema migration"). Affects Task D1 only.
 
