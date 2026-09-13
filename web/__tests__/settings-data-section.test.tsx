@@ -41,13 +41,39 @@ async function choose(file: File) {
   });
 }
 
-describe("export", () => {
-  it("links to the same-origin relay", () => {
+describe("export (review should-fix: no bare JSON page on failure)", () => {
+  it("fetches the same-origin relay and saves the file", async () => {
+    const createObjectURL = vi.fn(() => "blob:trades");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    fetchMock.mockResolvedValue({ ok: true, status: 200, blob: async () => new Blob(["a,b\n"]) });
     render(<DataSection data={data} cost={emptyCost} />);
-    expect(screen.getByRole("link", { name: "Export 12 trades as CSV" })).toHaveAttribute(
-      "href",
-      "/api/settings/export",
-    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Export 12 trades as CSV" }));
+    });
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/settings/export");
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:trades");
+    expect(screen.queryByRole("status")).toBeNull();
+    click.mockRestore();
+  });
+
+  it.each([401, 403, 502])("shows a fixed sentence instead of navigating on %i", async (status) => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    fetchMock.mockResolvedValue({ ok: false, status, json: async () => ({ ok: false }) });
+    render(<DataSection data={data} cost={emptyCost} />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Export 12 trades as CSV" }));
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("The export did not download. Try again.");
+    expect(click).not.toHaveBeenCalled();
+    click.mockRestore();
+  });
+
+  it("offers no navigable export link", () => {
+    render(<DataSection data={data} cost={emptyCost} />);
+    expect(screen.queryByRole("link", { name: /export/i })).toBeNull();
   });
 });
 
@@ -55,6 +81,14 @@ describe("import (S4)", () => {
   it("never sends a file over the size limit", async () => {
     render(<DataSection data={data} cost={emptyCost} />);
     await choose(csvFile("x".repeat(900_001)));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent(/larger than 1 MB/);
+  });
+
+  it("refuses a file whose escaped request would exceed 1 MB, without sending it", async () => {
+    // 600,000 quotes: under the file limit, but JSON escaping doubles them.
+    render(<DataSection data={data} cost={emptyCost} />);
+    await choose(csvFile('"'.repeat(600_000)));
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByRole("status")).toHaveTextContent(/larger than 1 MB/);
   });
@@ -78,7 +112,7 @@ describe("import (S4)", () => {
     expect(fetchMock.mock.calls[0][1].method).toBe("POST");
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ csv: "trade_date,asset\n" });
     expect(screen.getByRole("status")).toHaveTextContent("Imported 3 trades, skipped 1 duplicates.");
-    expect(screen.getByRole("link", { name: "Export 15 trades as CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export 15 trades as CSV" })).toBeInTheDocument();
   });
 
   it("says a valid empty file had no rows", async () => {
@@ -135,7 +169,7 @@ describe("sample trades", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("/api/settings/sample-trades");
     expect(fetchMock.mock.calls[0][1].method).toBe("POST");
     expect(screen.getByRole("status")).toHaveTextContent("Loaded 20 sample trades.");
-    expect(screen.getByRole("link", { name: "Export 25 trades as CSV" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export 25 trades as CSV" })).toBeInTheDocument();
   });
 
   it("clears samples with DELETE", async () => {

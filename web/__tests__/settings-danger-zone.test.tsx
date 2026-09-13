@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DangerZone } from "@/components/app/settings/danger-zone";
 
+const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+
 /**
  * The two destructive actions. What matters: a button is enabled only by the
  * exact typed phrase, the request carries the constant phrase and nothing else,
@@ -15,6 +18,7 @@ const fetchMock = vi.fn();
 
 beforeEach(() => {
   fetchMock.mockReset();
+  refresh.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -156,5 +160,33 @@ describe("delete my account (S9)", () => {
     openAccount();
     expect(screen.getByText(/Anonymous records of what AI features cost to run are kept/)).toBeInTheDocument();
     expect(screen.getByText(/every chart image you uploaded/)).toBeInTheDocument();
+  });
+});
+
+describe("after delete all trades (review should-fix: stale counts)", () => {
+  it("re-reads the page's server data after a successful deletion", async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ deleted: 20 }) });
+    render(<DangerZone />);
+    openTrades();
+    fireEvent.change(screen.getByLabelText("Type DELETE to confirm"), { target: { value: "DELETE" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Delete all trades permanently" }));
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not refresh when the deletion was blocked — nothing changed", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ ok: false, detail: "screenshot_cleanup_failed", unresolvable: false }),
+    });
+    render(<DangerZone />);
+    openTrades();
+    fireEvent.change(screen.getByLabelText("Type DELETE to confirm"), { target: { value: "DELETE" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Delete all trades permanently" }));
+    });
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

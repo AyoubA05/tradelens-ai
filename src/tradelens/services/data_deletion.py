@@ -1,20 +1,30 @@
 """Bulk and account deletion: stored objects first, rows only after.
 
-`trade_service.delete_all_trades` and `account.delete_account` erase rows. A
-`screenshots` row is the only record of a stored object's key, so removing the
-row before the object leaves a private image in the bucket that nothing points
-at any more. These wrappers are what the API and the Streamlit Settings page
-call instead:
+`screenshots` rows are the only record of a stored object's key, so removing a
+row before its object leaves a private image in the bucket that nothing points
+at any more. These are what the API and the Streamlit Settings page call:
 
 1. every screenshot object of every trade the owner has is removed first,
-   through the owner-scoped `storage.delete_trade_objects`;
+   through the owner-scoped `storage.delete_trade_objects`, recording exactly
+   which keys each trade's cleanup handled;
 2. if anything was left behind — a failed delete (retryable) or a key this
    owner may not delete (unresolvable) — **no row is deleted**, and the
    outcome says how much was left and of which kind;
-3. only a complete cleanup earns the row deletion.
+3. then, in one transaction that locks the purged trades, the rows are deleted
+   **only for the trades whose objects were purged**, and only if no screenshot
+   row now names a key that cleanup never handled.
 
-Nothing here reports success over a bucket that still holds an owned object
-that should have been removed.
+Step 3 closes a race (Phase 9 Group A review, B1): a screenshot or trade that
+lands while objects are being removed would otherwise lose its row while its
+object stays in the bucket. A mismatch rolls back and the whole purge runs
+again, a bounded number of times; if uploads keep arriving, nothing is deleted
+and the outcome is a retryable block. Nothing here reports success over an
+owned object that should have been removed.
+
+A trade created after the purge read the trade list is not part of the
+deletion: its rows and its objects are left together, still pointing at each
+other. Account deletion refuses instead (a trade the account still owns would
+block the user delete), and re-purges.
 
 A retry after a partial cleanup converges: `delete_trade_objects` treats an
 already-absent object as deleted, and a legacy file that is already gone
@@ -29,15 +39,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, FrozenSet, List, Tuple
 
 from src.tradelens.api import storage
-from src.tradelens.db.models import Trade
+from src.tradelens.db.models import (
+    AIAnalysis,
+    Correction,
+    Screenshot,
+    Trade,
+    TradeSummaryResult,
+    User,
+)
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services import account as _account
-from src.tradelens.services.account import _resolve_owned_files, delete_account
+from src.tradelens.services.account import _resolve_owned_files
 from src.tradelens.services.ownership import require_user_id
-from src.tradelens.services.trade_service import delete_all_trades
+
+# Passes of purge-then-verify before giving up on an owner whose uploads keep
+# landing mid-deletion. Each pass is idempotent; three is plenty for a human.
+_MAX_ATTEMPTS = 3
 
 
 @dataclass(frozen=True)
@@ -45,7 +65,7 @@ class DeletionOutcome:
     """What a bulk or account deletion did.
 
     `deleted` is a row count (trades, or 1/0 for the account). `remaining`
-    counts objects that failed to delete — a retry can clear them.
+    counts objects that could not be removed — a retry can clear them.
     `unresolvable` counts stored paths this owner may not delete — a retry
     cannot. `blocked` is true whenever either is non-zero, and then `deleted`
     is always 0.
@@ -55,6 +75,13 @@ class DeletionOutcome:
     remaining: int
     unresolvable: int
     blocked: bool
+
+
+@dataclass(frozen=True)
+class _Purge:
+    handled: Dict[int, FrozenSet[str]]
+    remaining: int
+    unresolvable: int
 
 
 def _owned_trade_ids(owner: int) -> List[int]:
@@ -68,19 +95,20 @@ def _owned_trade_ids(owner: int) -> List[int]:
         db.close()
 
 
-def _legacy_local_path_resolved(key: str) -> bool:
-    """Whether a skipped, non-R2 key is a legacy file we may treat as removed.
+def _legacy_local_path_resolved(key: str, trade_id: int) -> bool:
+    """Whether a skipped, non-R2 key is this trade's legacy file, now gone.
 
     Decision S8 (owner-approved): legacy cleanup is idempotent and confined to
     the approved legacy screenshot root, `account.SCREENSHOTS_DIR`.
 
-    * A path that resolves inside that root is unlinked; one that is already
-      missing counts as already gone.
-    * Anything else — another tenant's R2 key, an absolute path elsewhere, a
-      `..` escape, or a symlink inside the root that resolves outside it — is
-      never deleted and stays unresolvable. `_resolve_owned_files` resolves
-      symlinks before checking containment, so a link cannot smuggle a target
-      out of the root.
+    * The path must resolve inside that root **and** be named for this trade:
+      the legacy writer stored `SCREENSHOTS_DIR / f"{trade_id}_{name}"`. A row
+      naming another trade's file — another tenant's, even inside the root —
+      is never deleted (Phase 9 Group A review, B2).
+    * A matching file that is already missing counts as already gone.
+    * Anything else — an R2 key of another tenant, an absolute path elsewhere,
+      a `..` escape, a symlink resolving outside the root, or a file that is
+      present but cannot be removed — stays unresolvable.
 
     The root is read through the module at call time, so a patched directory
     applies (the system-message sweep forbids `globals()` in services).
@@ -88,7 +116,10 @@ def _legacy_local_path_resolved(key: str) -> bool:
     resolved = _resolve_owned_files([key], root=Path(_account.SCREENSHOTS_DIR))
     if not resolved:
         return False
+    prefix = "{}_".format(int(trade_id))
     for path in resolved:
+        if not path.name.startswith(prefix):
+            return False
         try:
             path.unlink()
         except FileNotFoundError:
@@ -99,37 +130,131 @@ def _legacy_local_path_resolved(key: str) -> bool:
     return True
 
 
+def _purge(owner: int) -> _Purge:
+    handled: Dict[int, FrozenSet[str]] = {}
+    remaining = 0
+    unresolvable = 0
+    for trade_id in _owned_trade_ids(owner):
+        cleanup = storage.delete_trade_objects(owner, trade_id)
+        remaining += len(cleanup.failed)
+        keys = set(cleanup.deleted)
+        for key in cleanup.skipped:
+            if _legacy_local_path_resolved(key, trade_id):
+                keys.add(key)
+            else:
+                unresolvable += 1
+        handled[trade_id] = frozenset(keys)
+    return _Purge(handled, remaining, unresolvable)
+
+
 def purge_trade_screenshots(user_id: int) -> Tuple[int, int]:
     """Remove every stored screenshot object of every trade this owner has.
 
     Returns `(remaining, unresolvable)`. Never raises for an object-store
     fault; `delete_trade_objects` reports it in its result instead.
     """
-    owner = require_user_id(user_id)
-    remaining = 0
-    unresolvable = 0
-    for trade_id in _owned_trade_ids(owner):
-        cleanup = storage.delete_trade_objects(owner, trade_id)
-        remaining += len(cleanup.failed)
-        unresolvable += sum(
-            1 for key in cleanup.skipped if not _legacy_local_path_resolved(key)
+    purge = _purge(require_user_id(user_id))
+    return purge.remaining, purge.unresolvable
+
+
+def _lock_and_verify(db, owner: int, handled: Dict[int, FrozenSet[str]]) -> bool:
+    """Lock the purged trades, then confirm cleanup handled every key they name.
+
+    `FOR UPDATE` on PostgreSQL makes a concurrent screenshot insert for these
+    trades wait for this transaction (and then fail its foreign key, because
+    the trade is gone) instead of slipping in between the check and the delete.
+    SQLite serialises writers, and ignores the clause.
+    """
+    ids = sorted(handled)
+    if not ids:
+        return True
+    db.query(Trade.id).filter(
+        Trade.user_id == owner, Trade.id.in_(ids)
+    ).with_for_update().all()
+    rows = (
+        db.query(Screenshot.trade_id, Screenshot.file_path)
+        .filter(Screenshot.trade_id.in_(ids))
+        .all()
+    )
+    return all(path in handled.get(trade_id, frozenset()) for trade_id, path in rows)
+
+
+def _delete_purged_trades(db, owner: int, ids: List[int]) -> int:
+    if not ids:
+        return 0
+    for model in (Correction, AIAnalysis, Screenshot):
+        db.query(model).filter(model.trade_id.in_(ids)).delete(
+            synchronize_session=False
         )
-    return remaining, unresolvable
+    return (
+        db.query(Trade)
+        .filter(Trade.user_id == owner, Trade.id.in_(ids))
+        .delete(synchronize_session=False)
+    )
 
 
 def delete_all_trades_and_objects(user_id: int) -> DeletionOutcome:
     """Delete every trade this owner has — only after all their objects are gone."""
     owner = require_user_id(user_id)
-    remaining, unresolvable = purge_trade_screenshots(owner)
-    if remaining or unresolvable:
-        return DeletionOutcome(0, remaining, unresolvable, True)
-    return DeletionOutcome(delete_all_trades(owner), 0, 0, False)
+    for _attempt in range(_MAX_ATTEMPTS):
+        purge = _purge(owner)
+        if purge.remaining or purge.unresolvable:
+            return DeletionOutcome(0, purge.remaining, purge.unresolvable, True)
+        db = SessionLocal()
+        try:
+            if not _lock_and_verify(db, owner, purge.handled):
+                # A screenshot landed after its trade was purged: go round again.
+                db.rollback()
+                continue
+            deleted = _delete_purged_trades(db, owner, sorted(purge.handled))
+            # Decision S7: summaries are derived from these trades and can quote
+            # their notes, so they go too — including leftovers with no trades.
+            db.query(TradeSummaryResult).filter(
+                TradeSummaryResult.user_id == owner
+            ).delete(synchronize_session=False)
+            db.commit()
+            return DeletionOutcome(deleted, 0, 0, False)
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+    return DeletionOutcome(0, 1, 0, True)
 
 
 def delete_account_and_objects(user_id: int) -> DeletionOutcome:
     """Delete this account — only after all its trades' objects are gone."""
     owner = require_user_id(user_id)
-    remaining, unresolvable = purge_trade_screenshots(owner)
-    if remaining or unresolvable:
-        return DeletionOutcome(0, remaining, unresolvable, True)
-    return DeletionOutcome(1 if delete_account(owner) else 0, 0, 0, False)
+    for _attempt in range(_MAX_ATTEMPTS):
+        purge = _purge(owner)
+        if purge.remaining or purge.unresolvable:
+            return DeletionOutcome(0, purge.remaining, purge.unresolvable, True)
+        db = SessionLocal()
+        try:
+            # Serialise with every other owner-locked writer for this account.
+            db.query(User.id).filter(User.id == owner).with_for_update().first()
+            if not _lock_and_verify(db, owner, purge.handled):
+                db.rollback()
+                continue
+            current = {
+                trade_id
+                for (trade_id,) in db.query(Trade.id)
+                .filter(Trade.user_id == owner)
+                .all()
+            }
+            if current - set(purge.handled):
+                # A trade appeared after the purge read the list; its objects
+                # were never removed, so it must go round again first.
+                db.rollback()
+                continue
+            if _account._delete_account_rows(db, owner) is None:
+                db.rollback()
+                return DeletionOutcome(0, 0, 0, False)
+            db.commit()
+            return DeletionOutcome(1, 0, 0, False)
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+    return DeletionOutcome(0, 1, 0, True)

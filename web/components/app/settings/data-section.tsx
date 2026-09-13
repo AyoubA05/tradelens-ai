@@ -7,14 +7,19 @@ import { SettingStatus } from "@/components/app/settings/setting-status";
 /**
  * Data — your records in and out, sample trades, and what AI has cost.
  *
- * Export is a plain same-origin link: the relay answers with a CSV attachment
- * whose formula cells the API has already neutralised (decision S5). Import is
+ * Export fetches the same-origin relay and saves the CSV, whose formula cells
+ * the API has already neutralised (decision S5); a failed export shows a fixed
+ * sentence here instead of a bare JSON error page. Import is
  * synchronous and bounded (decision S4): a file over the size limit is refused
  * here and never sent, and the server refuses more than `maxImportRows`.
  */
 
 const MAX_IMPORT_FILE_BYTES = 900_000;
+// The relay's and the API's body cap. JSON escaping (quotes, newlines) can
+// grow a file under MAX_IMPORT_FILE_BYTES past it, so the request is measured.
+const MAX_IMPORT_REQUEST_BYTES = 1_048_576;
 const GENERIC_FAILURE = "That did not work. Try again.";
+const EXPORT_FAILED = "The export did not download. Try again.";
 
 type Status = { tone: "ok" | "fail"; text: string } | null;
 
@@ -30,6 +35,7 @@ export function DataSection({
   const [importStatus, setImportStatus] = useState<Status>(null);
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [sampleStatus, setSampleStatus] = useState<Status>(null);
+  const [exportStatus, setExportStatus] = useState<Status>(null);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
 
@@ -47,10 +53,15 @@ export function DataSection({
     setBusy(true);
     try {
       const csv = await file.text();
+      const requestBody = JSON.stringify({ csv });
+      if (new TextEncoder().encode(requestBody).byteLength > MAX_IMPORT_REQUEST_BYTES) {
+        setImportStatus({ tone: "fail", text: tooLarge });
+        return;
+      }
       const response = await fetch("/api/settings/import", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ csv }),
+        body: requestBody,
       });
       const body = (await response.json().catch(() => ({}))) as {
         inserted?: number;
@@ -84,6 +95,39 @@ export function DataSection({
       });
     } catch {
       setImportStatus({ tone: "fail", text: GENERIC_FAILURE });
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Export by fetch, not by navigation: a failed export (a signed-out session,
+   * a refused origin, the API down) must show a sentence on this page rather
+   * than leave the trader on a bare JSON error response.
+   */
+  async function exportCsv() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setExportStatus(null);
+    try {
+      const response = await fetch("/api/settings/export");
+      if (!response.ok) {
+        setExportStatus({ tone: "fail", text: EXPORT_FAILED });
+        return;
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "trades.csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportStatus({ tone: "fail", text: EXPORT_FAILED });
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -130,9 +174,12 @@ export function DataSection({
       <p className="mt-1 text-sm text-muted">Your records, in and out — and what AI has cost.</p>
 
       <div className="mt-4 flex flex-wrap items-start gap-6">
-        <a href="/api/settings/export" download className={buttonClass}>
-          {`Export ${tradeCount} trades as CSV`}
-        </a>
+        <div>
+          <button type="button" onClick={() => void exportCsv()} disabled={busy} className={buttonClass}>
+            {`Export ${tradeCount} trades as CSV`}
+          </button>
+          {exportStatus ? <SettingStatus tone={exportStatus.tone} text={exportStatus.text} /> : null}
+        </div>
         <div>
           <label htmlFor="settings-import" className="block text-sm text-text">
             Import trades from CSV

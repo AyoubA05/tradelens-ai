@@ -9,8 +9,13 @@ from src.tradelens.db.models import Screenshot, Trade
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services.ownership import require_user_id
 
-# Relative to CWD (project root); consistent with session.py's sqlite:///./data/tradelens.db
-SCREENSHOTS_DIR = Path("data/screenshots")
+# The repository root, from this file's own location — never the process's
+# working directory. A relative `data/screenshots` resolved against whatever
+# directory a process happened to start in: the API and Streamlit could disagree
+# about where legacy files live, and deletion could report a real file as
+# already gone (Phase 9 Group A review, S1).
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+SCREENSHOTS_DIR = PROJECT_ROOT / "data" / "screenshots"
 
 
 def _require_owned_trade(trade_id: int, user_id: int) -> int:

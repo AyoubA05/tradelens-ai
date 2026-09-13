@@ -999,3 +999,27 @@ def test_owns_trade_is_false_for_another_owners_trade(two_users):
 
     assert storage.owns_trade(a, theirs.id) is False
     assert storage.owns_trade(a, mine.id) is True
+
+
+def test_delete_trade_objects_needs_no_r2_for_legacy_only_rows(two_users, monkeypatch):
+    """A trade whose rows name only legacy local paths must never need R2.
+
+    Before the Phase 9 Group A review (N1) the client and bucket were built
+    before any key was inspected, so a deployment without R2 settings could not
+    delete such a trade at all.
+    """
+    a, _b = two_users
+    mine = _create({"user_id": a, "trade_date": "2026-08-12", "asset": "NQ"})
+    legacy = "data/screenshots/%d_legacy.png" % mine.id
+    _screenshot(mine.id, legacy)
+
+    def no_r2(*args, **kwargs):
+        raise AssertionError("R2 was configured for a legacy-only trade")
+
+    monkeypatch.setattr(storage, "_client", no_r2)
+    monkeypatch.setattr(storage, "r2_config", no_r2)
+
+    cleanup = storage.delete_trade_objects(a, mine.id)
+
+    assert cleanup.deleted == [] and cleanup.failed == []
+    assert cleanup.skipped == [legacy]

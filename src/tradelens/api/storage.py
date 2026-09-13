@@ -605,14 +605,20 @@ def delete_trade_objects(user_id: int, trade_id: int) -> ObjectCleanup:
         # as construct a connection to the object store.
         return ObjectCleanup(deleted=deleted, failed=failed, skipped=skipped)
 
-    bucket = r2_config()["bucket"]
-    client = _client()
+    # Built lazily, on the first genuine R2 key: a trade whose rows name only
+    # legacy local paths must not need R2 configured at all, or a deployment
+    # without R2 could never delete it (Phase 9 Group A review, N1).
+    bucket = None
+    client = None
     for key in keys:
         if not _is_final_key(key, owner, trade_id):
             # A legacy local path, or a row pointing outside this owner's
             # prefix. Neither names an object we may delete.
             skipped.append(key)
             continue
+        if client is None:
+            bucket = r2_config()["bucket"]
+            client = _client()
         try:
             client.delete_object(Bucket=bucket, Key=key)
             deleted.append(key)

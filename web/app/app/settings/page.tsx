@@ -59,7 +59,11 @@ export default async function SettingsPage() {
         <>
           <ProfileSection account={data.account} resetEmailConfigured={data.reset_email_configured} />
           <PreferencesSection timezone={data.timezone} ai={data.ai} demoMode={data.demo_mode} />
-          <DataSection data={data.data} cost={data.cost} />
+          <DataSection
+            key={`${data.data.trade_count}:${data.data.sample_count}`}
+            data={data.data}
+            cost={data.cost}
+          />
           <DangerZone />
         </>
       )}

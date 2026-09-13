@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
 import { SettingStatus } from "@/components/app/settings/setting-status";
@@ -43,6 +44,7 @@ export function DangerZone({
   const [accountStatus, setAccountStatus] = useState<Status>(null);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
+  const router = useRouter();
 
   async function deleteTrades() {
     if (typedTrades !== "DELETE" || inFlight.current) return;
@@ -59,6 +61,9 @@ export function DangerZone({
         const body = (await response.json()) as { deleted: number };
         setTradesStatus({ tone: "ok", text: `Deleted ${body.deleted} trades.` });
         setTypedTrades("");
+        // The data section's counts come from the server; re-read them, so the
+        // page never keeps offering to export or clear trades that are gone.
+        router.refresh();
         return;
       }
       setTradesStatus({ tone: "fail", text: await failureText(response) });
