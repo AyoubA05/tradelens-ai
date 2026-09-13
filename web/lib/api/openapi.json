@@ -756,6 +756,118 @@
         "title": "ComparisonBlock",
         "type": "object"
       },
+      "CsvExportResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "csv": {
+            "title": "Csv",
+            "type": "string"
+          },
+          "filename": {
+            "const": "trades.csv",
+            "title": "Filename",
+            "type": "string"
+          },
+          "row_count": {
+            "title": "Row Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "filename",
+          "row_count",
+          "csv"
+        ],
+        "title": "CsvExportResponse",
+        "type": "object"
+      },
+      "CsvImportResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "inserted": {
+            "title": "Inserted",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "inserted",
+          "skipped",
+          "errors"
+        ],
+        "title": "CsvImportResponse",
+        "type": "object"
+      },
+      "CsvImportWrite": {
+        "additionalProperties": false,
+        "properties": {
+          "csv": {
+            "maxLength": 900000,
+            "minLength": 1,
+            "title": "Csv",
+            "type": "string"
+          }
+        },
+        "required": [
+          "csv"
+        ],
+        "title": "CsvImportWrite",
+        "type": "object"
+      },
+      "DeleteAccountWrite": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "const": "DELETE MY ACCOUNT",
+            "title": "Confirm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "DeleteAccountWrite",
+        "type": "object"
+      },
+      "DeleteTradesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "title": "DeleteTradesResponse",
+        "type": "object"
+      },
+      "DeleteTradesWrite": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "const": "DELETE",
+            "title": "Confirm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "DeleteTradesWrite",
+        "type": "object"
+      },
       "DisciplineBlock": {
         "additionalProperties": false,
         "properties": {
@@ -1628,6 +1740,25 @@
         "title": "SampleFlags",
         "type": "object"
       },
+      "SampleTradesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "sample_count": {
+            "title": "Sample Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count",
+          "sample_count"
+        ],
+        "title": "SampleTradesResponse",
+        "type": "object"
+      },
       "ScreenshotCleanupFailedDetail": {
         "additionalProperties": false,
         "description": "A delete that could not finish. The trade row is deliberately still\nthere: a trader told their screenshots are gone while private images\nremain in the bucket has been given a false privacy assurance, so the\nstate stays retryable rather than becoming an orphan nobody can find.\n\n`remaining` and `unresolvable` are separate numbers because they need\ndifferent handling: `remaining` is an object-store fault that a retry\nwill clear, while `unresolvable` counts screenshot rows naming a path\nthis owner is not entitled to delete \u2014 a retry will never clear those,\nand the caller must be able to tell \"try again\" from \"this needs an\noperator\" rather than seeing one opaque total.",
@@ -1827,6 +1958,200 @@
           "value"
         ],
         "title": "SeriesPoint",
+        "type": "object"
+      },
+      "SettingsAI": {
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "enum": [
+              "enabled",
+              "demo",
+              "unavailable"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "SettingsAI",
+        "type": "object"
+      },
+      "SettingsAccount": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "email_verified": {
+            "title": "Email Verified",
+            "type": "boolean"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "email",
+          "email_verified"
+        ],
+        "title": "SettingsAccount",
+        "type": "object"
+      },
+      "SettingsCost": {
+        "additionalProperties": false,
+        "properties": {
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/SettingsCostRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "total_usd": {
+            "title": "Total Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "month",
+          "total_usd",
+          "rows"
+        ],
+        "title": "SettingsCost",
+        "type": "object"
+      },
+      "SettingsCostRow": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "cost_usd": {
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "feature": {
+            "title": "Feature",
+            "type": "string"
+          }
+        },
+        "required": [
+          "feature",
+          "cost_usd",
+          "calls"
+        ],
+        "title": "SettingsCostRow",
+        "type": "object"
+      },
+      "SettingsData": {
+        "additionalProperties": false,
+        "properties": {
+          "csv_columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Csv Columns",
+            "type": "array"
+          },
+          "max_import_rows": {
+            "title": "Max Import Rows",
+            "type": "integer"
+          },
+          "sample_count": {
+            "title": "Sample Count",
+            "type": "integer"
+          },
+          "trade_count": {
+            "title": "Trade Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "trade_count",
+          "sample_count",
+          "csv_columns",
+          "max_import_rows"
+        ],
+        "title": "SettingsData",
+        "type": "object"
+      },
+      "SettingsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/SettingsAccount"
+          },
+          "ai": {
+            "$ref": "#/components/schemas/SettingsAI"
+          },
+          "cost": {
+            "$ref": "#/components/schemas/SettingsCost"
+          },
+          "data": {
+            "$ref": "#/components/schemas/SettingsData"
+          },
+          "demo_mode": {
+            "title": "Demo Mode",
+            "type": "boolean"
+          },
+          "reset_email_configured": {
+            "title": "Reset Email Configured",
+            "type": "boolean"
+          },
+          "timezone": {
+            "$ref": "#/components/schemas/SettingsTimezone"
+          }
+        },
+        "required": [
+          "account",
+          "timezone",
+          "ai",
+          "data",
+          "cost",
+          "reset_email_configured",
+          "demo_mode"
+        ],
+        "title": "SettingsResponse",
+        "type": "object"
+      },
+      "SettingsTimezone": {
+        "additionalProperties": false,
+        "properties": {
+          "current": {
+            "title": "Current",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          }
+        },
+        "required": [
+          "current",
+          "options"
+        ],
+        "title": "SettingsTimezone",
         "type": "object"
       },
       "SetupsLens": {
@@ -2517,6 +2842,21 @@
           "max_loss"
         ],
         "title": "StreakBlock",
+        "type": "object"
+      },
+      "TimezoneWrite": {
+        "additionalProperties": false,
+        "properties": {
+          "timezone": {
+            "maxLength": 64,
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timezone"
+        ],
+        "title": "TimezoneWrite",
         "type": "object"
       },
       "TimingLens": {
@@ -6015,6 +6355,254 @@
         "summary": "Whoami",
         "tags": [
           "session"
+        ]
+      }
+    },
+    "/v1/settings": {
+      "get": {
+        "operationId": "read_settings_v1_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Settings",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/v1/settings/delete-account": {
+      "post": {
+        "operationId": "delete_my_account_v1_settings_delete_account_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteAccountWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenshotCleanupFailedResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Delete My Account",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/v1/settings/delete-trades": {
+      "post": {
+        "operationId": "delete_trades_v1_settings_delete_trades_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteTradesWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteTradesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenshotCleanupFailedResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Delete Trades",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/v1/settings/export": {
+      "get": {
+        "operationId": "export_csv_v1_settings_export_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CsvExportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Export Csv",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/v1/settings/import": {
+      "post": {
+        "operationId": "import_csv_v1_settings_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CsvImportWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CsvImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Import Csv",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/v1/settings/sample-trades": {
+      "delete": {
+        "operationId": "clear_samples_v1_settings_sample_trades_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SampleTradesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Clear Samples",
+        "tags": [
+          "settings"
+        ]
+      },
+      "post": {
+        "operationId": "load_samples_v1_settings_sample_trades_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SampleTradesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Load Samples",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/v1/settings/timezone": {
+      "put": {
+        "operationId": "write_timezone_v1_settings_timezone_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TimezoneWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Write Timezone",
+        "tags": [
+          "settings"
         ]
       }
     },

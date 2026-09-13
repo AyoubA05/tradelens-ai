@@ -123,6 +123,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Settings */
+        get: operations["read_settings_v1_settings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/delete-account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Delete My Account */
+        post: operations["delete_my_account_v1_settings_delete_account_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/delete-trades": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Delete Trades */
+        post: operations["delete_trades_v1_settings_delete_trades_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export Csv */
+        get: operations["export_csv_v1_settings_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Csv */
+        post: operations["import_csv_v1_settings_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/sample-trades": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Load Samples */
+        post: operations["load_samples_v1_settings_sample_trades_post"];
+        /** Clear Samples */
+        delete: operations["clear_samples_v1_settings_sample_trades_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/timezone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Write Timezone */
+        put: operations["write_timezone_v1_settings_timezone_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/strategy": {
         parameters: {
             query?: never;
@@ -1056,6 +1176,53 @@ export interface components {
             profit_factor: components["schemas"]["MetricValue"];
             win_rate: components["schemas"]["MetricValue"];
         };
+        /** CsvExportResponse */
+        CsvExportResponse: {
+            /** Csv */
+            csv: string;
+            /**
+             * Filename
+             * @constant
+             */
+            filename: "trades.csv";
+            /** Row Count */
+            row_count: number;
+        };
+        /** CsvImportResponse */
+        CsvImportResponse: {
+            /** Errors */
+            errors: string[];
+            /** Inserted */
+            inserted: number;
+            /** Skipped */
+            skipped: number;
+        };
+        /** CsvImportWrite */
+        CsvImportWrite: {
+            /** Csv */
+            csv: string;
+        };
+        /** DeleteAccountWrite */
+        DeleteAccountWrite: {
+            /**
+             * Confirm
+             * @constant
+             */
+            confirm: "DELETE MY ACCOUNT";
+        };
+        /** DeleteTradesResponse */
+        DeleteTradesResponse: {
+            /** Deleted */
+            deleted: number;
+        };
+        /** DeleteTradesWrite */
+        DeleteTradesWrite: {
+            /**
+             * Confirm
+             * @constant
+             */
+            confirm: "DELETE";
+        };
         /** DisciplineBlock */
         DisciplineBlock: {
             consistency: components["schemas"]["MetricValue"];
@@ -1332,6 +1499,13 @@ export interface components {
             /** Trades */
             trades: number;
         };
+        /** SampleTradesResponse */
+        SampleTradesResponse: {
+            /** Count */
+            count: number;
+            /** Sample Count */
+            sample_count: number;
+        };
         /**
          * ScreenshotCleanupFailedDetail
          * @description A delete that could not finish. The trade row is deliberately still
@@ -1447,6 +1621,71 @@ export interface components {
             date: string;
             /** Value */
             value: number;
+        };
+        /** SettingsAI */
+        SettingsAI: {
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "enabled" | "demo" | "unavailable";
+        };
+        /** SettingsAccount */
+        SettingsAccount: {
+            /** Email */
+            email: string | null;
+            /** Email Verified */
+            email_verified: boolean;
+            /** Username */
+            username: string;
+        };
+        /** SettingsCost */
+        SettingsCost: {
+            /** Month */
+            month: string;
+            /** Rows */
+            rows: components["schemas"]["SettingsCostRow"][];
+            /** Total Usd */
+            total_usd: number;
+        };
+        /** SettingsCostRow */
+        SettingsCostRow: {
+            /** Calls */
+            calls: number;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Feature */
+            feature: string;
+        };
+        /** SettingsData */
+        SettingsData: {
+            /** Csv Columns */
+            csv_columns: string[];
+            /** Max Import Rows */
+            max_import_rows: number;
+            /** Sample Count */
+            sample_count: number;
+            /** Trade Count */
+            trade_count: number;
+        };
+        /** SettingsResponse */
+        SettingsResponse: {
+            account: components["schemas"]["SettingsAccount"];
+            ai: components["schemas"]["SettingsAI"];
+            cost: components["schemas"]["SettingsCost"];
+            data: components["schemas"]["SettingsData"];
+            /** Demo Mode */
+            demo_mode: boolean;
+            /** Reset Email Configured */
+            reset_email_configured: boolean;
+            timezone: components["schemas"]["SettingsTimezone"];
+        };
+        /** SettingsTimezone */
+        SettingsTimezone: {
+            /** Current */
+            current: string;
+            /** Options */
+            options: string[];
         };
         /** SetupsLens */
         SetupsLens: {
@@ -1626,6 +1865,11 @@ export interface components {
             current: components["schemas"]["MetricValue"];
             max_loss: components["schemas"]["MetricValue"];
             max_win: components["schemas"]["MetricValue"];
+        };
+        /** TimezoneWrite */
+        TimezoneWrite: {
+            /** Timezone */
+            timezone: string;
         };
         /**
          * TimingLens
@@ -2590,6 +2834,237 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["WhoAmI"];
                 };
+            };
+        };
+    };
+    read_settings_v1_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsResponse"];
+                };
+            };
+        };
+    };
+    delete_my_account_v1_settings_delete_account_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccountWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotCleanupFailedResponse"];
+                };
+            };
+        };
+    };
+    delete_trades_v1_settings_delete_trades_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteTradesWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteTradesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotCleanupFailedResponse"];
+                };
+            };
+        };
+    };
+    export_csv_v1_settings_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CsvExportResponse"];
+                };
+            };
+        };
+    };
+    import_csv_v1_settings_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CsvImportWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CsvImportResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    load_samples_v1_settings_sample_trades_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleTradesResponse"];
+                };
+            };
+        };
+    };
+    clear_samples_v1_settings_sample_trades_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleTradesResponse"];
+                };
+            };
+        };
+    };
+    write_timezone_v1_settings_timezone_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TimezoneWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
