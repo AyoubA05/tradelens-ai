@@ -8269,3 +8269,155 @@ may be waived by this merge:
 
 Also carried forward unchanged: the narrow in-flight Streamlit request race until Phase 10, and the
 two known pre-existing Streamlit Analytics assertions in `test_pages_boot.py`.
+
+---
+
+# Phase 9 — Settings (branch `worktree-phase9-settings`, NOT merged)
+
+Plan: `docs/superpowers/plans/2026-09-13-nextjs-migration-phase9-settings.md` (`c6d031e`; decisions
+approved in `47353fc`). Code tip before this handoff: `1bc310b`.
+
+Commits: `c232fca` deletion correctness (objects before rows; every user-referencing row) · `3c42b37`
+timezone allowlist, CSV cap and formula neutralisation, Streamlit page · `d7cdde1` Settings API ·
+`f4498ce` relays · `e79ce20` page · `7f7d90c` Group A review fixes (B1 race, B2 cross-tenant legacy
+file, S1 CWD anchor, N1 legacy-only needs no R2) and Groups B–D should-fixes (stale counts, export by
+fetch, escaped import size) · `1bc310b` re-review fixes (R2 setup fault reported as failed cleanup,
+deferred blob revoke, pins for legacy ownership and export failure).
+
+## Blocking correctness work (owner-designated), and where each is pinned
+
+| Defect found on `main` | Fix | Pinned by |
+|---|---|---|
+| Bulk trade deletion and account deletion never deleted R2 screenshot objects (only rows; account deletion only local-disk files) | `services/data_deletion.py`: every owned object removed through `storage.delete_trade_objects` **before** any row; a failed (retryable) or unresolvable key blocks the deletion with **no row removed** and the two counts reported separately | `tests/test_data_deletion.py`; API `test_a_blocked_cleanup_is_503_with_the_split_and_never_a_success`, `test_a_real_blocked_bulk_delete_leaves_every_trade`; relay and danger-zone copy tests; battery R01–R08b, M13–M16, C03, D03–D04 |
+| A screenshot or trade landing between the object purge and the row delete lost its row while its object stayed (review B1) | Purged trades locked `FOR UPDATE`; every `Screenshot(trade_id, file_path)` must be a key cleanup handled, else roll back and re-purge (3 attempts), then a retryable block. Account deletion also locks the user row and refuses trades created after the purge | Race tests in `test_data_deletion.py`; battery M03–M04, M09–M11, M13–M15 |
+| Legacy local cleanup could delete another trade's (tenant's) file inside the root (review B2) | Resolved path must be inside `SCREENSHOTS_DIR` **and** the resolved file name must start with `f"{trade_id}_"` | Other-trade, symlink-to-other-trade, trade 1 vs `12_` tests; battery M05, M06, M30, R10, R13 |
+| R2 setup failure (missing config, client construction) raised through the purge as a 500 (re-review should-fix 1) | Every remaining owned key reported as failed → 503 retryable block | `test_delete_trade_objects_reports_an_object_store_setup_fault_as_failed`; battery M31–M32 |
+| Account deletion left `auth_sessions` and `auth_handoffs` rows — NOT NULL foreign keys to `users.id` with no `ondelete`, so the user delete would fail on PostgreSQL | `account._OWNED_BY_USER` deletes them, and explicitly deletes the cascading `ai_jobs`, `email_verifications`, `password_resets`, `trade_summary_results`, `trade_drafts` so SQLite behaves as PostgreSQL | `tests/test_account_deletion_references.py`, including a sweep that fails if any table with a `user_id` column lacks a deletion decision; battery A14–A17 |
+| `set_timezone` stored any string | Strict allowlist of the six Streamlit zones (S6) | `tests/test_app_settings.py`; API 422 tests; battery A21–A23, B08 |
+
+**No path reports a successful deletion while an owned private object that should have been removed
+failed cleanup:** the service returns `blocked`, the API answers 503 `screenshot_cleanup_failed`, the
+relay forwards a fixed code plus one boolean (whether a retry can help), the page says "nothing was
+deleted", and the Streamlit page shows the same refusal. A blocked account deletion keeps the session
+cookie and the account.
+
+**Partial-cleanup semantics, recorded:** objects removed on a blocked attempt stay removed while their
+rows remain (the trade shows "chart no longer available"); a retry converges because an already-absent
+object and an already-missing legacy file both count as removed. When re-purge attempts are exhausted
+the outcome reports `remaining = 1` as a placeholder count, not a measured one.
+
+## Decisions S1–S9 (owner-approved)
+
+- **S1** email display-only · **S2** AI availability status only · **S3** demo status line only
+- **S4** synchronous CSV import, ≤ 1 MB request (measured after JSON escaping in the page), ≤ 5,000 rows (refused whole)
+- **S5** export neutralises formula-leading text cells (`= + - @ \t \r`); the nine numeric columns are exempt; import restores the text losslessly
+- **S6** six timezone choices, strict server-side validation (legacy stored values still read)
+- **S7** delete-all-trades also removes the owner's AI trade summaries (including leftovers when no trades remain); unsaved New Trade drafts are kept
+- **S8** legacy screenshot cleanup idempotent and confined to `SCREENSHOTS_DIR` and to files named for the trade: missing = already gone; outside paths, `..` escapes, symlinks resolving outside or to another trade's file are never deleted
+- **S9** typed confirmation phrase only for account deletion (`Literal["DELETE MY ACCOUNT"]` server-side; the page sends the constant, never the typed text)
+
+## Carried into Phase 10 (parity checklist)
+
+- **The Strategy demo-playbook preview** (deferred by Phase 7; not in Phase 9's scope, S3). Phase 10's
+  plan must list it explicitly — implement it or record a deliberate removal — before Streamlit is
+  retired.
+
+## Test changes worth knowing
+
+Four existing tests (`test_overview_service.py`, three in `test_api_trades.py`) stored a timezone
+outside the new allowlist to exercise the read-side fallback. They now seed the stored value with
+`set_setting`; what they test is unchanged. The Streamlit page contract
+(`test_premium_page_contracts.py`) names the object-aware deletion calls.
+
+## Review
+
+- **Group A** (deletion, timezone, CSV): blocking B1 (purge/delete race) and B2 (cross-tenant legacy
+  file); should-fix S1 (relative paths anchored at the CWD); N1–N4 (legacy-only rows needed R2; test
+  gaps). All fixed in `7f7d90c`. An independent PostgreSQL foreign-key simulation of account deletion
+  passed.
+- **Groups B–D** (API, relays, page): nothing blocking. Should-fix: stale counts after delete-all
+  (router refresh + keyed section), export failure landing on bare JSON (now fetch + fixed sentence),
+  escaped import size. Fixed in `7f7d90c`.
+- **Re-review of `e79ce20..7f7d90c`**: nothing blocking. Should-fix: R2 setup fault escaping as 500;
+  lock ineffective on SQLite (documented in `_lock_and_verify`; guarantee is PostgreSQL-only); blob URL
+  revoked in the same task as the click; four surviving mutants (M06, M08, M26, M30). All addressed in
+  `1bc310b`.
+- Recorded notes, not fixed: CSV neutralisation does not cover leading whitespace or full-width formula
+  characters, and a cell that genuinely starts with `'=` does not round-trip (N5); bulk trade deletion
+  leaves weekly reviews and other trade-derived-but-not-trade-keyed rows (N6); duplicate JSON keys
+  accepted by the relay parser; 401 copy is generic; legacy cleanup accepts a trade-named file in a
+  subdirectory of the root; a local-only symlink swap between `resolve()` and `unlink()`.
+
+## Mutation batteries
+
+All run on `1bc310b` from a clean tree, one harness at a time, postflight clean with every file
+sha256-restored.
+
+- **Group A harness** (32): 20 caught · 3 survived · 9 NOT-APPLIED. The 9 NOT-APPLIED targeted the
+  pre-rewrite `data_deletion.py` and were re-targeted as R01–R10, R13 (below). The 3 survivors
+  (A18–A20) mutate `trade_service.delete_all_trades`, which no longer has any caller in `src/`; the live
+  S7 summary delete is pinned by M19.
+- **Re-targeted Group A** (10): 10 caught (R01, R02, R05, R06, R07, R08, R08b, R09, R10, R13).
+- **Groups B–D harness** (33): 32 caught · 1 survived — **D11** (page renders controls over a failed
+  load): no test renders the Server Component's failed-load branch. Earlier-recorded equivalents:
+  sample_count after load (load always clears and inserts 20), timezone `max_length`.
+- **Fix delta** (32, reviewer's harness + M31/M32): 26 caught · 6 survived:
+  - M01/M02 (drop `FOR UPDATE`): SQLite ignores the clause — the race guarantee is tested only on
+    PostgreSQL, a pre-release gate.
+  - M12 (no rollback before retry): equivalent — `db.close()` discards the transaction.
+  - M17 (account ignores failed deletes): safe — verification still refuses and exhaustion blocks.
+  - M21 (owner filter dropped from the trade DELETE): redundant — ids are already owner-scoped.
+  - M29 (DataSection `key` removed): the page's remount is untested; only `router.refresh` is.
+  - This harness judges by exit code, so a mutant that broke collection would read as caught.
+
+## Verification actually run (at `1bc310b`)
+
+- **Python, full suite at `1bc310b`: 3783 passed / 7 skipped / 4 failed — not green.**
+  - 2 are the known pre-existing Streamlit Analytics assertions
+    (`test_analytics_single_setup_readout_does_not_claim_a_ranking`,
+    `test_analytics_category_names_are_escaped_exactly_once`).
+  - `test_journal_detail_view_opens_a_selected_trade` ("marker not found: Risk & Outcome"): run alone,
+    it fails identically at `1bc310b`, at `7f7d90c` and at the Phase 8 base `2de1d6c`, so it is not a
+    Phase 9 regression. It passed inside the full-suite run at `7f7d90c` the day before, so something
+    that changes between runs affects it; cause not established. Recorded as a third pre-existing
+    Streamlit boot failure.
+  - `test_analytics_lens_boots_with_rich_data[Risk]`: failed in the full-suite run, passed alone at
+    `1bc310b` and at `2de1d6c`. Intermittent; not Phase 9.
+- Python, full suite at `7f7d90c`: 3781 passed / 7 skipped / 2 known pre-existing Analytics failures.
+- Targeted deletion/storage/settings files at `1bc310b` (`test_data_deletion`, `test_api_storage`,
+  `test_account_deletion_references`, `test_api_settings`, `test_screenshot_service`): 174 passed.
+- Web at `1bc310b`: `vitest run` 1859 passed · `tsc --noEmit` clean · `eslint .` 0 errors (1 pre-existing
+  warning in `web/lib/app/modal-trap.ts`) · `npm run build` compiled (localhost `SITE_ORIGIN` /
+  `APP_ORIGIN`, non-placeholder `SUPPORT_EMAIL`).
+- `ruff check src/ scripts/` clean. `ruff check tests/` reports 2 pre-existing findings on lines Phase 9
+  did not change (`tests/test_api_trades.py:1732` F841, `tests/test_weekly.py:7` F401).
+  `black --check src/ scripts/ tests/`: only `tests/app_boot_check.py`, unchanged since `2de1d6c`.
+- `scripts/generate_openapi.py` + `npm --prefix web run api:types`: no diff.
+- `alembic heads`: `g3h4i5j6k7l8` (no Phase 9 migration).
+- Protected paths `src/tradelens/prompts/` and `alembic/versions/`: no diff against `2de1d6c`.
+- Added lines scanned for credentials: none.
+- **Browser smoke: NOT RUN.**
+
+## Honest gaps
+
+- **Authenticated desktop + true 375px browser smoke did NOT run** — no usable credentials in this
+  environment. Settings layout, the danger zone and 44px targets are verified in jsdom only.
+- Real PostgreSQL was not available; PostgreSQL-safe account deletion is established by the explicit
+  row sweep and a simulated PostgreSQL foreign-key run, and the purge/delete race lock is untested on
+  SQLite (M01/M02).
+- `SCREENSHOTS_DIR` is now `PROJECT_ROOT / "data" / "screenshots"` and relative stored legacy paths are
+  anchored at `PROJECT_ROOT`, not the process working directory (pinned by
+  `test_project_root_is_the_repository_root` and the CWD test).
+- **Live R2 was not exercised.** Object deletion is tested against fakes only.
+
+## Carried forward, unchanged (hard pre-release gates)
+
+Real PostgreSQL concurrency (now including account deletion against the non-cascading foreign keys and
+the purge/delete race lock) · authenticated desktop + true 375px browser smoke · Docker
+build/startup/health · live Anthropic adversarial smoke · dependency audit · live R2/browser
+verification (now including bulk and account-deletion object cleanup). The narrow in-flight Streamlit
+request race until Phase 10. The two known pre-existing Streamlit Analytics assertions in
+`test_pages_boot.py`. The lexical Partner output guard remains defense-in-depth, not a semantic
+guarantee.
+
+**Phase 9 is not merged. Do not begin Phase 10.**
