@@ -59,7 +59,7 @@ export function NextReviewAction({ action }: { action: OverviewResponse["next_re
             keeps getting more to work with.
           </p>
         )}
-        <Link href="/app/reviews" className="mt-4 inline-block text-sm text-accent hover:underline">
+        <Link href="/app/reviews?lens=weekly" className="mt-4 inline-block text-sm text-accent hover:underline">
           Open AI Reviews →
         </Link>
       </div>

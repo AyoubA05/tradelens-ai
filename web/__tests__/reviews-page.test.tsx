@@ -131,11 +131,30 @@ describe("AI Reviews page — period parameters", () => {
     expect(fetchReviews).toHaveBeenCalledWith("browser-token", {});
   });
 
-  it("forwards an ISO day and drops a malformed one", async () => {
+  it("forwards an ISO day", async () => {
     await ReviewsPage({ searchParams: params({ lens: "daily", day: "2026-09-08" }) });
-    expect(fetchReviews).toHaveBeenLastCalledWith("browser-token", { day: "2026-09-08" });
+    expect(fetchReviews).toHaveBeenCalledTimes(1);
+    expect(fetchReviews).toHaveBeenCalledWith("browser-token", { day: "2026-09-08" });
+  });
+
+  it("drops a malformed day and never forwards it", async () => {
     await ReviewsPage({ searchParams: params({ lens: "daily", day: "2026-9-8" }) });
-    expect(fetchReviews).toHaveBeenLastCalledWith("browser-token", {});
+    expect(fetchReviews).toHaveBeenNthCalledWith(1, "browser-token", {});
+    for (const [, query] of fetchReviews.mock.calls) {
+      expect(query).not.toEqual(expect.objectContaining({ day: "2026-9-8" }));
+    }
+  });
+
+  it("reads the newest week's saved recap when no week is chosen, and never generates", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    render(await ReviewsPage({ searchParams: params({ lens: "weekly" }) }));
+    expect(fetchReviews).toHaveBeenNthCalledWith(1, "browser-token", {});
+    expect(fetchReviews).toHaveBeenNthCalledWith(2, "browser-token", { week: "2026-09-07" });
+    expect(screen.getByRole("tab", { name: "Weekly Recap" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Generate weekly recap" })).toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });
 

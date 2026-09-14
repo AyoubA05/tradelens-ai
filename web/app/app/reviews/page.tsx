@@ -9,6 +9,8 @@ import {
 import { fetchReviews, type ReviewsResponse } from "@/lib/app/reviews";
 import { LensTabs, REVIEW_LENSES, reviewLensFrom } from "@/components/app/reviews/lens-tabs";
 import { PatternsLens } from "@/components/app/reviews/patterns-lens";
+import { WeeklyLens } from "@/components/app/reviews/weekly-lens";
+import { DailyLens } from "@/components/app/reviews/daily-lens";
 import { ErrorState } from "@/components/app/states/error-state";
 
 export const dynamic = "force-dynamic";
@@ -46,8 +48,21 @@ export default async function ReviewsPage({
   const day = isoParam(raw.day);
 
   let data: ReviewsResponse | null = null;
+  let selectedWeek: string | null = week ?? null;
+  let selectedDay: string | null = day ?? null;
   try {
     data = await fetchReviews(token, { ...(week ? { week } : {}), ...(day ? { day } : {}) });
+    // Opening a lens with no period chosen reads the newest one (the API lists
+    // them newest first). This is a second READ for its saved note — never a
+    // generate.
+    if (lens === "weekly" && !selectedWeek && data.weeks[0]) {
+      selectedWeek = data.weeks[0];
+      data = await fetchReviews(token, { week: selectedWeek, ...(day ? { day } : {}) });
+    }
+    if (lens === "daily" && !selectedDay && data.days[0]) {
+      selectedDay = data.days[0];
+      data = await fetchReviews(token, { day: selectedDay, ...(week ? { week } : {}) });
+    }
   } catch {
     // Not surfaced: an upstream message can carry internal detail.
     data = null;
@@ -78,6 +93,26 @@ export default async function ReviewsPage({
               patterns={data.patterns}
               completeTrades={data.complete_trades}
               tradesForReview={data.trades_for_review}
+            />
+          )}
+          {lens === "weekly" && (
+            <WeeklyLens
+              key={selectedWeek ?? "none"}
+              weeks={data.weeks}
+              selectedWeek={selectedWeek}
+              saved={data.weekly ?? null}
+              completeTrades={data.complete_trades}
+              tradesForReview={data.trades_for_review}
+              aiAvailable={data.ai_available}
+            />
+          )}
+          {lens === "daily" && (
+            <DailyLens
+              key={selectedDay ?? "none"}
+              days={data.days}
+              selectedDay={selectedDay}
+              saved={data.daily ?? null}
+              aiAvailable={data.ai_available}
             />
           )}
         </>

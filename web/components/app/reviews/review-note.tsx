@@ -50,6 +50,15 @@ function MarkdownBody({ body }: { body: string }) {
   );
 }
 
+export const SMALL_SAMPLE_LIMITATION = "Small sample — read this as a description, not a rule.";
+
+/** How much a note's sample can carry: under five trades is low, under fifteen medium. */
+export function sampleConfidence(reviewedTrades: number): "low" | "medium" | "high" {
+  if (reviewedTrades < 5) return "low";
+  if (reviewedTrades < 15) return "medium";
+  return "high";
+}
+
 type Section = { title: string; body: string };
 
 export function splitSections(content: string): Section[] {
