@@ -8282,7 +8282,8 @@ timezone allowlist, CSV cap and formula neutralisation, Streamlit page · `d7cdd
 `f4498ce` relays · `e79ce20` page · `7f7d90c` Group A review fixes (B1 race, B2 cross-tenant legacy
 file, S1 CWD anchor, N1 legacy-only needs no R2) and Groups B–D should-fixes (stale counts, export by
 fetch, escaped import size) · `1bc310b` re-review fixes (R2 setup fault reported as failed cleanup,
-deferred blob revoke, pins for legacy ownership and export failure).
+deferred blob revoke, pins for legacy ownership and export failure) · `8fe4aba` Settings page regression
+(failed initial load renders the error state and no controls; keyed data section re-reads counts).
 
 ## Blocking correctness work (owner-designated), and where each is pinned
 
@@ -8350,25 +8351,36 @@ outside the new allowlist to exercise the read-side fallback. They now seed the 
 
 ## Mutation batteries
 
-All run on `1bc310b` from a clean tree, one harness at a time, postflight clean with every file
-sha256-restored.
+Group A, re-targeted Group A and Groups B–D ran on `1bc310b`; the fix wave was re-run on `8fe4aba`. Each
+ran from a clean tree, one harness at a time, postflight clean with every file sha256-restored.
 
 - **Group A harness** (32): 20 caught · 3 survived · 9 NOT-APPLIED. The 9 NOT-APPLIED targeted the
   pre-rewrite `data_deletion.py` and were re-targeted as R01–R10, R13 (below). The 3 survivors
   (A18–A20) mutate `trade_service.delete_all_trades`, which no longer has any caller in `src/`; the live
   S7 summary delete is pinned by M19.
 - **Re-targeted Group A** (10): 10 caught (R01, R02, R05, R06, R07, R08, R08b, R09, R10, R13).
-- **Groups B–D harness** (33): 32 caught · 1 survived — **D11** (page renders controls over a failed
-  load): no test renders the Server Component's failed-load branch. Earlier-recorded equivalents:
-  sample_count after load (load always clears and inserts 20), timezone `max_length`.
-- **Fix delta** (32, reviewer's harness + M31/M32): 26 caught · 6 survived:
-  - M01/M02 (drop `FOR UPDATE`): SQLite ignores the clause — the race guarantee is tested only on
-    PostgreSQL, a pre-release gate.
-  - M12 (no rollback before retry): equivalent — `db.close()` discards the transaction.
-  - M17 (account ignores failed deletes): safe — verification still refuses and exhaustion blocks.
-  - M21 (owner filter dropped from the trade DELETE): redundant — ids are already owner-scoped.
-  - M29 (DataSection `key` removed): the page's remount is untested; only `router.refresh` is.
-  - This harness judges by exit code, so a mutant that broke collection would read as caught.
+- **Groups B–D harness** (33, at `1bc310b`): 32 caught · 1 survived — D11 (page renders controls over a
+  failed load). Closed by `8fe4aba`: D11 is now caught in the hardened battery below. Earlier-recorded
+  equivalents: sample_count after load (load always clears and inserts 20), timezone `max_length`.
+- **Fix wave, hardened harness** (34, re-run at `8fe4aba` from a clean tree; supersedes the earlier
+  exit-code-judged fix-delta run of 32 at `1bc310b`): **29 caught · 5 survived · 0 ERROR · 0 NOT-RUN ·
+  0 NOT-APPLIED**. Preflight and postflight clean at `8fe4aba`; every restore sha256-verified.
+  - Verdict rules: CAUGHT only when the intended tests were collected, ran, and at least one FAILED
+    (pytest: a `FAILED <nodeid>` line and no `ERROR`/error summary; vitest: `Tests N failed` with
+    N >= 1 and no test file that failed to load). A collection, import or transform failure or a
+    timeout is ERROR; a selector matching no tests is NOT-RUN; neither counts as a kill.
+  - Verdict controls, run first on the real tree: an injected Python syntax error and an import error ->
+    ERROR; an empty pytest selector -> NOT-RUN; unmutated -> SURVIVED; M05 -> CAUGHT; a TSX syntax error
+    and a missing-module import -> ERROR; D11 -> CAUGHT. 8/8 correct. The first control run exposed a
+    harness bug (`FORCE_COLOR=0` turns pytest colour ON, hiding `FAILED` lines, so a genuine kill read
+    as ERROR); fixed before the battery, and the controls re-ran clean.
+  - Newly caught: **M29** (DataSection `key` removed) and **D11** / **D11b** (controls over a failed
+    load; error state blanked), by `web/__tests__/settings-page-load.test.tsx`.
+  - Survivors, unchanged and explained: M01/M02 (drop `FOR UPDATE`: SQLite ignores the clause - the
+    race guarantee is tested only on PostgreSQL, a pre-release gate); M12 (no rollback before retry:
+    equivalent - `db.close()` discards the transaction); M17 (account ignores failed deletes: safe -
+    verification still refuses and exhaustion blocks); M21 (owner filter dropped from the trade DELETE:
+    redundant - ids are already owner-scoped).
 
 ## Verification actually run (at `1bc310b`)
 
@@ -8395,6 +8407,8 @@ sha256-restored.
 - `scripts/generate_openapi.py` + `npm --prefix web run api:types`: no diff.
 - `alembic heads`: `g3h4i5j6k7l8` (no Phase 9 migration).
 - Protected paths `src/tradelens/prompts/` and `alembic/versions/`: no diff against `2de1d6c`.
+- Settings page regression at `8fe4aba`: `web/__tests__/settings-page-load.test.tsx` 5 passed; full web
+  `vitest run` 102 files / 1864 passed; `tsc --noEmit` clean; `eslint` clean on the new file.
 - Added lines scanned for credentials: none.
 - **Browser smoke: NOT RUN.**
 
