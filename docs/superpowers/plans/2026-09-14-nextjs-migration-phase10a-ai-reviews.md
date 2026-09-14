@@ -58,7 +58,44 @@
 - Web: `/app/reviews` stub; `lib/app/navigation.ts:34` links it; `components/app/overview/next-review-action.tsx:62` links it; `components/app/trades/summary-panel.tsx` is the polling + Markdown-as-text reference; `lib/app/trade-summary-relay.ts` the relay authorisation reference.
 - Cost feature names: `cost._WEEKLY_REVIEW = "Weekly Review"`; Streamlit logs `"Daily Debrief"`.
 
-## Decisions — PENDING owner approval
+## Decisions — approved by the owner (2026-09-14)
+
+R1–R9 are **approved**. The clarifications below are **binding and override any task detail that
+conflicts with them**; each task's implementer must read this section first.
+
+- **C1 (R1) Provenance.** Stored daily debriefs stay owner-scoped and carry clear provenance:
+  `day` (period), `input_fingerprint` (the job's effective-input fingerprint, C2), `job_id` of the job
+  that produced it, `created_at` and `updated_at`. Weekly recaps saved by the job path record the same
+  provenance: add nullable `input_fingerprint`, `job_id`, `updated_at` columns to `weekly_reviews` in the
+  same Phase 10A migration (nullable so legacy and Streamlit rows stay valid).
+- **C2 (R3) Effective-input fingerprint.** A new `services/review_inputs.py` owns
+  `review_input_fingerprint(kind, owner, period, model_payload) -> str`: sha256 over canonical JSON of
+  `kind`, `owner`, `period`, **the exact user-message payload supplied to the model** (the same object
+  the service serialises — trade fields, stats, pattern candidates, truncated notes), the Strategy
+  Profile block, **the prompt version** (prompt file name plus sha256 of its text as loaded by
+  `ai_client.load_prompt`), and `trade_analysis.ai_input_version(owner)` (model id, effort, demo mode,
+  corrections). Any change to any effective input — including an edited prompt file — yields a new key
+  and a new job. The services expose the payload builders (`weekly.build_weekly_model_input(owner,
+  monday)`, `debrief.build_daily_model_input(owner, day)`) so the router, worker and fingerprint use one
+  source.
+- **C3 Worker verification.** The job payload stores the period, source trade ids and the captured
+  fingerprint — never trade text. The worker **recomputes the fingerprint from current data before any
+  provider call**; a mismatch fails the job with the fixed message "This review is out of date. Generate
+  it again." and spends nothing. **Before persistence**, inside the transaction that locks the source
+  trades `FOR UPDATE`, it recomputes the fingerprint again and refuses to save on mismatch or on any
+  missing source (fail closed; nothing written).
+- **C4 (R7)** The forward-looking guard is **defense-in-depth, not a semantic guarantee**, and is recorded
+  as such in code docstrings and the handoff.
+- **C5 (R8) No resurrection.** Deleting source trades (delete-all, sample deletion, account deletion)
+  removes review rows and review jobs, and the C3 locked pre-save check guarantees an already-running
+  worker cannot write a weekly recap or daily debrief afterward. Tests pin both orders: save-wins-then-
+  delete removes it; delete-wins-then-save writes nothing.
+- **C6 (R6) Owner timezone, including DST.** Every day/week boundary (options, "not in the future",
+  the period a job covers) is computed from `app_settings.today_for_owner` in the owner's zone. Tests
+  include instants either side of a DST transition for `America/New_York` and `Europe/London`.
+
+The original decision text follows, unchanged, for reference.
+
 
 **R1 — Daily debriefs are persisted, owner-scoped (recommended).** A job-backed result must live somewhere the poll can read and a reload can reuse; session-only caching does not exist on the web. New table `daily_debriefs` (`id`, `user_id` NOT NULL FK `ondelete=CASCADE`, `day` ISO date, `input_key` sha256, `content_md`, `stats_json`, `reviewed_trades`, `created_at`), unique `(user_id, day)`; a regenerate replaces the row only on success. One Alembic migration with `downgrade()`. *Alternative:* store debrief prose only in a generic job-result table (still a migration, and a second result shape). Affects A2, B3.
 
