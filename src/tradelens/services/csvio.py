@@ -76,17 +76,9 @@ class ImportTooLarge(ValueError):
 
 def neutralise_formula(value):
     """Prefix a formula-leading string with `'` so a spreadsheet shows it as text."""
-    if isinstance(value, str) and value.startswith(FORMULA_PREFIXES):
-        return "'" + value
-    # Preserve a literal leading apostrophe before formula-looking text. Without
-    # this escape, import mistakes the trader's apostrophe for ours and removes
-    # it, so export -> import is not lossless.
-    if (
-        isinstance(value, str)
-        and len(value) > 1
-        and value[0] == "'"
-        and value[1:].startswith(FORMULA_PREFIXES)
-    ):
+    # Escape formula-looking text and every literal apostrophe run before it.
+    # Import removes exactly this one added quote, preserving the original run.
+    if isinstance(value, str) and value.lstrip("'").startswith(FORMULA_PREFIXES):
         return "'" + value
     return value
 
@@ -99,16 +91,9 @@ def restore_formula(value):
     """
     if (
         isinstance(value, str)
-        and len(value) > 2
-        and value.startswith("''")
-        and value[2:].startswith(FORMULA_PREFIXES)
-    ):
-        return value[1:]
-    if (
-        isinstance(value, str)
         and len(value) > 1
         and value[0] == "'"
-        and value[1:].startswith(FORMULA_PREFIXES)
+        and value[1:].lstrip("'").startswith(FORMULA_PREFIXES)
     ):
         return value[1:]
     return value

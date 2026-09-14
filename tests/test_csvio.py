@@ -238,10 +238,11 @@ def test_a_neutralised_export_cell_imports_back_as_the_original_text(monkeypatch
     assert inserted[0]["notes"] == "=not a formula"
 
 
-def test_a_literal_apostrophe_before_a_formula_round_trips_losslessly():
-    raw = "'=this is literal trader text"
+@_pytest.mark.parametrize("quotes", [1, 2, 3, 8])
+def test_literal_apostrophes_before_a_formula_round_trip_losslessly(quotes):
+    raw = "'" * quotes + "=this is literal trader text"
     exported = _csvio.neutralise_formula(raw)
-    assert exported == "''=this is literal trader text"
+    assert exported == "'" + raw
     assert _csvio.restore_formula(exported) == raw
 
 
