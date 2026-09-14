@@ -1812,7 +1812,8 @@ def test_the_csv_service_does_not_hand_the_page_an_exception_to_render():
     source = inspect.getsource(csvio)
     assert "{exc}" not in source
     assert "except Exception as exc" not in source
-    assert "_log.exception(" in source
+    assert "_log.exception(" not in source
+    assert "_log.warning(" in source
     # the row number is the actionable part and must survive
     assert "Row {row}" in source
 

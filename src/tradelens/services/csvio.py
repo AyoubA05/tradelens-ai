@@ -141,9 +141,13 @@ def import_trades_csv(file, user_id: int) -> tuple[int, int, list[str]]:
     not a row the trader can fix.
     """
     owner = require_user_id(user_id)
-    raw = file.read(MAX_IMPORT_BYTES + 1)
-    if isinstance(raw, str):
-        raw = raw.encode("utf-8")
+    try:
+        raw = file.read(MAX_IMPORT_BYTES + 1)
+        if isinstance(raw, str):
+            raw = raw.encode("utf-8")
+    except Exception:
+        _log.warning("CSV import failed to read the uploaded file")
+        return 0, 0, [_PARSE_FAILED]
     if len(raw) > MAX_IMPORT_BYTES:
         raise ImportTooLarge()
     try:
