@@ -36,6 +36,7 @@ OWNER_TABLES = (
     "trades",
     "corrections",
     "weekly_reviews",
+    "daily_debriefs",
 )
 
 

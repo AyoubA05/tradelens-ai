@@ -14,7 +14,7 @@ No Streamlit imports here. DEMO_MODE returns a canned review (zero API spend).
 import datetime as dt
 import json
 import math
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 import pandas as pd
 
@@ -307,6 +307,63 @@ def save_weekly_review(review: dict, user_id: int, overwrite: bool = False) -> d
         db.commit()
         db.refresh(row)
         return _row_to_dict(row)
+    finally:
+        db.close()
+
+
+def save_weekly_review_from_sources(
+    *,
+    user_id: int,
+    review: dict,
+    source_trade_ids: list,
+    input_fingerprint: str,
+    job_id: Optional[int],
+    verify: Callable,
+) -> int:
+    """Job-path save: overwrite this week's recap only while its sources hold.
+
+    In one transaction: lock the source trades `FOR UPDATE` (missing or foreign
+    → `daily_debriefs.ReviewSourceGone`), run `verify(db)` against that locked
+    state (False → `ReviewSourceChanged`), then write with provenance
+    (decisions R8, C1, C3). Nothing is written on any failure. Returns the id.
+    """
+    # Imported here: daily_debriefs is a sibling service; keep import order free.
+    from src.tradelens.services.daily_debriefs import lock_and_verify_sources
+
+    owner = require_user_id(user_id)
+    db = SessionLocal()
+    try:
+        lock_and_verify_sources(db, owner, source_trade_ids, verify)
+        now = dt.datetime.now(dt.timezone.utc)
+        row = (
+            db.query(WeeklyReview)
+            .filter(
+                WeeklyReview.week_start == review["week_start"],
+                WeeklyReview.user_id == owner,
+            )
+            .order_by(WeeklyReview.id)
+            .with_for_update()
+            .first()
+        )
+        if row is None:
+            row = WeeklyReview(
+                week_start=review["week_start"],
+                created_at=now.isoformat(),
+                user_id=owner,
+            )
+            db.add(row)
+        row.content_md = review.get("content_md")
+        row.thinking_summary = review.get("thinking_summary")
+        row.stats_json = json.dumps(review.get("stats") or {}, default=str)
+        row.cost_usd = review.get("cost_usd")
+        row.input_fingerprint = str(input_fingerprint)
+        row.job_id = None if job_id is None else int(job_id)
+        row.updated_at = now
+        db.commit()
+        return int(row.id)
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 

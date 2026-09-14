@@ -375,6 +375,44 @@ class WeeklyReview(Base):
     stats_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     cost_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     created_at: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Provenance of a recap saved by the job path (Phase 10A, decision C1).
+    # Nullable so legacy and Streamlit-saved rows stay valid.
+    input_fingerprint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class DailyDebrief(Base):
+    """One owner's saved debrief for one trading day (Phase 10A, decision R1).
+
+    Replaced only by a successful regeneration. Saved only while every source
+    trade still exists and the effective input still matches, checked in the
+    transaction that locks those trades (decisions R8, C1, C3).
+    """
+
+    __tablename__ = "daily_debriefs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "day", name="uq_daily_debriefs_user_day"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    day: Mapped[str] = mapped_column(String(10), nullable=False)  # ISO date
+    input_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    content_md: Mapped[str] = mapped_column(Text, nullable=False)
+    stats_json: Mapped[str] = mapped_column(Text, nullable=False)
+    reviewed_trades: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
 
 
 # ---------------------------------------------------------------------------

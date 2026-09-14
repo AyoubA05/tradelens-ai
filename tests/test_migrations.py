@@ -718,7 +718,7 @@ def test_ai_analysis_job_guard_columns_round_trip(tmp_path):
             assert columns[name]["nullable"] is True
     engine.dispose()
 
-    downgraded = _run_alembic(["downgrade", "-1"], database_url)
+    downgraded = _run_alembic(["downgrade", "f2g3h4i5j6k7"], database_url)
     assert downgraded.returncode == 0, downgraded.stderr
     engine = create_engine(database_url)
     with engine.connect() as conn:
@@ -740,3 +740,41 @@ def test_ai_analysis_model_declares_the_same_guard_columns():
         "confirmed_fields_json",
     ):
         assert AIAnalysis.__table__.c[name].nullable is True
+
+
+def test_daily_debriefs_and_weekly_provenance_round_trip(tmp_path):
+    """Phase 10A: daily_debriefs and weekly_reviews provenance arrive and leave."""
+    database_url = f"sqlite:///{tmp_path / 'phase10a-reviews.db'}"
+    assert _run_alembic(["upgrade", "g3h4i5j6k7l8"], database_url).returncode == 0
+    provenance = {"input_fingerprint", "job_id", "updated_at"}
+
+    upgraded = _run_alembic(["upgrade", "head"], database_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        weekly = {c["name"]: c for c in inspect(conn).get_columns("weekly_reviews")}
+        assert provenance <= set(weekly)
+        for name in provenance:
+            assert weekly[name]["nullable"] is True
+        debrief = {c["name"] for c in inspect(conn).get_columns("daily_debriefs")}
+        assert {
+            "user_id",
+            "day",
+            "input_fingerprint",
+            "job_id",
+            "created_at",
+            "updated_at",
+        } <= debrief
+        uniques = inspect(conn).get_unique_constraints("daily_debriefs")
+        assert any(u["column_names"] == ["user_id", "day"] for u in uniques)
+    engine.dispose()
+
+    downgraded = _run_alembic(["downgrade", "g3h4i5j6k7l8"], database_url)
+    assert downgraded.returncode == 0, downgraded.stderr
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        assert "daily_debriefs" not in inspect(conn).get_table_names()
+        assert provenance.isdisjoint(_columns_of(conn, "weekly_reviews"))
+    engine.dispose()
+
+    assert _run_alembic(["upgrade", "head"], database_url).returncode == 0
