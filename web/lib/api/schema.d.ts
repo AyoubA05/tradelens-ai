@@ -3015,6 +3015,15 @@ export interface operations {
                     "application/json": components["schemas"]["SampleTradesResponse"];
                 };
             };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotCleanupFailedResponse"];
+                };
+            };
         };
     };
     clear_samples_v1_settings_sample_trades_delete: {
@@ -3033,6 +3042,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SampleTradesResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotCleanupFailedResponse"];
                 };
             };
         };

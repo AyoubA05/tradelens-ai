@@ -201,6 +201,7 @@ def test_poll_refuses_a_foreign_result_even_if_an_owned_job_pointer_is_corrupt(
         summary_key="foreign-result",
         filters={},
         result={"content_md": "FOREIGN_SECRET", "reviewed_trades": 2},
+        source_trade_ids=[_create(other).id],
     )
     job_id, _ = jobs.enqueue(owner, "trade_summary", "corrupt-pointer", {})
     jobs.complete(job_id, f"trade_summary:{foreign_id}")
@@ -250,6 +251,10 @@ def test_worker_persists_result_and_poll_returns_it_to_the_owner(
         "chat",
         lambda **kwargs: (markdown, Usage("test", 1, 1, 2, 0.01, 0.1)),
     )
+    source_ids = [
+        _create(owner, trade_date="2026-08-10").id,
+        _create(owner, trade_date="2026-08-11").id,
+    ]
     job_id, _ = jobs.enqueue(
         owner,
         "trade_summary",
@@ -257,7 +262,7 @@ def test_worker_persists_result_and_poll_returns_it_to_the_owner(
         {
             "period_label": "2026-08-01 to 2026-08-31",
             "filters": {"from": "2026-08-01", "to": "2026-08-31"},
-            "trades": [{"id": 1}, {"id": 2}],
+            "trades": [{"id": source_ids[0]}, {"id": source_ids[1]}],
             "summary_key": "snapshot-1",
         },
     )

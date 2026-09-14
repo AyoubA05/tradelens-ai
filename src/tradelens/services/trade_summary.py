@@ -10,7 +10,7 @@ from typing import Callable, Dict, List, Optional
 
 from sqlalchemy.exc import IntegrityError
 
-from src.tradelens.db.models import TradeSummaryResult
+from src.tradelens.db.models import Trade, TradeSummaryResult
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services.ai_client import AIUnavailable, Usage, chat, load_prompt
 from src.tradelens.services.ownership import require_user_id
@@ -66,6 +66,10 @@ class TradeSummaryTooSmall(ValueError):
 
 class TradeSummaryError(Exception):
     """Raised when a provider result cannot satisfy the summary contract."""
+
+
+class TradeSummarySourceGone(RuntimeError):
+    """The immutable source snapshot no longer exists for this owner."""
 
 
 def _safe_scalar(value):
@@ -241,12 +245,37 @@ def generate_trade_summary(
 
 
 def save_trade_summary_result(
-    *, user_id: int, summary_key: str, filters: dict, result: dict
+    *,
+    user_id: int,
+    summary_key: str,
+    filters: dict,
+    result: dict,
+    source_trade_ids: List[int],
 ) -> int:
-    """Persist a result once per owner and immutable snapshot key."""
+    """Persist a result once, while every owner-scoped source trade still exists.
+
+    The source rows are locked in the same transaction as the insert. A bulk
+    deletion that wins first leaves no complete source set and this write fails;
+    a save that wins first commits before deletion proceeds, and deletion then
+    removes the result. Thus an in-flight worker cannot resurrect prose after
+    Settings has removed the trades it describes.
+    """
     owner = require_user_id(user_id)
+    source_ids = {int(trade_id) for trade_id in source_trade_ids}
+    if not source_ids:
+        raise TradeSummarySourceGone("trade summary source is gone")
     db = SessionLocal()
     try:
+        present = {
+            trade_id
+            for (trade_id,) in db.query(Trade.id)
+            .filter(Trade.user_id == owner, Trade.id.in_(sorted(source_ids)))
+            .with_for_update()
+            .all()
+        }
+        if present != source_ids:
+            db.rollback()
+            raise TradeSummarySourceGone("trade summary source is gone")
         row = TradeSummaryResult(
             user_id=owner,
             summary_key=summary_key,

@@ -51,16 +51,16 @@ def count_sample_trades(user_id) -> int:
 
 
 def clear_sample_trades(user_id) -> int:
-    """Delete only this user's sample-flagged trades. Returns the number removed."""
-    db = SessionLocal()
-    try:
-        removed = _sample_filter(db.query(Trade), user_id).delete(
-            synchronize_session=False
-        )
-        db.commit()
-        return removed
-    finally:
-        db.close()
+    """Delete this user's sample trades only after their stored objects are gone."""
+    from src.tradelens.services.data_deletion import (
+        ScreenshotCleanupBlocked,
+        delete_sample_trades_and_objects,
+    )
+
+    outcome = delete_sample_trades_and_objects(user_id)
+    if outcome.blocked:
+        raise ScreenshotCleanupBlocked(outcome)
+    return outcome.deleted
 
 
 def _recent_weekdays(n: int) -> list:

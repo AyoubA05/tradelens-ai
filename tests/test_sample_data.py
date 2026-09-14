@@ -10,7 +10,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import src.tradelens.services.sample_data as sample_data
+from src.tradelens.api import storage
 from src.tradelens.db.models import Base, Trade
+from src.tradelens.services import data_deletion
 
 N = sample_data.SAMPLE_COUNT
 
@@ -21,6 +23,8 @@ def in_memory_db(monkeypatch):
     Base.metadata.create_all(engine)
     InMemorySession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr(sample_data, "SessionLocal", InMemorySession)
+    monkeypatch.setattr(data_deletion, "SessionLocal", InMemorySession)
+    monkeypatch.setattr(storage, "SessionLocal", InMemorySession)
     yield InMemorySession
     Base.metadata.drop_all(engine)
 
@@ -92,6 +96,8 @@ def db_with_strategy(monkeypatch):
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr(sample_data, "SessionLocal", Session)
+    monkeypatch.setattr(data_deletion, "SessionLocal", Session)
+    monkeypatch.setattr(storage, "SessionLocal", Session)
     monkeypatch.setattr(strategy, "SessionLocal", Session)
     yield Session
     Base.metadata.drop_all(engine)

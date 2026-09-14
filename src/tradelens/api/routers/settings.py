@@ -51,6 +51,7 @@ from src.tradelens.services.app_settings import (
 )
 from src.tradelens.services.cost import monthly_cost_by_feature
 from src.tradelens.services.data_deletion import (
+    ScreenshotCleanupBlocked,
     delete_account_and_objects,
     delete_all_trades_and_objects,
 )
@@ -157,15 +158,29 @@ def write_timezone(payload: TimezoneWrite, user_id: int = Depends(current_user))
     return _response(user_id)
 
 
-@router.post("/sample-trades", response_model=SampleTradesResponse)
+@router.post(
+    "/sample-trades",
+    response_model=SampleTradesResponse,
+    responses={503: {"model": ScreenshotCleanupFailedResponse}},
+)
 def load_samples(user_id: int = Depends(current_user)):
-    count = load_sample_trades(user_id)
+    try:
+        count = load_sample_trades(user_id)
+    except ScreenshotCleanupBlocked as exc:
+        raise _cleanup_failed(exc.outcome)
     return SampleTradesResponse(count=count, sample_count=count_sample_trades(user_id))
 
 
-@router.delete("/sample-trades", response_model=SampleTradesResponse)
+@router.delete(
+    "/sample-trades",
+    response_model=SampleTradesResponse,
+    responses={503: {"model": ScreenshotCleanupFailedResponse}},
+)
 def clear_samples(user_id: int = Depends(current_user)):
-    count = clear_sample_trades(user_id)
+    try:
+        count = clear_sample_trades(user_id)
+    except ScreenshotCleanupBlocked as exc:
+        raise _cleanup_failed(exc.outcome)
     return SampleTradesResponse(count=count, sample_count=count_sample_trades(user_id))
 
 

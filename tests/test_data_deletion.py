@@ -11,10 +11,12 @@ from __future__ import annotations
 import datetime as dt
 import os
 
+import pytest
+
 from src.tradelens.api.storage import ObjectCleanup
-from src.tradelens.db.models import Screenshot, Trade, TradeSummaryResult, User
+from src.tradelens.db.models import AIJob, Screenshot, Trade, TradeSummaryResult, User
 from src.tradelens.db.session import SessionLocal
-from src.tradelens.services import data_deletion
+from src.tradelens.services import data_deletion, sample_data
 
 
 def _trade(owner, file_path=None):
@@ -177,6 +179,84 @@ def test_an_owner_with_no_trades_deletes_nothing_and_is_not_blocked(
     assert outcome == data_deletion.DeletionOutcome(0, 0, 0, False)
 
 
+def test_clearing_sample_trades_blocks_when_a_sample_screenshot_cannot_be_removed(
+    two_users, monkeypatch
+):
+    """A seeded trade can acquire a screenshot before the user clears samples.
+
+    Removing only the trade row would orphan the private object while Settings
+    still reported success.  The public sample service must carry the same
+    objects-before-rows guarantee as Delete All.
+    """
+    owner = two_users[1]
+    sample_data.load_sample_trades(owner)
+    db = SessionLocal()
+    try:
+        trade_id = (
+            db.query(Trade.id)
+            .filter(Trade.user_id == owner, Trade.is_sample == 1)
+            .order_by(Trade.id)
+            .first()[0]
+        )
+        key = "u/{}/t/{}/00000000-0000-4000-8000-000000000001.png".format(
+            owner, trade_id
+        )
+        db.add(Screenshot(trade_id=trade_id, file_path=key))
+        db.commit()
+    finally:
+        db.close()
+
+    monkeypatch.setattr(
+        data_deletion.storage,
+        "delete_trade_objects",
+        lambda user_id, candidate: ObjectCleanup(
+            deleted=[], failed=[key] if candidate == trade_id else [], skipped=[]
+        ),
+    )
+
+    with pytest.raises(data_deletion.ScreenshotCleanupBlocked) as caught:
+        sample_data.clear_sample_trades(owner)
+
+    assert caught.value.outcome == data_deletion.DeletionOutcome(0, 1, 0, True)
+    assert _count(Trade, id=trade_id) == 1
+    assert _count(Screenshot, trade_id=trade_id) == 1
+
+
+def test_reloading_samples_blocks_instead_of_orphaning_an_existing_sample_image(
+    two_users, monkeypatch
+):
+    owner = two_users[1]
+    sample_data.load_sample_trades(owner)
+    db = SessionLocal()
+    try:
+        trade_id = (
+            db.query(Trade.id)
+            .filter(Trade.user_id == owner, Trade.is_sample == 1)
+            .order_by(Trade.id)
+            .first()[0]
+        )
+        key = "u/{}/t/{}/00000000-0000-4000-8000-000000000001.png".format(
+            owner, trade_id
+        )
+        db.add(Screenshot(trade_id=trade_id, file_path=key))
+        db.commit()
+    finally:
+        db.close()
+
+    monkeypatch.setattr(
+        data_deletion.storage,
+        "delete_trade_objects",
+        lambda user_id, candidate: ObjectCleanup(
+            deleted=[], failed=[key] if candidate == trade_id else [], skipped=[]
+        ),
+    )
+
+    with pytest.raises(data_deletion.ScreenshotCleanupBlocked):
+        sample_data.load_sample_trades(owner)
+    assert _count(Trade, user_id=owner) == sample_data.SAMPLE_COUNT
+    assert _count(Screenshot, trade_id=trade_id) == 1
+
+
 # ── S8: legacy local screenshots, confined to the approved root ───────────
 
 
@@ -276,6 +356,60 @@ def test_summaries_are_removed_even_when_no_trades_remain(two_users, monkeypatch
     assert _count(TradeSummaryResult, user_id=owner) == 0
 
 
+def test_delete_all_removes_summary_job_snapshots_but_not_another_owners(
+    two_users, monkeypatch
+):
+    first, owner = two_users
+    _trade(owner)
+    db = SessionLocal()
+    try:
+        now = dt.datetime.now(dt.timezone.utc)
+        for user_id, marker in ((first, "FOREIGN"), (owner, "PRIVATE-NOTE")):
+            db.add(
+                AIJob(
+                    user_id=user_id,
+                    kind="trade_summary",
+                    idempotency_key="summary-{}".format(user_id),
+                    status="running",
+                    payload='{"trades":[{"notes":"%s"}]}' % marker,
+                    attempts=1,
+                    created_at=now,
+                )
+            )
+        db.commit()
+    finally:
+        db.close()
+
+    monkeypatch.setattr(data_deletion.storage, "delete_trade_objects", _clean)
+    data_deletion.delete_all_trades_and_objects(owner)
+    assert _count(AIJob, user_id=owner) == 0
+    assert _count(AIJob, user_id=first) == 1
+
+
+def test_a_worker_cannot_restore_a_summary_after_its_source_trades_are_deleted(
+    two_users, monkeypatch
+):
+    from src.tradelens.services.trade_summary import (
+        TradeSummarySourceGone,
+        save_trade_summary_result,
+    )
+
+    owner = two_users[1]
+    source_ids = [_trade(owner), _trade(owner)]
+    monkeypatch.setattr(data_deletion.storage, "delete_trade_objects", _clean)
+    data_deletion.delete_all_trades_and_objects(owner)
+
+    with pytest.raises(TradeSummarySourceGone):
+        save_trade_summary_result(
+            user_id=owner,
+            summary_key="stale-worker",
+            filters={},
+            result={"content_md": "stale private summary", "reviewed_trades": 2},
+            source_trade_ids=source_ids,
+        )
+    assert _count(TradeSummaryResult, user_id=owner) == 0
+
+
 # ── account deletion ──────────────────────────────────────────────────────
 
 # ── S8, as tightened by the Group A review ────────────────────────────────
@@ -318,6 +452,32 @@ def test_a_missing_legacy_file_named_for_its_trade_counts_as_already_gone(
     )
     outcome = data_deletion.delete_all_trades_and_objects(owner)
     assert outcome == data_deletion.DeletionOutcome(1, 0, 0, False)
+
+
+def test_a_legacy_remote_screenshot_reference_does_not_block_account_erasure(
+    two_users, monkeypatch
+):
+    """Streamlit historically stored http(s) screenshot URLs in file_path.
+
+    Those rows name no object in our private bucket and no local file to remove;
+    deleting the reference is the only cleanup the application can perform.
+    """
+    owner = two_users[1]
+    trade_id = _trade(owner, "https://charts.example/private-view.png")
+    monkeypatch.setattr(
+        data_deletion.storage,
+        "delete_trade_objects",
+        lambda user_id, candidate: ObjectCleanup(
+            deleted=[],
+            failed=[],
+            skipped=["https://charts.example/private-view.png"],
+        ),
+    )
+
+    outcome = data_deletion.delete_account_and_objects(owner)
+    assert outcome == data_deletion.DeletionOutcome(1, 0, 0, False)
+    assert _count(Trade, id=trade_id) == 0
+    assert _count(User, id=owner) == 0
 
 
 def test_another_trades_legacy_file_inside_the_root_is_never_deleted(
@@ -570,6 +730,36 @@ def test_account_deletion_runs_after_a_complete_cleanup(two_users, monkeypatch):
     assert outcome == data_deletion.DeletionOutcome(1, 0, 0, False)
     assert order == ["objects", "rows"]
     assert _count(User, id=owner) == 0
+
+
+def test_database_failure_after_object_cleanup_rolls_back_rows_and_never_returns_success(
+    two_users, monkeypatch
+):
+    owner = two_users[1]
+    trade_id = _trade(owner, "u/%d/t/1/a.png" % owner)
+    cleaned = []
+    monkeypatch.setattr(
+        data_deletion.storage,
+        "delete_trade_objects",
+        lambda user_id, candidate: cleaned.append((user_id, candidate))
+        or ObjectCleanup(deleted=_paths(candidate), failed=[], skipped=[]),
+    )
+    real_rows = data_deletion._account._delete_account_rows
+
+    def fail_after_rows_are_staged(db, user_id):
+        real_rows(db, user_id)
+        raise RuntimeError("simulated database failure")
+
+    monkeypatch.setattr(
+        data_deletion._account, "_delete_account_rows", fail_after_rows_are_staged
+    )
+    with pytest.raises(RuntimeError, match="simulated database failure"):
+        data_deletion.delete_account_and_objects(owner)
+
+    assert cleaned == [(owner, trade_id)]
+    assert _count(User, id=owner) == 1
+    assert _count(Trade, id=trade_id) == 1
+    assert _count(Screenshot, trade_id=trade_id) == 1
 
 
 def test_a_missing_account_is_reported_not_blocked(two_users, monkeypatch):

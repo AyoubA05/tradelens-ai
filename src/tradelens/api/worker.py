@@ -53,6 +53,7 @@ def _trade_summary_handler(user_id: int, payload: dict) -> str:
         summary_key=payload["summary_key"],
         filters=payload.get("filters") or {},
         result=result,
+        source_trade_ids=[int(row["id"]) for row in payload["trades"]],
     )
     return f"trade_summary:{result_id}"
 

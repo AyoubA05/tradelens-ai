@@ -284,6 +284,63 @@ def test_sample_trades_load_and_clear_only_this_owners(client, two_users):
     assert sample_data.count_sample_trades(first) == sample_data.SAMPLE_COUNT
 
 
+@pytest.mark.parametrize("method", ["POST", "DELETE"])
+def test_sample_replacement_never_reports_success_over_failed_object_cleanup(
+    client, two_users, monkeypatch, method
+):
+    owner = two_users[1]
+    sample_data.load_sample_trades(owner)
+    db = SessionLocal()
+    try:
+        from src.tradelens.db.models import Screenshot, Trade
+
+        trade_id = (
+            db.query(Trade.id)
+            .filter(Trade.user_id == owner, Trade.is_sample == 1)
+            .order_by(Trade.id)
+            .first()[0]
+        )
+        key = "u/{}/t/{}/00000000-0000-4000-8000-000000000001.png".format(
+            owner, trade_id
+        )
+        db.add(Screenshot(trade_id=trade_id, file_path=key))
+        db.commit()
+    finally:
+        db.close()
+
+    monkeypatch.setattr(
+        storage,
+        "delete_trade_objects",
+        lambda user_id, candidate: ObjectCleanup(
+            deleted=[], failed=[key] if candidate == trade_id else [], skipped=[]
+        ),
+    )
+    response = _call(
+        client,
+        _session_handle_for(owner),
+        method,
+        "/v1/settings/sample-trades",
+        {} if method == "POST" else None,
+    )
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {
+            "error": "screenshot_cleanup_failed",
+            "remaining": 1,
+            "unresolvable": 0,
+        }
+    }
+
+    db = SessionLocal()
+    try:
+        from src.tradelens.db.models import Screenshot, Trade
+
+        assert db.query(Trade).filter(Trade.id == trade_id).count() == 1
+        assert db.query(Screenshot).filter(Screenshot.trade_id == trade_id).count() == 1
+    finally:
+        db.close()
+
+
 # ── CSV ────────────────────────────────────────────────────────────────────
 
 

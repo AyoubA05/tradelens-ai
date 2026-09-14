@@ -40,10 +40,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, FrozenSet, List, Tuple
+from urllib.parse import urlsplit
 
 from src.tradelens.api import storage
 from src.tradelens.db.models import (
     AIAnalysis,
+    AIJob,
     Correction,
     Screenshot,
     Trade,
@@ -77,6 +79,14 @@ class DeletionOutcome:
     blocked: bool
 
 
+class ScreenshotCleanupBlocked(RuntimeError):
+    """A row deletion was refused because its private object cleanup failed."""
+
+    def __init__(self, outcome: DeletionOutcome):
+        super().__init__("screenshot_cleanup_failed")
+        self.outcome = outcome
+
+
 @dataclass(frozen=True)
 class _Purge:
     handled: Dict[int, FrozenSet[str]]
@@ -84,13 +94,13 @@ class _Purge:
     unresolvable: int
 
 
-def _owned_trade_ids(owner: int) -> List[int]:
+def _owned_trade_ids(owner: int, *, samples_only: bool = False) -> List[int]:
     db = SessionLocal()
     try:
-        return [
-            row_id
-            for (row_id,) in db.query(Trade.id).filter(Trade.user_id == owner).all()
-        ]
+        query = db.query(Trade.id).filter(Trade.user_id == owner)
+        if samples_only:
+            query = query.filter(Trade.is_sample == 1)
+        return [row_id for (row_id,) in query.all()]
     finally:
         db.close()
 
@@ -113,6 +123,21 @@ def _legacy_local_path_resolved(key: str, trade_id: int) -> bool:
     The root is read through the module at call time, so a patched directory
     applies (the system-message sweep forbids `globals()` in services).
     """
+    # The legacy Streamlit form also stored remote screenshot URLs directly.
+    # They name neither an R2 object nor a local file we control, so removing
+    # their database reference is the complete cleanup. No network request is
+    # made and an encoded/malformed scheme does not enter this branch.
+    try:
+        remote = urlsplit(key)
+    except ValueError:
+        remote = None
+    if (
+        remote is not None
+        and remote.scheme.lower() in ("http", "https")
+        and bool(remote.netloc)
+    ):
+        return True
+
     resolved = _resolve_owned_files([key], root=Path(_account.SCREENSHOTS_DIR))
     if not resolved:
         return False
@@ -130,11 +155,11 @@ def _legacy_local_path_resolved(key: str, trade_id: int) -> bool:
     return True
 
 
-def _purge(owner: int) -> _Purge:
+def _purge(owner: int, *, samples_only: bool = False) -> _Purge:
     handled: Dict[int, FrozenSet[str]] = {}
     remaining = 0
     unresolvable = 0
-    for trade_id in _owned_trade_ids(owner):
+    for trade_id in _owned_trade_ids(owner, samples_only=samples_only):
         cleanup = storage.delete_trade_objects(owner, trade_id)
         remaining += len(cleanup.failed)
         keys = set(cleanup.deleted)
@@ -183,18 +208,64 @@ def _lock_and_verify(db, owner: int, handled: Dict[int, FrozenSet[str]]) -> bool
     return all(path in handled.get(trade_id, frozenset()) for trade_id, path in rows)
 
 
-def _delete_purged_trades(db, owner: int, ids: List[int]) -> int:
+def _delete_purged_trades(
+    db, owner: int, ids: List[int], *, samples_only: bool = False
+) -> int:
     if not ids:
         return 0
     for model in (Correction, AIAnalysis, Screenshot):
         db.query(model).filter(model.trade_id.in_(ids)).delete(
             synchronize_session=False
         )
-    return (
-        db.query(Trade)
-        .filter(Trade.user_id == owner, Trade.id.in_(ids))
-        .delete(synchronize_session=False)
+    query = db.query(Trade).filter(Trade.user_id == owner, Trade.id.in_(ids))
+    if samples_only:
+        query = query.filter(Trade.is_sample == 1)
+    return query.delete(synchronize_session=False)
+
+
+def _delete_trade_summary_state(db, owner: int) -> None:
+    """Remove both generated prose and queued snapshots of the owner's trades."""
+    db.query(AIJob).filter(
+        AIJob.user_id == owner, AIJob.kind == "trade_summary"
+    ).delete(synchronize_session=False)
+    db.query(TradeSummaryResult).filter(TradeSummaryResult.user_id == owner).delete(
+        synchronize_session=False
     )
+
+
+def delete_sample_trades_and_objects(user_id: int) -> DeletionOutcome:
+    """Delete this owner's seeded trades without orphaning acquired screenshots.
+
+    Sample rows are ordinary editable trades after insertion. They can therefore
+    gain screenshots and AI detail before the user presses Clear or Load again;
+    the row-only legacy helper is not a safe deletion boundary for them.
+    """
+    owner = require_user_id(user_id)
+    for _attempt in range(_MAX_ATTEMPTS):
+        purge = _purge(owner, samples_only=True)
+        if purge.remaining or purge.unresolvable:
+            return DeletionOutcome(0, purge.remaining, purge.unresolvable, True)
+        db = SessionLocal()
+        try:
+            if not _lock_and_verify(db, owner, purge.handled):
+                db.rollback()
+                continue
+            deleted = _delete_purged_trades(
+                db, owner, sorted(purge.handled), samples_only=True
+            )
+            if purge.handled:
+                # A filtered summary can include any one of these samples, and
+                # its job payload contains the full trade snapshot. There is no
+                # safe result to retain once a source row is removed.
+                _delete_trade_summary_state(db, owner)
+            db.commit()
+            return DeletionOutcome(deleted, 0, 0, False)
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+    return DeletionOutcome(0, 1, 0, True)
 
 
 def delete_all_trades_and_objects(user_id: int) -> DeletionOutcome:
@@ -213,9 +284,7 @@ def delete_all_trades_and_objects(user_id: int) -> DeletionOutcome:
             deleted = _delete_purged_trades(db, owner, sorted(purge.handled))
             # Decision S7: summaries are derived from these trades and can quote
             # their notes, so they go too — including leftovers with no trades.
-            db.query(TradeSummaryResult).filter(
-                TradeSummaryResult.user_id == owner
-            ).delete(synchronize_session=False)
+            _delete_trade_summary_state(db, owner)
             db.commit()
             return DeletionOutcome(deleted, 0, 0, False)
         except Exception:
