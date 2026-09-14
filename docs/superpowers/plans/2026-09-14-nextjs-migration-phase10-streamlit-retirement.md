@@ -92,9 +92,24 @@ Verified on `main` at `6c1f161`:
 
 ---
 
-## Decisions — PENDING owner approval
+## Decisions — approved by the owner (2026-09-14)
 
-Each has a recommended default. Nothing in Group F or X is implemented until these are approved; Group R tasks name which decisions they depend on.
+All ten are **approved**, with these clarifications binding on the implementation:
+
+- **T1** — AI Reviews is its own phase, **Phase 10A (Phase 9.5)**: Patterns, Weekly Recap and Daily Debrief migrated with normal implementation, review and Codex clearance, and **completed before Gate 1**. Phase 10 resumes with Group R only after Phase 10A's review boundary is cleared.
+- **T2** — the Strategy demo-playbook preview is a **deliberate removal**, recorded explicitly in the parity ledger (Task R5).
+- **T3** — `@playwright/test` is the **only** new Phase 10 dependency (dev-only).
+- **T4** — flip first, hold, then remove Streamlit **in a later release**.
+- **T5** — `auth_handoffs` and Streamlit session rows are dropped **only after the hold** and **only after the new web build no longer writes them** (X1 live, including the password-reset change).
+- **T6** — `users.app_surface` is dropped in its own migration **only after rollback to Streamlit is no longer supported** — recorded at Gate 2 as the end of the rollback window.
+- **T7** — Streamlit-only services are removed; **`debrief` is kept** because AI Reviews needs it.
+- **T8** — every parity item needs evidence or an explicit removal decision before Gate 1. **Unknown items, such as "trade of the week", block Gate 1 until resolved.**
+- **T9** — the screenshot migration is an **owner-scoped, dry-run-first** script. A stored reference is changed **only after the R2 object is verified**; a failed migration **never destroys the legacy reference**.
+- **T10** — Streamlit Cloud decommissioning remains a **manual runbook action** by the owner.
+
+**Not yet authorised:** any irreversible Streamlit removal (Group X). The order is Phase 10A → Phase 10 Group R → Gate 1 → Group F → hold → Gate 2 → Group X.
+
+The original decision text follows, unchanged, for reference.
 
 **T1 — AI Reviews becomes its own phase, executed before Gate 1 (recommended).** Patterns, Weekly Recap and Daily Debrief need an API router, relays, job-backed generation for the recap, and a page — a Phase-8-sized subsystem. The writing-plans scope rule puts an independent subsystem in its own plan. Phase 10 Group R may proceed in parallel; Gate 1 waits for AI Reviews to be merged and Codex-cleared. *Alternatives:* (a) fold AI Reviews into this plan as Group A (one very large phase, review load concentrated at the riskiest point); (b) record a deliberate removal of some or all of the three (breaks §11.5, which requires a weekly recap in the owner's week of use). Affects Entry blocker 1, Gate 1.
 
@@ -865,7 +880,7 @@ If T2's alternative is chosen instead, stop and write Task R5b (API endpoint, re
 
 Recorded in the handoff with date and evidence links. All must hold:
 
-- [ ] AI Reviews phase (T1) merged and Codex-cleared; ledger AI Reviews rows `implemented`.
+- [ ] Phase 10A — AI Reviews (T1) merged and Codex-cleared; ledger AI Reviews rows `implemented`.
 - [ ] `tests/test_parity_ledger.py` passes with **zero** `blocker` rows (§11.1). Add `test_no_blockers_remain_after_gate_1` at this point:
 
 ```python
@@ -1083,7 +1098,7 @@ git commit -m "feat(cutover): flip every account and the default to the Next.js 
 - [ ] Flip applied in production (F2 *Record* filled in).
 - [ ] Owner used the new app for one full week on real trades, including at least one weekly recap and one screenshot autofill (§11.5) — dates recorded.
 - [ ] All beta accounts on `nextjs` for two consecutive weeks with **no recorded fallback** (§11.6) — the F2 record shows zero rollbacks in the window.
-- [ ] Decisions T4–T7 and T10 approved.
+- [ ] Decisions T4–T7 and T10 approved (done 2026-09-14); **the end of the Streamlit rollback window is recorded with a date** (T6) — X3 may not run before it.
 
 **Point of no return.** Everything below deletes code, tables and a column.
 
