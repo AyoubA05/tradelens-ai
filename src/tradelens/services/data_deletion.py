@@ -47,10 +47,12 @@ from src.tradelens.db.models import (
     AIAnalysis,
     AIJob,
     Correction,
+    DailyDebrief,
     Screenshot,
     Trade,
     TradeSummaryResult,
     User,
+    WeeklyReview,
 )
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services import account as _account
@@ -223,14 +225,22 @@ def _delete_purged_trades(
     return query.delete(synchronize_session=False)
 
 
-def _delete_trade_summary_state(db, owner: int) -> None:
-    """Remove both generated prose and queued snapshots of the owner's trades."""
+DERIVED_JOB_KINDS = ("trade_summary", "weekly_recap", "daily_debrief")
+
+
+def _delete_derived_review_state(db, owner: int) -> None:
+    """Remove generated prose, and queued snapshots, derived from the owner's trades.
+
+    Decision S7 (summaries) extended by Phase 10A R8/C5: weekly recaps and daily
+    debriefs quote trades and notes, and their job payloads carry snapshots. A
+    worker still running after this commits cannot write them back: review
+    saves lock their source trades and fail closed when any is gone.
+    """
     db.query(AIJob).filter(
-        AIJob.user_id == owner, AIJob.kind == "trade_summary"
+        AIJob.user_id == owner, AIJob.kind.in_(DERIVED_JOB_KINDS)
     ).delete(synchronize_session=False)
-    db.query(TradeSummaryResult).filter(TradeSummaryResult.user_id == owner).delete(
-        synchronize_session=False
-    )
+    for model in (TradeSummaryResult, WeeklyReview, DailyDebrief):
+        db.query(model).filter(model.user_id == owner).delete(synchronize_session=False)
 
 
 def delete_sample_trades_and_objects(user_id: int) -> DeletionOutcome:
@@ -254,10 +264,10 @@ def delete_sample_trades_and_objects(user_id: int) -> DeletionOutcome:
                 db, owner, sorted(purge.handled), samples_only=True
             )
             if purge.handled:
-                # A filtered summary can include any one of these samples, and
-                # its job payload contains the full trade snapshot. There is no
+                # A filtered summary, weekly recap or daily debrief can include
+                # any one of these samples, and its job payload contains trade data. There is no
                 # safe result to retain once a source row is removed.
-                _delete_trade_summary_state(db, owner)
+                _delete_derived_review_state(db, owner)
             db.commit()
             return DeletionOutcome(deleted, 0, 0, False)
         except Exception:
@@ -282,9 +292,9 @@ def delete_all_trades_and_objects(user_id: int) -> DeletionOutcome:
                 db.rollback()
                 continue
             deleted = _delete_purged_trades(db, owner, sorted(purge.handled))
-            # Decision S7: summaries are derived from these trades and can quote
-            # their notes, so they go too — including leftovers with no trades.
-            _delete_trade_summary_state(db, owner)
+            # Decisions S7/R8: summaries and reviews are derived from these trades
+            # and can quote their notes, so they go too — including leftovers with no trades.
+            _delete_derived_review_state(db, owner)
             db.commit()
             return DeletionOutcome(deleted, 0, 0, False)
         except Exception:

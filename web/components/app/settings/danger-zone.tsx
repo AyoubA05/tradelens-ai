@@ -131,8 +131,8 @@ export function DangerZone({
         {open === "trades" ? (
           <div className="mt-2">
             <p className="text-sm text-muted">
-              Permanently deletes every trade you have logged, sample and real, and the AI trade summaries
-              made from them. Your account, playbook and settings are kept. Export your trades first if you
+              Permanently deletes every trade you have logged, sample and real, and the AI summaries, weekly
+              recaps and daily debriefs made from them. Your account, playbook and settings are kept. Export your trades first if you
               want to keep them.
             </p>
             <label htmlFor="danger-trades-confirm" className="mt-3 block text-sm text-text">
