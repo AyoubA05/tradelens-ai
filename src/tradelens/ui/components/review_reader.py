@@ -38,6 +38,8 @@ from src.tradelens.ui.components.workspace import (
 # Escaping is the shared workspace rule; import it rather than re-deriving it.
 from html import escape
 
+from src.tradelens.services.review_periods import period_stats  # noqa: F401
+
 # Ordered weakest-first. A note's stated confidence is the floor across its
 # findings, never the peak: a rail that quotes the strongest finding would
 # describe the whole note as more certain than its weakest claim.
@@ -60,49 +62,6 @@ class ReviewView:
     evidence: EvidenceItem
     actions: Sequence[str]
     evidence_used: Sequence[str]
-
-
-def period_stats(trades) -> dict:
-    """The five period figures every lens's strip reads, in one shape.
-
-    §7.6 asks for one strip on all three lenses, same builder, same cells.
-    Weekly and Daily already receive this dict from their own service; only
-    Patterns had nothing, and it had nothing because there was nowhere to get
-    it from that did not mean recomputing on the page.
-
-    Nothing is calculated here. Each figure comes from the approved metrics
-    service and is only assembled into the shape `render_kpi_strip` reads.
-    """
-    import math
-
-    import pandas as pd
-
-    from src.tradelens.services.metrics import (
-        compute_basic_metrics,
-        compute_profit_factor_raw,
-        total_edge_leak,
-    )
-
-    if trades is None or not isinstance(trades, pd.DataFrame) or trades.empty:
-        return {
-            "trades": 0,
-            "win_rate": 0.0,
-            "total_pnl": 0.0,
-            "profit_factor": None,
-            "total_edge_leak": 0.0,
-        }
-    m = compute_basic_metrics(trades)
-    pf = compute_profit_factor_raw(trades)
-    return {
-        "trades": int(m["total_trades"]),
-        "win_rate": m["win_rate"],
-        # None means "wins with no losses"; the strip renders that as ∞. An
-        # inf float would not survive being stored or serialised, which is
-        # why the weekly service uses the same convention.
-        "profit_factor": None if math.isinf(pf) else pf,
-        "total_pnl": m["total_pnl"],
-        "total_edge_leak": total_edge_leak(trades),
-    }
 
 
 def clamp_section(*, index: int, total: int) -> int:
