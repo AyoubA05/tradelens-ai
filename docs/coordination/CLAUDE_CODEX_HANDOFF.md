@@ -8435,3 +8435,104 @@ request race until Phase 10. The two known pre-existing Streamlit Analytics asse
 guarantee.
 
 **Phase 9 is not merged. Do not begin Phase 10.**
+
+---
+
+## Codex independent Phase 9 review — fix-forward result (2026-09-14)
+
+Reviewed the complete Phase 9 range `2de1d6c..7a6f9a7` independently, then applied four scoped
+fix-forward commits on `worktree-phase9-settings`: `5d9fc67` (CSV boundary), `ab9ccbb`
+(destructive cleanup), `eb18791` (arbitrary quoted-formula round-trip), and `6205123` (safe bounded
+read failure contract). The branch remains unmerged and Phase 10 has not started.
+
+### Confirmed findings and fixes
+
+1. **High — sample replacement could orphan private screenshots and still report success.**
+   `sample_data.clear_sample_trades` performed a row-only bulk delete even though sample trades are
+   editable ordinary trades and can acquire screenshots. Both Load and Clear reached that helper.
+   They now use the same owner-scoped objects-before-rows purge and verification transaction as
+   Delete All; any failed/unresolvable object returns the fixed 503 and leaves all rows intact.
+   Regression coverage exercises both POST and DELETE through the real FastAPI boundary.
+2. **High — Delete All retained private trade snapshots in queued/running summary jobs, and an
+   in-flight worker could recreate summary prose after deletion.** `AIJob.payload` for
+   `trade_summary` includes the selected trade snapshot, including notes. Delete All removed only
+   `TradeSummaryResult`, and result persistence did not require its source trades to remain. The
+   deletion transaction now removes owner-scoped summary jobs and results. Result persistence locks
+   and verifies the exact owner-scoped source-trade set in its insert transaction, so either the save
+   wins and deletion removes it, or deletion wins and the stale save fails closed. Other owners are
+   pinned untouched. Real PostgreSQL interleaving remains a pre-release gate.
+3. **High — CSV headers selected server-owned Trade model columns.** The importer forwarded every
+   non-null uploaded column to the model-wide create helper. A reproduced CSV set `id`, `is_sample`,
+   `strategy_id`, `created_at`, `ai_grade`, and derived `killzone`; on PostgreSQL a foreign strategy
+   id could also create a cross-tenant foreign-key reference or deletion failure. Import now has a
+   positive `CSV_COLUMNS` allowlist before ownership and derived/import semantics are applied.
+4. **Medium — the shared Streamlit CSV service had no byte or row boundary.** The web relay/API were
+   bounded, but the still-live Streamlit Settings page called `import_trades_csv` directly, which read
+   the entire upload and never applied the 5,000-row cap. The shared service now reads at most
+   1 MiB + 1 byte, rejects oversize input, and checks the row limit before any insert. The API text
+   adapter delegates to that one parser; web caps remain defense in depth.
+5. **Medium — legitimate legacy remote screenshot references permanently blocked erasure.** The
+   live Streamlit screenshot writer can store an absolute `http(s)` URL in `Screenshot.file_path`.
+   Such a reference names neither private R2 storage nor a local file, but deletion classified it as
+   an unresolvable local path. Absolute HTTP(S) references with a host are now reference-only cleanup:
+   no fetch occurs, and deleting their database row completes cleanup. Encoded schemes, filesystem
+   escapes, symlinks outside the approved root, and another trade's filename remain blocked.
+6. **Medium — export/import was not lossless for literal apostrophe runs before `=` (and equivalent
+   formula prefixes).** The first one-quote fix still collapsed two or more literal apostrophes.
+   Export now adds one escape to any-length apostrophe run and import removes exactly that escape,
+   while ordinary formula-leading text remains neutralised.
+7. **Low — CSV parse/row exception logging could copy private uploaded cells into logs.** SQLAlchemy
+   and validation exception strings can include bound values. These paths now log fixed messages and
+   safe row numbers without exception text or tracebacks; client errors remain fixed and bounded.
+
+No tenant-isolation defect was found in the Settings API/BFF/page identity boundary: owner identity
+comes only from the authenticated, app-eligible session; browser payloads expose no owner selector;
+service queries are owner-scoped; strict schemas reject extra owner/email/model fields. Timezone
+write validation is the approved six-zone allowlist. Email remains display-only and demo mode remains
+status-only. Account deletion explicitly handles the non-cascading session/handoff rows and the
+user-reference table sweep remains intact. A simulated database failure after successful object
+cleanup propagates and rolls the database transaction back; it does not produce a success response.
+
+### Independent mutations and verification
+
+- Owner predicate removed from the trade enumeration: the two-user bulk-deletion test failed after
+  the foreign trade reached object cleanup; exact source restored.
+- Cleanup relay changed from 503 to 200: the observable Response-status test failed; exact source
+  restored.
+- Sample deletion changed back to row-only: both screenshot cleanup regressions failed; restored.
+- Summary-job deletion omitted: the retained private payload test failed; restored.
+- Source-existence guard bypassed: the stale-worker resurrection test failed; restored.
+- CSV positive allowlist removed: the server-owned-column import test failed; restored.
+- Legacy remote-reference handling removed: the erasure regression failed; restored.
+- Focused Python security/settings suite: **273 passed**.
+- Focused web Settings suite: **129 passed**; full web: **1,864 passed / 102 files**.
+- TypeScript clean; Ruff clean; Black clean; ESLint **0 errors** with two pre-existing warnings in
+  `web/lib/app/modal-trap.ts`; production Next.js build succeeded and `/app/settings` plus all
+  Settings relays are dynamic.
+- OpenAPI regenerated and TypeScript client regenerated with no post-generation diff; Alembic has
+  one head, `g3h4i5j6k7l8`.
+- Full Python rerun from the final code: **3,800 passed / 7 skipped / 3 failed** in 747.85s. The
+  failures are exactly the already-recorded Streamlit Journal-detail boot assertion and the two
+  deterministic Streamlit Analytics assertions. The previously intermittent Analytics Risk case
+  passed. The first full attempt also exposed two review-fix test-contract regressions (traceback
+  logging was still required by a source assertion; its fake upload lacked bounded `read(size)`);
+  `6205123` fixed the safe contract, the focused cases passed 30/30, and this final run contains no
+  Phase 9 failure.
+
+### Remaining limits and verdict
+
+The legitimate formula-leading prefixes covered remain `=`, `+`, `-`, `@`, tab and carriage return;
+leading whitespace and Unicode lookalikes are not neutralised and remain a documented hardening gap.
+The objects-first protocol intentionally cannot roll an already-deleted object back if the later DB
+transaction fails: rows remain and the retry converges, but the screenshot may be unavailable in the
+interim. The legacy local-file resolve/unlink operation still has a narrow local symlink-swap race.
+
+No live R2/browser, authenticated 375px browser, Docker, Anthropic, dependency-audit, or real
+PostgreSQL run was performed. Keep all six deployment gates open. In particular, SQLite does not
+prove `FOR UPDATE`; real PostgreSQL must exercise the purge-versus-upload lock, summary-save-versus-
+delete interleaving, and account deletion with non-cascading auth rows. Keep the narrow in-flight
+Streamlit cutover race and the known pre-existing/environment-sensitive full-suite failures tracked.
+
+**Independent verdict: the reviewed Phase 9 implementation is clear for development merge with
+`5d9fc67`, `ab9ccbb`, `eb18791`, and `6205123`, but not for production. Do not begin Phase 10 as part
+of this review.**
