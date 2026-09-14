@@ -46,6 +46,10 @@ _PAYLOAD_FIELDS = (
     "user_grade",
 )
 
+# The call's effort literal; None means the ai_client default. Part of the
+# effective-input fingerprint (Phase 10A, C2).
+DAILY_EFFORT = None
+
 _MAX_TRADES = 40  # newest trades kept when the selection is larger
 _MAX_NOTE_CHARS = 200
 

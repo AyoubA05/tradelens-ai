@@ -138,6 +138,8 @@ def _fixed_today(monkeypatch):
 
 ROUTES = [
     ("GET", "/v1/reviews", None),
+    ("POST", "/v1/reviews/weekly", {"week": "2026-09-07"}),
+    ("GET", "/v1/reviews/jobs/1", None),
 ]
 
 
@@ -250,3 +252,255 @@ def test_saved_notes_are_returned_only_for_the_owner(client, two_users):
 def test_bad_or_unknown_query_is_422(client, two_users, query):
     a, _ = two_users
     assert _get(client, "/v1/reviews" + query, a).status_code == 422
+
+
+# ── B2: weekly recap generation ────────────────────────────────────────────
+
+WEEKLY = "/v1/reviews/weekly"
+
+
+def _usage():
+    from src.tradelens.services.ai_client import Usage
+
+    return Usage("claude-opus-5", 1, 1, 0, 0.0, 0.0)
+
+
+def _complete_week(owner, n=5):
+    return [_trade(owner, "2026-09-%02d" % (7 + (i % 5))) for i in range(n)]
+
+
+def _job(job_id):
+    from src.tradelens.db.models import AIJob
+
+    db = SessionLocal()
+    try:
+        return db.get(AIJob, job_id)
+    finally:
+        db.close()
+
+
+def test_generate_weekly_enqueues_one_job_for_a_double_click(client, two_users):
+    a, _ = two_users
+    _complete_week(a)
+    first = _post(client, WEEKLY, {"week": "2026-09-07"}, a)
+    second = _post(client, WEEKLY, {"week": "2026-09-07"}, a)
+    assert first.status_code == 202 and second.status_code == 202
+    assert first.json()["job_id"] == second.json()["job_id"]
+    assert (first.json()["created"], second.json()["created"]) == (True, False)
+
+
+def test_weekly_job_payload_carries_ids_and_fingerprint_never_trade_text(
+    client, two_users
+):
+    a, _ = two_users
+    ids = _complete_week(a)
+    _update_trade(ids[0], notes="PRIVATE_NOTE_TEXT")
+    job = _job(_post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"])
+    payload = json.loads(job.payload)
+    assert set(payload) == {"period", "source_trade_ids", "fingerprint", "key"}
+    assert payload["period"] == "2026-09-07"
+    assert payload["source_trade_ids"] == sorted(ids)
+    assert payload["key"] == "weekly_recap:" + payload["fingerprint"]
+    assert job.idempotency_key == payload["key"]
+    assert "PRIVATE_NOTE_TEXT" not in job.payload
+
+
+def test_a_changed_week_trade_is_a_new_job(client, two_users):
+    a, _ = two_users
+    ids = _complete_week(a)
+    first = _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"]
+    _update_trade(ids[0], pnl=-25.0, result="Loss")
+    second = _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()
+    assert second["job_id"] != first and second["created"] is True
+
+
+def test_an_added_week_trade_is_a_new_job(client, two_users):
+    a, _ = two_users
+    _complete_week(a)
+    first = _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"]
+    _trade(a, "2026-09-09")
+    assert _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"] != first
+
+
+def test_a_changed_strategy_profile_is_a_new_weekly_job(client, two_users):
+    from src.tradelens.services import strategy
+
+    a, _ = two_users
+    _complete_week(a)
+    first = _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"]
+    strategy.upsert_strategy_profile(
+        a, name="Plan", risk_rules="Two trades a day, then stop."
+    )
+    assert _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"] != first
+
+
+def test_a_changed_weekly_prompt_is_a_new_job(client, two_users, monkeypatch):
+    from src.tradelens.services import ai_client
+
+    a, _ = two_users
+    _complete_week(a)
+    first = _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"]
+    real = ai_client.load_prompt
+    monkeypatch.setattr(ai_client, "load_prompt", lambda name: real(name) + "\nv2")
+    assert _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"] != first
+
+
+def test_a_changed_weekly_effort_is_a_new_key(client, two_users, monkeypatch):
+    from src.tradelens.services import weekly
+
+    a, _ = two_users
+    _complete_week(a)
+    first = _job(_post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"])
+    monkeypatch.setattr(weekly, "WEEKLY_EFFORT", "medium")
+    second = _job(_post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"])
+    assert second.idempotency_key != first.idempotency_key
+
+
+def test_weekly_refuses_empty_and_undersized(client, two_users):
+    a, _ = two_users
+    r = _post(client, WEEKLY, {"week": "2026-09-07"}, a)
+    assert (r.status_code, r.json()["detail"]) == (409, "empty_period")
+    _trade(a, "2026-09-08")
+    r = _post(client, WEEKLY, {"week": "2026-09-07"}, a)
+    assert (r.status_code, r.json()["detail"]) == (409, "not_enough_trades")
+
+
+def test_weekly_refuses_a_future_week(client, two_users):
+    a, _ = two_users
+    _complete_week(a)
+    for i in range(5):
+        _trade(a, "2026-09-2%d" % (1 + i))
+    r = _post(client, WEEKLY, {"week": "2026-09-21"}, a)
+    assert (r.status_code, r.json()["detail"]) == (409, "empty_period")
+
+
+def test_weekly_refuses_when_ai_context_is_unavailable(client, two_users, monkeypatch):
+    from src.tradelens.services import trade_analysis
+
+    a, _ = two_users
+    _complete_week(a)
+
+    def _raise(owner):
+        raise trade_analysis.AIInputVersionUnavailable("down")
+
+    monkeypatch.setattr(trade_analysis, "ai_input_version", _raise)
+    r = _post(client, WEEKLY, {"week": "2026-09-07"}, a)
+    assert (r.status_code, r.json()["detail"]) == (503, "review_unavailable")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"week": "2026-09-08"},
+        {"week": "2026-09-07", "user_id": 1},
+        {"week": "2026-09-07", "source_trade_ids": [1]},
+        {"week": 20260907},
+        {},
+    ],
+)
+def test_weekly_body_is_strict(client, two_users, body):
+    a, _ = two_users
+    _complete_week(a)
+    assert _post(client, WEEKLY, body, a).status_code == 422
+
+
+def test_weekly_rate_limit_is_429_and_keeps_existing_jobs(
+    client, two_users, monkeypatch
+):
+    from src.tradelens.services import weekly
+
+    a, _ = two_users
+    monkeypatch.setattr(weekly, "MAX_WEEKLY_PER_WINDOW", 1)
+    _complete_week(a)
+    first = _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"]
+    _trade(a, "2026-09-10")
+    limited = _post(client, WEEKLY, {"week": "2026-09-07"}, a)
+    assert limited.status_code == 429
+    assert limited.json()["detail"] == reviews_router.WEEKLY_LIMIT_MESSAGE
+    assert _get(client, "/v1/reviews/jobs/%d" % first, a).status_code == 200
+
+
+def test_job_poll_is_owner_scoped(client, two_users):
+    a, b = two_users
+    _complete_week(a)
+    job = _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"]
+    assert _get(client, "/v1/reviews/jobs/%d" % job, b).status_code == 404
+    assert _get(client, "/v1/reviews/jobs/999999", a).status_code == 404
+    queued = _get(client, "/v1/reviews/jobs/%d" % job, a).json()
+    assert queued == {
+        "job_id": job,
+        "kind": "weekly_recap",
+        "status": "queued",
+        "note": None,
+        "error": None,
+    }
+
+
+def test_job_poll_is_kind_scoped(client, two_users):
+    from src.tradelens.api import jobs
+
+    a, _ = two_users
+    other, _ = jobs.enqueue(a, "trade_summary", "trade_summary:x", {})
+    assert _get(client, "/v1/reviews/jobs/%d" % other, a).status_code == 404
+
+
+def test_superseded_job_poll_shape(client, two_users):
+    from src.tradelens.api import jobs
+
+    a, _ = two_users
+    _complete_week(a)
+    job = _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"]
+    jobs.complete(job, "weekly_recap:superseded")
+    body = _get(client, "/v1/reviews/jobs/%d" % job, a).json()
+    assert body["status"] == "superseded"
+    assert body["note"] is None
+    assert body["error"] == "This review is out of date. Generate it again."
+
+
+@pytest.mark.parametrize(
+    "ref",
+    ["weekly_recap:", "weekly_recap:+1", "weekly_recap:1x", "daily_debrief:1", "x"],
+)
+def test_malformed_result_pointer_is_a_fixed_500(client, two_users, ref):
+    from src.tradelens.api import jobs
+
+    a, _ = two_users
+    _complete_week(a)
+    job = _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"]
+    jobs.complete(job, ref)
+    r = _get(client, "/v1/reviews/jobs/%d" % job, a)
+    assert r.status_code == 500
+    assert r.json()["detail"] == "review result unavailable"
+
+
+def test_failed_job_poll_shows_only_the_stored_safe_message(client, two_users):
+    from src.tradelens.api import jobs
+
+    a, _ = two_users
+    _complete_week(a)
+    job = _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"]
+    jobs.fail(job, "This could not be generated. Please try again.")
+    body = _get(client, "/v1/reviews/jobs/%d" % job, a).json()
+    assert (body["status"], body["note"]) == ("failed", None)
+    assert body["error"] == "This could not be generated. Please try again."
+
+
+def test_weekly_end_to_end_poll_returns_the_saved_note(client, two_users, monkeypatch):
+    from src.tradelens.api import jobs, worker
+    from src.tradelens.services import weekly
+
+    a, b = two_users
+    _complete_week(a)
+    good = "\n\n".join("%s\nReflection." % h for h in weekly._REQUIRED_SECTIONS)
+    monkeypatch.setattr(weekly, "chat", lambda **k: (good, _usage()))
+    monkeypatch.setattr(worker, "log_ai_usage", lambda *x, **k: None)
+    job = _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"]
+    assert jobs.run_once(worker.HANDLERS) is True
+    body = _get(client, "/v1/reviews/jobs/%d" % job, a).json()
+    assert body["status"] == "succeeded" and body["error"] is None
+    assert body["note"]["period"] == "2026-09-07"
+    assert body["note"]["content_md"] == good
+    assert body["note"]["reviewed_trades"] == 5
+    assert _get(client, "/v1/reviews/jobs/%d" % job, b).status_code == 404
+    saved = _get(client, "/v1/reviews?week=2026-09-07", a).json()["weekly"]
+    assert saved["content_md"] == good

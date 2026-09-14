@@ -1703,6 +1703,92 @@
         "title": "RecurringEdge",
         "type": "object"
       },
+      "ReviewJobAccepted": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "created"
+        ],
+        "title": "ReviewJobAccepted",
+        "type": "object"
+      },
+      "ReviewJobStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "weekly_recap",
+              "daily_debrief"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedNote"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "superseded"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "kind",
+          "status"
+        ],
+        "title": "ReviewJobStatus",
+        "type": "object"
+      },
       "ReviewsResponse": {
         "additionalProperties": false,
         "properties": {
@@ -6255,6 +6341,20 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "WeeklyRecapRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "week": {
+            "title": "Week",
+            "type": "string"
+          }
+        },
+        "required": [
+          "week"
+        ],
+        "title": "WeeklyRecapRequest",
+        "type": "object"
+      },
       "WhoAmI": {
         "properties": {
           "user_id": {
@@ -6604,6 +6704,91 @@
           }
         },
         "summary": "Get Reviews",
+        "tags": [
+          "reviews"
+        ]
+      }
+    },
+    "/v1/reviews/jobs/{job_id}": {
+      "get": {
+        "description": "One owner-scoped review job; foreign, missing and other kinds are 404.",
+        "operationId": "get_review_job_v1_reviews_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewJobStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Review Job",
+        "tags": [
+          "reviews"
+        ]
+      }
+    },
+    "/v1/reviews/weekly": {
+      "post": {
+        "description": "Queue one weekly recap for a completed week of the owner's own trades.",
+        "operationId": "enqueue_weekly_recap_v1_reviews_weekly_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WeeklyRecapRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewJobAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enqueue Weekly Recap",
         "tags": [
           "reviews"
         ]

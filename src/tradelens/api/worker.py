@@ -17,6 +17,18 @@ from src.tradelens.api.jobs import run_once
 from src.tradelens.api import jobs
 from src.tradelens.api.config import validate_worker_runtime
 from src.tradelens.services.cost import log_ai_usage
+from src.tradelens.services.daily_debriefs import ReviewSourceGone
+from src.tradelens.services.review_inputs import (
+    locked_period_trades,
+    review_input_fingerprint,
+)
+from src.tradelens.services.weekly import (
+    WEEKLY_JOB_KIND,
+    WeeklyReviewError,
+    build_weekly_model_input,
+    generate_weekly_review,
+    save_weekly_review_from_sources,
+)
 from src.tradelens.services.trade_autofill import (
     JOB_KIND as AUTOFILL_JOB_KIND,
     suggest_from_screenshot,
@@ -160,8 +172,77 @@ def _trade_grade_handler(user_id: int, payload: dict) -> str:
     )
 
 
+def _review_job_id(user_id: int, kind: str, payload: dict) -> int:
+    """The running review job's id, recovered owner-scoped from its stored key."""
+    job = jobs.get_owned_job_by_idempotency_key(user_id, kind, str(payload["key"]))
+    if job is None:
+        raise RuntimeError("review job unavailable")
+    return int(job.id)
+
+
+def _weekly_recap_handler(user_id: int, payload: dict) -> str:
+    """Generate and save one weekly recap, or supersede without writing.
+
+    C3: the effective-input fingerprint is recomputed from current data
+    before any provider call (a mismatch spends nothing) and again inside the
+    transaction that locks the source trades (a mismatch or a deleted source
+    writes nothing — no resurrection, C5). `run_once` discards exception text,
+    so staleness is reported as the `weekly_recap:superseded` pointer.
+    """
+    kind = WEEKLY_JOB_KIND
+    monday = str(payload["period"])
+    captured = str(payload["fingerprint"])
+    source_ids = sorted(int(i) for i in payload["source_trade_ids"])
+    job_id = _review_job_id(user_id, kind, payload)
+
+    model_input = build_weekly_model_input(user_id, monday)
+    if (
+        not source_ids
+        or model_input["source_trade_ids"] != source_ids
+        or review_input_fingerprint(kind, user_id, monday, model_input) != captured
+    ):
+        return f"{kind}:superseded"
+
+    review, _usage = generate_weekly_review(
+        monday,
+        user_id=user_id,
+        strategy_profile=model_input["strategy_profile"],
+        on_usage=lambda usage: log_ai_usage("Weekly Review", usage, user_id=user_id),
+        model_input=model_input,
+    )
+    if review["empty"]:
+        raise WeeklyReviewError("This week has nothing logged to review.")
+
+    def verify(db) -> bool:
+        locked = build_weekly_model_input(
+            user_id,
+            monday,
+            trades=locked_period_trades(
+                db, user_id, model_input["week_start"], model_input["week_end"]
+            ),
+        )
+        return (
+            locked["source_trade_ids"] == source_ids
+            and review_input_fingerprint(kind, user_id, monday, locked) == captured
+        )
+
+    try:
+        row_id = save_weekly_review_from_sources(
+            user_id=user_id,
+            review=review,
+            source_trade_ids=source_ids,
+            input_fingerprint=captured,
+            job_id=job_id,
+            verify=verify,
+        )
+    except ReviewSourceGone:  # includes ReviewSourceChanged
+        return f"{kind}:superseded"
+    return f"{kind}:{row_id}"
+
+
 HANDLERS: dict = {
     "trade_summary": _trade_summary_handler,
+    WEEKLY_JOB_KIND: _weekly_recap_handler,
     AUTOFILL_JOB_KIND: _trade_autofill_handler,
     ANALYSIS_JOB_KIND: _trade_analysis_handler,
     JOURNAL_JOB_KIND: _trade_journal_handler,

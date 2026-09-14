@@ -14,22 +14,28 @@ import re
 from typing import Optional
 
 import pandas as pd
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
+from src.tradelens.api import jobs
 from src.tradelens.api.deps import current_user
 from src.tradelens.api.schemas.reviews import (
     PatternInsight,
     PatternsLens,
     PeriodStats,
+    ReviewJobAccepted,
+    ReviewJobStatus,
     ReviewsResponse,
     SavedNote,
+    WeeklyRecapRequest,
 )
 from src.tradelens.services import (
     activation,
     app_settings,
     daily_debriefs,
     patterns,
+    review_inputs,
     review_periods,
+    trade_analysis,
     weekly,
 )
 from src.tradelens.services.demo import is_demo
@@ -125,6 +131,137 @@ def _insight(raw: dict) -> PatternInsight:
         confidence=raw["confidence"],
         type=str(raw["type"]),
         min_trades=int(raw["min_trades"]),
+    )
+
+
+WEEKLY_LIMIT_MESSAGE = (
+    "You've reached today's limit for weekly recaps. "
+    "Recaps you've already generated are still available."
+)
+REVIEW_OUT_OF_DATE = "This review is out of date. Generate it again."
+_RESULT_UNAVAILABLE = "review result unavailable"
+_REVIEW_KINDS = ("weekly_recap", "daily_debrief")
+_DIGITS = re.compile(r"[0-9]+")
+
+
+def _enqueue_review(
+    user_id: int,
+    kind: str,
+    period: str,
+    model_input: dict,
+    *,
+    limit: int,
+    window_hours: int,
+    limit_message: str,
+) -> ReviewJobAccepted:
+    """Key, payload and rate-limited enqueue shared by both review kinds.
+
+    The payload carries the period, source trade ids and the captured
+    fingerprint — never trade text (C3). An unreadable AI context refuses
+    with a fixed 503 rather than keying on a guess.
+    """
+    try:
+        fingerprint = review_inputs.review_input_fingerprint(
+            kind, user_id, period, model_input
+        )
+    except trade_analysis.AIInputVersionUnavailable:
+        raise HTTPException(status_code=503, detail="review_unavailable") from None
+    key = kind + ":" + fingerprint
+    job_payload = {
+        "period": period,
+        "source_trade_ids": list(model_input["source_trade_ids"]),
+        "fingerprint": fingerprint,
+        "key": key,
+    }
+    job_id, created = jobs.enqueue_with_limit(
+        user_id,
+        kind,
+        key,
+        job_payload,
+        since=dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=window_hours),
+        limit=limit,
+    )
+    if job_id is None:
+        raise HTTPException(status_code=429, detail=limit_message)
+    job = jobs.get_owned_job(job_id, user_id)
+    if job is None:  # Defensive: enqueue committed this exact owner-scoped row.
+        raise HTTPException(status_code=500, detail="review job unavailable")
+    return ReviewJobAccepted(job_id=job_id, status=job.status, created=created)
+
+
+@router.post("/reviews/weekly", status_code=status.HTTP_202_ACCEPTED)
+def enqueue_weekly_recap(
+    payload: WeeklyRecapRequest,
+    user_id: int = Depends(current_user),
+) -> ReviewJobAccepted:
+    """Queue one weekly recap for a completed week of the owner's own trades."""
+    monday = _iso_date(payload.week, monday=True)
+    options = review_periods.completed_week_options(user_id, today=_today(user_id))
+    if dt.date.fromisoformat(monday) not in options:
+        raise HTTPException(status_code=409, detail="empty_period")
+    model_input = weekly.build_weekly_model_input(user_id, monday)
+    if not model_input["source_trade_ids"]:
+        raise HTTPException(status_code=409, detail="empty_period")
+    complete = sum(
+        1 for t in get_trades(user_id=user_id) if activation.is_complete_trade(t)
+    )
+    if (
+        complete < activation.TRADES_FOR_REVIEW
+        and weekly.get_weekly_review(monday, user_id) is None
+    ):
+        raise HTTPException(status_code=409, detail="not_enough_trades")
+    return _enqueue_review(
+        user_id,
+        weekly.WEEKLY_JOB_KIND,
+        monday,
+        model_input,
+        limit=weekly.MAX_WEEKLY_PER_WINDOW,
+        window_hours=weekly.REVIEW_WINDOW_HOURS,
+        limit_message=WEEKLY_LIMIT_MESSAGE,
+    )
+
+
+def _saved_note(kind: str, result_id: int, user_id: int) -> Optional[SavedNote]:
+    if kind == "weekly_recap":
+        return _note(weekly.get_weekly_review_by_id(result_id, user_id), "week_start")
+    return _note(daily_debriefs.get_daily_debrief_by_id(result_id, user_id), "day")
+
+
+@router.get("/reviews/jobs/{job_id}")
+def get_review_job(
+    job_id: int,
+    user_id: int = Depends(current_user),
+) -> ReviewJobStatus:
+    """One owner-scoped review job; foreign, missing and other kinds are 404."""
+    job = jobs.get_owned_job(job_id, user_id)
+    if job is None or job.kind not in _REVIEW_KINDS:
+        raise HTTPException(status_code=404, detail="review job not found")
+    if job.status != "succeeded":
+        return ReviewJobStatus(
+            job_id=job.id,
+            kind=job.kind,
+            status=job.status,
+            note=None,
+            error=job.error if job.status == "failed" else None,
+        )
+    ref = job.result_ref or ""
+    prefix = job.kind + ":"
+    tail = ref[len(prefix) :] if ref.startswith(prefix) else ""
+    if tail == "superseded":
+        return ReviewJobStatus(
+            job_id=job.id,
+            kind=job.kind,
+            status="superseded",
+            note=None,
+            error=REVIEW_OUT_OF_DATE,
+        )
+    if not _DIGITS.fullmatch(tail):
+        raise HTTPException(status_code=500, detail=_RESULT_UNAVAILABLE)
+    note = _saved_note(job.kind, int(tail), user_id)
+    if note is None:
+        raise HTTPException(status_code=500, detail=_RESULT_UNAVAILABLE)
+    return ReviewJobStatus(
+        job_id=job.id, kind=job.kind, status="succeeded", note=note, error=None
     )
 
 

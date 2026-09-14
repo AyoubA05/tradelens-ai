@@ -28,6 +28,7 @@ from src.tradelens.services.metrics import (
 )
 from src.tradelens.services.ownership import require_user_id
 from src.tradelens.services.patterns import compute_candidates
+from src.tradelens.services.reflection_guard import reject_forward_looking
 from src.tradelens.services.trade_service import get_trades
 
 # Item 10 — unified Weekly Recap: one AI call covers the review AND the
@@ -54,6 +55,15 @@ _TRADE_COLS = [
     "setup_type",
     "followed_rules",
 ]
+
+# Job-backed generation (Phase 10A, R3/R4). The kind names the `ai_jobs` row;
+# the effort literal is part of the effective-input fingerprint (C2).
+WEEKLY_JOB_KIND = "weekly_recap"
+MAX_WEEKLY_PER_WINDOW = 10
+REVIEW_WINDOW_HOURS = 24
+WEEKLY_EFFORT = "high"
+
+_UNSET = object()
 
 # Canned review returned in DEMO_MODE (zero spend) — satisfies the 5-section contract.
 _DEMO_REVIEW_MD = "\n\n".join(
@@ -168,10 +178,61 @@ def _validate_sections(markdown: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _ordered(trades: list) -> list:
+    """`get_trades` order (newest date first) with a stable id tiebreak.
+
+    Streak candidates depend on row order, so the same trades must always
+    arrive in the same order for the fingerprint and the prompt to agree.
+    """
+    by_id = sorted(trades, key=lambda t: getattr(t, "id", None) or 0)
+    return sorted(
+        by_id, key=lambda t: str(getattr(t, "trade_date", "") or ""), reverse=True
+    )
+
+
+def build_weekly_model_input(
+    user_id: int,
+    monday: Union[str, dt.date, dt.datetime],
+    *,
+    strategy_profile=_UNSET,
+    trades: Optional[list] = None,
+) -> dict:
+    """The exact object the weekly user message is built from (decision C2).
+
+    `strategy_profile` defaults to the owner's active profile; `trades`
+    defaults to the owner's trades for the week (the worker passes rows read
+    through its locking session). JSON-safe apart from numpy scalars, which
+    the fingerprint canonicalises.
+    """
+    owner = require_user_id(user_id)
+    week_monday, sunday = week_bounds(monday)
+    if trades is None:
+        trades = get_trades(start_date=week_monday, end_date=sunday, user_id=owner)
+    if strategy_profile is _UNSET:
+        from src.tradelens.services.strategy import get_active_strategy
+
+        strategy_profile = get_active_strategy(owner)
+    rows = _ordered(list(trades))
+    df = _trades_to_df(rows)
+    return {
+        "week_start": week_monday,
+        "week_end": sunday,
+        "stats": _week_stats(df),
+        "candidates": None if df.empty else compute_candidates(df),
+        "strategy_profile": strategy_profile or None,
+        "source_trade_ids": sorted(
+            int(t.id) for t in rows if getattr(t, "id", None) is not None
+        ),
+    }
+
+
 def generate_weekly_review(
     week_start: Union[str, dt.date, dt.datetime],
     user_id: int,
     strategy_profile: Optional[dict] = None,
+    *,
+    on_usage: Optional[Callable[[Usage], None]] = None,
+    model_input: Optional[dict] = None,
 ) -> tuple[dict, Usage]:
     """
     Generate (but do not persist) the weekly review for the week containing
@@ -190,12 +251,14 @@ def generate_weekly_review(
         WeeklyReviewError: AI unavailable or response missing required sections.
     """
     owner = require_user_id(user_id)
-    monday, sunday = week_bounds(week_start)
-    trades = get_trades(start_date=monday, end_date=sunday, user_id=owner)
-    df = _trades_to_df(trades)
-    stats = _week_stats(df)
+    if model_input is None:
+        model_input = build_weekly_model_input(
+            owner, week_start, strategy_profile=strategy_profile
+        )
+    monday, sunday = model_input["week_start"], model_input["week_end"]
+    stats = model_input["stats"]
 
-    if df.empty:
+    if model_input["candidates"] is None:
         return (
             {
                 "week_start": monday,
@@ -208,25 +271,33 @@ def generate_weekly_review(
             Usage("none", 0, 0, 0, 0.0, 0.0),
         )
 
-    candidates = compute_candidates(df)
-
     system_message = load_prompt("weekly_recap_v1")
     user_message = _build_user_message(
-        monday, sunday, stats, candidates, strategy_profile
+        monday,
+        sunday,
+        stats,
+        model_input["candidates"],
+        model_input["strategy_profile"],
     )
 
     # Past corrections are injected centrally by ai_client for every call.
     content, usage = chat(
         user_message=user_message,
         system_message=system_message,
-        effort="high",
+        effort=WEEKLY_EFFORT,
         demo_response=_DEMO_REVIEW_MD,
     )
+    # Recorded the moment the provider answers: a response that then fails
+    # validation or the guard was still billed.
+    if on_usage is not None:
+        on_usage(usage)
 
     if isinstance(content, AIUnavailable):
         raise WeeklyReviewError(content.reason)
 
     _validate_sections(content)
+    # Lexical defense-in-depth, not a semantic guarantee (decision C4).
+    reject_forward_looking(content, WeeklyReviewError)
     return (
         {
             "week_start": monday,
@@ -384,6 +455,21 @@ def get_weekly_review(week_start: str, user_id: int) -> Optional[dict]:
                 WeeklyReview.week_start == week_start,
                 WeeklyReview.user_id == owner,
             )
+            .first()
+        )
+        return _row_to_dict(row) if row else None
+    finally:
+        db.close()
+
+
+def get_weekly_review_by_id(result_id: int, user_id: int) -> Optional[dict]:
+    """Return one of this owner's saved reviews by id; foreign and missing are None."""
+    owner = require_user_id(user_id)
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(WeeklyReview)
+            .filter(WeeklyReview.id == result_id, WeeklyReview.user_id == owner)
             .first()
         )
         return _row_to_dict(row) if row else None

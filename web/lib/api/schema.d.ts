@@ -120,6 +120,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/reviews/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Review Job
+         * @description One owner-scoped review job; foreign, missing and other kinds are 404.
+         */
+        get: operations["get_review_job_v1_reviews_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/reviews/weekly": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enqueue Weekly Recap
+         * @description Queue one weekly recap for a completed week of the owner's own trades.
+         */
+        post: operations["enqueue_weekly_recap_v1_reviews_weekly_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/session/whoami": {
         parameters: {
             query?: never;
@@ -1511,6 +1551,36 @@ export interface components {
             /** Setups */
             setups: components["schemas"]["src__tradelens__api__schemas__overview__BreakdownRow"][];
         };
+        /** ReviewJobAccepted */
+        ReviewJobAccepted: {
+            /** Created */
+            created: boolean;
+            /** Job Id */
+            job_id: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed";
+        };
+        /** ReviewJobStatus */
+        ReviewJobStatus: {
+            /** Error */
+            error?: string | null;
+            /** Job Id */
+            job_id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "weekly_recap" | "daily_debrief";
+            note?: components["schemas"]["SavedNote"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "succeeded" | "failed" | "superseded";
+        };
         /** ReviewsResponse */
         ReviewsResponse: {
             /** Ai Available */
@@ -2726,6 +2796,11 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** WeeklyRecapRequest */
+        WeeklyRecapRequest: {
+            /** Week */
+            week: string;
+        };
         /** WhoAmI */
         WhoAmI: {
             /** User Id */
@@ -2923,6 +2998,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReviewsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_review_job_v1_reviews_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewJobStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enqueue_weekly_recap_v1_reviews_weekly_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WeeklyRecapRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewJobAccepted"];
                 };
             };
             /** @description Validation Error */

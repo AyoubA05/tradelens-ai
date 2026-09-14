@@ -47,6 +47,28 @@ class SavedNote(_Strict):
     created_at: str
 
 
+class WeeklyRecapRequest(_Strict):
+    week: str
+
+
+class DailyDebriefRequest(_Strict):
+    day: str
+
+
+class ReviewJobAccepted(_Strict):
+    job_id: int
+    status: Literal["queued", "running", "succeeded", "failed"]
+    created: bool
+
+
+class ReviewJobStatus(_Strict):
+    job_id: int
+    kind: Literal["weekly_recap", "daily_debrief"]
+    status: Literal["queued", "running", "succeeded", "failed", "superseded"]
+    note: Optional[SavedNote] = None
+    error: Optional[str] = None
+
+
 class ReviewsResponse(_Strict):
     patterns: PatternsLens
     weeks: List[str]
