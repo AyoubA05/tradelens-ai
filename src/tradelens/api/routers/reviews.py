@@ -25,6 +25,7 @@ from src.tradelens.api.schemas.reviews import (
     ReviewJobAccepted,
     ReviewJobStatus,
     ReviewsResponse,
+    DailyDebriefRequest,
     SavedNote,
     WeeklyRecapRequest,
 )
@@ -32,6 +33,7 @@ from src.tradelens.services import (
     activation,
     app_settings,
     daily_debriefs,
+    debrief,
     patterns,
     review_inputs,
     review_periods,
@@ -138,6 +140,10 @@ WEEKLY_LIMIT_MESSAGE = (
     "You've reached today's limit for weekly recaps. "
     "Recaps you've already generated are still available."
 )
+DAILY_LIMIT_MESSAGE = (
+    "You've reached today's limit for daily debriefs. "
+    "Debriefs you've already generated are still available."
+)
 REVIEW_OUT_OF_DATE = "This review is out of date. Generate it again."
 _RESULT_UNAVAILABLE = "review result unavailable"
 _REVIEW_KINDS = ("weekly_recap", "daily_debrief")
@@ -218,6 +224,30 @@ def enqueue_weekly_recap(
         limit=weekly.MAX_WEEKLY_PER_WINDOW,
         window_hours=weekly.REVIEW_WINDOW_HOURS,
         limit_message=WEEKLY_LIMIT_MESSAGE,
+    )
+
+
+@router.post("/reviews/daily", status_code=status.HTTP_202_ACCEPTED)
+def enqueue_daily_debrief(
+    payload: DailyDebriefRequest,
+    user_id: int = Depends(current_user),
+) -> ReviewJobAccepted:
+    """Queue one daily debrief for a completed trading day of the owner's own."""
+    day = _iso_date(payload.day)
+    options = review_periods.completed_day_options(user_id, today=_today(user_id))
+    if dt.date.fromisoformat(day) not in options:
+        raise HTTPException(status_code=409, detail="empty_period")
+    model_input = debrief.build_daily_model_input(user_id, day)
+    if not model_input["source_trade_ids"]:
+        raise HTTPException(status_code=409, detail="empty_period")
+    return _enqueue_review(
+        user_id,
+        debrief.DAILY_JOB_KIND,
+        day,
+        model_input,
+        limit=debrief.MAX_DAILY_PER_WINDOW,
+        window_hours=debrief.REVIEW_WINDOW_HOURS,
+        limit_message=DAILY_LIMIT_MESSAGE,
     )
 
 

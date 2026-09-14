@@ -139,6 +139,7 @@ def _fixed_today(monkeypatch):
 ROUTES = [
     ("GET", "/v1/reviews", None),
     ("POST", "/v1/reviews/weekly", {"week": "2026-09-07"}),
+    ("POST", "/v1/reviews/daily", {"day": "2026-09-08"}),
     ("GET", "/v1/reviews/jobs/1", None),
 ]
 
@@ -503,4 +504,217 @@ def test_weekly_end_to_end_poll_returns_the_saved_note(client, two_users, monkey
     assert body["note"]["reviewed_trades"] == 5
     assert _get(client, "/v1/reviews/jobs/%d" % job, b).status_code == 404
     saved = _get(client, "/v1/reviews?week=2026-09-07", a).json()["weekly"]
+    assert saved["content_md"] == good
+
+
+# ── B3: daily debrief generation ───────────────────────────────────────────
+
+DAILY = "/v1/reviews/daily"
+
+
+def test_generate_daily_enqueues_one_job_for_a_double_click(client, two_users):
+    a, _ = two_users
+    _trade(a, "2026-09-08")
+    first = _post(client, DAILY, {"day": "2026-09-08"}, a)
+    second = _post(client, DAILY, {"day": "2026-09-08"}, a)
+    assert first.status_code == 202 and second.status_code == 202
+    assert first.json()["job_id"] == second.json()["job_id"]
+    assert (first.json()["created"], second.json()["created"]) == (True, False)
+
+
+def test_daily_needs_no_weekly_gate(client, two_users):
+    a, _ = two_users
+    _trade(a, "2026-09-08")
+    assert _post(client, DAILY, {"day": "2026-09-08"}, a).status_code == 202
+
+
+def test_daily_job_payload_carries_ids_and_fingerprint_never_trade_text(
+    client, two_users
+):
+    a, _ = two_users
+    t = _trade(a, "2026-09-08", notes="PRIVATE_NOTE_TEXT")
+    job = _job(_post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"])
+    payload = json.loads(job.payload)
+    assert set(payload) == {"period", "source_trade_ids", "fingerprint", "key"}
+    assert (payload["period"], payload["source_trade_ids"]) == ("2026-09-08", [t])
+    assert payload["key"] == "daily_debrief:" + payload["fingerprint"]
+    assert job.idempotency_key == payload["key"]
+    assert "PRIVATE_NOTE_TEXT" not in job.payload
+
+
+def test_a_changed_daily_note_is_a_new_job(client, two_users):
+    a, _ = two_users
+    t = _trade(a, "2026-09-08", notes="calm")
+    first = _post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"]
+    _update_trade(t, notes="rushed the entry")
+    second = _post(client, DAILY, {"day": "2026-09-08"}, a).json()
+    assert second["job_id"] != first and second["created"] is True
+
+
+def test_a_changed_daily_trade_is_a_new_job(client, two_users):
+    a, _ = two_users
+    t = _trade(a, "2026-09-08")
+    first = _post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"]
+    _update_trade(t, pnl=-10.0, result="Loss")
+    assert _post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"] != first
+
+
+def test_a_changed_strategy_profile_is_a_new_daily_job(client, two_users):
+    from src.tradelens.services import strategy
+
+    a, _ = two_users
+    _trade(a, "2026-09-08")
+    first = _post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"]
+    strategy.upsert_strategy_profile(a, name="Plan", risk_rules="One loss, stop.")
+    assert _post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"] != first
+
+
+def test_a_changed_daily_prompt_is_a_new_job(client, two_users, monkeypatch):
+    from src.tradelens.services import ai_client
+
+    a, _ = two_users
+    _trade(a, "2026-09-08")
+    first = _post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"]
+    real = ai_client.load_prompt
+    monkeypatch.setattr(ai_client, "load_prompt", lambda name: real(name) + "\nv2")
+    assert _post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"] != first
+
+
+def test_a_changed_daily_effort_is_a_new_key(client, two_users, monkeypatch):
+    from src.tradelens.services import debrief
+
+    a, _ = two_users
+    _trade(a, "2026-09-08")
+    first = _job(_post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"])
+    monkeypatch.setattr(debrief, "DAILY_EFFORT", "high")
+    second = _job(_post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"])
+    assert second.idempotency_key != first.idempotency_key
+
+
+def test_daily_refuses_an_empty_day(client, two_users):
+    a, b = two_users
+    _trade(b, "2026-09-08")
+    r = _post(client, DAILY, {"day": "2026-09-08"}, a)
+    assert (r.status_code, r.json()["detail"]) == (409, "empty_period")
+
+
+def test_daily_refuses_a_future_day(client, two_users):
+    a, _ = two_users
+    _trade(a, "2026-09-20")
+    r = _post(client, DAILY, {"day": "2026-09-20"}, a)
+    assert (r.status_code, r.json()["detail"]) == (409, "empty_period")
+
+
+def test_daily_not_future_follows_the_owner_zone_across_dst(
+    client, two_users, monkeypatch
+):
+    from src.tradelens.services import app_settings
+
+    a, _ = two_users
+    app_settings.set_timezone(a, "Europe/London")
+    _trade(a, "2026-03-30")
+    monkeypatch.setattr(
+        reviews_router,
+        "_now_utc",
+        lambda: dt.datetime(2026, 3, 29, 22, 59, tzinfo=dt.timezone.utc),
+    )
+    r = _post(client, DAILY, {"day": "2026-03-30"}, a)
+    assert (r.status_code, r.json()["detail"]) == (409, "empty_period")
+    monkeypatch.setattr(
+        reviews_router,
+        "_now_utc",
+        lambda: dt.datetime(2026, 3, 29, 23, 0, tzinfo=dt.timezone.utc),
+    )
+    assert _post(client, DAILY, {"day": "2026-03-30"}, a).status_code == 202
+
+
+def test_daily_refuses_when_ai_context_is_unavailable(client, two_users, monkeypatch):
+    from src.tradelens.services import trade_analysis
+
+    a, _ = two_users
+    _trade(a, "2026-09-08")
+
+    def _raise(owner):
+        raise trade_analysis.AIInputVersionUnavailable("down")
+
+    monkeypatch.setattr(trade_analysis, "ai_input_version", _raise)
+    r = _post(client, DAILY, {"day": "2026-09-08"}, a)
+    assert (r.status_code, r.json()["detail"]) == (503, "review_unavailable")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"day": "2026-9-8"},
+        {"day": "2026-09-08", "trades": [1]},
+        {"day": "2026-09-08", "user_id": 1},
+        {"day": 20260908},
+        {},
+    ],
+)
+def test_daily_body_is_strict(client, two_users, body):
+    a, _ = two_users
+    _trade(a, "2026-09-08")
+    assert _post(client, DAILY, body, a).status_code == 422
+
+
+def test_daily_rate_limit_is_429_and_keeps_existing_jobs(
+    client, two_users, monkeypatch
+):
+    from src.tradelens.services import debrief
+
+    a, _ = two_users
+    monkeypatch.setattr(debrief, "MAX_DAILY_PER_WINDOW", 1)
+    t = _trade(a, "2026-09-08")
+    first = _post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"]
+    _update_trade(t, notes="changed")
+    limited = _post(client, DAILY, {"day": "2026-09-08"}, a)
+    assert limited.status_code == 429
+    assert limited.json()["detail"] == reviews_router.DAILY_LIMIT_MESSAGE
+    assert _get(client, "/v1/reviews/jobs/%d" % first, a).status_code == 200
+
+
+def test_daily_job_poll_is_owner_scoped(client, two_users):
+    a, b = two_users
+    _trade(a, "2026-09-08")
+    job = _post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"]
+    assert _get(client, "/v1/reviews/jobs/%d" % job, b).status_code == 404
+    assert _get(client, "/v1/reviews/jobs/%d" % job, a).json()["kind"] == (
+        "daily_debrief"
+    )
+
+
+def test_daily_superseded_job_poll_shape(client, two_users):
+    from src.tradelens.api import jobs
+
+    a, _ = two_users
+    _trade(a, "2026-09-08")
+    job = _post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"]
+    jobs.complete(job, "daily_debrief:superseded")
+    body = _get(client, "/v1/reviews/jobs/%d" % job, a).json()
+    assert (body["status"], body["note"]) == ("superseded", None)
+    assert body["error"] == "This review is out of date. Generate it again."
+    jobs.complete(job, "weekly_recap:1")
+    assert _get(client, "/v1/reviews/jobs/%d" % job, a).status_code == 500
+
+
+def test_daily_end_to_end_poll_returns_the_saved_note(client, two_users, monkeypatch):
+    from src.tradelens.api import jobs, worker
+    from src.tradelens.services import debrief
+
+    a, b = two_users
+    _trade(a, "2026-09-08")
+    _trade(a, "2026-09-08", pnl=-20.0, result="Loss")
+    good = "\n\n".join("%s\nReflection." % h for h in debrief._REQUIRED_SECTIONS)
+    monkeypatch.setattr(debrief, "chat", lambda **k: (good, _usage()))
+    monkeypatch.setattr(worker, "log_ai_usage", lambda *x, **k: None)
+    job = _post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"]
+    assert jobs.run_once(worker.HANDLERS) is True
+    body = _get(client, "/v1/reviews/jobs/%d" % job, a).json()
+    assert body["status"] == "succeeded" and body["error"] is None
+    assert body["note"]["period"] == "2026-09-08"
+    assert body["note"]["content_md"] == good
+    assert body["note"]["reviewed_trades"] == 2
+    assert _get(client, "/v1/reviews/jobs/%d" % job, b).status_code == 404
+    saved = _get(client, "/v1/reviews?day=2026-09-08", a).json()["daily"]
     assert saved["content_md"] == good

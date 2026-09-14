@@ -824,6 +824,20 @@
         "title": "CsvImportWrite",
         "type": "object"
       },
+      "DailyDebriefRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "day": {
+            "title": "Day",
+            "type": "string"
+          }
+        },
+        "required": [
+          "day"
+        ],
+        "title": "DailyDebriefRequest",
+        "type": "object"
+      },
       "DeleteAccountWrite": {
         "additionalProperties": false,
         "properties": {
@@ -6704,6 +6718,48 @@
           }
         },
         "summary": "Get Reviews",
+        "tags": [
+          "reviews"
+        ]
+      }
+    },
+    "/v1/reviews/daily": {
+      "post": {
+        "description": "Queue one daily debrief for a completed trading day of the owner's own.",
+        "operationId": "enqueue_daily_debrief_v1_reviews_daily_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DailyDebriefRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewJobAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enqueue Daily Debrief",
         "tags": [
           "reviews"
         ]

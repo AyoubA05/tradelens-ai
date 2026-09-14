@@ -17,7 +17,13 @@ from src.tradelens.api.jobs import run_once
 from src.tradelens.api import jobs
 from src.tradelens.api.config import validate_worker_runtime
 from src.tradelens.services.cost import log_ai_usage
-from src.tradelens.services.daily_debriefs import ReviewSourceGone
+from src.tradelens.services.daily_debriefs import ReviewSourceGone, save_daily_debrief
+from src.tradelens.services.debrief import (
+    DAILY_JOB_KIND,
+    DebriefError,
+    build_daily_model_input,
+    generate_debrief,
+)
 from src.tradelens.services.review_inputs import (
     locked_period_trades,
     review_input_fingerprint,
@@ -240,9 +246,68 @@ def _weekly_recap_handler(user_id: int, payload: dict) -> str:
     return f"{kind}:{row_id}"
 
 
+def _daily_debrief_handler(user_id: int, payload: dict) -> str:
+    """Generate and save one daily debrief, or supersede without writing.
+
+    Same C3/C5 discipline as `_weekly_recap_handler`: fingerprint re-checked
+    before the provider call and inside the locked save; stale or deleted
+    sources return `daily_debrief:superseded` and nothing is written.
+    """
+    kind = DAILY_JOB_KIND
+    day = str(payload["period"])
+    captured = str(payload["fingerprint"])
+    source_ids = sorted(int(i) for i in payload["source_trade_ids"])
+    job_id = _review_job_id(user_id, kind, payload)
+
+    model_input = build_daily_model_input(user_id, day)
+    if (
+        not source_ids
+        or model_input["source_trade_ids"] != source_ids
+        or review_input_fingerprint(kind, user_id, day, model_input) != captured
+    ):
+        return f"{kind}:superseded"
+
+    review, _usage = generate_debrief(
+        # Feature string matches the Streamlit path's, so cost tracking shows
+        # one row per feature.
+        on_usage=lambda usage: log_ai_usage("Daily Debrief", usage, user_id=user_id),
+        model_input=model_input,
+    )
+    if review["empty"]:
+        raise DebriefError("No trades logged on this day.")
+
+    def verify(db) -> bool:
+        locked = build_daily_model_input(
+            user_id, day, trades=locked_period_trades(db, user_id, day, day)
+        )
+        return (
+            locked["source_trade_ids"] == source_ids
+            and review_input_fingerprint(kind, user_id, day, locked) == captured
+        )
+
+    try:
+        row_id = save_daily_debrief(
+            user_id=user_id,
+            day=day,
+            input_fingerprint=captured,
+            job_id=job_id,
+            result={
+                "content_md": review["content_md"],
+                "stats": review["stats"],
+                "reviewed_trades": model_input["total_trades"],
+            },
+            source_trade_ids=source_ids,
+            verify=verify,
+        )
+    except ReviewSourceGone:  # includes ReviewSourceChanged
+        return f"{kind}:superseded"
+    return f"{kind}:{row_id}"
+
+
 HANDLERS: dict = {
     "trade_summary": _trade_summary_handler,
     WEEKLY_JOB_KIND: _weekly_recap_handler,
+    DAILY_JOB_KIND: _daily_debrief_handler,
     AUTOFILL_JOB_KIND: _trade_autofill_handler,
     ANALYSIS_JOB_KIND: _trade_analysis_handler,
     JOURNAL_JOB_KIND: _trade_journal_handler,

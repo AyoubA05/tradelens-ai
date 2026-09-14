@@ -5,12 +5,14 @@ from __future__ import annotations
 import pytest
 
 from src.tradelens.api import jobs, worker
-from src.tradelens.db.models import Trade, WeeklyReview
+from src.tradelens.db.models import DailyDebrief, Trade, WeeklyReview
 from src.tradelens.db.session import SessionLocal
-from src.tradelens.services import review_inputs, weekly
+from src.tradelens.services import daily_debriefs, debrief, review_inputs, weekly
 
 MONDAY = "2026-09-07"
+DAY = "2026-09-08"
 GOOD_WEEKLY = "\n\n".join("%s\nReflection." % h for h in weekly._REQUIRED_SECTIONS)
+GOOD_DAILY = "\n\n".join("%s\nReflection." % h for h in debrief._REQUIRED_SECTIONS)
 
 
 def _usage():
@@ -212,3 +214,162 @@ def test_weekly_sources_deleted_before_run_spend_nothing(
     monkeypatch.setattr(weekly, "chat", _never)
     assert worker._weekly_recap_handler(a, payload) == "weekly_recap:superseded"
     assert weekly.get_weekly_review(MONDAY, a) is None
+
+
+# ── daily ──────────────────────────────────────────────────────────────────
+
+
+def _queue_daily(owner, day=DAY):
+    """Queue a daily job exactly as the router does; returns (job_id, payload)."""
+    model_input = debrief.build_daily_model_input(owner, day)
+    fp = review_inputs.review_input_fingerprint(
+        debrief.DAILY_JOB_KIND, owner, day, model_input
+    )
+    key = debrief.DAILY_JOB_KIND + ":" + fp
+    payload = {
+        "period": day,
+        "source_trade_ids": model_input["source_trade_ids"],
+        "fingerprint": fp,
+        "key": key,
+    }
+    job_id, _ = jobs.enqueue(owner, debrief.DAILY_JOB_KIND, key, payload)
+    return job_id, payload
+
+
+def _daily_rows(owner):
+    db = SessionLocal()
+    try:
+        return db.query(DailyDebrief).filter(DailyDebrief.user_id == owner).count()
+    finally:
+        db.close()
+
+
+def test_daily_handler_is_registered():
+    assert worker.HANDLERS["daily_debrief"] is worker._daily_debrief_handler
+
+
+def test_daily_model_input_includes_ids_and_truncated_notes(two_users):
+    a, _ = two_users
+    t = _trade(a, DAY, notes="x" * 500)
+    model_input = debrief.build_daily_model_input(a, DAY)
+    assert model_input["source_trade_ids"] == [t]
+    assert model_input["period_label"] == "Trading day " + DAY
+    assert model_input["trades"][0]["notes"] == "x" * 200
+
+
+def test_daily_handler_saves_with_provenance(two_users, monkeypatch, quiet_usage):
+    a, _ = two_users
+    _trade(a, DAY)
+    _trade(a, DAY, pnl=-3.0, result="Loss")
+    job_id, payload = _queue_daily(a)
+    seen = {}
+
+    def _chat(**kwargs):
+        seen.update(kwargs)
+        return GOOD_DAILY, _usage()
+
+    monkeypatch.setattr(debrief, "chat", _chat)
+    ref = worker._daily_debrief_handler(a, payload)
+    kind, _, row_id = ref.partition(":")
+    assert kind == "daily_debrief"
+    saved = daily_debriefs.get_daily_debrief_by_id(int(row_id), a)
+    assert saved["content_md"] == GOOD_DAILY
+    assert saved["reviewed_trades"] == 2
+    assert (saved["input_fingerprint"], saved["job_id"]) == (
+        payload["fingerprint"],
+        job_id,
+    )
+    assert "Period: Trading day " + DAY in seen["user_message"]
+    assert quiet_usage == [("Daily Debrief", a)]
+
+
+def test_daily_handler_logs_usage_even_when_validation_fails(
+    two_users, monkeypatch, quiet_usage
+):
+    a, _ = two_users
+    _trade(a, DAY)
+    _, payload = _queue_daily(a)
+    monkeypatch.setattr(
+        debrief, "chat", lambda **k: ("### Session Summary\nonly one", _usage())
+    )
+    with pytest.raises(debrief.DebriefError):
+        worker._daily_debrief_handler(a, payload)
+    assert quiet_usage == [("Daily Debrief", a)]
+    assert _daily_rows(a) == 0
+
+
+def test_daily_handler_refuses_trade_guidance(two_users, monkeypatch, quiet_usage):
+    a, _ = two_users
+    _trade(a, DAY)
+    job_id, payload = _queue_daily(a)
+    bad = GOOD_DAILY.replace("Reflection.", "Tomorrow, buy above 20150.", 1)
+    monkeypatch.setattr(debrief, "chat", lambda **k: (bad, _usage()))
+    with pytest.raises(debrief.DebriefError):
+        worker._daily_debrief_handler(a, payload)
+    assert _daily_rows(a) == 0
+    assert jobs.run_once(worker.HANDLERS) is True
+    assert jobs.get_owned_job(job_id, a).status == "failed"
+
+
+def test_daily_pre_provider_mismatch_spends_nothing(
+    two_users, monkeypatch, quiet_usage
+):
+    a, _ = two_users
+    t = _trade(a, DAY, notes="calm")
+    _, payload = _queue_daily(a)
+    _update_trade(t, notes="edited after queueing")
+
+    def _never(**kwargs):
+        raise AssertionError("provider must not be called")
+
+    monkeypatch.setattr(debrief, "chat", _never)
+    assert worker._daily_debrief_handler(a, payload) == "daily_debrief:superseded"
+    assert quiet_usage == []
+    assert _daily_rows(a) == 0
+
+
+def test_daily_pre_save_mismatch_writes_nothing(two_users, monkeypatch, quiet_usage):
+    a, _ = two_users
+    t = _trade(a, DAY, notes="calm")
+    _, payload = _queue_daily(a)
+
+    def _chat_then_edit(**kwargs):
+        _update_trade(t, notes="edited during the provider call")
+        return GOOD_DAILY, _usage()
+
+    monkeypatch.setattr(debrief, "chat", _chat_then_edit)
+    assert worker._daily_debrief_handler(a, payload) == "daily_debrief:superseded"
+    assert quiet_usage == [("Daily Debrief", a)]
+    assert _daily_rows(a) == 0
+
+
+def test_daily_sources_deleted_mid_run_are_not_resurrected(
+    two_users, monkeypatch, quiet_usage
+):
+    a, _ = two_users
+    _trade(a, DAY)
+    _, payload = _queue_daily(a)
+
+    def _chat_then_delete(**kwargs):
+        _delete_trades(a)
+        return GOOD_DAILY, _usage()
+
+    monkeypatch.setattr(debrief, "chat", _chat_then_delete)
+    assert worker._daily_debrief_handler(a, payload) == "daily_debrief:superseded"
+    assert daily_debriefs.get_daily_debrief(user_id=a, day=DAY) is None
+
+
+def test_daily_sources_deleted_before_run_spend_nothing(
+    two_users, monkeypatch, quiet_usage
+):
+    a, _ = two_users
+    _trade(a, DAY)
+    _, payload = _queue_daily(a)
+    _delete_trades(a)
+
+    def _never(**kwargs):
+        raise AssertionError("provider must not be called")
+
+    monkeypatch.setattr(debrief, "chat", _never)
+    assert worker._daily_debrief_handler(a, payload) == "daily_debrief:superseded"
+    assert daily_debriefs.get_daily_debrief(user_id=a, day=DAY) is None

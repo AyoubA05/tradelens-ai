@@ -11,9 +11,12 @@ applies. Post-trade reflection only — never signals. No Streamlit imports here
 """
 
 import json
-from typing import Optional
+from typing import Callable, Optional
 
 from src.tradelens.services.ai_client import AIUnavailable, Usage, chat, load_prompt
+from src.tradelens.services.ownership import require_user_id
+from src.tradelens.services.reflection_guard import reject_forward_looking
+from src.tradelens.services.trade_service import get_trades
 from src.tradelens.services.weekly import _trades_to_df, _week_stats
 
 _REQUIRED_SECTIONS = [
@@ -49,6 +52,13 @@ _PAYLOAD_FIELDS = (
 # The call's effort literal; None means the ai_client default. Part of the
 # effective-input fingerprint (Phase 10A, C2).
 DAILY_EFFORT = None
+
+# Job-backed Daily Debrief (Phase 10A, R1/R3/R4).
+DAILY_JOB_KIND = "daily_debrief"
+MAX_DAILY_PER_WINDOW = 20
+REVIEW_WINDOW_HOURS = 24
+
+_UNSET = object()
 
 _MAX_TRADES = 40  # newest trades kept when the selection is larger
 _MAX_NOTE_CHARS = 200
@@ -103,10 +113,52 @@ def _validate_sections(markdown: str) -> None:
         raise DebriefError("Debrief sections are out of order.")
 
 
+def _model_input_from_trades(
+    trades: list, strategy_profile: Optional[dict], period_label: str
+) -> dict:
+    """The exact object the debrief user message is built from (decision C2)."""
+    return {
+        "period_label": period_label,
+        "stats": _week_stats(_trades_to_df(trades)),
+        "trades": build_trades_payload(trades),
+        "total_trades": len(trades),
+        "strategy_profile": strategy_profile or None,
+    }
+
+
+def build_daily_model_input(
+    user_id: int,
+    day: str,
+    *,
+    strategy_profile=_UNSET,
+    trades: Optional[list] = None,
+) -> dict:
+    """The owner's model input for one trading day, plus its source trade ids.
+
+    `strategy_profile` defaults to the owner's active profile; `trades` to the
+    owner's trades on `day` (the worker passes rows read through its locking
+    session). Rows are ordered by id first so same-date ties are stable.
+    """
+    owner = require_user_id(user_id)
+    if trades is None:
+        trades = get_trades(start_date=day, end_date=day, user_id=owner)
+    if strategy_profile is _UNSET:
+        from src.tradelens.services.strategy import get_active_strategy
+
+        strategy_profile = get_active_strategy(owner)
+    rows = sorted(trades, key=lambda t: int(t.id))
+    model_input = _model_input_from_trades(rows, strategy_profile, f"Trading day {day}")
+    model_input["source_trade_ids"] = [int(t.id) for t in rows]
+    return model_input
+
+
 def generate_debrief(
-    trades: list,
+    trades: Optional[list] = None,
     strategy_profile: Optional[dict] = None,
     period_label: str = "Trading session",
+    *,
+    on_usage: Optional[Callable[[Usage], None]] = None,
+    model_input: Optional[dict] = None,
 ) -> tuple[dict, Usage]:
     """Generate a coach-like debrief over a set of closed trades.
 
@@ -119,10 +171,13 @@ def generate_debrief(
         FileNotFoundError: prompts/debrief_v1.txt missing.
         DebriefError: AI unavailable or response missing required sections.
     """
-    df = _trades_to_df(trades)
-    stats = _week_stats(df)
+    if model_input is None:
+        model_input = _model_input_from_trades(
+            list(trades or []), strategy_profile, period_label
+        )
+    stats = model_input["stats"]
 
-    if not trades:
+    if not model_input["total_trades"]:
         return (
             {
                 "empty": True,
@@ -134,20 +189,20 @@ def generate_debrief(
             Usage("none", 0, 0, 0, 0.0, 0.0),
         )
 
-    payload = build_trades_payload(trades)
+    payload = model_input["trades"]
+    total = model_input["total_trades"]
     capped = (
-        f" (most recent {len(payload)} of {len(trades)} shown)"
-        if len(trades) > len(payload)
+        f" (most recent {len(payload)} of {total} shown)"
+        if total > len(payload)
         else ""
     )
+    profile = model_input["strategy_profile"]
     strategy_block = (
-        json.dumps(strategy_profile, indent=2, default=str)
-        if strategy_profile
-        else _NO_PROFILE_BLOCK
+        json.dumps(profile, indent=2, default=str) if profile else _NO_PROFILE_BLOCK
     )
     user_message = (
         "POST-SESSION DEBRIEF REQUEST\n\n"
-        f"Period: {period_label}\n\n"
+        f"Period: {model_input['period_label']}\n\n"
         f"Headline stats:\n{json.dumps(stats, indent=2, default=str)}\n\n"
         f"Trades{capped}:\n{json.dumps(payload, indent=2, default=str)}\n\n"
         f"Strategy profile:\n{strategy_block}\n\n"
@@ -159,12 +214,19 @@ def generate_debrief(
         user_message=user_message,
         system_message=load_prompt("debrief_v1"),
         demo_response=_DEMO_DEBRIEF_MD,
+        **({} if DAILY_EFFORT is None else {"effort": DAILY_EFFORT}),
     )
+    # Recorded the moment the provider answers: a response that then fails
+    # validation or the guard was still billed.
+    if on_usage is not None:
+        on_usage(usage)
 
     if isinstance(content, AIUnavailable):
         raise DebriefError(content.reason)
 
     _validate_sections(content)
+    # Lexical defense-in-depth, not a semantic guarantee (decision C4).
+    reject_forward_looking(content, DebriefError)
     return (
         {
             "empty": False,
