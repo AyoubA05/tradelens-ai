@@ -100,6 +100,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Reviews
+         * @description Patterns, the owner's completed review periods, and saved notes.
+         */
+        get: operations["get_reviews_v1_reviews_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/session/whoami": {
         parameters: {
             query?: never;
@@ -1396,6 +1416,32 @@ export interface components {
             /** Turns */
             turns: components["schemas"]["PartnerTranscriptTurn"][];
         };
+        /** PatternInsight */
+        PatternInsight: {
+            /** Body */
+            body: string;
+            /**
+             * Confidence
+             * @enum {string}
+             */
+            confidence: "low" | "medium" | "high";
+            /** Min Trades */
+            min_trades: number;
+            /** Title */
+            title: string;
+            /** Type */
+            type: string;
+        };
+        /** PatternsLens */
+        PatternsLens: {
+            /** Insights */
+            insights: components["schemas"]["PatternInsight"][];
+            stats: components["schemas"]["PeriodStats"];
+            /** Strategy Included */
+            strategy_included: boolean;
+            /** Trades */
+            trades: number;
+        };
         /**
          * PerformanceLens
          * @description Lens 1.
@@ -1426,6 +1472,19 @@ export interface components {
             /** To */
             to: string;
         };
+        /** PeriodStats */
+        PeriodStats: {
+            /** Profit Factor */
+            profit_factor?: number | null;
+            /** Total Edge Leak */
+            total_edge_leak: number;
+            /** Total Pnl */
+            total_pnl: number;
+            /** Trades */
+            trades: number;
+            /** Win Rate */
+            win_rate: number;
+        };
         /** RecentTrade */
         RecentTrade: {
             /** Asset */
@@ -1451,6 +1510,22 @@ export interface components {
             killzones: components["schemas"]["src__tradelens__api__schemas__overview__BreakdownRow"][];
             /** Setups */
             setups: components["schemas"]["src__tradelens__api__schemas__overview__BreakdownRow"][];
+        };
+        /** ReviewsResponse */
+        ReviewsResponse: {
+            /** Ai Available */
+            ai_available: boolean;
+            /** Complete Trades */
+            complete_trades: number;
+            daily?: components["schemas"]["SavedNote"] | null;
+            /** Days */
+            days: string[];
+            patterns: components["schemas"]["PatternsLens"];
+            /** Trades For Review */
+            trades_for_review: number;
+            weekly?: components["schemas"]["SavedNote"] | null;
+            /** Weeks */
+            weeks: string[];
         };
         /** Risk */
         Risk: {
@@ -1505,6 +1580,18 @@ export interface components {
             count: number;
             /** Sample Count */
             sample_count: number;
+        };
+        /** SavedNote */
+        SavedNote: {
+            /** Content Md */
+            content_md: string;
+            /** Created At */
+            created_at: string;
+            /** Period */
+            period: string;
+            /** Reviewed Trades */
+            reviewed_trades: number;
+            stats: components["schemas"]["PeriodStats"];
         };
         /**
          * ScreenshotCleanupFailedDetail
@@ -2814,6 +2901,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    get_reviews_v1_reviews_get: {
+        parameters: {
+            query?: {
+                week?: string | null;
+                day?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };

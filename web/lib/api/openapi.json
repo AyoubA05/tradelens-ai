@@ -1395,6 +1395,76 @@
         "title": "PartnerTurnResponse",
         "type": "object"
       },
+      "PatternInsight": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "confidence": {
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Confidence",
+            "type": "string"
+          },
+          "min_trades": {
+            "title": "Min Trades",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "body",
+          "confidence",
+          "type",
+          "min_trades"
+        ],
+        "title": "PatternInsight",
+        "type": "object"
+      },
+      "PatternsLens": {
+        "additionalProperties": false,
+        "properties": {
+          "insights": {
+            "items": {
+              "$ref": "#/components/schemas/PatternInsight"
+            },
+            "title": "Insights",
+            "type": "array"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/PeriodStats"
+          },
+          "strategy_included": {
+            "title": "Strategy Included",
+            "type": "boolean"
+          },
+          "trades": {
+            "title": "Trades",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "trades",
+          "stats",
+          "insights",
+          "strategy_included"
+        ],
+        "title": "PatternsLens",
+        "type": "object"
+      },
       "PerformanceLens": {
         "additionalProperties": false,
         "description": "Lens 1.\n\n`win_rate` and `total_pnl` are INDEPENDENTLY SOURCED \u2014 the first from\n`result`, the second from `pnl` \u2014 so a sample with no monetary data at\nall still carries a valid win rate. The contract keeps them separate\nfields with separate states for that reason; a presentation that\ndegrades one because the other is undefined is misreading this shape.",
@@ -1463,6 +1533,46 @@
           "to"
         ],
         "title": "Period",
+        "type": "object"
+      },
+      "PeriodStats": {
+        "additionalProperties": false,
+        "properties": {
+          "profit_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profit Factor"
+          },
+          "total_edge_leak": {
+            "title": "Total Edge Leak",
+            "type": "number"
+          },
+          "total_pnl": {
+            "title": "Total Pnl",
+            "type": "number"
+          },
+          "trades": {
+            "title": "Trades",
+            "type": "integer"
+          },
+          "win_rate": {
+            "title": "Win Rate",
+            "type": "number"
+          }
+        },
+        "required": [
+          "trades",
+          "win_rate",
+          "total_pnl",
+          "total_edge_leak"
+        ],
+        "title": "PeriodStats",
         "type": "object"
       },
       "RecentTrade": {
@@ -1591,6 +1701,70 @@
           "setups"
         ],
         "title": "RecurringEdge",
+        "type": "object"
+      },
+      "ReviewsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "ai_available": {
+            "title": "Ai Available",
+            "type": "boolean"
+          },
+          "complete_trades": {
+            "title": "Complete Trades",
+            "type": "integer"
+          },
+          "daily": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedNote"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "days": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "patterns": {
+            "$ref": "#/components/schemas/PatternsLens"
+          },
+          "trades_for_review": {
+            "title": "Trades For Review",
+            "type": "integer"
+          },
+          "weekly": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedNote"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "weeks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Weeks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "patterns",
+          "weeks",
+          "days",
+          "complete_trades",
+          "trades_for_review",
+          "ai_available"
+        ],
+        "title": "ReviewsResponse",
         "type": "object"
       },
       "Risk": {
@@ -1757,6 +1931,39 @@
           "sample_count"
         ],
         "title": "SampleTradesResponse",
+        "type": "object"
+      },
+      "SavedNote": {
+        "additionalProperties": false,
+        "properties": {
+          "content_md": {
+            "title": "Content Md",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "reviewed_trades": {
+            "title": "Reviewed Trades",
+            "type": "integer"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/PeriodStats"
+          }
+        },
+        "required": [
+          "period",
+          "content_md",
+          "stats",
+          "reviewed_trades",
+          "created_at"
+        ],
+        "title": "SavedNote",
         "type": "object"
       },
       "ScreenshotCleanupFailedDetail": {
@@ -6333,6 +6540,72 @@
         "summary": "Post Partner Turn",
         "tags": [
           "partner"
+        ]
+      }
+    },
+    "/v1/reviews": {
+      "get": {
+        "description": "Patterns, the owner's completed review periods, and saved notes.",
+        "operationId": "get_reviews_v1_reviews_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "week",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Week"
+            }
+          },
+          {
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Day"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Reviews",
+        "tags": [
+          "reviews"
         ]
       }
     },

@@ -22,6 +22,7 @@ from src.tradelens.api.routers import (
     analytics,
     overview,
     partner,
+    reviews,
     session,
     settings,
     strategy,
@@ -105,6 +106,7 @@ def create_app() -> FastAPI:
     app.include_router(strategy.router)
     app.include_router(partner.router)
     app.include_router(settings.router)
+    app.include_router(reviews.router)
     return app
 
 
