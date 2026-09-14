@@ -106,6 +106,27 @@ def test_import_reports_bad_rows_individually(in_memory_db, monkeypatch):
     assert len(errors) == 1 and "Row 3" in errors[0]
 
 
+def test_bad_row_logs_do_not_copy_exception_text_or_csv_values(
+    in_memory_db, monkeypatch, caplog
+):
+    marker = "PRIVATE-TRADER-NOTE-7f6b"
+    frame = _sample_df().iloc[:1].copy()
+    frame["notes"] = marker
+
+    def reject(_data, *, user_id):
+        raise ValueError("provider/database failure containing " + marker)
+
+    monkeypatch.setattr(_csvio, "create_trade", reject)
+    inserted, skipped, errors = _csvio.import_trades_csv(
+        io.BytesIO(frame.to_csv(index=False).encode()), user_id=1
+    )
+    assert (inserted, skipped) == (0, 0)
+    assert errors == [
+        "Row 2: could not be imported. Check its values against an exported file."
+    ]
+    assert marker not in caplog.text
+
+
 # ── Phase 9, decisions S4 and S5 ──────────────────────────────────────────
 
 import pandas as _pd  # noqa: E402
@@ -164,6 +185,34 @@ def test_an_import_over_the_row_cap_inserts_nothing(monkeypatch):
     assert inserted == []
 
 
+def test_the_shared_file_import_enforces_the_row_cap_before_any_insert(monkeypatch):
+    monkeypatch.setattr(_csvio, "MAX_IMPORT_ROWS", 2)
+    text = (
+        "trade_date,asset,direction,result,pnl\n"
+        "2026-09-01,NQ,Long,Win,1\n"
+        "2026-09-02,NQ,Long,Win,2\n"
+        "2026-09-03,NQ,Long,Win,3\n"
+    )
+    inserted = []
+    monkeypatch.setattr(
+        _csvio, "create_trade", lambda data, user_id: inserted.append(data)
+    )
+    with _pytest.raises(_csvio.TooManyRows):
+        _csvio.import_trades_csv(io.BytesIO(text.encode()), 1)
+    assert inserted == []
+
+
+def test_the_shared_file_import_reads_at_most_one_megabyte(monkeypatch):
+    inserted = []
+    monkeypatch.setattr(
+        _csvio, "create_trade", lambda data, user_id: inserted.append(data)
+    )
+    oversized = io.BytesIO(b"x" * (_csvio.MAX_IMPORT_BYTES + 1))
+    with _pytest.raises(_csvio.ImportTooLarge):
+        _csvio.import_trades_csv(oversized, 1)
+    assert inserted == []
+
+
 def test_an_import_exactly_at_the_row_cap_is_allowed(monkeypatch):
     monkeypatch.setattr(_csvio, "MAX_IMPORT_ROWS", 3)
     header = "trade_date,asset,direction,result,pnl\n"
@@ -187,3 +236,28 @@ def test_a_neutralised_export_cell_imports_back_as_the_original_text(monkeypatch
     monkeypatch.setattr(_csvio, "trade_hash_exists", lambda h, user_id: False)
     _csvio.import_trades_csv_text(header + row, 1)
     assert inserted[0]["notes"] == "=not a formula"
+
+
+def test_a_literal_apostrophe_before_a_formula_round_trips_losslessly():
+    raw = "'=this is literal trader text"
+    exported = _csvio.neutralise_formula(raw)
+    assert exported == "''=this is literal trader text"
+    assert _csvio.restore_formula(exported) == raw
+
+
+def test_import_ignores_columns_outside_the_export_contract(in_memory_db):
+    """An uploaded header cannot select server-owned Trade model columns."""
+    text = (
+        "trade_date,asset,direction,result,pnl,id,is_sample,strategy_id,"
+        "created_at,ai_grade,killzone\n"
+        "2026-09-01,NQ,Long,Win,10,4242,1,777,1900-01-01,A,attacker-zone\n"
+    )
+    inserted, skipped, errors = _csvio.import_trades_csv_text(text, 1)
+    assert (inserted, skipped, errors) == (1, 0, [])
+    row = trade_service.get_trades(user_id=1)[0]
+    assert row.id != 4242
+    assert row.is_sample == 0
+    assert row.strategy_id is None
+    assert row.created_at != "1900-01-01"
+    assert row.ai_grade is None
+    assert row.killzone is None

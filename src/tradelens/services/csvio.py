@@ -43,6 +43,7 @@ _REQUIRED_IMPORT_COLS = {"trade_date", "asset", "direction", "result", "pnl"}
 # Decision S4: an import is synchronous and bounded. A file with more data rows
 # than this is refused whole, before anything is inserted.
 MAX_IMPORT_ROWS = 5000
+MAX_IMPORT_BYTES = 1_048_576
 
 # Decision S5: a spreadsheet treats a cell starting with one of these as a
 # formula. A trader's own note must never execute when their export is opened.
@@ -69,9 +70,23 @@ class TooManyRows(ValueError):
     """The file exceeds MAX_IMPORT_ROWS; nothing was imported."""
 
 
+class ImportTooLarge(ValueError):
+    """The raw CSV exceeds the shared one-megabyte service boundary."""
+
+
 def neutralise_formula(value):
     """Prefix a formula-leading string with `'` so a spreadsheet shows it as text."""
     if isinstance(value, str) and value.startswith(FORMULA_PREFIXES):
+        return "'" + value
+    # Preserve a literal leading apostrophe before formula-looking text. Without
+    # this escape, import mistakes the trader's apostrophe for ours and removes
+    # it, so export -> import is not lossless.
+    if (
+        isinstance(value, str)
+        and len(value) > 1
+        and value[0] == "'"
+        and value[1:].startswith(FORMULA_PREFIXES)
+    ):
         return "'" + value
     return value
 
@@ -82,6 +97,13 @@ def restore_formula(value):
     Only a `'` followed by a formula prefix is removed; ordinary text that
     happens to start with a quote is left exactly as it was.
     """
+    if (
+        isinstance(value, str)
+        and len(value) > 2
+        and value.startswith("''")
+        and value[2:].startswith(FORMULA_PREFIXES)
+    ):
+        return value[1:]
     if (
         isinstance(value, str)
         and len(value) > 1
@@ -134,11 +156,21 @@ def import_trades_csv(file, user_id: int) -> tuple[int, int, list[str]]:
     not a row the trader can fix.
     """
     owner = require_user_id(user_id)
+    raw = file.read(MAX_IMPORT_BYTES + 1)
+    if isinstance(raw, str):
+        raw = raw.encode("utf-8")
+    if len(raw) > MAX_IMPORT_BYTES:
+        raise ImportTooLarge()
     try:
-        df = pd.read_csv(io.BytesIO(file.read()))
+        df = pd.read_csv(io.BytesIO(raw))
     except Exception:
-        _log.exception("CSV import failed to parse the uploaded file")
+        # Parser exceptions can embed uploaded cells. Keep private trade data
+        # out of application logs; the fixed response is sufficient here.
+        _log.warning("CSV import failed to parse the uploaded file")
         return 0, 0, [_PARSE_FAILED]
+
+    if len(df.index) > MAX_IMPORT_ROWS:
+        raise TooManyRows()
 
     missing = _REQUIRED_IMPORT_COLS - set(df.columns)
     if missing:
@@ -155,7 +187,7 @@ def import_trades_csv(file, user_id: int) -> tuple[int, int, list[str]]:
             trade_data = {
                 k: (restore_formula(v) if k in TEXT_COLUMNS else v)
                 for k, v in row.items()
-                if pd.notna(v)
+                if k in CSV_COLUMNS and pd.notna(v)
             }
             trade_data["user_id"] = owner
 
@@ -170,7 +202,9 @@ def import_trades_csv(file, user_id: int) -> tuple[int, int, list[str]]:
         except Exception:
             # +2: 1-based + header row. The number is the actionable part;
             # the exception itself goes to the log, never to the page.
-            _log.exception("CSV import failed on row %s", i + 2)
+            # SQLAlchemy and validation exceptions can include all parameters,
+            # including notes. Record only the safe row number.
+            _log.warning("CSV import failed on row %s", i + 2)
             errors.append(_ROW_FAILED.format(row=i + 2))
 
     return rows_inserted, skipped, errors
@@ -184,11 +218,4 @@ def import_trades_csv_text(csv_text: str, user_id: int) -> tuple[int, int, list[
     does not parse is reported the same way `import_trades_csv` reports it.
     """
     owner = require_user_id(user_id)
-    try:
-        frame = pd.read_csv(io.StringIO(csv_text))
-    except Exception:
-        _log.exception("CSV import failed to parse the uploaded text")
-        return 0, 0, [_PARSE_FAILED]
-    if len(frame.index) > MAX_IMPORT_ROWS:
-        raise TooManyRows()
     return import_trades_csv(io.BytesIO(csv_text.encode("utf-8")), owner)
