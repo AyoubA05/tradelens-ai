@@ -208,3 +208,40 @@ describe("the job poll relay", () => {
     expect(await res.json()).toEqual({ ok: false });
   });
 });
+
+describe("the job poll relay error field", () => {
+  const params = { params: Promise.resolve({ jobId: "9" }) };
+  const get = () =>
+    new Request("https://app.test/api/reviews/jobs/9", { headers: { origin: "https://app.test" } });
+  const OUT_OF_DATE = "This review is out of date. Generate it again.";
+
+  it.each(["failed", "queued", "running", "succeeded"])(
+    "relays a %s job's arbitrary error as null",
+    async (status) => {
+      fetchJob.mockResolvedValue({
+        job_id: 9,
+        kind: "daily_debrief",
+        status,
+        note: null,
+        error: "psycopg2.OperationalError: host=db.internal password=secret",
+      });
+      const body = await (await job(get(), params)).json();
+      expect(body.error).toBeNull();
+      expect(body.status).toBe(status);
+    },
+  );
+
+  it("keeps the fixed sentence on a superseded job", async () => {
+    fetchJob.mockResolvedValue({
+      job_id: 9, kind: "weekly_recap", status: "superseded", note: null, error: OUT_OF_DATE,
+    });
+    expect((await (await job(get(), params)).json()).error).toBe(OUT_OF_DATE);
+  });
+
+  it.each(["Something else.", "", null])("drops other superseded text %j", async (error) => {
+    fetchJob.mockResolvedValue({
+      job_id: 9, kind: "weekly_recap", status: "superseded", note: null, error,
+    });
+    expect((await (await job(get(), params)).json()).error).toBeNull();
+  });
+});

@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ReviewNote } from "@/components/app/reviews/review-note";
+import { ReviewNote, SMALL_SAMPLE_LIMITATION, sampleConfidence, sampleLimitation } from "@/components/app/reviews/review-note";
 import { PeriodStrip } from "@/components/app/reviews/period-strip";
 
 /**
@@ -97,5 +97,29 @@ describe("PeriodStrip", () => {
       <PeriodStrip stats={{ trades: 0, win_rate: 0, total_pnl: 0, profit_factor: null, total_edge_leak: 0 }} />,
     );
     expect(screen.getByText("Profit factor").nextSibling).toHaveTextContent("N/A");
+  });
+});
+
+describe("sampleConfidence and sampleLimitation (Streamlit parity)", () => {
+  it.each([
+    [0, "low"],
+    [4, "low"],
+    [5, "low"],
+    [9, "low"],
+    [10, "medium"],
+    [19, "medium"],
+    [20, "high"],
+    [40, "high"],
+  ] as const)("%i trades read as %s confidence", (trades, level) => {
+    expect(sampleConfidence(trades)).toBe(level);
+  });
+
+  it.each([
+    [4, SMALL_SAMPLE_LIMITATION],
+    [5, undefined],
+    [0, SMALL_SAMPLE_LIMITATION],
+    [20, undefined],
+  ] as const)("%i trades carry the small-sample line only under five", (trades, line) => {
+    expect(sampleLimitation(trades)).toBe(line);
   });
 });

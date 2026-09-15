@@ -52,11 +52,20 @@ function MarkdownBody({ body }: { body: string }) {
 
 export const SMALL_SAMPLE_LIMITATION = "Small sample — read this as a description, not a rule.";
 
-/** How much a note's sample can carry: under five trades is low, under fifteen medium. */
+/**
+ * How much a note's sample can carry. Parity with Streamlit
+ * `ui/pages/6_Insights.py::_CONF_BY_SAMPLE = ((20, "high"), (10, "medium"))`,
+ * else low.
+ */
 export function sampleConfidence(reviewedTrades: number): "low" | "medium" | "high" {
-  if (reviewedTrades < 5) return "low";
-  if (reviewedTrades < 15) return "medium";
-  return "high";
+  if (reviewedTrades >= 20) return "high";
+  if (reviewedTrades >= 10) return "medium";
+  return "low";
+}
+
+/** The small-sample limitation line, shown only under five reviewed trades. */
+export function sampleLimitation(reviewedTrades: number): string | undefined {
+  return reviewedTrades < 5 ? SMALL_SAMPLE_LIMITATION : undefined;
 }
 
 type Section = { title: string; body: string };

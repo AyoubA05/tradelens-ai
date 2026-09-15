@@ -8,7 +8,7 @@ import { PeriodStrip } from "@/components/app/reviews/period-strip";
 import {
   ReviewNote,
   sampleConfidence,
-  SMALL_SAMPLE_LIMITATION,
+  sampleLimitation,
 } from "@/components/app/reviews/review-note";
 import { useReviewJob } from "@/components/app/reviews/use-review-job";
 
@@ -126,7 +126,7 @@ export function WeeklyLens({
             sample={`Week of ${note.period} · ${note.reviewed_trades} trades reviewed`}
             content={note.content_md}
             confidence={sampleConfidence(note.reviewed_trades)}
-            limitation={note.reviewed_trades < 5 ? SMALL_SAMPLE_LIMITATION : undefined}
+            limitation={sampleLimitation(note.reviewed_trades)}
           />
         </>
       ) : (
