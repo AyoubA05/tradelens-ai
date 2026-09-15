@@ -718,3 +718,76 @@ def test_daily_end_to_end_poll_returns_the_saved_note(client, two_users, monkeyp
     assert _get(client, "/v1/reviews/jobs/%d" % job, b).status_code == 404
     saved = _get(client, "/v1/reviews?day=2026-09-08", a).json()["daily"]
     assert saved["content_md"] == good
+
+
+# ── C6: future-dated trades in the current week (one as-of-today rule) ────
+
+_WEDNESDAY = dt.datetime(2026, 9, 16, 12, 0, tzinfo=dt.timezone.utc)
+_SATURDAY = dt.datetime(2026, 9, 19, 12, 0, tzinfo=dt.timezone.utc)
+
+
+def _pin_today(monkeypatch, instant):
+    from src.tradelens.services import review_inputs
+
+    monkeypatch.setattr(reviews_router, "_now_utc", lambda: instant)
+    monkeypatch.setattr(review_inputs, "_now_utc", lambda: instant)
+
+
+def test_a_friday_trade_is_not_in_a_wednesday_weekly_job(
+    client, two_users, monkeypatch
+):
+    a, _ = two_users
+    _complete_week(a)
+    wed = _trade(a, "2026-09-16")
+    fri = _trade(a, "2026-09-18")
+    _pin_today(monkeypatch, _WEDNESDAY)
+    job = _post(client, WEEKLY, {"week": "2026-09-14"}, a).json()["job_id"]
+    ids = json.loads(_job(job).payload)["source_trade_ids"]
+    assert ids == [wed] and fri not in ids
+
+
+def test_router_and_worker_fingerprints_match_on_the_same_owner_day(
+    client, two_users, monkeypatch
+):
+    from src.tradelens.api import jobs, worker
+    from src.tradelens.services import weekly
+
+    a, _ = two_users
+    _complete_week(a)
+    _trade(a, "2026-09-16")
+    _trade(a, "2026-09-18")
+    _pin_today(monkeypatch, _WEDNESDAY)
+    good = "\n\n".join("%s\nReflection." % h for h in weekly._REQUIRED_SECTIONS)
+    monkeypatch.setattr(weekly, "chat", lambda **k: (good, _usage()))
+    monkeypatch.setattr(worker, "log_ai_usage", lambda *x, **k: None)
+    job = _post(client, WEEKLY, {"week": "2026-09-14"}, a).json()["job_id"]
+    assert jobs.run_once(worker.HANDLERS) is True
+    body = _get(client, "/v1/reviews/jobs/%d" % job, a).json()
+    assert body["status"] == "succeeded"
+    assert body["note"]["reviewed_trades"] == 1
+
+
+def test_a_job_whose_week_gains_an_eligible_trade_when_today_advances_is_superseded(
+    client, two_users, monkeypatch
+):
+    """Documented behaviour: the Friday trade becomes eligible on Saturday, so
+    the Wednesday job no longer describes the week and saves nothing."""
+    from src.tradelens.api import jobs, worker
+    from src.tradelens.services import weekly
+
+    a, _ = two_users
+    _complete_week(a)
+    _trade(a, "2026-09-16")
+    _trade(a, "2026-09-18")
+    _pin_today(monkeypatch, _WEDNESDAY)
+    job = _post(client, WEEKLY, {"week": "2026-09-14"}, a).json()["job_id"]
+
+    def _never(**k):
+        raise AssertionError("provider must not be called")
+
+    monkeypatch.setattr(weekly, "chat", _never)
+    _pin_today(monkeypatch, _SATURDAY)
+    assert jobs.run_once(worker.HANDLERS) is True
+    assert _get(client, "/v1/reviews/jobs/%d" % job, a).json()["status"] == (
+        "superseded"
+    )

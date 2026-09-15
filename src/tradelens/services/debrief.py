@@ -132,21 +132,30 @@ def build_daily_model_input(
     *,
     strategy_profile=_UNSET,
     trades: Optional[list] = None,
+    as_of=None,
 ) -> dict:
     """The owner's model input for one trading day, plus its source trade ids.
 
     `strategy_profile` defaults to the owner's active profile; `trades` to the
     owner's trades on `day` (the worker passes rows read through its locking
     session). Rows are ordered by id first so same-date ties are stable.
+    Trades dated after `as_of` (default: `review_inputs.review_as_of`) are
+    excluded defensively — the router never offers a future day (C6).
     """
+    from src.tradelens.services import review_inputs
+
     owner = require_user_id(user_id)
+    if as_of is None:
+        as_of = review_inputs.review_as_of(owner)
     if trades is None:
         trades = get_trades(start_date=day, end_date=day, user_id=owner)
     if strategy_profile is _UNSET:
         from src.tradelens.services.strategy import get_active_strategy
 
         strategy_profile = get_active_strategy(owner)
-    rows = sorted(trades, key=lambda t: int(t.id))
+    rows = sorted(
+        review_inputs.on_or_before(list(trades), as_of), key=lambda t: int(t.id)
+    )
     model_input = _model_input_from_trades(rows, strategy_profile, f"Trading day {day}")
     model_input["source_trade_ids"] = [int(t.id) for t in rows]
     return model_input

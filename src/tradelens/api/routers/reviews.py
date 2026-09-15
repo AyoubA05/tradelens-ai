@@ -3,7 +3,7 @@
 Thin by design: validate input, call services with the session's owner, shape
 the response. Patterns are deterministic (`patterns.generate_insights`, R9) and
 need no AI. Every day/week boundary follows the owner's timezone through
-`app_settings.today_for_owner` (C6).
+`review_inputs.review_as_of` (`app_settings.today_for_owner`, C6).
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ from src.tradelens.api.schemas.reviews import (
 )
 from src.tradelens.services import (
     activation,
-    app_settings,
     daily_debriefs,
     debrief,
     patterns,
@@ -76,7 +75,8 @@ def _now_utc() -> dt.datetime:
 
 
 def _today(owner: int) -> dt.date:
-    return app_settings.today_for_owner(owner, now_utc=_now_utc())
+    """The owner's today through the one shared review rule (C6)."""
+    return review_inputs.review_as_of(owner, now_utc=_now_utc())
 
 
 def _iso_date(value: Optional[str], *, monday: bool = False) -> Optional[str]:
@@ -202,10 +202,11 @@ def enqueue_weekly_recap(
 ) -> ReviewJobAccepted:
     """Queue one weekly recap for a completed week of the owner's own trades."""
     monday = _iso_date(payload.week, monday=True)
-    options = review_periods.completed_week_options(user_id, today=_today(user_id))
+    today = _today(user_id)
+    options = review_periods.completed_week_options(user_id, today=today)
     if dt.date.fromisoformat(monday) not in options:
         raise HTTPException(status_code=409, detail="empty_period")
-    model_input = weekly.build_weekly_model_input(user_id, monday)
+    model_input = weekly.build_weekly_model_input(user_id, monday, as_of=today)
     if not model_input["source_trade_ids"]:
         raise HTTPException(status_code=409, detail="empty_period")
     complete = sum(
@@ -234,10 +235,11 @@ def enqueue_daily_debrief(
 ) -> ReviewJobAccepted:
     """Queue one daily debrief for a completed trading day of the owner's own."""
     day = _iso_date(payload.day)
-    options = review_periods.completed_day_options(user_id, today=_today(user_id))
+    today = _today(user_id)
+    options = review_periods.completed_day_options(user_id, today=today)
     if dt.date.fromisoformat(day) not in options:
         raise HTTPException(status_code=409, detail="empty_period")
-    model_input = debrief.build_daily_model_input(user_id, day)
+    model_input = debrief.build_daily_model_input(user_id, day, as_of=today)
     if not model_input["source_trade_ids"]:
         raise HTTPException(status_code=409, detail="empty_period")
     return _enqueue_review(

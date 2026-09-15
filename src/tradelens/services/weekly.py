@@ -196,23 +196,29 @@ def build_weekly_model_input(
     *,
     strategy_profile=_UNSET,
     trades: Optional[list] = None,
+    as_of: Optional[dt.date] = None,
 ) -> dict:
     """The exact object the weekly user message is built from (decision C2).
 
     `strategy_profile` defaults to the owner's active profile; `trades`
     defaults to the owner's trades for the week (the worker passes rows read
-    through its locking session). JSON-safe apart from numpy scalars, which
-    the fingerprint canonicalises.
+    through its locking session). Trades dated after `as_of` — the owner's
+    today from `review_inputs.review_as_of` when omitted — are excluded (C6).
+    JSON-safe apart from numpy scalars, which the fingerprint canonicalises.
     """
+    from src.tradelens.services import review_inputs
+
     owner = require_user_id(user_id)
     week_monday, sunday = week_bounds(monday)
+    if as_of is None:
+        as_of = review_inputs.review_as_of(owner)
     if trades is None:
         trades = get_trades(start_date=week_monday, end_date=sunday, user_id=owner)
     if strategy_profile is _UNSET:
         from src.tradelens.services.strategy import get_active_strategy
 
         strategy_profile = get_active_strategy(owner)
-    rows = _ordered(list(trades))
+    rows = _ordered(review_inputs.on_or_before(list(trades), as_of))
     df = _trades_to_df(rows)
     return {
         "week_start": week_monday,

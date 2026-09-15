@@ -26,6 +26,7 @@ from src.tradelens.services.debrief import (
 )
 from src.tradelens.services.review_inputs import (
     locked_period_trades,
+    review_as_of,
     review_input_fingerprint,
 )
 from src.tradelens.services.weekly import (
@@ -201,7 +202,10 @@ def _weekly_recap_handler(user_id: int, payload: dict) -> str:
     source_ids = sorted(int(i) for i in payload["source_trade_ids"])
     job_id = _review_job_id(user_id, kind, payload)
 
-    model_input = build_weekly_model_input(user_id, monday)
+    # One owner-local "today" for the whole run: the pre-provider recompute
+    # and the locked verify use the same C6 rule as the router's enqueue.
+    as_of = review_as_of(user_id)
+    model_input = build_weekly_model_input(user_id, monday, as_of=as_of)
     if (
         not source_ids
         or model_input["source_trade_ids"] != source_ids
@@ -226,6 +230,7 @@ def _weekly_recap_handler(user_id: int, payload: dict) -> str:
             trades=locked_period_trades(
                 db, user_id, model_input["week_start"], model_input["week_end"]
             ),
+            as_of=as_of,
         )
         return (
             locked["source_trade_ids"] == source_ids
@@ -259,7 +264,8 @@ def _daily_debrief_handler(user_id: int, payload: dict) -> str:
     source_ids = sorted(int(i) for i in payload["source_trade_ids"])
     job_id = _review_job_id(user_id, kind, payload)
 
-    model_input = build_daily_model_input(user_id, day)
+    as_of = review_as_of(user_id)  # the same C6 rule as the router
+    model_input = build_daily_model_input(user_id, day, as_of=as_of)
     if (
         not source_ids
         or model_input["source_trade_ids"] != source_ids
@@ -278,7 +284,10 @@ def _daily_debrief_handler(user_id: int, payload: dict) -> str:
 
     def verify(db) -> bool:
         locked = build_daily_model_input(
-            user_id, day, trades=locked_period_trades(db, user_id, day, day)
+            user_id,
+            day,
+            trades=locked_period_trades(db, user_id, day, day),
+            as_of=as_of,
         )
         return (
             locked["source_trade_ids"] == source_ids

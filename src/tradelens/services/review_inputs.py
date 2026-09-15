@@ -24,10 +24,11 @@ Streamlit-free.
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import math
-from typing import Any, List
+from typing import Any, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -102,6 +103,37 @@ def review_input_fingerprint(kind: str, owner: int, period: str, model_input) ->
         allow_nan=False,
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _now_utc() -> datetime.datetime:
+    """The current instant. A seam so tests can pin 'today' across DST."""
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def review_as_of(
+    owner: int, *, now_utc: Optional[datetime.datetime] = None
+) -> datetime.date:
+    """The one "as of today" rule for review input (decision C6).
+
+    The owner's local calendar date via `app_settings.today_for_owner`. The
+    router's enqueue, the worker's pre-provider recompute and its locked
+    verify all resolve it here and pass it as `as_of`, so on the same owner
+    day they build the same input. `as_of` is deliberately not fingerprinted:
+    a job stays valid across midnight unless the set of eligible trades
+    changes — and when a later-dated trade in the period becomes eligible,
+    the recomputed input differs and the job is superseded.
+    """
+    from src.tradelens.services import app_settings
+
+    return app_settings.today_for_owner(
+        require_user_id(owner), now_utc=now_utc or _now_utc()
+    )
+
+
+def on_or_before(trades: list, as_of: datetime.date) -> list:
+    """Trades whose date is on or before `as_of`; future-dated rows are dropped."""
+    cutoff = as_of.isoformat()
+    return [t for t in trades if str(getattr(t, "trade_date", "") or "")[:10] <= cutoff]
 
 
 def locked_period_trades(db: Session, owner: int, start: str, end: str) -> List[Trade]:
