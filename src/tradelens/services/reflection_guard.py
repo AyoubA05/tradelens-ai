@@ -45,8 +45,28 @@ _LEVEL = r"(?:above|below|near|around|at|from|into|over|under)\s+\$?\d"
 _REFLECTIVE = (
     r"\b(?:was|were|had|did|didn't|has been|have been|should have|could have|"
     r"would have|last week|this week|yesterday|previously|already|"
-    r"next time)\b"
+    r"next time|"
+    # Past-tense entry/exit verbs describe a trade already taken.
+    r"entered|exited|took|went|held|closed|sold|bought|shorted|longed|"
+    r"stopped out|scaled|added|cut)\b"
 )
+# Process-rule phrasing ("only after", "wait for confirmation") describes how
+# to take any entry, not which one. It rescues an advice match only when the
+# sentence names no side (buy/sell/long/short) and no price level.
+_PROCESS_RULE = (
+    r"\b(?:only after|only once|only on|only when|wait for confirmation|"
+    r"waiting for confirmation|after confirmation|once confirmed)\b"
+)
+_SIDE = r"\b(?:buy|buys|buying|sell|sells|selling|long|longs|short|shorts|shorting)\b"
+
+
+def _is_process_rule(sentence: str) -> bool:
+    return bool(
+        re.search(_PROCESS_RULE, sentence)
+        and not re.search(rf"{_SIDE}{_NOT_A_POSITION}", sentence)
+        and not re.search(_LEVEL, sentence)
+    )
+
 
 _ADVICE_PATTERNS = (
     # "you should buy", "consider longs", "look to short"
@@ -70,7 +90,9 @@ def reject_forward_looking(markdown: str, error_cls: type) -> None:
     `error_cls` with a fixed message on the first offending sentence.
     """
     for sentence in re.split(r"(?<=[.!?])\s+|\n+", markdown.lower()):
-        if any(pattern.search(sentence) for pattern in _ADVICE_PATTERNS):
+        if any(
+            pattern.search(sentence) for pattern in _ADVICE_PATTERNS
+        ) and not _is_process_rule(sentence):
             raise error_cls("The AI review contained forward-looking trade guidance.")
         if re.search(_REFLECTIVE, sentence):
             continue

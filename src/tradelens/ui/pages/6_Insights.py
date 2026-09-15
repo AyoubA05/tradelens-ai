@@ -27,6 +27,7 @@ if _root not in sys.path:
 import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 
+from src.tradelens.services.cost import log_ai_usage  # noqa: E402
 from src.tradelens.services.debrief import (  # noqa: E402
     DebriefError,
     generate_debrief,
@@ -489,7 +490,12 @@ def _auto_run_weekly(monday: str, uid) -> None:
     placeholder.markdown(render_note_skeleton(), unsafe_allow_html=True)
     try:
         review, _usage = generate_weekly_review(
-            monday, user_id=uid, strategy_profile=_strategy
+            monday,
+            user_id=uid,
+            strategy_profile=_strategy,
+            # Logged the moment the provider answers, so a reply that then
+            # fails validation or the guard is still recorded — exactly once.
+            on_usage=lambda usage: log_ai_usage("Weekly Review", usage, user_id=uid),
         )
         if not review["empty"]:
             save_weekly_review(review, overwrite=False, user_id=uid)
@@ -578,7 +584,12 @@ def _render_weekly_lens() -> None:
                 # the trader already had.
                 try:
                     review, _usage = generate_weekly_review(
-                        monday, user_id=uid, strategy_profile=_strategy
+                        monday,
+                        user_id=uid,
+                        strategy_profile=_strategy,
+                        on_usage=lambda usage: log_ai_usage(
+                            "Weekly Review", usage, user_id=uid
+                        ),
                     )
                     if review["empty"]:
                         st.caption("This week has nothing logged to review.")
@@ -627,18 +638,16 @@ def _run_daily_debrief(day_iso: str, day_trades: list, cache_key: str) -> None:
     placeholder = st.empty()
     placeholder.markdown(render_note_skeleton(), unsafe_allow_html=True)
     try:
-        review, usage = generate_debrief(
+        review, _usage = generate_debrief(
             day_trades,
             strategy_profile=_strategy,
             period_label=f"Trading day {day_iso}",
+            on_usage=lambda usage: log_ai_usage("Daily Debrief", usage, user_id=uid),
         )
         st.session_state[cache_key] = review
         # A successful run clears the reason the previous one failed; leaving
         # it set would print a stale error beside a fresh note.
         st.session_state.pop(cache_key + "_err", None)
-        from src.tradelens.services.cost import log_ai_usage
-
-        log_ai_usage("Daily Debrief", usage, user_id=uid)
     except DebriefError as exc:
         st.session_state[cache_key + "_err"] = str(exc)
     except Exception:  # noqa: BLE001 — never crash the page
