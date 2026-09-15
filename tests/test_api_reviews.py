@@ -791,3 +791,73 @@ def test_a_job_whose_week_gains_an_eligible_trade_when_today_advances_is_superse
     assert _get(client, "/v1/reviews/jobs/%d" % job, a).json()["status"] == (
         "superseded"
     )
+
+
+# ── result pointer: owner filter and strict parsing (fix items 4, 5) ──────
+
+
+def _weekly_row(owner, week="2026-09-07"):
+    from src.tradelens.services import weekly
+
+    good = "\n\n".join("%s\nReflection." % h for h in weekly._REQUIRED_SECTIONS)
+    saved = weekly.save_weekly_review(
+        {"week_start": week, "content_md": good, "stats": {"trades": 5}},
+        owner,
+        overwrite=True,
+    )
+    return int(saved["id"])
+
+
+def _daily_row(owner, day="2026-09-08"):
+    from src.tradelens.services import daily_debriefs
+
+    tid = _trade(owner, day)
+    return daily_debriefs.save_daily_debrief(
+        user_id=owner,
+        day=day,
+        input_fingerprint="x" * 64,
+        job_id=None,
+        result={"content_md": "### Session Summary\nB only.", "reviewed_trades": 1},
+        source_trade_ids=[tid],
+        verify=lambda db: True,
+    )
+
+
+def test_weekly_poll_never_reads_another_owners_row(client, two_users):
+    from src.tradelens.api import jobs
+
+    a, b = two_users
+    _complete_week(a)
+    foreign = _weekly_row(b)
+    job = _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"]
+    jobs.complete(job, "weekly_recap:%d" % foreign)
+    r = _get(client, "/v1/reviews/jobs/%d" % job, a)
+    assert r.status_code == 500
+    assert r.json() == {"detail": "review result unavailable"}
+
+
+def test_daily_poll_never_reads_another_owners_row(client, two_users):
+    from src.tradelens.api import jobs
+
+    a, b = two_users
+    _trade(a, "2026-09-08")
+    foreign = _daily_row(b)
+    job = _post(client, DAILY, {"day": "2026-09-08"}, a).json()["job_id"]
+    jobs.complete(job, "daily_debrief:%d" % foreign)
+    r = _get(client, "/v1/reviews/jobs/%d" % job, a)
+    assert r.status_code == 500
+    assert "B only" not in r.text
+
+
+@pytest.mark.parametrize("shape", ["+%d", " %d", "%d.0", "%d "])
+def test_result_pointer_must_be_bare_digits_for_a_real_row(client, two_users, shape):
+    from src.tradelens.api import jobs
+
+    a, _ = two_users
+    _complete_week(a)
+    own = _weekly_row(a)
+    job = _post(client, WEEKLY, {"week": "2026-09-07"}, a).json()["job_id"]
+    jobs.complete(job, "weekly_recap:" + shape % own)
+    r = _get(client, "/v1/reviews/jobs/%d" % job, a)
+    assert r.status_code == 500
+    assert r.json() == {"detail": "review result unavailable"}

@@ -373,3 +373,52 @@ def test_daily_sources_deleted_before_run_spend_nothing(
     monkeypatch.setattr(debrief, "chat", _never)
     assert worker._daily_debrief_handler(a, payload) == "daily_debrief:superseded"
     assert daily_debriefs.get_daily_debrief(user_id=a, day=DAY) is None
+
+
+# ── locked verify reads through the save's own Session (fix item 3) ───────
+
+
+def _spy_sessions(monkeypatch):
+    seen = {"save": [], "locked": []}
+    real_lock = daily_debriefs.lock_and_verify_sources
+    real_locked = worker.locked_period_trades
+
+    def lock_spy(db, owner, ids, verify):
+        seen["save"].append(db)
+        return real_lock(db, owner, ids, verify)
+
+    def locked_spy(db, owner, start, end):
+        seen["locked"].append(db)
+        return real_locked(db, owner, start, end)
+
+    monkeypatch.setattr(daily_debriefs, "lock_and_verify_sources", lock_spy)
+    monkeypatch.setattr(worker, "locked_period_trades", locked_spy)
+    return seen
+
+
+def test_weekly_verify_reads_through_the_locking_session(
+    two_users, monkeypatch, quiet_usage
+):
+    a, _ = two_users
+    _trade(a, "2026-09-08")
+    _, payload = _queue_weekly(a)
+    monkeypatch.setattr(weekly, "chat", lambda **k: (GOOD_WEEKLY, _usage()))
+    seen = _spy_sessions(monkeypatch)
+    ref = worker._weekly_recap_handler(a, payload)
+    assert ref.split(":")[1].isdigit()
+    assert len(seen["save"]) == 1 and len(seen["locked"]) == 1
+    assert seen["locked"][0] is seen["save"][0]
+
+
+def test_daily_verify_reads_through_the_locking_session(
+    two_users, monkeypatch, quiet_usage
+):
+    a, _ = two_users
+    _trade(a, DAY)
+    _, payload = _queue_daily(a)
+    monkeypatch.setattr(debrief, "chat", lambda **k: (GOOD_DAILY, _usage()))
+    seen = _spy_sessions(monkeypatch)
+    ref = worker._daily_debrief_handler(a, payload)
+    assert ref.split(":")[1].isdigit()
+    assert len(seen["save"]) == 1 and len(seen["locked"]) == 1
+    assert seen["locked"][0] is seen["save"][0]
