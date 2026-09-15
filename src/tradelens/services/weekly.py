@@ -18,7 +18,7 @@ from typing import Callable, Optional, Union
 
 import pandas as pd
 
-from src.tradelens.db.models import WeeklyReview
+from src.tradelens.db.models import Trade, WeeklyReview
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services.ai_client import AIUnavailable, Usage, chat, load_prompt
 from src.tradelens.services.metrics import (
@@ -349,14 +349,38 @@ def save_weekly_review(review: dict, user_id: int, overwrite: bool = False) -> d
     False, raises WeeklyReviewExistsError (the page asks the user to confirm before
     retrying with overwrite=True). Returns the saved row as a dict.
 
+    Legacy (Streamlit) writes take the same lock as the job path — the owner's
+    trades for that week, `FOR UPDATE` (ignored on SQLite) — before reading,
+    refuse when the owner has no trades in that week (so a save after
+    delete-all cannot resurrect a recap, decision C5), and clear the job
+    provenance (`input_fingerprint`, `job_id`) because the text is no longer
+    the job's output.
+
     Raises:
         ValueError: user_id is not a valid owner.
+        WeeklyReviewError: the owner has no trades in that week; nothing written.
     """
     owner = require_user_id(user_id)
     week_start = review["week_start"]
-    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    monday, sunday = week_bounds(week_start)
+    now_dt = dt.datetime.now(dt.timezone.utc)
+    now = now_dt.isoformat()
     db = SessionLocal()
     try:
+        week_trades = (
+            db.query(Trade.id)
+            .filter(
+                Trade.user_id == owner,
+                Trade.trade_date >= monday,
+                Trade.trade_date <= sunday,
+            )
+            .with_for_update()
+            .all()
+        )
+        if not week_trades:
+            raise WeeklyReviewError(
+                f"No trades are logged for the week of {week_start}."
+            )
         existing = (
             db.query(WeeklyReview)
             .filter(
@@ -380,10 +404,16 @@ def save_weekly_review(review: dict, user_id: int, overwrite: bool = False) -> d
         row.thinking_summary = review.get("thinking_summary")
         row.stats_json = json.dumps(review.get("stats") or {}, default=str)
         row.cost_usd = review.get("cost_usd")
+        row.input_fingerprint = None
+        row.job_id = None
+        row.updated_at = now_dt
 
         db.commit()
         db.refresh(row)
         return _row_to_dict(row)
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 

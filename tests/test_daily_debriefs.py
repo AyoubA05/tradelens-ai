@@ -268,3 +268,137 @@ def test_weekly_save_with_a_failing_verifier_writes_nothing(two_users):
             verify=lambda db: False,
         )
     assert _weekly_row(a) == []
+
+
+# ── fix round 2: pinned clock (item 16) and legacy weekly save (item 15) ──
+
+
+def _pin_clock(monkeypatch, *instants):
+    """Every `now()` in both services returns the next instant in order."""
+    import types
+
+    queue = list(instants)
+
+    class _Clock(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return queue.pop(0) if len(queue) > 1 else queue[0]
+
+    monkeypatch.setattr(daily_debriefs, "datetime", _Clock)
+    monkeypatch.setattr(
+        weekly,
+        "dt",
+        types.SimpleNamespace(
+            datetime=_Clock, date=dt.date, timedelta=dt.timedelta, timezone=dt.timezone
+        ),
+    )
+
+
+T1 = dt.datetime(2026, 9, 14, 10, 0, tzinfo=dt.timezone.utc)
+T2 = dt.datetime(2026, 9, 14, 11, 0, tzinfo=dt.timezone.utc)
+
+
+def test_daily_regenerate_strictly_advances_updated_at(two_users, monkeypatch):
+    a, _ = two_users
+    t = _trade(a)
+    _pin_clock(monkeypatch, T1, T2)
+    _save(a, [t])
+    first = daily_debriefs.get_daily_debrief(user_id=a, day="2026-09-08")
+    _save(a, [t], input_fingerprint=FP2, job_id=8)
+    second = daily_debriefs.get_daily_debrief(user_id=a, day="2026-09-08")
+    assert second["updated_at"] > first["updated_at"]
+
+
+def test_weekly_job_regenerate_strictly_advances_updated_at(two_users, monkeypatch):
+    a, _ = two_users
+    t = _trade(a)
+    _pin_clock(monkeypatch, T1, T2)
+    kwargs = dict(
+        user_id=a, source_trade_ids=[t], input_fingerprint=FP1, job_id=1, verify=_ok
+    )
+    weekly.save_weekly_review_from_sources(review=_review(), **kwargs)
+    first = _weekly_row(a)[0].updated_at
+    weekly.save_weekly_review_from_sources(
+        review=_review("### What Worked\ny"), **{**kwargs, "job_id": 2}
+    )
+    assert _weekly_row(a)[0].updated_at > first
+
+
+def test_legacy_weekly_overwrite_clears_job_provenance_and_stamps_updated_at(
+    two_users, monkeypatch
+):
+    a, _ = two_users
+    t = _trade(a)
+    _pin_clock(monkeypatch, T1, T2)
+    weekly.save_weekly_review_from_sources(
+        user_id=a,
+        review=_review(),
+        source_trade_ids=[t],
+        input_fingerprint=FP1,
+        job_id=5,
+        verify=_ok,
+    )
+    before = _weekly_row(a)[0].updated_at
+    weekly.save_weekly_review(_review("### What Worked\nlegacy"), a, overwrite=True)
+    rows = _weekly_row(a)
+    assert len(rows) == 1
+    assert rows[0].content_md.endswith("legacy")
+    assert rows[0].input_fingerprint is None
+    assert rows[0].job_id is None
+    assert rows[0].updated_at is not None and rows[0].updated_at > before
+
+
+def test_legacy_weekly_save_locks_the_weeks_trades_before_reading(
+    two_users, monkeypatch
+):
+    from sqlalchemy.orm import Query
+
+    a, _ = two_users
+    _trade(a)
+    seen = []
+    real, real_first = Query.with_for_update, Query.first
+
+    def _spy_lock(self, *args, **kw):
+        seen.append(("lock", self.column_descriptions[0]["entity"]))
+        return real(self, *args, **kw)
+
+    def _spy_first(self):
+        seen.append(("read", self.column_descriptions[0]["entity"]))
+        return real_first(self)
+
+    monkeypatch.setattr(Query, "with_for_update", _spy_lock)
+    monkeypatch.setattr(Query, "first", _spy_first)
+    weekly.save_weekly_review(_review(), a)
+    assert seen[0] == ("lock", Trade)
+    assert ("read", WeeklyReview) in seen
+    assert seen.index(("lock", Trade)) < seen.index(("read", WeeklyReview))
+
+
+def test_legacy_weekly_save_refuses_a_week_with_no_trades(two_users):
+    a, b = two_users
+    _trade(b)  # another owner's trade in the same week does not count
+    _trade(a, day="2026-09-15")  # the owner's trade in a different week
+    with pytest.raises(weekly.WeeklyReviewError):
+        weekly.save_weekly_review(_review(), a)
+    assert _weekly_row(a) == []
+
+
+def test_delete_all_then_legacy_save_writes_nothing(two_users, monkeypatch):
+    from src.tradelens.api.storage import ObjectCleanup
+    from src.tradelens.services import data_deletion
+
+    monkeypatch.setattr(
+        data_deletion.storage,
+        "delete_trade_objects",
+        lambda u, t: ObjectCleanup(deleted=[], failed=[], skipped=[]),
+    )
+    a, _ = two_users
+    _trade(a)
+    weekly.save_weekly_review(_review(), a)
+    assert len(_weekly_row(a)) == 1
+
+    assert data_deletion.delete_all_trades_and_objects(a).blocked is False
+    assert _weekly_row(a) == []
+    with pytest.raises(weekly.WeeklyReviewError):
+        weekly.save_weekly_review(_review("### What Worked\nback"), a, overwrite=True)
+    assert _weekly_row(a) == []

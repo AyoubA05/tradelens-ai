@@ -800,6 +800,7 @@ def _weekly_row(owner, week="2026-09-07"):
     from src.tradelens.services import weekly
 
     good = "\n\n".join("%s\nReflection." % h for h in weekly._REQUIRED_SECTIONS)
+    _trade(owner, week)  # a legacy save refuses a week with no trades (C5)
     saved = weekly.save_weekly_review(
         {"week_start": week, "content_md": good, "stats": {"trades": 5}},
         owner,

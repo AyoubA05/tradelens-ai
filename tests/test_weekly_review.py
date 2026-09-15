@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
 import src.tradelens.services.weekly as weekly
-from src.tradelens.db.models import Base
+from src.tradelens.db.models import Base, Trade
 
 
 @pytest.fixture
@@ -18,6 +18,12 @@ def in_memory_db(monkeypatch):
     Base.metadata.create_all(engine)
     InMemorySession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr(weekly, "SessionLocal", InMemorySession)
+    # A legacy save refuses a week with no trades (C5), so seed that week.
+    db = InMemorySession()
+    for owner in (1, 2):
+        db.add(Trade(user_id=owner, asset="NQ", trade_date="2026-06-23"))
+    db.commit()
+    db.close()
     yield InMemorySession
     Base.metadata.drop_all(engine)
 

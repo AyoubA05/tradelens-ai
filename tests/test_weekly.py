@@ -30,6 +30,13 @@ def in_memory_db(monkeypatch):
     Base.metadata.create_all(engine)
     TestSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     monkeypatch.setattr("src.tradelens.services.weekly.SessionLocal", TestSession)
+    # A legacy save refuses a week with no trades (C5), so seed that week.
+    from src.tradelens.db.models import Trade
+
+    db = TestSession()
+    db.add(Trade(user_id=1, asset="NQ", trade_date="2026-06-16"))
+    db.commit()
+    db.close()
     return TestSession
 
 
