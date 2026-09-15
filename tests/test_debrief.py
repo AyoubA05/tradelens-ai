@@ -251,9 +251,13 @@ def test_multi_trade_summary_is_wired_into_journal_page():
 
 
 def test_weekly_review_call_is_user_scoped_and_strategy_aware():
+    import re
+
     src = (_PAGES / "6_Insights.py").read_text(encoding="utf-8")
     assert src.count("generate_weekly_review(\n") == 2  # both call sites wrapped
-    assert "user_id=uid, strategy_profile=_strategy" in src
+    # Whitespace-insensitive: black splits the call once `on_usage` is passed.
+    flat = re.sub(r"\s+", " ", src)
+    assert flat.count("user_id=uid, strategy_profile=_strategy,") == 2
 
 
 def test_ai_available_gate_covers_demo(monkeypatch):
