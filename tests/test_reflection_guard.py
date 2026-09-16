@@ -32,6 +32,21 @@ def test_trade_guidance_is_rejected_with_the_callers_error(text):
         reflection_guard.reject_forward_looking(text, Boom)
 
 
+def test_a_position_followed_by_a_future_marker_is_rejected():
+    """Only the position→future pattern catches this: no recommender verb, the
+    future marker comes after the side, and there is no price level."""
+    text = "Short the open tomorrow."
+    with pytest.raises(Boom):
+        reflection_guard.reject_forward_looking(text, Boom)
+    lowered = text.lower()
+    others = [
+        reflection_guard._ADVICE_PATTERNS[0],
+        reflection_guard._ADVICE_PATTERNS[1],
+        *reflection_guard._PRICE_PATTERNS,
+    ]
+    assert not any(pattern.search(lowered) for pattern in others)
+
+
 def test_trade_summary_still_raises_its_own_error():
     with pytest.raises(trade_summary.TradeSummaryError) as caught:
         trade_summary._reject_forward_looking("You should buy above 20150.")
