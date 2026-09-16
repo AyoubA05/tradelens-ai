@@ -402,3 +402,62 @@ def test_delete_all_then_legacy_save_writes_nothing(two_users, monkeypatch):
     with pytest.raises(weekly.WeeklyReviewError):
         weekly.save_weekly_review(_review("### What Worked\nback"), a, overwrite=True)
     assert _weekly_row(a) == []
+
+
+# ── fix round 3: model uniqueness (item 17) and empty content (item 19) ──
+
+
+def test_daily_debrief_model_declares_unique_user_and_day():
+    """The ORM model itself (not only the migration) refuses a second row."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.orm import Session
+
+    from src.tradelens.db.models import Base
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    now = dt.datetime(2026, 9, 14, 10, 0, tzinfo=dt.timezone.utc)
+
+    def row(day="2026-09-08"):
+        return DailyDebrief(
+            user_id=1,
+            day=day,
+            input_fingerprint=FP1,
+            job_id=None,
+            content_md="### Session Summary\nok",
+            stats_json="{}",
+            reviewed_trades=1,
+            created_at=now,
+            updated_at=now,
+        )
+
+    with Session(engine) as session:
+        session.add_all([row(), row("2026-09-09")])
+        session.commit()
+        session.add(row())
+        with pytest.raises(IntegrityError):
+            session.commit()
+    engine.dispose()
+
+
+@pytest.mark.parametrize("content", [None, "", "   \n\t"])
+def test_save_daily_debrief_refuses_empty_content_and_writes_nothing(
+    two_users, content
+):
+    a, _ = two_users
+    t = _trade(a)
+    with pytest.raises(ValueError):
+        _save(a, [t], result={**RESULT, "content_md": content})
+    assert _debrief_rows(a) == []
+
+
+def test_empty_content_never_replaces_a_saved_debrief(two_users):
+    a, _ = two_users
+    t = _trade(a)
+    _save(a, [t])
+    with pytest.raises(ValueError):
+        _save(a, [t], input_fingerprint=FP2, result={**RESULT, "content_md": None})
+    rows = _debrief_rows(a)
+    assert [r.content_md for r in rows] == [RESULT["content_md"]]
+    assert rows[0].input_fingerprint == FP1

@@ -91,9 +91,14 @@ def save_daily_debrief(
     """Save (or replace) the owner's debrief for `day`; returns the row id.
 
     Writes nothing unless every source trade exists for this owner and
-    `verify(db)` returns True inside the locked transaction.
+    `verify(db)` returns True inside the locked transaction. Refuses (raises
+    ValueError, writes nothing) a result whose `content_md` is None or blank,
+    so a missing body is never stored as the text "None".
     """
     owner = require_user_id(user_id)
+    content_md = result.get("content_md")
+    if not isinstance(content_md, str) or not content_md.strip():
+        raise ValueError("daily debrief content is empty")
     db = SessionLocal()
     try:
         lock_and_verify_sources(db, owner, source_trade_ids, verify)
@@ -109,7 +114,7 @@ def save_daily_debrief(
             db.add(row)
         row.input_fingerprint = str(input_fingerprint)
         row.job_id = None if job_id is None else int(job_id)
-        row.content_md = str(result["content_md"])
+        row.content_md = content_md
         row.stats_json = json.dumps(
             result.get("stats") or {}, allow_nan=False, default=str
         )
