@@ -72,6 +72,28 @@ describe("WeeklyLens", () => {
     expect(screen.getByRole("button", { name: "Generate weekly recap" })).toBeInTheDocument();
   });
 
+  it("hides the generate button after a 429 and shows the limit sentence", async () => {
+    const sentence =
+      "You've reached today's limit for weekly recaps. Recaps you've already generated are still available.";
+    vi.mocked(fetch).mockResolvedValueOnce(json(429, { ok: false, error: "rate_limited", detail: sentence }));
+    render(
+      <WeeklyLens
+        weeks={["2026-09-07"]}
+        selectedWeek="2026-09-07"
+        saved={null}
+        completeTrades={12}
+        tradesForReview={5}
+        aiAvailable
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Generate weekly recap" }));
+    await flush();
+
+    expect(screen.getByRole("status")).toHaveTextContent(sentence);
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("shows the gate copy and no button when undersized with no saved recap", () => {
     render(
       <WeeklyLens

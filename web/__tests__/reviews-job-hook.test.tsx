@@ -1,6 +1,29 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+/**
+ * Every state setter the hook calls is recorded, so a set after unmount is
+ * visible even though React no longer re-renders an unmounted hook.
+ */
+const setterCalls: unknown[] = [];
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>();
+  return {
+    ...actual,
+    useState: <S,>(initial: S | (() => S)) => {
+      const [value, set] = actual.useState(initial);
+      const recorded = actual.useCallback(
+        (next: React.SetStateAction<S>) => {
+          setterCalls.push(next);
+          set(next);
+        },
+        [set],
+      );
+      return [value, recorded] as const;
+    },
+  };
+});
+
 import { useReviewJob } from "@/components/app/reviews/use-review-job";
 
 /**
@@ -193,6 +216,57 @@ describe("useReviewJob", () => {
 
     expect(result.current.state).toBe("failed");
     expect(result.current.message).toBe("The review could not be generated. Try again.");
+  });
+
+  it("fails with the fixed copy when the job never finishes, and stops polling", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(accepted()).mockImplementation(async () => job("running"));
+    const { result } = renderHook(() => useReviewJob("/api/reviews/weekly"));
+
+    act(() => {
+      void result.current.start({ week: "2026-09-07" });
+    });
+    await flush();
+    // 1 + 2 + 4 + 23 × 8 = 191 seconds of back-off across 27 polls.
+    await flush(190_000);
+    expect(result.current.state).toBe("running");
+
+    await flush(1_000);
+    expect(result.current.state).toBe("failed");
+    expect(result.current.message).toBe("The review could not be generated. Try again.");
+    expect(fetchMock).toHaveBeenCalledTimes(1 + 27);
+
+    await flush(120_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1 + 27);
+  });
+
+  it("sets no state from a response that lands after unmount", async () => {
+    const fetchMock = vi.mocked(fetch);
+    let deliver!: (response: Response) => void;
+    // The poll ignores the abort signal and resolves late, like a slow network
+    // that finished just after the lens was left.
+    fetchMock
+      .mockResolvedValueOnce(accepted())
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => (deliver = resolve)));
+    const { result, unmount } = renderHook(() => useReviewJob("/api/reviews/weekly"));
+
+    act(() => {
+      void result.current.start({ week: "2026-09-07" });
+    });
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const last = result.current;
+
+    unmount();
+    setterCalls.length = 0;
+    await act(async () => {
+      deliver(job("succeeded", { note: NOTE }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(setterCalls).toEqual([]);
+    expect(result.current).toBe(last);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("aborts on unmount without polling again or setting state", async () => {
