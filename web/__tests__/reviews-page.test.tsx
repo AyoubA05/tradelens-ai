@@ -1,6 +1,8 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { ApiError } from "@/lib/api/client";
 
 /**
  * The AI Reviews page around its one fetch.
@@ -155,6 +157,107 @@ describe("AI Reviews page — period parameters", () => {
     expect(screen.getByRole("button", { name: "Generate weekly recap" })).toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+});
+
+describe("AI Reviews page — a period that the API rejects", () => {
+  const invalid = () => Promise.reject(new ApiError(422, { detail: "week must be a Monday" }));
+
+  it("re-reads without a rejected week and shows the newest week's lens", async () => {
+    fetchReviews
+      .mockImplementationOnce(invalid)
+      .mockResolvedValue(reviews({ weeks: ["2026-09-07", "2026-08-31"] }));
+    render(await ReviewsPage({ searchParams: params({ lens: "weekly", week: "2026-09-09" }) }));
+
+    expect(fetchReviews).toHaveBeenNthCalledWith(1, "browser-token", { week: "2026-09-09" });
+    expect(fetchReviews).toHaveBeenNthCalledWith(2, "browser-token", {});
+    expect(fetchReviews).toHaveBeenNthCalledWith(3, "browser-token", { week: "2026-09-07" });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Weekly Recap" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("combobox")).toHaveValue("2026-09-07");
+    expect(screen.queryByRole("option", { name: "2026-09-09" })).toBeNull();
+  });
+
+  it("re-reads without a rejected day and shows the newest day's lens", async () => {
+    fetchReviews
+      .mockImplementationOnce(invalid)
+      .mockResolvedValue(reviews({ days: ["2026-09-08", "2026-09-04"] }));
+    render(await ReviewsPage({ searchParams: params({ lens: "daily", day: "2026-02-30" }) }));
+
+    expect(fetchReviews).toHaveBeenNthCalledWith(1, "browser-token", { day: "2026-02-30" });
+    expect(fetchReviews).toHaveBeenNthCalledWith(2, "browser-token", {});
+    expect(fetchReviews).toHaveBeenNthCalledWith(3, "browser-token", { day: "2026-09-08" });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Daily Debrief" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("combobox")).toHaveValue("2026-09-08");
+    expect(screen.queryByRole("option", { name: "2026-02-30" })).toBeNull();
+  });
+
+  it("renders the error and zero buttons when the re-read also fails", async () => {
+    fetchReviews.mockImplementationOnce(invalid).mockRejectedValue(new Error("upstream 502"));
+    render(await ReviewsPage({ searchParams: params({ lens: "weekly", week: "2026-09-09" }) }));
+    expect(fetchReviews).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("alert")).toHaveTextContent("AI Reviews did not load");
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+
+  it("does not re-read on a 422 when no period was supplied", async () => {
+    fetchReviews.mockImplementation(invalid);
+    render(await ReviewsPage({ searchParams: params({ lens: "weekly" }) }));
+    expect(fetchReviews).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("AI Reviews did not load");
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+  });
+});
+
+describe("AI Reviews page — switching week while a recap is generating", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("never shows week A's generated recap under week B", async () => {
+    const weekA = "2026-09-07";
+    const weekB = "2026-08-31";
+    const noteA = {
+      period: weekA,
+      content_md: "### What Worked\nWeek A generated body.",
+      stats: { trades: 6, win_rate: 0.5, total_pnl: 40, profit_factor: 1.2, total_edge_leak: 0 },
+      reviewed_trades: 6,
+      created_at: "2026-09-14T10:00:00Z",
+    };
+    const reply = (status: number, body: unknown) =>
+      new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(reply(202, { job_id: 5, status: "queued", created: true }))
+      .mockResolvedValueOnce(
+        reply(200, { job_id: 5, kind: "weekly_recap", status: "running", note: null, error: null }),
+      )
+      .mockResolvedValue(
+        reply(200, { job_id: 5, kind: "weekly_recap", status: "succeeded", note: noteA, error: null }),
+      );
+    fetchReviews.mockResolvedValue(reviews({ weeks: [weekA, weekB] }));
+
+    const view = render(await ReviewsPage({ searchParams: params({ lens: "weekly", week: weekA }) }));
+    fireEvent.click(screen.getByRole("button", { name: "Generate weekly recap" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole("status")).toBeInTheDocument();
+
+    view.rerender(await ReviewsPage({ searchParams: params({ lens: "weekly", week: weekB }) }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(screen.getByRole("combobox")).toHaveValue(weekB);
+    expect(document.body).not.toHaveTextContent("Week A generated body.");
+    expect(screen.getByText("No recap is saved for this week yet.")).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
 

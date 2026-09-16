@@ -6,6 +6,7 @@ import {
   authenticateSessionToken,
   sessionTokenFromCookieHeader,
 } from "@/lib/auth/session";
+import { ApiError } from "@/lib/api/client";
 import { fetchReviews, type ReviewsResponse } from "@/lib/app/reviews";
 import { LensTabs, REVIEW_LENSES, reviewLensFrom } from "@/components/app/reviews/lens-tabs";
 import { PatternsLens } from "@/components/app/reviews/patterns-lens";
@@ -51,17 +52,34 @@ export default async function ReviewsPage({
   let selectedWeek: string | null = week ?? null;
   let selectedDay: string | null = day ?? null;
   try {
-    data = await fetchReviews(token, { ...(week ? { week } : {}), ...(day ? { day } : {}) });
+    try {
+      data = await fetchReviews(token, { ...(week ? { week } : {}), ...(day ? { day } : {}) });
+    } catch (error) {
+      // An ISO-shaped but invalid period (`?week=2026-09-09`, `?day=2026-02-30`)
+      // is a 422. Drop the supplied period and read again, so the lens opens on
+      // the newest period instead of an error. Any other failure, or a failure
+      // of this re-read, is the error state.
+      if (!(error instanceof ApiError && error.status === 422 && (week || day))) throw error;
+      selectedWeek = null;
+      selectedDay = null;
+      data = await fetchReviews(token, {});
+    }
     // Opening a lens with no period chosen reads the newest one (the API lists
     // them newest first). This is a second READ for its saved note — never a
     // generate.
     if (lens === "weekly" && !selectedWeek && data.weeks[0]) {
       selectedWeek = data.weeks[0];
-      data = await fetchReviews(token, { week: selectedWeek, ...(day ? { day } : {}) });
+      data = await fetchReviews(token, {
+        week: selectedWeek,
+        ...(selectedDay ? { day: selectedDay } : {}),
+      });
     }
     if (lens === "daily" && !selectedDay && data.days[0]) {
       selectedDay = data.days[0];
-      data = await fetchReviews(token, { day: selectedDay, ...(week ? { week } : {}) });
+      data = await fetchReviews(token, {
+        day: selectedDay,
+        ...(selectedWeek ? { week: selectedWeek } : {}),
+      });
     }
   } catch {
     // Not surfaced: an upstream message can carry internal detail.
