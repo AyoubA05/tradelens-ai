@@ -261,6 +261,57 @@ describe("AI Reviews page — switching week while a recap is generating", () =>
   });
 });
 
+describe("AI Reviews page — switching day while a debrief is generating", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("never shows day A's generated debrief under day B", async () => {
+    const dayA = "2026-09-08";
+    const dayB = "2026-09-04";
+    const noteA = {
+      period: dayA,
+      content_md: "### What Worked\nDay A generated body.",
+      stats: { trades: 3, win_rate: 0.5, total_pnl: 40, profit_factor: 1.2, total_edge_leak: 0 },
+      reviewed_trades: 3,
+      created_at: "2026-09-14T10:00:00Z",
+    };
+    const reply = (status: number, body: unknown) =>
+      new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(reply(202, { job_id: 6, status: "queued", created: true }))
+      .mockResolvedValueOnce(
+        reply(200, { job_id: 6, kind: "daily_debrief", status: "running", note: null, error: null }),
+      )
+      .mockResolvedValue(
+        reply(200, { job_id: 6, kind: "daily_debrief", status: "succeeded", note: noteA, error: null }),
+      );
+    fetchReviews.mockResolvedValue(reviews({ days: [dayA, dayB] }));
+
+    const view = render(await ReviewsPage({ searchParams: params({ lens: "daily", day: dayA }) }));
+    fireEvent.click(screen.getByRole("button", { name: `Generate debrief for ${dayA}` }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole("status")).toBeInTheDocument();
+
+    view.rerender(await ReviewsPage({ searchParams: params({ lens: "daily", day: dayB }) }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(screen.getByRole("combobox")).toHaveValue(dayB);
+    expect(document.body).not.toHaveTextContent("Day A generated body.");
+    expect(screen.getByText("No debrief is saved for this day yet.")).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("AI Reviews page when the load fails", () => {
   it.each([
     ["an upstream error", () => Promise.reject(new Error("upstream 502: internal detail"))],
