@@ -25,6 +25,22 @@ export const REVIEWS_NO_STORE = {
 
 const KNOWN_REFUSALS = new Set(["empty_period", "not_enough_trades"]);
 
+/**
+ * The backend's two fixed 429 sentences, verbatim from
+ * `WEEKLY_LIMIT_MESSAGE` / `DAILY_LIMIT_MESSAGE` in
+ * `src/tradelens/api/routers/reviews.py`. Any other 429 detail is dropped.
+ */
+export const WEEKLY_LIMIT_MESSAGE =
+  "You've reached today's limit for weekly recaps. " +
+  "Recaps you've already generated are still available.";
+export const DAILY_LIMIT_MESSAGE =
+  "You've reached today's limit for daily debriefs. " +
+  "Debriefs you've already generated are still available.";
+const KNOWN_LIMIT_MESSAGES: ReadonlySet<unknown> = new Set([
+  WEEKLY_LIMIT_MESSAGE,
+  DAILY_LIMIT_MESSAGE,
+]);
+
 export async function authorizeReviewsRelay(
   request: Request,
 ): Promise<{ token: string } | NextResponse> {
@@ -47,7 +63,8 @@ export async function authorizeReviewsRelay(
  * Turn a failed reviews API call into the relay's response.
  *
  *   409  → `{ok:false, detail}` only for `empty_period` / `not_enough_trades`
- *   429  → `{ok:false, error:"rate_limited", detail}` (the backend's fixed sentence)
+ *   429  → `{ok:false, error:"rate_limited", detail}` — `detail` only when it is one
+ *          of the two backend limit sentences, otherwise omitted
  *   503  → `{ok:false, detail:"review_unavailable"}` for that code only
  *   401/403/404/422 → `{ok:false}` with that status
  *   anything else   → 502 `{ok:false}`
@@ -69,7 +86,7 @@ export function reviewsRelayFailure(error: unknown): NextResponse {
   }
   if (error.status === 429) {
     return NextResponse.json(
-      { ok: false, error: "rate_limited", detail: typeof detail === "string" ? detail : undefined },
+      { ok: false, error: "rate_limited", detail: KNOWN_LIMIT_MESSAGES.has(detail) ? detail : undefined },
       { status: 429, headers: REVIEWS_NO_STORE },
     );
   }

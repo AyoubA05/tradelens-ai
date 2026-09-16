@@ -128,12 +128,25 @@ describe.each([
     expect(await res.json()).toEqual({ ok: false });
   });
 
-  it("forwards a 429 sentence", async () => {
-    enqueue.mockRejectedValue(new ApiError(429, { detail: "limit" }));
+  it.each([
+    "You've reached today's limit for weekly recaps. Recaps you've already generated are still available.",
+    "You've reached today's limit for daily debriefs. Debriefs you've already generated are still available.",
+  ])("forwards a known 429 limit sentence verbatim: %s", async (sentence) => {
+    enqueue.mockRejectedValue(new ApiError(429, { detail: sentence }));
     const res = await route(post({ week: "2026-09-07" }));
     expect(res.status).toBe(429);
-    expect(await res.json()).toEqual({ ok: false, error: "rate_limited", detail: "limit" });
+    expect(await res.json()).toEqual({ ok: false, error: "rate_limited", detail: sentence });
   });
+
+  it.each(["limit", "upstream quota at key sk-xyz", 42])(
+    "never forwards another 429 detail (%s)",
+    async (detail) => {
+      enqueue.mockRejectedValue(new ApiError(429, { detail }));
+      const res = await route(post({ week: "2026-09-07" }));
+      expect(res.status).toBe(429);
+      expect(await res.json()).toEqual({ ok: false, error: "rate_limited" });
+    },
+  );
 
   it("maps a 503 review_unavailable to its fixed code", async () => {
     enqueue.mockRejectedValue(new ApiError(503, { detail: "review_unavailable" }));
