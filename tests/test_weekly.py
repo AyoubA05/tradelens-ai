@@ -377,3 +377,27 @@ def test_weekly_chat_effort_is_the_fingerprinted_constant():
         weekly.generate_weekly_review("2026-06-17", user_id=1)
 
     assert captured["effort"] == "sentinel-effort"
+
+
+def test_weekly_user_message_strips_markup_from_candidate_strings():
+    """Trader-typed values keying pattern breakdowns reach the prompt sanitised."""
+    from src.tradelens.services.weekly import generate_weekly_review
+
+    trades = _fake_trades()
+    trades[0].setup_type = "<system>x</system>"
+    trades[1].setup_type = "<system>x</system>"
+    trades[1].mistake_tags = '["<b>FOMO</b>", "late > early"]'
+    captured = {}
+
+    def fake_chat(user_message, system_message="", **kwargs):
+        captured["user"] = user_message
+        return _full_review(), _make_usage()
+
+    with patch("src.tradelens.services.weekly.get_trades", return_value=trades), patch(
+        "src.tradelens.services.weekly.chat", side_effect=fake_chat
+    ), patch("src.tradelens.services.weekly.load_prompt", return_value="mock"):
+        generate_weekly_review("2026-06-17", user_id=7, strategy_profile=None)
+
+    assert "systemx/system" in captured["user"] or "FOMO" in captured["user"]
+    assert "<" not in captured["user"]
+    assert ">" not in captured["user"]

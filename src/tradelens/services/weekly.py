@@ -224,7 +224,9 @@ def build_weekly_model_input(
         "week_start": week_monday,
         "week_end": sunday,
         "stats": _week_stats(df),
-        "candidates": None if df.empty else compute_candidates(df),
+        "candidates": (
+            None if df.empty else prompt_inputs.sanitised_data(compute_candidates(df))
+        ),
         "strategy_profile": prompt_inputs.sanitised_strategy(strategy_profile) or None,
         "source_trade_ids": sorted(
             int(t.id) for t in rows if getattr(t, "id", None) is not None
