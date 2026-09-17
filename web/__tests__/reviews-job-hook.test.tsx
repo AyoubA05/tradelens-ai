@@ -24,7 +24,7 @@ vi.mock("react", async (importOriginal) => {
   };
 });
 
-import { useReviewJob } from "@/components/app/reviews/use-review-job";
+import { FAILURE_MESSAGE, useReviewJob } from "@/components/app/reviews/use-review-job";
 
 /**
  * The enqueue-and-poll hook behind both generate buttons.
@@ -203,6 +203,20 @@ describe("useReviewJob", () => {
 
     expect(result.current.state).toBe("refused");
     expect(result.current.message).toBe("Nothing is logged for this period.");
+  });
+
+  it("fails with the fixed copy for a 409 with an unknown detail", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(json(409, { ok: false, detail: "some_unknown_code" }));
+    const { result } = renderHook(() => useReviewJob("/api/reviews/daily"));
+
+    act(() => {
+      void result.current.start({ day: "2026-09-08" });
+    });
+    await flush();
+
+    expect(result.current.state).toBe("failed");
+    expect(result.current.message).toBe(FAILURE_MESSAGE);
+    expect(result.current.message).not.toContain("some_unknown_code");
   });
 
   it("treats a failed poll response as a failure", async () => {

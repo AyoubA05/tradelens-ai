@@ -271,3 +271,24 @@ def test_ai_available_gate_covers_demo(monkeypatch):
 
     monkeypatch.setattr("src.tradelens.services.demo.is_demo", lambda: False)
     assert ai_utils.ai_available() is False
+
+
+@pytest.mark.parametrize("effort", [None, "sentinel-effort"])
+def test_daily_chat_effort_follows_the_fingerprinted_constant(effort):
+    from src.tradelens.services import debrief
+
+    captured = {}
+
+    def fake_chat(user_message, system_message="", **kwargs):
+        captured.update(kwargs)
+        return _full_debrief(), _usage()
+
+    with patch("src.tradelens.services.debrief.chat", side_effect=fake_chat), patch(
+        "src.tradelens.services.debrief.load_prompt", return_value="mock"
+    ), patch("src.tradelens.services.debrief.DAILY_EFFORT", effort):
+        debrief.generate_debrief([_trade()], period_label="Trading day 2026-07-01")
+
+    if effort is None:
+        assert "effort" not in captured
+    else:
+        assert captured["effort"] == effort

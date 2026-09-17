@@ -356,3 +356,24 @@ def test_no_signal_language_in_weekly_section_names():
     from src.tradelens.services.weekly import _REQUIRED_SECTIONS
 
     assert not any("signal" in h.lower() for h in _REQUIRED_SECTIONS)
+
+
+def test_weekly_chat_effort_is_the_fingerprinted_constant():
+    from src.tradelens.services import weekly
+
+    captured = {}
+
+    def fake_chat(user_message, system_message="", **kwargs):
+        captured.update(kwargs)
+        return _full_review(), _make_usage()
+
+    with patch(
+        "src.tradelens.services.weekly.get_trades", return_value=_fake_trades()
+    ), patch("src.tradelens.services.weekly.chat", side_effect=fake_chat), patch(
+        "src.tradelens.services.weekly.load_prompt", return_value="mock"
+    ), patch(
+        "src.tradelens.services.weekly.WEEKLY_EFFORT", "sentinel-effort"
+    ):
+        weekly.generate_weekly_review("2026-06-17", user_id=1)
+
+    assert captured["effort"] == "sentinel-effort"

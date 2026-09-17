@@ -106,6 +106,24 @@ describe("DailyLens", () => {
     expect(screen.getByText("Two trades in London.")).toBeInTheDocument();
   });
 
+  it("keeps the saved debrief on screen after a failed regeneration", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(json(202, { job_id: 6, status: "queued", created: true }))
+      .mockResolvedValueOnce(
+        json(200, { job_id: 6, kind: "daily_debrief", status: "failed", note: null, error: "x" }),
+      );
+    render(<DailyLens days={["2026-09-08"]} selectedDay="2026-09-08" saved={DEBRIEF} aiAvailable />);
+    expect(screen.getByText("Two trades in London.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate debrief for 2026-09-08" }));
+    await flush();
+    await flush(1_000);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("The review could not be generated. Try again.");
+    expect(screen.getByText("Two trades in London.")).toBeInTheDocument();
+    expect(screen.queryByText("x")).toBeNull();
+  });
+
   it("shows the server's rate-limit sentence and hides the button", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       json(429, { ok: false, error: "rate_limited", detail: "You've reached today's limit for daily debriefs." }),
