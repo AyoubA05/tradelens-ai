@@ -150,7 +150,12 @@ def test_patterns_call_injects_corrections(captured_client):
 def test_weekly_call_injects_corrections(captured_client, monkeypatch):
     from src.tradelens.services import weekly
 
+    from src.tradelens.services import app_settings
+
     monkeypatch.setattr(weekly, "get_trades", lambda **k: _fake_trades())
+    # The review's as-of date comes from the owner's timezone (decision C6);
+    # pin it so this test never reads whatever database DATABASE_URL names.
+    monkeypatch.setattr(app_settings, "get_timezone", lambda _uid: "UTC")
     try:
         weekly.generate_weekly_review("2026-06-17", user_id=1)
     except Exception:

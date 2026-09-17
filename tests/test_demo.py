@@ -275,7 +275,13 @@ def _invoke_weekly(tmp_path):
         setup_type="FVG",
         followed_rules=1,
     )
-    with patch.object(weekly, "get_trades", return_value=[fake]):
+    from src.tradelens.services import app_settings
+
+    # The review's as-of date comes from the owner's timezone (decision C6);
+    # pin it so this test never reads whatever database DATABASE_URL names.
+    with patch.object(weekly, "get_trades", return_value=[fake]), patch.object(
+        app_settings, "get_timezone", return_value="UTC"
+    ):
         weekly.generate_weekly_review("2026-06-15", user_id=1)
 
 
