@@ -256,7 +256,11 @@ def test_saved_notes_are_returned_only_for_the_owner(client, two_users):
         source_trade_ids=[t],
         verify=lambda db: True,
     )
-    assert _get(client, "/v1/reviews?day=2026-09-08", a).json()["daily"]["content_md"]
+    saved = _get(client, "/v1/reviews?day=2026-09-08", a).json()["daily"]
+    assert saved["content_md"]
+    # Old saved rows have no completeness bit. Treating that unknown state as
+    # measured would turn potentially missing P&L into a confident zero.
+    assert saved["stats"]["financial_status"] == "incomplete"
     assert _get(client, "/v1/reviews?day=2026-09-08", b).json()["daily"] is None
 
 

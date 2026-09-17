@@ -107,9 +107,10 @@ def _stats(raw: Optional[dict]) -> PeriodStats:
     trades = int(raw.get("trades") or 0)
     financial_status = raw.get("financial_status")
     if financial_status not in ("no_sample", "incomplete", "measured"):
-        # Legacy saved rows predate the status. Their persisted metrics came
-        # from the old measured-value contract; preserve that interpretation.
-        financial_status = "no_sample" if trades == 0 else "measured"
+        # Legacy saved rows predate the status and the old metric path flattened
+        # missing P&L to zero. Unknown completeness must not be presented as a
+        # confident measurement.
+        financial_status = "no_sample" if trades == 0 else "incomplete"
     return PeriodStats(
         trades=trades,
         win_rate=_finite(raw.get("win_rate")),
