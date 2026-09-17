@@ -122,18 +122,25 @@ def main() -> int:
     calls = {"daily": 0, "weekly": 0}
     writes = {"weekly": 0, "usage": 0}
 
-    def _daily(day_trades, *, strategy_profile=None, **_kwargs):
+    # The doubles honour the services' `on_usage` contract: the real
+    # generators report usage through that callback the moment the provider
+    # answers, and the pages no longer log usage themselves.
+    def _daily(day_trades, *, strategy_profile=None, on_usage=None, **_kwargs):
         calls["daily"] += 1
         captured_strategy.append(strategy_profile)
         captured_day_trades.append(day_trades)
-        return _review("## Daily demo review"), Usage("demo", 0, 0, 0, 0.0, 0.0)
+        usage = Usage("demo", 0, 0, 0, 0.0, 0.0)
+        if on_usage is not None:
+            on_usage(usage)
+        return _review("## Daily demo review"), usage
 
-    def _weekly(week_start, *_args, strategy_profile=None, **_kwargs):
+    def _weekly(week_start, *_args, strategy_profile=None, on_usage=None, **_kwargs):
         calls["weekly"] += 1
         captured_strategy.append(strategy_profile)
-        return _review("## Weekly demo review", week_start=str(week_start)), Usage(
-            "demo", 0, 0, 0, 0.0, 0.0
-        )
+        usage = Usage("demo", 0, 0, 0, 0.0, 0.0)
+        if on_usage is not None:
+            on_usage(usage)
+        return _review("## Weekly demo review", week_start=str(week_start)), usage
 
     debrief_service.generate_debrief = _daily
     weekly_service.generate_weekly_review = _weekly
