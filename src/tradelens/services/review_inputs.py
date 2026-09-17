@@ -74,7 +74,27 @@ def _canonical(value: Any) -> Any:
     return str(value)
 
 
-def review_input_fingerprint(kind: str, owner: int, period: str, model_input) -> str:
+def review_corrections_block(owner: int) -> str:
+    """Capture the exact owner-scoped correction text a review will send."""
+    from src.tradelens.services import trade_analysis
+    from src.tradelens.services.corrections import build_correction_few_shot
+
+    try:
+        return build_correction_few_shot(user_id=require_user_id(owner)) or ""
+    except Exception as exc:  # noqa: BLE001 — fail closed on cache identity
+        raise trade_analysis.AIInputVersionUnavailable(
+            "the AI context could not be read"
+        ) from exc
+
+
+def review_input_fingerprint(
+    kind: str,
+    owner: int,
+    period: str,
+    model_input,
+    *,
+    corrections_block: Optional[str] = None,
+) -> str:
     """sha256 hex over the canonical JSON of every effective review input."""
     from src.tradelens.services import ai_client, trade_analysis
 
@@ -93,7 +113,18 @@ def review_input_fingerprint(kind: str, owner: int, period: str, model_input) ->
             "sha256": hashlib.sha256(prompt_text.encode("utf-8")).hexdigest(),
         },
         "effort": _effort(kind),
-        "ai_input_version": trade_analysis.ai_input_version(resolved),
+        "ai_input_version": trade_analysis.ai_input_version(
+            resolved,
+            **(
+                {}
+                if corrections_block is None
+                else {
+                    "corrections_fingerprint": hashlib.sha256(
+                        corrections_block.encode("utf-8")
+                    ).hexdigest()[:16]
+                }
+            ),
+        ),
     }
     canonical = json.dumps(
         document,

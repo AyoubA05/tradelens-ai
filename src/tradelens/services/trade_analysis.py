@@ -99,6 +99,7 @@ from src.tradelens.services.prompt_inputs import (  # noqa: E402 — one sanitis
 )
 
 _STRATEGY_FINGERPRINT_UNSET = object()
+_CORRECTIONS_FINGERPRINT_UNSET = object()
 
 
 def _strategy_digest(prompt_input) -> str:
@@ -213,7 +214,10 @@ def strategy_input_fingerprint(user_id: int) -> str:
 
 
 def ai_input_version(
-    user_id: int, *, strategy_fingerprint=_STRATEGY_FINGERPRINT_UNSET
+    user_id: int,
+    *,
+    strategy_fingerprint=_STRATEGY_FINGERPRINT_UNSET,
+    corrections_fingerprint=_CORRECTIONS_FINGERPRINT_UNSET,
 ) -> str:
     """Everything OTHER than the trade that can change an AI answer.
 
@@ -249,7 +253,11 @@ def ai_input_version(
                 if strategy_fingerprint is _STRATEGY_FINGERPRINT_UNSET
                 else strategy_fingerprint
             ),
-            _corrections_fingerprint(owner),
+            (
+                _corrections_fingerprint(owner)
+                if corrections_fingerprint is _CORRECTIONS_FINGERPRINT_UNSET
+                else corrections_fingerprint
+            ),
         )
     except Exception as exc:  # noqa: BLE001 — re-raised as a typed refusal
         _log.error("ai_input_version unavailable (%s)", type(exc).__name__)

@@ -1552,6 +1552,15 @@
       "PeriodStats": {
         "additionalProperties": false,
         "properties": {
+          "financial_status": {
+            "enum": [
+              "no_sample",
+              "incomplete",
+              "measured"
+            ],
+            "title": "Financial Status",
+            "type": "string"
+          },
           "profit_factor": {
             "anyOf": [
               {
@@ -1584,7 +1593,8 @@
           "trades",
           "win_rate",
           "total_pnl",
-          "total_edge_leak"
+          "total_edge_leak",
+          "financial_status"
         ],
         "title": "PeriodStats",
         "type": "object"

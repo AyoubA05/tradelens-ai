@@ -104,12 +104,19 @@ def _stats(raw: Optional[dict]) -> PeriodStats:
     raw = raw or {}
     pf = raw.get("profit_factor")
     pf = None if pf is None or not math.isfinite(float(pf)) else float(pf)
+    trades = int(raw.get("trades") or 0)
+    financial_status = raw.get("financial_status")
+    if financial_status not in ("no_sample", "incomplete", "measured"):
+        # Legacy saved rows predate the status. Their persisted metrics came
+        # from the old measured-value contract; preserve that interpretation.
+        financial_status = "no_sample" if trades == 0 else "measured"
     return PeriodStats(
-        trades=int(raw.get("trades") or 0),
+        trades=trades,
         win_rate=_finite(raw.get("win_rate")),
         total_pnl=_finite(raw.get("total_pnl")),
         profit_factor=pf,
         total_edge_leak=_finite(raw.get("total_edge_leak")),
+        financial_status=financial_status,
     )
 
 
@@ -167,8 +174,13 @@ def _enqueue_review(
     with a fixed 503 rather than keying on a guess.
     """
     try:
+        corrections_block = review_inputs.review_corrections_block(user_id)
         fingerprint = review_inputs.review_input_fingerprint(
-            kind, user_id, period, model_input
+            kind,
+            user_id,
+            period,
+            model_input,
+            corrections_block=corrections_block,
         )
     except trade_analysis.AIInputVersionUnavailable:
         raise HTTPException(status_code=503, detail="review_unavailable") from None
@@ -209,9 +221,8 @@ def enqueue_weekly_recap(
     model_input = weekly.build_weekly_model_input(user_id, monday, as_of=today)
     if not model_input["source_trade_ids"]:
         raise HTTPException(status_code=409, detail="empty_period")
-    complete = sum(
-        1 for t in get_trades(user_id=user_id) if activation.is_complete_trade(t)
-    )
+    eligible_trades = review_inputs.on_or_before(get_trades(user_id=user_id), today)
+    complete = sum(1 for t in eligible_trades if activation.is_complete_trade(t))
     if (
         complete < activation.TRADES_FOR_REVIEW
         and weekly.get_weekly_review(monday, user_id) is None
@@ -309,7 +320,7 @@ def get_reviews(
         raise HTTPException(status_code=422, detail="unsupported query parameter(s)")
     week_iso, day_iso = _iso_date(week, monday=True), _iso_date(day)
     today = _today(user_id)
-    trades = get_trades(user_id=user_id)
+    trades = review_inputs.on_or_before(get_trades(user_id=user_id), today)
     frame = pd.DataFrame(
         [{c: getattr(t, c, None) for c in PATTERN_COLUMNS} for t in trades]
     )

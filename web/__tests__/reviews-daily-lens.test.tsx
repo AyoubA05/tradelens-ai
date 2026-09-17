@@ -19,7 +19,7 @@ const DEBRIEF = {
   period: "2026-09-08",
   content_md:
     "### Session Summary\nTwo trades in London.\n\n### Discipline & Rule Adherence\n- Rules kept",
-  stats: { trades: 2, win_rate: 0.5, total_pnl: 15, profit_factor: 1.5, total_edge_leak: 0 },
+  stats: { trades: 2, win_rate: 0.5, total_pnl: 15, profit_factor: 1.5, total_edge_leak: 0, financial_status: "measured" as const },
   reviewed_trades: 2,
   created_at: "2026-09-08T20:00:00Z",
 };

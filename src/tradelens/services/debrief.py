@@ -177,6 +177,7 @@ def generate_debrief(
     *,
     on_usage: Optional[Callable[[Usage], None]] = None,
     model_input: Optional[dict] = None,
+    corrections_block: Optional[str] = None,
 ) -> tuple[dict, Usage]:
     """Generate a coach-like debrief over a set of closed trades.
 
@@ -233,6 +234,7 @@ def generate_debrief(
         system_message=load_prompt("debrief_v1"),
         demo_response=_DEMO_DEBRIEF_MD,
         **({} if DAILY_EFFORT is None else {"effort": DAILY_EFFORT}),
+        corrections_block=corrections_block,
     )
     # Recorded the moment the provider answers: a response that then fails
     # validation or the guard was still billed.

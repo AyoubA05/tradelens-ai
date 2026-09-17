@@ -120,6 +120,38 @@ def test_weekly_handler_saves_with_provenance(two_users, monkeypatch, quiet_usag
         assert (row.input_fingerprint, row.job_id) == (payload["fingerprint"], job_id)
     finally:
         db.close()
+
+
+def test_weekly_handler_sends_the_same_corrections_block_it_fingerprints(
+    two_users, monkeypatch, quiet_usage
+):
+    a, _ = two_users
+    _trade(a, "2026-09-08")
+    marker = "<past_corrections>exact captured block</past_corrections>"
+    model_input = weekly.build_weekly_model_input(a, MONDAY)
+    fingerprint = review_inputs.review_input_fingerprint(
+        weekly.WEEKLY_JOB_KIND,
+        a,
+        MONDAY,
+        model_input,
+        corrections_block=marker,
+    )
+    key = weekly.WEEKLY_JOB_KIND + ":" + fingerprint
+    payload = {
+        "period": MONDAY,
+        "source_trade_ids": model_input["source_trade_ids"],
+        "fingerprint": fingerprint,
+        "key": key,
+    }
+    jobs.enqueue(a, weekly.WEEKLY_JOB_KIND, key, payload)
+    monkeypatch.setattr(worker, "review_corrections_block", lambda owner: marker)
+
+    def fake_chat(**kwargs):
+        assert kwargs["corrections_block"] == marker
+        return GOOD_WEEKLY, _usage()
+
+    monkeypatch.setattr(weekly, "chat", fake_chat)
+    assert worker._weekly_recap_handler(a, payload).startswith("weekly_recap:")
     assert quiet_usage == [("Weekly Review", a)]
 
 

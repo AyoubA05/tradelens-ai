@@ -163,6 +163,63 @@ def test_weekly_call_injects_corrections(captured_client, monkeypatch):
     _assert_corrections_are_user_data(captured_client)
 
 
+def test_chat_uses_captured_corrections_without_a_second_database_read(
+    captured_client, monkeypatch
+):
+    """A fingerprinted review must send the exact block it fingerprinted."""
+    from src.tradelens.services import ai_client
+
+    monkeypatch.setattr(
+        ai_client,
+        "_corrections_block",
+        lambda: (_ for _ in ()).throw(AssertionError("unexpected second read")),
+    )
+    captured = "<past_corrections>\ncaptured marker\n</past_corrections>"
+    ai_client.chat("review me", system_message="trusted", corrections_block=captured)
+
+    assert captured in _user_blob(captured_client)
+    assert captured not in _system_blob(captured_client)
+
+
+def test_review_trader_context_never_reaches_actual_provider_system_field(
+    captured_client,
+):
+    from src.tradelens.services import weekly
+
+    markers = {
+        "profile": "PROFILE_MARKER_61",
+        "trade": "TRADE_MARKER_72",
+        "pattern": "PATTERN_MARKER_83",
+        "correction": "CORRECTION_MARKER_94",
+    }
+    model_input = {
+        "week_start": "2026-09-07",
+        "week_end": "2026-09-13",
+        "stats": {"trades": 1, "financial_status": "measured"},
+        "candidates": {
+            "pattern_label": markers["pattern"],
+            "source_observation": markers["trade"],
+        },
+        "strategy_profile": {"playbook": markers["profile"]},
+        "source_trade_ids": [1],
+    }
+    correction_block = (
+        "<past_corrections>" + markers["correction"] + "</past_corrections>"
+    )
+    with pytest.raises(weekly.WeeklyReviewError):
+        weekly.generate_weekly_review(
+            "2026-09-07",
+            user_id=1,
+            model_input=model_input,
+            corrections_block=correction_block,
+        )
+
+    system = _system_blob(captured_client)
+    user = _user_blob(captured_client)
+    assert all(marker not in system for marker in markers.values())
+    assert all(marker in user for marker in markers.values())
+
+
 def test_converse_places_corrections_in_the_first_user_turn(captured_client):
     """The only call shape with an assistant turn in the history.
 

@@ -56,7 +56,22 @@ def test_owner_options_are_owner_scoped_and_never_future(two_users):
 
 
 def test_period_stats_of_nothing_is_zeroed():
-    assert review_periods.period_stats(pd.DataFrame())["trades"] == 0
+    stats = review_periods.period_stats(pd.DataFrame())
+    assert stats["trades"] == 0
+    assert stats["financial_status"] == "no_sample"
+
+
+def test_period_stats_distinguish_missing_pnl_from_a_measured_zero():
+    incomplete = review_periods.period_stats(
+        pd.DataFrame({"result": ["Win"], "pnl": [None]})
+    )
+    measured_zero = review_periods.period_stats(
+        pd.DataFrame({"result": ["Breakeven"], "pnl": [0.0]})
+    )
+
+    assert incomplete["total_pnl"] == measured_zero["total_pnl"] == 0.0
+    assert incomplete["financial_status"] == "incomplete"
+    assert measured_zero["financial_status"] == "measured"
 
 
 def _utc(*parts):

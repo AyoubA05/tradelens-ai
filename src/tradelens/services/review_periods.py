@@ -60,6 +60,7 @@ def period_stats(trades) -> dict:
             "total_pnl": 0.0,
             "profit_factor": None,
             "total_edge_leak": 0.0,
+            "financial_status": "no_sample",
         }
     m = compute_basic_metrics(trades)
     pf = compute_profit_factor_raw(trades)
@@ -72,7 +73,23 @@ def period_stats(trades) -> dict:
         "profit_factor": None if math.isinf(pf) else pf,
         "total_pnl": m["total_pnl"],
         "total_edge_leak": total_edge_leak(trades),
+        "financial_status": financial_status(trades),
     }
+
+
+def financial_status(trades: pd.DataFrame) -> str:
+    """Whether every trade has a measured numeric P&L value.
+
+    Existing metric services deliberately coerce missing money values to zero.
+    Reviews retain those parity-pinned calculations but carry this status so a
+    consumer never presents an incomplete sample as a confidently measured $0.
+    """
+    if trades is None or not isinstance(trades, pd.DataFrame) or trades.empty:
+        return "no_sample"
+    if "pnl" not in trades.columns:
+        return "incomplete"
+    pnl = pd.to_numeric(trades["pnl"], errors="coerce")
+    return "measured" if bool(pnl.notna().all()) else "incomplete"
 
 
 def _owner_trade_frame(owner: int) -> pd.DataFrame:

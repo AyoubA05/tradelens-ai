@@ -57,14 +57,27 @@ def test_effort_change_changes_it(two_users, monkeypatch):
 def test_ai_input_version_change_changes_it(two_users, monkeypatch):
     a, _ = two_users
     base = _fp(a, _input())
-    monkeypatch.setattr(trade_analysis, "ai_input_version", lambda owner: "other")
+    monkeypatch.setattr(
+        trade_analysis, "ai_input_version", lambda owner, **kwargs: "other"
+    )
     assert _fp(a, _input()) != base
+
+
+def test_captured_correction_block_is_part_of_the_fingerprint(two_users):
+    a, _ = two_users
+    one = review_inputs.review_input_fingerprint(
+        "weekly_recap", a, "2026-09-07", _input(), corrections_block="one"
+    )
+    two = review_inputs.review_input_fingerprint(
+        "weekly_recap", a, "2026-09-07", _input(), corrections_block="two"
+    )
+    assert one != two
 
 
 def test_unavailable_ai_context_refuses(two_users, monkeypatch):
     a, _ = two_users
 
-    def _raise(owner):
+    def _raise(owner, **kwargs):
         raise trade_analysis.AIInputVersionUnavailable("x")
 
     monkeypatch.setattr(trade_analysis, "ai_input_version", _raise)

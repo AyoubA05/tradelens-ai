@@ -22,6 +22,7 @@ class PeriodStats(_Strict):
     total_pnl: float
     profit_factor: Optional[float] = None
     total_edge_leak: float
+    financial_status: Literal["no_sample", "incomplete", "measured"]
 
 
 class PatternInsight(_Strict):

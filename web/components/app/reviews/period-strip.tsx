@@ -10,18 +10,20 @@ type PeriodStats = components["schemas"]["PeriodStats"];
  * losses, and `N/A` when there were no trades at all — never a zero.
  */
 export function profitFactorText(stats: PeriodStats): string {
+  if (stats.financial_status === "incomplete") return "N/A";
   if (stats.trades === 0) return "N/A";
   if (stats.profit_factor === null || stats.profit_factor === undefined) return "∞";
   return `${stats.profit_factor.toFixed(1)}x`;
 }
 
 export function PeriodStrip({ stats }: { stats: PeriodStats }) {
+  const moneyComplete = stats.financial_status !== "incomplete";
   const figures: [string, string][] = [
     ["Trades", String(stats.trades)],
     ["Win rate", `${Math.round(stats.win_rate * 100)}%`],
-    ["Net P&L", money(stats.total_pnl)],
+    ["Net P&L", moneyComplete ? money(stats.total_pnl) : "N/A"],
     ["Profit factor", profitFactorText(stats)],
-    ["Edge leak", money(stats.total_edge_leak)],
+    ["Edge leak", moneyComplete ? money(stats.total_edge_leak) : "N/A"],
   ];
   return (
     <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">

@@ -27,6 +27,7 @@ from src.tradelens.services.debrief import (
 from src.tradelens.services.review_inputs import (
     locked_period_trades,
     review_as_of,
+    review_corrections_block,
     review_input_fingerprint,
 )
 from src.tradelens.services.weekly import (
@@ -206,10 +207,18 @@ def _weekly_recap_handler(user_id: int, payload: dict) -> str:
     # and the locked verify use the same C6 rule as the router's enqueue.
     as_of = review_as_of(user_id)
     model_input = build_weekly_model_input(user_id, monday, as_of=as_of)
+    corrections_block = review_corrections_block(user_id)
     if (
         not source_ids
         or model_input["source_trade_ids"] != source_ids
-        or review_input_fingerprint(kind, user_id, monday, model_input) != captured
+        or review_input_fingerprint(
+            kind,
+            user_id,
+            monday,
+            model_input,
+            corrections_block=corrections_block,
+        )
+        != captured
     ):
         return f"{kind}:superseded"
 
@@ -219,6 +228,7 @@ def _weekly_recap_handler(user_id: int, payload: dict) -> str:
         strategy_profile=model_input["strategy_profile"],
         on_usage=lambda usage: log_ai_usage("Weekly Review", usage, user_id=user_id),
         model_input=model_input,
+        corrections_block=corrections_block,
     )
     if review["empty"]:
         raise WeeklyReviewError("This week has nothing logged to review.")
@@ -234,7 +244,14 @@ def _weekly_recap_handler(user_id: int, payload: dict) -> str:
         )
         return (
             locked["source_trade_ids"] == source_ids
-            and review_input_fingerprint(kind, user_id, monday, locked) == captured
+            and review_input_fingerprint(
+                kind,
+                user_id,
+                monday,
+                locked,
+                corrections_block=review_corrections_block(user_id),
+            )
+            == captured
         )
 
     try:
@@ -266,10 +283,18 @@ def _daily_debrief_handler(user_id: int, payload: dict) -> str:
 
     as_of = review_as_of(user_id)  # the same C6 rule as the router
     model_input = build_daily_model_input(user_id, day, as_of=as_of)
+    corrections_block = review_corrections_block(user_id)
     if (
         not source_ids
         or model_input["source_trade_ids"] != source_ids
-        or review_input_fingerprint(kind, user_id, day, model_input) != captured
+        or review_input_fingerprint(
+            kind,
+            user_id,
+            day,
+            model_input,
+            corrections_block=corrections_block,
+        )
+        != captured
     ):
         return f"{kind}:superseded"
 
@@ -278,6 +303,7 @@ def _daily_debrief_handler(user_id: int, payload: dict) -> str:
         # one row per feature.
         on_usage=lambda usage: log_ai_usage("Daily Debrief", usage, user_id=user_id),
         model_input=model_input,
+        corrections_block=corrections_block,
     )
     if review["empty"]:
         raise DebriefError("No trades logged on this day.")
@@ -291,7 +317,14 @@ def _daily_debrief_handler(user_id: int, payload: dict) -> str:
         )
         return (
             locked["source_trade_ids"] == source_ids
-            and review_input_fingerprint(kind, user_id, day, locked) == captured
+            and review_input_fingerprint(
+                kind,
+                user_id,
+                day,
+                locked,
+                corrections_block=review_corrections_block(user_id),
+            )
+            == captured
         )
 
     try:

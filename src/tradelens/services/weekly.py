@@ -29,6 +29,7 @@ from src.tradelens.services.metrics import (
 from src.tradelens.services.ownership import require_user_id
 from src.tradelens.services.patterns import compute_candidates
 from src.tradelens.services.reflection_guard import reject_forward_looking
+from src.tradelens.services.review_periods import financial_status
 from src.tradelens.services.trade_service import get_trades
 
 # Item 10 — unified Weekly Recap: one AI call covers the review AND the
@@ -125,6 +126,7 @@ def _week_stats(df: pd.DataFrame) -> dict:
             "total_pnl": 0.0,
             "profit_factor": None,
             "total_edge_leak": 0.0,
+            "financial_status": "no_sample",
         }
     m = compute_basic_metrics(df)
     pf = compute_profit_factor_raw(df)
@@ -134,6 +136,7 @@ def _week_stats(df: pd.DataFrame) -> dict:
         "total_pnl": m["total_pnl"],
         "profit_factor": None if math.isinf(pf) else pf,
         "total_edge_leak": total_edge_leak(df),
+        "financial_status": financial_status(df),
     }
 
 
@@ -241,6 +244,7 @@ def generate_weekly_review(
     *,
     on_usage: Optional[Callable[[Usage], None]] = None,
     model_input: Optional[dict] = None,
+    corrections_block: Optional[str] = None,
 ) -> tuple[dict, Usage]:
     """
     Generate (but do not persist) the weekly review for the week containing
@@ -294,6 +298,7 @@ def generate_weekly_review(
         system_message=system_message,
         effort=WEEKLY_EFFORT,
         demo_response=_DEMO_REVIEW_MD,
+        corrections_block=corrections_block,
     )
     # Recorded the moment the provider answers: a response that then fails
     # validation or the guard was still billed.

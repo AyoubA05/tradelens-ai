@@ -20,7 +20,7 @@ import { WeeklyLens } from "@/components/app/reviews/weekly-lens";
 const SAVED = {
   period: "2026-09-07",
   content_md: "### What Worked\nSaved recap body.\n\n### What Didn't\n- nothing",
-  stats: { trades: 6, win_rate: 0.5, total_pnl: 40, profit_factor: 1.2, total_edge_leak: 0 },
+  stats: { trades: 6, win_rate: 0.5, total_pnl: 40, profit_factor: 1.2, total_edge_leak: 0, financial_status: "measured" as const },
   reviewed_trades: 6,
   created_at: "2026-09-10T10:00:00Z",
 };

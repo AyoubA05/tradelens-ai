@@ -40,7 +40,7 @@ function reviews(overrides = {}) {
   return {
     patterns: {
       trades: 12,
-      stats: { trades: 12, win_rate: 0.5, total_pnl: 120, profit_factor: 1.4, total_edge_leak: -20 },
+      stats: { trades: 12, win_rate: 0.5, total_pnl: 120, profit_factor: 1.4, total_edge_leak: -20, financial_status: "measured" },
       insights: [
         { title: "After a loss", body: "Re-entries lose.", confidence: "low", type: "negative", min_trades: 3 },
         { title: "London Open", body: "Best window.", confidence: "medium", type: "positive", min_trades: 3 },
@@ -104,7 +104,7 @@ describe("AI Reviews page — Patterns (default lens)", () => {
       reviews({
         patterns: {
           trades: 2,
-          stats: { trades: 2, win_rate: 0.5, total_pnl: 10, profit_factor: 2, total_edge_leak: 0 },
+          stats: { trades: 2, win_rate: 0.5, total_pnl: 10, profit_factor: 2, total_edge_leak: 0, financial_status: "measured" },
           insights: [],
           strategy_included: false,
         },
@@ -226,7 +226,7 @@ describe("AI Reviews page — switching week while a recap is generating", () =>
     const noteA = {
       period: weekA,
       content_md: "### What Worked\nWeek A generated body.",
-      stats: { trades: 6, win_rate: 0.5, total_pnl: 40, profit_factor: 1.2, total_edge_leak: 0 },
+      stats: { trades: 6, win_rate: 0.5, total_pnl: 40, profit_factor: 1.2, total_edge_leak: 0, financial_status: "measured" },
       reviewed_trades: 6,
       created_at: "2026-09-14T10:00:00Z",
     };
@@ -277,7 +277,7 @@ describe("AI Reviews page — switching day while a debrief is generating", () =
     const noteA = {
       period: dayA,
       content_md: "### What Worked\nDay A generated body.",
-      stats: { trades: 3, win_rate: 0.5, total_pnl: 40, profit_factor: 1.2, total_edge_leak: 0 },
+      stats: { trades: 3, win_rate: 0.5, total_pnl: 40, profit_factor: 1.2, total_edge_leak: 0, financial_status: "measured" },
       reviewed_trades: 3,
       created_at: "2026-09-14T10:00:00Z",
     };

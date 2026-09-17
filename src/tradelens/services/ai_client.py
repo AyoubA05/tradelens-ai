@@ -285,6 +285,7 @@ def _complete(
     few_shot: Optional[str],
     demo_response: Optional[str],
     max_tokens: int,
+    corrections_block: Optional[str] = None,
 ) -> tuple[Union[str, AIUnavailable], Usage]:
     """Core call path shared by chat(), vision() and converse()."""
     chosen = ANTHROPIC_MODEL_ID
@@ -306,7 +307,9 @@ def _complete(
     # Moving it also IMPROVES prompt caching. The system message is now
     # identical across traders instead of varying with each one's correction
     # history, so the cached prefix is shared rather than per-user.
-    corrections = _corrections_block()
+    corrections = (
+        _corrections_block() if corrections_block is None else corrections_block
+    )
     messages = _inject_corrections(messages, corrections)
     system = _build_system(system_message, few_shot, cache_system)
 
@@ -444,6 +447,7 @@ def chat(
     few_shot: Optional[str] = None,
     demo_response: Optional[str] = None,
     max_tokens: int = 8192,
+    corrections_block: Optional[str] = None,
 ) -> tuple[Union[str, AIUnavailable], Usage]:
     """Send a text prompt to Claude Opus 5. Returns (content_or_AIUnavailable, Usage)."""
     messages = [{"role": "user", "content": user_message}]
@@ -455,6 +459,7 @@ def chat(
         few_shot=few_shot,
         demo_response=demo_response,
         max_tokens=max_tokens,
+        corrections_block=corrections_block,
     )
 
 

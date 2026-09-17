@@ -171,6 +171,19 @@ def test_reviews_read_is_owner_scoped(client, two_users):
     assert body["trades_for_review"] == 5
 
 
+def test_patterns_and_completion_count_exclude_future_dated_trades(client, two_users):
+    a, _ = two_users
+    _trade(a, "2026-09-08", pnl=25.0)
+    _trade(a, "2026-09-20", pnl=9999.0, setup_type="FUTURE_MARKER")
+
+    body = _get(client, "/v1/reviews", a).json()
+
+    assert body["patterns"]["trades"] == 1
+    assert body["patterns"]["stats"]["trades"] == 1
+    assert body["patterns"]["stats"]["total_pnl"] == 25.0
+    assert body["complete_trades"] == 1
+
+
 def test_patterns_are_deterministic_and_need_no_ai(client, two_users, monkeypatch):
     a, _ = two_users
 
@@ -375,13 +388,25 @@ def test_weekly_refuses_a_future_week(client, two_users):
     assert (r.status_code, r.json()["detail"]) == (409, "empty_period")
 
 
+def test_future_complete_trades_do_not_unlock_a_weekly_recap(client, two_users):
+    a, _ = two_users
+    _trade(a, "2026-09-08")
+    for index in range(4):
+        _trade(a, "2026-09-20", asset="FUTURE{}".format(index))
+
+    response = _post(client, WEEKLY, {"week": "2026-09-07"}, a)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "not_enough_trades"
+
+
 def test_weekly_refuses_when_ai_context_is_unavailable(client, two_users, monkeypatch):
     from src.tradelens.services import trade_analysis
 
     a, _ = two_users
     _complete_week(a)
 
-    def _raise(owner):
+    def _raise(owner, **kwargs):
         raise trade_analysis.AIInputVersionUnavailable("down")
 
     monkeypatch.setattr(trade_analysis, "ai_input_version", _raise)
@@ -634,7 +659,7 @@ def test_daily_refuses_when_ai_context_is_unavailable(client, two_users, monkeyp
     a, _ = two_users
     _trade(a, "2026-09-08")
 
-    def _raise(owner):
+    def _raise(owner, **kwargs):
         raise trade_analysis.AIInputVersionUnavailable("down")
 
     monkeypatch.setattr(trade_analysis, "ai_input_version", _raise)

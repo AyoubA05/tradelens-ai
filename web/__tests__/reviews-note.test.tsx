@@ -75,7 +75,7 @@ describe("PeriodStrip", () => {
   it("shows the five figures", () => {
     render(
       <PeriodStrip
-        stats={{ trades: 12, win_rate: 0.5, total_pnl: -120.5, profit_factor: 1.43, total_edge_leak: 20 }}
+        stats={{ trades: 12, win_rate: 0.5, total_pnl: -120.5, profit_factor: 1.43, total_edge_leak: 20, financial_status: "measured" }}
       />,
     );
     expect(screen.getByText("Trades").nextSibling).toHaveTextContent("12");
@@ -87,16 +87,34 @@ describe("PeriodStrip", () => {
 
   it("writes ∞ for a lossless period with trades", () => {
     render(
-      <PeriodStrip stats={{ trades: 3, win_rate: 1, total_pnl: 90, profit_factor: null, total_edge_leak: 0 }} />,
+      <PeriodStrip stats={{ trades: 3, win_rate: 1, total_pnl: 90, profit_factor: null, total_edge_leak: 0, financial_status: "measured" }} />,
     );
     expect(screen.getByText("Profit factor").nextSibling).toHaveTextContent("∞");
   });
 
   it("writes N/A for an empty period", () => {
     render(
-      <PeriodStrip stats={{ trades: 0, win_rate: 0, total_pnl: 0, profit_factor: null, total_edge_leak: 0 }} />,
+      <PeriodStrip stats={{ trades: 0, win_rate: 0, total_pnl: 0, profit_factor: null, total_edge_leak: 0, financial_status: "no_sample" }} />,
     );
     expect(screen.getByText("Profit factor").nextSibling).toHaveTextContent("N/A");
+  });
+
+  it("does not present incomplete money data as a measured zero", () => {
+    render(
+      <PeriodStrip
+        stats={{
+          trades: 1,
+          win_rate: 1,
+          total_pnl: 0,
+          profit_factor: 0,
+          total_edge_leak: 0,
+          financial_status: "incomplete",
+        }}
+      />,
+    );
+    expect(screen.getByText("Net P&L").nextSibling).toHaveTextContent("N/A");
+    expect(screen.getByText("Profit factor").nextSibling).toHaveTextContent("N/A");
+    expect(screen.getByText("Edge leak").nextSibling).toHaveTextContent("N/A");
   });
 });
 

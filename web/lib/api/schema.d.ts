@@ -1539,6 +1539,11 @@ export interface components {
         };
         /** PeriodStats */
         PeriodStats: {
+            /**
+             * Financial Status
+             * @enum {string}
+             */
+            financial_status: "no_sample" | "incomplete" | "measured";
             /** Profit Factor */
             profit_factor?: number | null;
             /** Total Edge Leak */

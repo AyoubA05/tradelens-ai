@@ -36,7 +36,7 @@ import { FAILURE_MESSAGE, useReviewJob } from "@/components/app/reviews/use-revi
 const NOTE = {
   period: "2026-09-07",
   content_md: "### What Worked\nKept rules.",
-  stats: { trades: 6, win_rate: 0.5, total_pnl: 40, profit_factor: 1.2, total_edge_leak: 0 },
+  stats: { trades: 6, win_rate: 0.5, total_pnl: 40, profit_factor: 1.2, total_edge_leak: 0, financial_status: "measured" },
   reviewed_trades: 6,
   created_at: "2026-09-14T10:00:00Z",
 };
