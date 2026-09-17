@@ -549,9 +549,7 @@ if view == "Trades" and len(trades) >= 2:
                             ),
                             # Logged the moment the provider answers — also
                             # when validation or the guard then fails.
-                            on_usage=lambda usage: log_ai_usage(
-                                "Trade Summary", usage, user_id=uid
-                            ),
+                            on_usage=lambda usage: log_ai_usage("Trade Summary", usage, user_id=uid),  # fmt: skip
                         )
                         st.session_state["_trades_summary"] = {
                             "sig": _sum_sig,
