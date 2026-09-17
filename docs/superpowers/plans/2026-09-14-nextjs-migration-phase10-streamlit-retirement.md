@@ -50,7 +50,7 @@
 
 **Explicitly not in:** building AI Reviews (T1 — its own phase, an entry blocker); new product features; refreshing parity snapshots; production database operations performed by an agent; changing the Render API/worker topology; the `metrics_store` module (no importer today — recorded, untouched).
 
-**Carried forward, NOT this phase's to close (hard pre-release gates, unchanged):** real PostgreSQL concurrency (purge-versus-upload lock, summary-save-versus-delete interleaving, account deletion with non-cascading auth rows); authenticated desktop + true 375px browser smoke (Group R3 builds the harness; a real authenticated run is still owner-executed); Docker build/startup/health; live Anthropic adversarial smoke; dependency audit; live R2/browser verification (now including the screenshot migration). The lexical Partner output guard remains defense-in-depth, not a semantic guarantee.
+**Carried forward, NOT this phase's to close (hard pre-release gates, owner-confirmed after the Phase 10A merge):** real PostgreSQL concurrency — purge-versus-upload lock, summary-save-versus-delete interleaving, account deletion with non-cascading auth rows, the Phase 10A locked review saves, **and Weekly Recap uniqueness**; live Anthropic adversarial testing; authenticated desktop + true 375px Playwright testing (Group R3 builds the harness; the authenticated run is owner-executed); Docker build, startup and health; dependency/security audit; live R2 and screenshot-migration verification (Task R4). The lexical Partner and review output guards remain defense-in-depth, not semantic guarantees.
 
 **Non-blocking hardening carried from Phase 9 (recorded, not closed here):**
 1. CSV formula protection does not normalise leading whitespace or Unicode lookalikes (only `=`, `+`, `-`, `@`, tab, carriage return are neutralised).
@@ -65,7 +65,7 @@
 
 ## Entry blockers — Phase 10 cannot pass Gate 1 until these are resolved
 
-1. **AI Reviews is not migrated.** `web/app/app/reviews/page.tsx` renders only `EmptyState` "Reviews are not migrated yet — Patterns, the weekly recap and the daily debrief move here after the journal." No FastAPI router serves weekly reviews, debriefs or patterns (`src/tradelens/api/routers/` has analytics, overview, partner, session, settings, strategy, trades only), and `services/debrief.py` is imported only by `ui/`. §8 lists **AI Reviews — Patterns (candidates, cards, confidence, evidence, sample size, next review action) · Weekly Recap (week selector, generate, retry, validated sections) · Daily Debrief (day selector, five sections) · read-full-note disclosure**, and §11.1 requires every §8 item. No spec phase ever scheduled it. See **T1**.
+1. **AI Reviews — RESOLVED by Phase 10A, merged at `65b63d2` (2026-09-17).** Patterns, Weekly Recap and Daily Debrief now ship on the FastAPI + Next.js boundary (`/v1/reviews`, `web/app/app/reviews/`), job-backed through `ai_jobs` with the `weekly_recap` and `daily_debrief` kinds, and Codex-cleared. Task R1's ledger records each §8 AI Reviews item as `implemented` with its location and test (see the Phase 10A handoff section in `docs/coordination/CLAUDE_CODEX_HANDOFF.md`). Phase 10A also added migration `h4i5j6k7l8m9` and carried forward: real PostgreSQL concurrency now includes **Weekly Recap uniqueness** (`weekly_reviews` has no unique `(user_id, week_start)`; both save paths lock and select the existing row, so duplicate rows remain possible on PostgreSQL without a data migration).
 2. **No browser E2E harness exists.** No `playwright.config.*`, no `@playwright/test` in `web/package.json`. §11.3 requires Playwright E2E green across all sections at desktop and 375px. See **T3**.
 3. **No screenshot migration exists.** §11.7 requires "Screenshots migrated to R2 and verified readable". No script under `scripts/` performs it. See **T9**.
 4. **The funnel check and CI still point at Streamlit.** `scripts/verify_public_funnel.py`'s documented `--app` is `https://tradelenai.streamlit.app`; `.github/workflows/ci.yml` sets `APP_ORIGIN: https://tradelens-app.streamlit.app` (test job, line 90) and `https://tradelenai.streamlit.app` (web job, line 101). §11.8 requires the funnel to pass against the new app origin.
@@ -79,7 +79,7 @@ Verified on `main` at `6c1f161`:
 
 - **Streamlit UI:** `src/tradelens/ui/app.py`, `design_system.py`, `components/`, `assets/`, pages `1_NewTrade.py`, `2_Trades.py`, `4_Analytics.py`, `5_Strategy.py`, `6_Insights.py`, `7_Partner.py`, `9_Settings.py`, and `pages/_archive/` (`0_Home.py`, `3_TradeDetail.py`, `6_Calendar.py`, `7_Weekly_Review.py`, `8_AI_Partner.py`).
 - **Next.js pages:** `/app`, `/app/journal`, `/app/trades/new`, `/app/trades/[id]`, `/app/analytics`, `/app/strategy`, `/app/settings`, `/app/reviews` (stub), plus `/login`, `/signup`, `/verify-email`, `/onboarding`, `/forgot-password`, `/reset-password`, `/continue`, `/account-deleted`.
-- **The toggle.** `db/models.py:85-92` — `User.app_surface`, `String`, `nullable=False`, `server_default=text("'streamlit'")`, comment "Removed once Streamlit is retired (Phase 10)". Added by `alembic/versions/y5z6a7b8c9d0_add_user_app_surface.py`. Alembic head is `g3h4i5j6k7l8` (`g3h4i5j6k7l8_add_ai_analysis_job_guards.py`).
+- **The toggle.** `db/models.py:85-92` — `User.app_surface`, `String`, `nullable=False`, `server_default=text("'streamlit'")`, comment "Removed once Streamlit is retired (Phase 10)". Added by `alembic/versions/y5z6a7b8c9d0_add_user_app_surface.py`. Alembic head is `h4i5j6k7l8m9` (`h4i5j6k7l8m9_add_daily_debriefs.py`, Phase 10A), which supersedes the Phase 9 head `g3h4i5j6k7l8_add_ai_analysis_job_guards.py` (Phase 10A merged at `65b63d2`).
 - **Web routing on the toggle** (`web/lib/auth/session.ts`): `nextDestinationFor` (`/verify-email` → `/onboarding` → `/app` if `appSurface === "nextjs"` else `/continue`); `continuePageRedirect(user, eligible)`; `appLayoutRedirect` (sends any non-`nextjs` account to `/continue`). Session query selects `u.app_surface` (line 108). Login answers `next: "/continue"` after onboarding (`app/api/auth/login/route.ts:84`); onboarding answers `next: "/continue"` (`app/api/auth/onboarding/route.ts:95`; `onboarding-form.tsx:94` falls back to `/continue`). Tests: `web/__tests__/app-surface-routing.test.ts`, which also asserts **no write to `app_surface` anywhere under `web/`**.
 - **Web handoff path:** `app/continue/page.tsx` (85 lines, POST form + `AutoSubmit`), `app/api/auth/handoff/route.ts` (84), `lib/auth/handoff.ts` (167; `handoffEligibility`, `issueHandoff`, `hasEnteredAppBefore`), `lib/security/app-origin.ts` (105; `handoffRedirectUrl`, reads `APP_ORIGIN`), `components/auto-submit.tsx` (39). `lib/auth/domains.ts` exports `STREAMLIT_DOMAIN = "tl.streamlit.v1|"` and `SURFACE_STREAMLIT` alongside the website constants still used by `lib/api/client.ts`, `lib/auth/login.ts`, `lib/auth/session.ts`. `lib/env.ts:38` lists `APP_ORIGIN` as public-safe. **Password reset writes to the handoff table:** `lib/auth/password-reset.ts:262-277` runs `UPDATE auth_handoffs SET consumed_at` inside the reset transaction and returns `handoffsVoided`; `app/api/auth/reset-password/route.ts:87` logs `handoffs_voided`; `web/__tests__/password-reset.test.ts:338,350` pin it. Comments naming the Streamlit surface, `APP_ORIGIN` or `auth_handoffs` also live in `lib/mail/messages.ts:11-19`, `lib/auth/verification.ts:10-18`, `lib/auth/login.ts:73`, `app/login/login-form.tsx:39`; `lib/security/responses.ts:101` lists a `"handoff"` auth-log event. `scripts/build-marketing.mjs` substitutes `__APP_ORIGIN__`; `site/main.js` documents that CTA. `scripts/probe-credential-domains.mjs` and `scripts/integration-handoff.mjs` exercise the Streamlit domain.
 - **Python handoff path:** `services/auth_exchange.py` (173; `exchange_handoff_for_streamlit_session`, filters `app_surface = 'streamlit'`), `services/auth_handoff.py` (133; no importer under `src/`), `services/auth_sessions.py` (378; `STREAMLIT_DOMAIN`, `SURFACE_STREAMLIT`, `open_streamlit_session`, `restore_streamlit_session`, `revoke_streamlit_session` alongside the website functions). `db/models.py`: `AuthHandoff` (`auth_handoffs`), `AuthSession` with `CheckConstraint("surface IN ('website', 'streamlit')", name="ck_auth_sessions_surface")`. `services/account._OWNED_BY_USER` deletes `AuthSession` and `AuthHandoff` rows; `tests/test_account_deletion_references.py` sweeps every `user_id` table.
@@ -145,7 +145,11 @@ The original decision text follows, unchanged, for reference.
 - T2 outcome recorded in the ledger (no code if the removal is approved).
 
 **Group F**
-- Create `alembic/versions/h4i5j6k7l8m9_flip_app_surface_to_nextjs.py`.
+> **Revision numbering (updated after the Phase 10A merge, `65b63d2`).** Phase 10A took `h4i5j6k7l8m9`, so this
+> plan's three migrations follow the live head: flip `i5j6k7l8m9n0`, drop-Streamlit-auth `j6k7l8m9n0o1`,
+> drop-column `k7l8m9n0o1p2`. Re-check `alembic heads` before writing each one.
+
+- Create `alembic/versions/i5j6k7l8m9n0_flip_app_surface_to_nextjs.py`.
 - Modify `src/tradelens/db/models.py` — `app_surface` `server_default` becomes `'nextjs'`.
 - Modify `tests/test_app_surface_migration.py`; create `tests/test_flip_app_surface_migration.py`.
 - Modify `web/__tests__/app-surface-routing.test.ts` — the "moves nobody by default" block is replaced by "default is nextjs"; the no-write invariant stays.
@@ -153,8 +157,8 @@ The original decision text follows, unchanged, for reference.
 
 **Group X**
 - **X1 (web):** modify `web/lib/auth/session.ts`, `web/app/api/auth/login/route.ts`, `web/app/api/auth/onboarding/route.ts`, `web/app/onboarding/onboarding-form.tsx`, `web/app/app/layout.tsx`, `web/app/continue/page.tsx` (becomes a redirect), `web/lib/auth/domains.ts`, `web/lib/env.ts`, `web/scripts/build-marketing.mjs`, `site/main.js`; delete `web/app/api/auth/handoff/route.ts`, `web/lib/auth/handoff.ts`, `web/lib/security/app-origin.ts`, `web/components/auto-submit.tsx`, `web/scripts/probe-credential-domains.mjs`, `web/scripts/integration-handoff.mjs`; tests updated or deleted with a ledger; create `web/__tests__/no-streamlit-path.test.ts`.
-- **X2 (Python auth):** delete `src/tradelens/services/auth_exchange.py`, `src/tradelens/services/auth_handoff.py`, `scripts/integration_step10.py`, `scripts/integration_step11.py` (Streamlit handoff integration drivers); modify `src/tradelens/services/auth_sessions.py`, `src/tradelens/services/account.py`, `src/tradelens/db/models.py`, `scripts/db_inventory.py`, `scripts/inspect_account.py`, `scripts/cleanup_dev_test_users.py`; create `alembic/versions/i5j6k7l8m9n0_drop_streamlit_auth.py`; tests updated.
-- **X3 (column):** create `alembic/versions/j6k7l8m9n0o1_drop_users_app_surface.py`; modify `src/tradelens/db/models.py`; delete `tests/test_app_surface_migration.py`, `tests/test_flip_app_surface_migration.py`; modify `web/__tests__/app-surface-routing.test.ts` → delete (its invariants move to `no-streamlit-path.test.ts`).
+- **X2 (Python auth):** delete `src/tradelens/services/auth_exchange.py`, `src/tradelens/services/auth_handoff.py`, `scripts/integration_step10.py`, `scripts/integration_step11.py` (Streamlit handoff integration drivers); modify `src/tradelens/services/auth_sessions.py`, `src/tradelens/services/account.py`, `src/tradelens/db/models.py`, `scripts/db_inventory.py`, `scripts/inspect_account.py`, `scripts/cleanup_dev_test_users.py`; create `alembic/versions/j6k7l8m9n0o1_drop_streamlit_auth.py`; tests updated.
+- **X3 (column):** create `alembic/versions/k7l8m9n0o1p2_drop_users_app_surface.py`; modify `src/tradelens/db/models.py`; delete `tests/test_app_surface_migration.py`, `tests/test_flip_app_surface_migration.py`; modify `web/__tests__/app-surface-routing.test.ts` → delete (its invariants move to `no-streamlit-path.test.ts`).
 - **X4 (UI + tests):** delete `src/tradelens/ui/` (all of it, including `_archive/`); delete the seven `tests/*_check.py` runners; retire or migrate test files per `docs/superpowers/parity/2026-09-14-phase10-test-retirement-ledger.md`; create `tests/test_no_streamlit_imports.py`.
 - **X5 (deps, CI, docs, scripts):** modify `requirements.txt`, `requirements-dev.txt`, `tests/test_requirements.py`; delete `runtime.txt`, `.streamlit/`; modify `.github/workflows/ci.yml`, `README.md`, `CLAUDE.md`, `PRODUCT.md`, `scripts/capture_app_screenshots.py`, `scripts/env_audit.py`, `scripts/build_site.py`.
 - **X6:** create `docs/superpowers/runbooks/phase10-streamlit-cloud-decommission.md`.
@@ -901,15 +905,15 @@ def test_no_blockers_remain_after_gate_1():
 ### Task F1: Flip migration and default
 
 **Files:**
-- Create: `alembic/versions/h4i5j6k7l8m9_flip_app_surface_to_nextjs.py`
+- Create: `alembic/versions/i5j6k7l8m9n0_flip_app_surface_to_nextjs.py`
 - Modify: `src/tradelens/db/models.py:85-92`
 - Modify: `tests/test_app_surface_migration.py`
 - Create: `tests/test_flip_app_surface_migration.py`
 - Modify: `web/__tests__/app-surface-routing.test.ts:50-56`
 
 **Interfaces:**
-- Consumes: revision `g3h4i5j6k7l8`.
-- Produces: revision `h4i5j6k7l8m9`; `users.app_surface` default `'nextjs'`; every existing row `'nextjs'`.
+- Consumes: revision `h4i5j6k7l8m9`.
+- Produces: revision `i5j6k7l8m9n0`; `users.app_surface` default `'nextjs'`; every existing row `'nextjs'`.
 
 - [ ] **Step 1: Write the failing migration test**
 
@@ -954,11 +958,11 @@ def _insert_user(db, username):
 
 def test_flip_moves_existing_accounts_and_the_default(tmp_path):
     db = tmp_path / "flip.db"
-    _alembic(db, "upgrade", "g3h4i5j6k7l8")
+    _alembic(db, "upgrade", "h4i5j6k7l8m9")
     _insert_user(db, "before")
     assert _surfaces(db) == ["streamlit"]
 
-    _alembic(db, "upgrade", "h4i5j6k7l8m9")
+    _alembic(db, "upgrade", "i5j6k7l8m9n0")
     assert _surfaces(db) == ["nextjs"]
     _insert_user(db, "after")
     assert _surfaces(db) == ["nextjs", "nextjs"]
@@ -966,9 +970,9 @@ def test_flip_moves_existing_accounts_and_the_default(tmp_path):
 
 def test_downgrade_restores_the_default_but_not_per_account_values(tmp_path):
     db = tmp_path / "flip.db"
-    _alembic(db, "upgrade", "h4i5j6k7l8m9")
+    _alembic(db, "upgrade", "i5j6k7l8m9n0")
     _insert_user(db, "flipped")
-    _alembic(db, "downgrade", "g3h4i5j6k7l8")
+    _alembic(db, "downgrade", "h4i5j6k7l8m9")
     _insert_user(db, "new-after-downgrade")
     assert _surfaces(db) == ["nextjs", "streamlit"]
 ```
@@ -978,13 +982,13 @@ Update `tests/test_app_surface_migration.py::test_users_has_app_surface_defaulti
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `PYTHONDONTWRITEBYTECODE=1 pytest tests/test_flip_app_surface_migration.py tests/test_app_surface_migration.py -v`
-Expected: FAIL — alembic `Can't locate revision identified by 'h4i5j6k7l8m9'`; the model default test fails on `streamlit`.
+Expected: FAIL — alembic `Can't locate revision identified by 'i5j6k7l8m9n0'`; the model default test fails on `streamlit`.
 
 If `_insert_user` cannot satisfy a NOT NULL column without a default, read `models.User` and add that column to `values` explicitly with a valid value (e.g. `password_hash`); do not weaken the assertion.
 
 - [ ] **Step 3: Implement**
 
-`alembic/versions/h4i5j6k7l8m9_flip_app_surface_to_nextjs.py`:
+`alembic/versions/i5j6k7l8m9n0_flip_app_surface_to_nextjs.py`:
 
 ```python
 """Flip every account, and the default, to the Next.js app (Phase 10, Group F).
@@ -997,15 +1001,15 @@ restored — at this point there is no record of which accounts were on which
 surface, and every account was moved deliberately. Use the runbook's per-account
 UPDATE to return specific accounts.
 
-Revision ID: h4i5j6k7l8m9
-Revises: g3h4i5j6k7l8
+Revision ID: i5j6k7l8m9n0
+Revises: h4i5j6k7l8m9
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "h4i5j6k7l8m9"
-down_revision = "g3h4i5j6k7l8"
+revision = "i5j6k7l8m9n0"
+down_revision = "h4i5j6k7l8m9"
 branch_labels = None
 depends_on = None
 
@@ -1072,14 +1076,14 @@ DATABASE_URL=sqlite:///./data/phase10-drill.db alembic downgrade -1
 DATABASE_URL=sqlite:///./data/phase10-drill.db alembic upgrade head
 ```
 
-Expected: all pass; `alembic heads` prints only `h4i5j6k7l8m9 (head)`. Delete `data/phase10-drill.db` afterwards.
+Expected: all pass; `alembic heads` prints only `i5j6k7l8m9n0 (head)`. Delete `data/phase10-drill.db` afterwards.
 
 Tests that create users and assert Streamlit handoff eligibility (`test_step10_handoff_exchange.py`, `test_auth_handoff_and_sessions.py`, `test_auth_fail_closed.py`) will now see `nextjs` by default. For each failure, set `app_surface='streamlit'` explicitly in that test's fixture — they test the Streamlit path, which still exists until X2 — and never change what the test asserts.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add alembic/versions/h4i5j6k7l8m9_flip_app_surface_to_nextjs.py src/tradelens/db/models.py tests/ web/__tests__/app-surface-routing.test.ts
+git add alembic/versions/i5j6k7l8m9n0_flip_app_surface_to_nextjs.py src/tradelens/db/models.py tests/ web/__tests__/app-surface-routing.test.ts
 git commit -m "feat(cutover): flip every account and the default to the Next.js app"
 ```
 
@@ -1088,7 +1092,7 @@ git commit -m "feat(cutover): flip every account and the default to the Next.js 
 **Files:**
 - Create: `docs/superpowers/runbooks/phase10-flip-and-rollback.md`
 
-- [ ] **Step 1:** Write the runbook with exactly these sections: *Preconditions* (Gate 1 recorded; database backup taken and its identifier written down; Streamlit Cloud still live); *Apply* (`alembic upgrade h4i5j6k7l8m9` against production, run by the owner); *Verify* (`SELECT app_surface, COUNT(*) FROM users GROUP BY app_surface` returns only `nextjs`; sign in as a beta account lands on `/app`; opening the Streamlit URL signed in shows its "moved to the web app" refusal); *Roll back one account* (`UPDATE users SET app_surface = 'streamlit' WHERE id = :id;` then that user signs in again); *Roll back everyone* (`alembic downgrade g3h4i5j6k7l8` then `UPDATE users SET app_surface = 'streamlit';`); *Record* (date, operator, counts, any rollback and why — §11.6 requires "no recorded fallback").
+- [ ] **Step 1:** Write the runbook with exactly these sections: *Preconditions* (Gate 1 recorded; database backup taken and its identifier written down; Streamlit Cloud still live); *Apply* (`alembic upgrade i5j6k7l8m9n0` against production, run by the owner); *Verify* (`SELECT app_surface, COUNT(*) FROM users GROUP BY app_surface` returns only `nextjs`; sign in as a beta account lands on `/app`; opening the Streamlit URL signed in shows its "moved to the web app" refusal); *Roll back one account* (`UPDATE users SET app_surface = 'streamlit' WHERE id = :id;` then that user signs in again); *Roll back everyone* (`alembic downgrade h4i5j6k7l8m9` then `UPDATE users SET app_surface = 'streamlit';`); *Record* (date, operator, counts, any rollback and why — §11.6 requires "no recorded fallback").
 - [ ] **Step 2:** Commit: `git add docs/superpowers/runbooks/phase10-flip-and-rollback.md && git commit -m "docs(runbook): Phase 10 flip and rollback"`.
 
 ---
@@ -1314,12 +1318,12 @@ git commit -m "feat(cutover): web routes every account to the app; remove the St
 - Modify: `src/tradelens/services/auth_sessions.py` (delete `STREAMLIT_DOMAIN`, `SURFACE_STREAMLIT`, `open_streamlit_session`, `restore_streamlit_session`, `revoke_streamlit_session`)
 - Modify: `src/tradelens/db/models.py` (delete `AuthHandoff`; `ck_auth_sessions_surface` → `surface IN ('website')`)
 - Modify: `src/tradelens/services/account.py` (remove `AuthHandoff` from `_OWNED_BY_USER` and its import)
-- Create: `alembic/versions/i5j6k7l8m9n0_drop_streamlit_auth.py`
+- Create: `alembic/versions/j6k7l8m9n0o1_drop_streamlit_auth.py`
 - Test: `tests/test_drop_streamlit_auth_migration.py`; update `tests/test_account_deletion_references.py`; delete Streamlit-only functions from `tests/test_auth_handoff_and_sessions.py`, `tests/test_credential_domains.py`, delete `tests/test_step10_handoff_exchange.py` (ledger entry for each)
 
 **Interfaces:**
-- Consumes: revision `h4i5j6k7l8m9`.
-- Produces: revision `i5j6k7l8m9n0`; no `auth_handoffs` table; `auth_sessions.surface` accepts only `'website'`.
+- Consumes: revision `i5j6k7l8m9n0`.
+- Produces: revision `j6k7l8m9n0o1`; no `auth_handoffs` table; `auth_sessions.surface` accepts only `'website'`.
 
 - [ ] **Step 1: Write the failing migration test**
 
@@ -1360,12 +1364,12 @@ def _session_row(conn, surface, token_hash):
 
 def test_upgrade_deletes_streamlit_sessions_drops_handoffs_and_narrows_surface(tmp_path):
     db = tmp_path / "drop.db"
-    _alembic(db, "upgrade", "h4i5j6k7l8m9")
+    _alembic(db, "upgrade", "i5j6k7l8m9n0")
     with sqlite3.connect(db) as conn:
         conn.execute("PRAGMA foreign_keys=OFF")
         _session_row(conn, "website", "a" * 64)
         _session_row(conn, "streamlit", "b" * 64)
-    _alembic(db, "upgrade", "i5j6k7l8m9n0")
+    _alembic(db, "upgrade", "j6k7l8m9n0o1")
     assert "auth_handoffs" not in _tables(db)
     with sqlite3.connect(db) as conn:
         assert [r[0] for r in conn.execute("SELECT surface FROM auth_sessions")] == ["website"]
@@ -1376,8 +1380,8 @@ def test_upgrade_deletes_streamlit_sessions_drops_handoffs_and_narrows_surface(t
 
 def test_downgrade_recreates_empty_handoffs_and_the_wide_constraint(tmp_path):
     db = tmp_path / "drop.db"
-    _alembic(db, "upgrade", "i5j6k7l8m9n0")
-    _alembic(db, "downgrade", "h4i5j6k7l8m9")
+    _alembic(db, "upgrade", "j6k7l8m9n0o1")
+    _alembic(db, "downgrade", "i5j6k7l8m9n0")
     assert "auth_handoffs" in _tables(db)
     with sqlite3.connect(db) as conn:
         conn.execute("PRAGMA foreign_keys=OFF")
@@ -1388,11 +1392,11 @@ def test_downgrade_recreates_empty_handoffs_and_the_wide_constraint(tmp_path):
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `PYTHONDONTWRITEBYTECODE=1 pytest tests/test_drop_streamlit_auth_migration.py -v`
-Expected: FAIL — `Can't locate revision identified by 'i5j6k7l8m9n0'`.
+Expected: FAIL — `Can't locate revision identified by 'j6k7l8m9n0o1'`.
 
 - [ ] **Step 3: Implement**
 
-`alembic/versions/i5j6k7l8m9n0_drop_streamlit_auth.py`:
+`alembic/versions/j6k7l8m9n0o1_drop_streamlit_auth.py`:
 
 ```python
 """Remove Streamlit sessions and handoff credentials (Phase 10, Group X2).
@@ -1403,15 +1407,15 @@ downgrade() recreates `auth_handoffs` EMPTY and re-widens the surface
 constraint. Deleted Streamlit sessions and handoffs are not restored: they
 were credentials for a retired surface.
 
-Revision ID: i5j6k7l8m9n0
-Revises: h4i5j6k7l8m9
+Revision ID: j6k7l8m9n0o1
+Revises: i5j6k7l8m9n0
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "i5j6k7l8m9n0"
-down_revision = "h4i5j6k7l8m9"
+revision = "j6k7l8m9n0o1"
+down_revision = "i5j6k7l8m9n0"
 branch_labels = None
 depends_on = None
 
@@ -1454,7 +1458,7 @@ Delete `tests/test_step10_handoff_exchange.py`. From `tests/test_auth_handoff_an
 - [ ] **Step 4: Run**
 
 Run: `PYTHONDONTWRITEBYTECODE=1 pytest tests/test_drop_streamlit_auth_migration.py tests/test_account_deletion_references.py tests/test_account_deletion.py tests/test_auth_handoff_and_sessions.py tests/test_credential_domains.py tests/test_website_session_restore.py -v`, then `python -c "import src.tradelens.api.app"` (imports cleanly), then `python -m py_compile scripts/db_inventory.py scripts/inspect_account.py scripts/cleanup_dev_test_users.py` and `grep -rn "auth_handoffs" src scripts --include="*.py"` (expected: only `src/tradelens/ui/` and the new migration), then the upgrade/downgrade drill from F1 Step 4.
-Expected: all pass; one head `i5j6k7l8m9n0`. `ui/` still imports `auth_exchange` at this point — **`streamlit run` is expected to break from here on**; X4 deletes `ui/`. The X2 commit and the X4 commit ship in the same release.
+Expected: all pass; one head `j6k7l8m9n0o1`. `ui/` still imports `auth_exchange` at this point — **`streamlit run` is expected to break from here on**; X4 deletes `ui/`. The X2 commit and the X4 commit ship in the same release.
 
 - [ ] **Step 5: Commit**
 
@@ -1468,14 +1472,14 @@ git commit -m "feat(cutover): drop Streamlit sessions and handoff credentials"
 ### Task X3: Drop `users.app_surface` (requires T6)
 
 **Files:**
-- Create: `alembic/versions/j6k7l8m9n0o1_drop_users_app_surface.py`
+- Create: `alembic/versions/k7l8m9n0o1p2_drop_users_app_surface.py`
 - Modify: `src/tradelens/db/models.py` (delete the column)
 - Delete: `tests/test_app_surface_migration.py`, `tests/test_flip_app_surface_migration.py` (their subject no longer exists — ledger entries)
 - Test: `tests/test_drop_app_surface_migration.py`
 
 **Interfaces:**
-- Consumes: revision `i5j6k7l8m9n0`.
-- Produces: revision `j6k7l8m9n0o1` (new single head); `users` has no `app_surface`.
+- Consumes: revision `j6k7l8m9n0o1`.
+- Produces: revision `k7l8m9n0o1p2` (new single head); `users` has no `app_surface`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1504,14 +1508,14 @@ def _columns(db):
 
 def test_upgrade_drops_the_column(tmp_path):
     db = tmp_path / "col.db"
-    _alembic(db, "upgrade", "j6k7l8m9n0o1")
+    _alembic(db, "upgrade", "k7l8m9n0o1p2")
     assert "app_surface" not in _columns(db)
 
 
 def test_downgrade_re_adds_it_not_null_defaulting_to_nextjs(tmp_path):
     db = tmp_path / "col.db"
-    _alembic(db, "upgrade", "j6k7l8m9n0o1")
-    _alembic(db, "downgrade", "i5j6k7l8m9n0")
+    _alembic(db, "upgrade", "k7l8m9n0o1p2")
+    _alembic(db, "downgrade", "j6k7l8m9n0o1")
     column = _columns(db)["app_surface"]
     assert column[3] == 1  # NOT NULL
     assert column[4] in ("'nextjs'", "nextjs")
@@ -1538,15 +1542,15 @@ Runs only after the X1 web build — which no longer selects the column — is l
 downgrade() re-adds the column NOT NULL with DEFAULT 'nextjs'. Per-account values
 are not restored; at Gate 2 every account was 'nextjs'.
 
-Revision ID: j6k7l8m9n0o1
-Revises: i5j6k7l8m9n0
+Revision ID: k7l8m9n0o1p2
+Revises: j6k7l8m9n0o1
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "j6k7l8m9n0o1"
-down_revision = "i5j6k7l8m9n0"
+revision = "k7l8m9n0o1p2"
+down_revision = "j6k7l8m9n0o1"
 branch_labels = None
 depends_on = None
 
@@ -1568,7 +1572,7 @@ Delete the `app_surface` column and comment from `models.User`. `ui/components/a
 - [ ] **Step 4: Run**
 
 Run: `PYTHONDONTWRITEBYTECODE=1 pytest tests/test_drop_app_surface_migration.py tests/test_drop_streamlit_auth_migration.py -v` (the last test in the new file will still fail on `ui/` until X4 — run it again after X4), then the F1 drill (upgrade head, downgrade -1 twice, upgrade head).
-Expected: the two migration tests pass; one head `j6k7l8m9n0o1`.
+Expected: the two migration tests pass; one head `k7l8m9n0o1p2`.
 
 - [ ] **Step 5: Commit**
 
@@ -1746,7 +1750,7 @@ git commit -m "chore(cutover): drop Streamlit, PyArrow and Plotly; Streamlit Clo
 **Files:**
 - Create: `docs/superpowers/runbooks/phase10-streamlit-cloud-decommission.md`
 
-- [ ] **Step 1:** Write the runbook with these steps, each with a checkbox and a "recorded by / date" field: (1) X1–X5 merged and deployed; production `alembic heads` shows `j6k7l8m9n0o1`; (2) Streamlit Cloud app analytics show no sessions for 7 consecutive days; (3) delete the Streamlit Cloud app; (4) delete its secrets in Streamlit Cloud; (5) rotate any credential that existed only in Streamlit Cloud secrets (list which, never their values); (6) confirm Vercel has no `APP_ORIGIN` environment variable left, or remove it; (7) confirm the old `*.streamlit.app` URL no longer serves the app; (8) `python scripts/verify_public_funnel.py --site <site> --app <app>` exits 0; (9) record the date in the handoff.
+- [ ] **Step 1:** Write the runbook with these steps, each with a checkbox and a "recorded by / date" field: (1) X1–X5 merged and deployed; production `alembic heads` shows `k7l8m9n0o1p2`; (2) Streamlit Cloud app analytics show no sessions for 7 consecutive days; (3) delete the Streamlit Cloud app; (4) delete its secrets in Streamlit Cloud; (5) rotate any credential that existed only in Streamlit Cloud secrets (list which, never their values); (6) confirm Vercel has no `APP_ORIGIN` environment variable left, or remove it; (7) confirm the old `*.streamlit.app` URL no longer serves the app; (8) `python scripts/verify_public_funnel.py --site <site> --app <app>` exits 0; (9) record the date in the handoff.
 - [ ] **Step 2:** Commit: `git add docs/superpowers/runbooks/phase10-streamlit-cloud-decommission.md && git commit -m "docs(runbook): Streamlit Cloud decommission"`.
 
 ---
@@ -1772,4 +1776,4 @@ git commit -m "chore(cutover): drop Streamlit, PyArrow and Plotly; Streamlit Clo
 - **Spec coverage:** §7 phase 10 — flip default (F1), remove toggle (X1, X3), delete `ui/` (X4), retire UI tests (X4 + ledger), drop dependencies (X5), decommission Streamlit Cloud (X6). §3 — `_archive/` with `ui/` (X4); `STREAMLIT_DOMAIN` and `open/restore/revoke_streamlit_session` (X1, X2). §11 — 1 (R1, Gate 1, T1, T8), 2 (Gate 1, X4 Step 5), 3 (R3, T3, Gate 1), 4 (Gate 1), 5 and 6 (Gate 2), 7 (R4, T9, Gate 1), 8 (R2, Gate 1, X6). §10.1 (X4 migrate-not-delete, coverage gate). §10.2 (parity harness in every gate, snapshots frozen). §8 "no drop without a recorded decision" (R1 ledger, T2, T8).
 - **Gap the spec does not cover:** AI Reviews was never scheduled in §7; surfaced as Entry blocker 1 and T1 rather than silently absorbed.
 - **Placeholder scan:** the CI app origin `https://app.tradelensai.io` is a stated default the owner may replace (R2); R1's example Overview row paths are marked for replacement with the real files; every code step carries code.
-- **Type consistency:** revisions chain `g3h4i5j6k7l8 → h4i5j6k7l8m9 → i5j6k7l8m9n0 → j6k7l8m9n0o1`; `nextDestinationFor`/`appLayoutRedirect` return types match between X1's implementation and `post-login-routing.test.ts`; `MigrationReport` fields match R4's tests and CLI.
+- **Type consistency:** revisions chain `h4i5j6k7l8m9 → i5j6k7l8m9n0 → j6k7l8m9n0o1 → k7l8m9n0o1p2`; `nextDestinationFor`/`appLayoutRedirect` return types match between X1's implementation and `post-login-routing.test.ts`; `MigrationReport` fields match R4's tests and CLI.
