@@ -8695,3 +8695,102 @@ convergent. The 7 pre-existing Streamlit boot failures above, recorded separatel
 
 **Phase 10A is not merged. Codex review requested. No Phase 10 flip or irreversible Streamlit removal has been
 performed.**
+
+---
+
+## Codex independent Phase 10A review — 2026-09-17
+
+Reviewed the complete `origin/main..c4056da` branch range, the approved Phase 10A plan, service/API/worker/storage
+paths, generated contract, and web relays/components. Fix-forward commits are `2a32075` and `f611248`. The branch is
+still **not merged or pushed by this review**, and no Phase 10 retirement work was started.
+
+### Findings and fixes
+
+No Critical or High finding was confirmed. Three Medium correctness/trust-boundary defects were reproduced before
+being fixed:
+
+1. **Future trades affected current Patterns and could unlock Weekly Recap.** `GET /v1/reviews` excluded future dates
+   from the period options and model inputs, but built Patterns and `complete_trades` from every owner trade; the weekly
+   activation gate did the same. A future-dated complete trade therefore changed visible statistics and four future
+   trades plus one current trade bypassed the five-trade gate. `reviews.py` now applies the same owner-timezone `today`
+   ceiling before both calculations. `test_patterns_and_completion_count_exclude_future_dated_trades` and
+   `test_future_complete_trades_do_not_unlock_a_weekly_recap` reproduce the old results (2 rather than 1, and 202 rather
+   than 409). Removing both filters makes both tests fail.
+2. **Incomplete P&L was displayed as a measured `$0.00`.** Existing parity-pinned metric helpers intentionally flatten
+   missing P&L, and the Phase 10A contract carried no completeness signal. `PeriodStats.financial_status` now preserves
+   `no_sample` / `incomplete` / `measured` across Python, OpenAPI, generated TypeScript and React. A legitimate numeric
+   zero remains `$0.00`; incomplete money, profit factor and edge leak render `N/A`. Legacy persisted rows that lack the
+   bit are conservatively `incomplete` (unless empty), because the old flattened payload cannot prove measurement.
+   Python boundary tests and `reviews-note.test.tsx` pin both states; forcing the component to treat incomplete data as
+   complete fails on the visible `$0.00`.
+3. **Correction state fingerprint and provider input were not one captured value.** The router/worker fingerprinted an
+   exact corrections block, but `ai_client` independently re-read it best-effort at provider time. A transient second
+   read failure silently sent no corrections while allowing the answer to be saved under a fingerprint claiming they
+   were present. Reviews now capture one owner-scoped block, hash and send those exact bytes, then re-read inside the
+   locked persistence verification. An unreadable block fails closed before spend. The job payload remains text-free.
+   Tests prove the exact captured block reaches the provider user turn without a second DB read, never enters the
+   provider system field, and is the block the worker fingerprinted. Removing the worker-to-provider argument makes
+   the wiring regression fail.
+
+No Low defect was confirmed. Hardening/deployment limits remain: `weekly_reviews` still lacks a unique
+`(user_id, week_start)` constraint; production correctness relies on the owner/source row locks, which SQLite cannot
+prove. This requires the existing real-PostgreSQL concurrency gate before release. The lexical reflection guard remains
+defense-in-depth rather than a semantic guarantee.
+
+### Independent verdicts
+
+- **Tenant isolation:** clear in the reviewed code. API identity is the only owner source; period/model queries,
+  source locks, result pointers, saved-note reads, job polling and deletion are owner-scoped. Two-user API and end-to-end
+  poll tests pass. No browser owner selector or review text appears in job/ticket payloads.
+- **Fingerprint/stale-job safety:** clear after `2a32075`. Model input, prompt text/name, effort, model/config, Strategy
+  Profile and exact corrections affect the key. Source ids and the full fingerprint are rechecked before the paid call
+  and under the save transaction. Edited/deleted sources and Delete All/sample clearing cannot be resurrected by a
+  completing worker in the tested sequencing model.
+- **Prompt boundary:** clear under mocked-provider inspection. Unique Strategy Profile, trade observation, pattern and
+  correction markers all appear only in the actual outbound user message; none appears in the actual system argument.
+  Shared sanitation/bounding remains the route for trader text.
+- **Billing/dates:** invalid/future/empty periods fail before enqueue/provider work; usage is recorded immediately after
+  a provider response, including later validation/guard rejection. The shared atomic job limiter and owner-local DST
+  rules are covered. True PostgreSQL rate/lock concurrency and a live provider remain unverified gates.
+- **Financial correctness/frontend:** Patterns still reuse the existing metric services; no alternative financial
+  formulas were introduced. Measured zero and incomplete data are now distinct. Saved notes remain visible on failed
+  regeneration; strict URL/status/plain-text behavior remains covered by observable relay/component tests.
+
+### Mutation assessment
+
+The four reported survivors were independently re-applied in a clean `c4056da` archive and their intended suites run:
+
+- P05 (drop fingerprint `kind`): 11 relevant tests passed. Equivalent because the external key and DB lookup both
+  retain kind, while prompt and effort also separate the two review types.
+- P25 (remove daily options membership check): 4 future/empty/invalid/enqueue tests passed. Equivalent because the
+  owner-today model input produces no source ids and the following guard returns the same 409 before enqueue.
+- W05 (remove declared content-length precheck): all 61 relay tests passed. Equivalent for acceptance/security because
+  actual UTF-8 bytes remain bounded; the header check is only an early rejection optimization.
+- W08 (remove `settle`'s abort clause): all 12 hook tests passed. Equivalent because every settle path is synchronously
+  abort-guarded and controller identity still rejects stale work.
+
+The three new load-bearing fixes were also mutated independently: removing future-date filters failed both new API
+tests; treating incomplete finance as complete failed the visible-output test; dropping the captured corrections block
+from the provider call failed the worker wiring test. Every mutation was applied in isolated archives; the review
+worktree was not used as a restore target.
+
+### Verification actually run
+
+- Final focused Python review/security suite: **206 passed**.
+- Full Python suite during the fix review: **4001 passed / 7 skipped / 7 failed** in 796.37s. The seven failures are the
+  exact already-recorded Streamlit Journal/Analytics boot assertions above; no Phase 10A test failed. The final legacy
+  fallback adjustment was then verified by its focused API regression and the 206-test final focused run.
+- Full web: **108 files / 1995 passed**. Final review/relay subset: **6 files / 131 passed**.
+- TypeScript clean. ESLint: **0 errors / 2 pre-existing `modal-trap.ts` warnings**.
+- Production Next.js build succeeded; `/app/reviews` and all three review relays are dynamic.
+- OpenAPI regenerated and TypeScript regenerated with no drift. Alembic has one head, `h4i5j6k7l8m9`; migration/parity
+  run: **30 passed**.
+- Ruff `src/ scripts/` clean; Black `src/ scripts/` clean. Whole-tree Ruff still reports the two previously documented
+  old-test findings, and Black still reports only unchanged `tests/app_boot_check.py`.
+- `git diff --check` clean; final worktree clean before this handoff-only commit.
+
+No authenticated browser/375px, live Anthropic, real PostgreSQL, Docker, dependency-audit, or live R2 run was
+performed. Keep all established deployment gates open.
+
+**Independent verdict: Phase 10A at `f611248` is cleared for development merge, not production deployment. Stop here;
+do not begin Phase 10 retirement as part of this review.**
