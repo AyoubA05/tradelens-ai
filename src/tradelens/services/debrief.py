@@ -15,6 +15,7 @@ from typing import Callable, Optional
 
 from src.tradelens.services.ai_client import AIUnavailable, Usage, chat, load_prompt
 from src.tradelens.services.ownership import require_user_id
+from src.tradelens.services.prompt_inputs import prompt_scalar, sanitised_strategy
 from src.tradelens.services.reflection_guard import reject_forward_looking
 from src.tradelens.services.trade_service import get_trades
 from src.tradelens.services.weekly import _trades_to_df, _week_stats
@@ -85,19 +86,27 @@ def build_trades_payload(trades: list) -> list:
 
     mistake_tags (a JSON string column) is parsed to a list; notes are
     truncated so one verbose journal entry can't blow the prompt budget.
+    Every trader-authored string goes through `prompt_inputs.prompt_scalar`.
     """
     rows = sorted(trades, key=lambda t: str(getattr(t, "trade_date", "") or ""))
     rows = rows[-_MAX_TRADES:]
     payload = []
     for t in rows:
-        row = {f: getattr(t, f, None) for f in _PAYLOAD_FIELDS}
+        row = {}
+        for f in _PAYLOAD_FIELDS:
+            value = getattr(t, f, None)
+            # Trader-typed text (setup, emotions, ...) is prompt data too.
+            row[f] = prompt_scalar(value) if isinstance(value, str) else value
         try:
-            row["mistake_tags"] = json.loads(getattr(t, "mistake_tags", None) or "[]")
+            tags = json.loads(getattr(t, "mistake_tags", None) or "[]")
+            row["mistake_tags"] = [
+                prompt_scalar(tag) if isinstance(tag, str) else tag for tag in tags
+            ]
         except (json.JSONDecodeError, TypeError):
             row["mistake_tags"] = []
         notes = getattr(t, "notes", None)
         if isinstance(notes, str) and notes.strip():
-            row["notes"] = notes.strip()[:_MAX_NOTE_CHARS]
+            row["notes"] = prompt_scalar(notes.strip())[:_MAX_NOTE_CHARS]
         payload.append(row)
     return payload
 
@@ -122,7 +131,7 @@ def _model_input_from_trades(
         "stats": _week_stats(_trades_to_df(trades)),
         "trades": build_trades_payload(trades),
         "total_trades": len(trades),
-        "strategy_profile": strategy_profile or None,
+        "strategy_profile": sanitised_strategy(strategy_profile) or None,
     }
 
 

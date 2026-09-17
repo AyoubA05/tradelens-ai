@@ -206,7 +206,7 @@ def build_weekly_model_input(
     today from `review_inputs.review_as_of` when omitted — are excluded (C6).
     JSON-safe apart from numpy scalars, which the fingerprint canonicalises.
     """
-    from src.tradelens.services import review_inputs
+    from src.tradelens.services import prompt_inputs, review_inputs
 
     owner = require_user_id(user_id)
     week_monday, sunday = week_bounds(monday)
@@ -225,7 +225,7 @@ def build_weekly_model_input(
         "week_end": sunday,
         "stats": _week_stats(df),
         "candidates": None if df.empty else compute_candidates(df),
-        "strategy_profile": strategy_profile or None,
+        "strategy_profile": prompt_inputs.sanitised_strategy(strategy_profile) or None,
         "source_trade_ids": sorted(
             int(t.id) for t in rows if getattr(t, "id", None) is not None
         ),
