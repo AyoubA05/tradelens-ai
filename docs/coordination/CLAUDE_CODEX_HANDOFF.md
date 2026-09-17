@@ -8536,3 +8536,162 @@ Streamlit cutover race and the known pre-existing/environment-sensitive full-sui
 **Independent verdict: the reviewed Phase 9 implementation is clear for development merge with
 `5d9fc67`, `ab9ccbb`, `eb18791`, and `6205123`, but not for production. Do not begin Phase 10 as part
 of this review.**
+
+---
+
+# Phase 10A — AI Reviews (branch `worktree-phase10a-ai-reviews`, NOT merged)
+
+Plan: `docs/superpowers/plans/2026-09-14-nextjs-migration-phase10a-ai-reviews.md` (`f4cd462`; R1–R9 approved with
+binding clarifications C1–C6 in `e748e31`). Parent: Phase 10 plan decision T1. Branched from `origin/main` `6c1f161`.
+**Final code tip: `9979c45`.** All verification below ran on `9979c45`.
+
+## Commits
+
+- **Group A (services):** `c419206` review periods + reflection guard into services · `4eab160` persisted daily
+  debriefs, source-locked verified saves, migration `h4i5j6k7l8m9` · `82370c6` deleting trades removes derived reviews
+  and review jobs.
+- **Group B (API + worker):** `6461462` `GET /v1/reviews` · `3b5bddb` weekly recap fingerprint, enqueue, poll, worker ·
+  `10a02d5` daily debrief.
+- **Groups C/D (web):** `4f0cf02` relays + server bridge · `e74d63c` page, lens tabs, patterns, safe note reader ·
+  `117cd33` weekly/daily lenses with the job hook.
+- **Review fix rounds:** `8a20bf4` one as-of-today rule (C6) · `289899e` guard false positives; Streamlit logs usage
+  once · `7800ed6` locked-session / owner-filtered / strict result-pointer tests · `6211ca4` poll relay forwards only the
+  out-of-date sentence; confidence thresholds match Streamlit · `97ec63f` source-check whitespace · `f3ceac3` legacy
+  Streamlit weekly save locks, refuses empty weeks, clears job provenance · `7d9a7a5` 429 relay forwards only the two
+  limit sentences · `d3e94ba` hook timeout / after-unmount / 429 button tests · `2e4d6ae` page re-reads without a
+  rejected period; lens keying pinned · `25f9f28` daily period-switch test · `815ab86` guard position→future case ·
+  `1e5eb6f` empty debrief refused; model uniqueness pinned.
+- **Verification-found defects:** `f9d3e1b` tests for surviving mutants P10/W10/W13 · `a20c00e` sanitise trader text
+  (Strategy Profile, notes, daily text fields) in weekly and daily prompts · `e4c6890` sanitise weekly pattern-candidate
+  labels (`prompt_inputs.sanitised_data`) · `1568ac8` Trades page usage-call contract · `5def090` Insights test doubles
+  honour `on_usage` · `9979c45` pin owner timezone in no-database weekly test invokers.
+
+## Decisions and binding clarifications — enforcement
+
+| Item | Enforced in | Pinned by |
+|---|---|---|
+| R1/C1 persisted owner-scoped debriefs with provenance (`day`, `input_fingerprint`, `job_id`, `created_at`, `updated_at`); weekly job saves record the same | `models.DailyDebrief`, migration `h4i5j6k7l8m9`, `daily_debriefs.save_daily_debrief`, `weekly.save_weekly_review_from_sources` | `test_daily_debriefs.py`, `test_migrations.py` |
+| R2 no generation on view | lenses generate only from an explicit click | `reviews-*-lens.test.tsx` "never calls fetch on render" (W16) |
+| R3/C2 effective-input fingerprint: kind, owner, period, exact model input, prompt name + text hash, call effort, `ai_input_version` (model, default effort, demo mode, Strategy Profile, corrections) | `services/review_inputs.review_input_fingerprint`; key `<kind>:<fingerprint>` | `test_review_inputs.py`, `test_api_reviews.py`; battery P01–P12 |
+| C3 recompute before any provider call and inside the locked save; mismatch or missing source → `<kind>:superseded`, nothing written, no spend | `api/worker._weekly_recap_handler` / `_daily_debrief_handler`, `daily_debriefs.lock_and_verify_sources` | `test_review_worker.py`; P13–P17 |
+| R4 rolling limits (weekly 10/24h, daily 20/24h), fixed 429 sentences | `jobs.enqueue_with_limit` via the router | P11; W04 |
+| R5 gates: 409 `empty_period`, `not_enough_trades` | router | P23 |
+| R6/C6 owner timezone incl. DST; trades after the owner's today excluded (router, worker and verify share `review_as_of`) | `review_inputs.review_as_of`, `review_periods` | DST tests; P26 |
+| R7/C4 reflection guard — **lexical defense-in-depth, not a semantic guarantee** | `services/reflection_guard.py` | `test_reflection_guard.py`; P20–P21 |
+| R8/C5 deletion removes weekly recaps, daily debriefs and review jobs; no resurrection by a running worker or the legacy Streamlit save | `data_deletion._delete_derived_review_state`, locked verify, `weekly.save_weekly_review` refusal | `test_review_deletion.py`; P27–P29 |
+| R9 deterministic Patterns | `patterns.generate_insights` only | `test_api_reviews.py` (no AI call) |
+
+## §8 AI Reviews parity (for the Phase 10 R1 ledger)
+
+| §8 item | Location | Test |
+|---|---|---|
+| Patterns (candidates, cards, confidence, evidence, sample size, next review action) | `web/components/app/reviews/patterns-lens.tsx`; `GET /v1/reviews` | `web/__tests__/reviews-page.test.tsx`; `tests/test_api_reviews.py` |
+| Weekly Recap (week selector, generate, retry, validated sections) | `web/components/app/reviews/weekly-lens.tsx`; `POST /v1/reviews/weekly`; worker | `reviews-weekly-lens.test.tsx`, `reviews-job-hook.test.tsx`; `test_review_worker.py` |
+| Daily Debrief (day selector, five sections) | `web/components/app/reviews/daily-lens.tsx`; `POST /v1/reviews/daily`; worker | `reviews-daily-lens.test.tsx`; `test_review_worker.py` |
+| Read-full-note disclosure | `web/components/app/reviews/review-note.tsx` | `reviews-note.test.tsx` |
+
+## Review
+
+Independent deep reviews in private `git archive` extractions of every group (A: `e748e31..82370c6`; B:
+`82370c6..10a02d5`; C/D: `10a02d5..117cd33`). **No blocking findings.** All should-fix findings and test gaps were
+addressed in the fix rounds above. Findings verification then exposed three genuine defects, fixed with tests:
+
+1. **Trader text reached the weekly/daily prompts unsanitised** (`a20c00e`, `e4c6890`). The project's one sanitiser
+   (`prompt_inputs`) was bypassed: raw Strategy Profile, notes, daily free-text fields and pattern-candidate labels were
+   serialised into the user message, while `ai_input_version` fingerprinted the sanitised profile. Carried from the
+   Streamlit Insights path into the new job path. Now every trader-authored string is bounded and markup-stripped
+   before prompting, and the fingerprint covers the sanitised input the model actually reads.
+2. **Four full-suite regressions** (`1568ac8`, `5def090`, `9979c45`): a Trades page source contract; Insights test
+   doubles that ignored the new `on_usage` callback; two tests that invoke weekly generation with no database now that
+   the owner timezone (C6) is read on that path — the tests pin the timezone; product behaviour is unchanged.
+
+Recorded notes (not changed):
+- Strategy Profile and corrections are read outside the locked save transaction (PostgreSQL window; effect equals an
+  edit made just after the save).
+- `ai_client._corrections_block` returns "" on error while the fingerprint read succeeded (pre-existing).
+- Code constants (caps, message templates) are not fingerprinted; they change only with a deploy.
+- `weekly_reviews` has no unique `(user_id, week_start)`; both save paths lock and select the existing row, but
+  duplicate rows remain possible on PostgreSQL without a data migration.
+- `as_of` is not in the fingerprint: a queued job stays valid past midnight and is superseded (no spend) if a
+  later-dated trade in its week becomes eligible.
+- The guard lets a process rule through only when it names no side ("Aim to buy only after confirmation." is rejected).
+- A bad but ISO-shaped period in the URL makes the page drop both `week` and `day` and open on the newest periods.
+- `readJsonBody` reads the body before measuring when no `content-length` is sent (trade-summary template parity).
+
+## Mutation battery (final, at `9979c45`)
+
+Hardened harness: verdict controls first (injected Python syntax and import errors → ERROR; empty selector → NOT-RUN;
+unmutated → SURVIVED; known Python and TSX kills → CAUGHT; TSX syntax and missing-module → ERROR) — **8/8 correct**.
+CAUGHT only when the intended tests collected, ran and at least one FAILED; ERROR / NOT-RUN / NOT-APPLIED never count.
+Preflight and postflight clean at `9979c45`; **every restore sha256-verified.**
+
+**48 mutants: 44 caught · 4 survived · 0 ERROR · 0 NOT-RUN · 0 NOT-APPLIED.** The four survivors are equivalent:
+
+- **P05 — fingerprint drops `kind`.** Different review kinds can never share a reusable job key: the idempotency key is
+  `<kind>:<fingerprint>` and `enqueue_with_limit` also filters by kind, and the fingerprint independently carries each
+  kind's prompt name, prompt-text hash and effort (`weekly_recap_v1`/`"high"` vs `debrief_v1`/default). Removing the
+  `kind` field alone cannot let a weekly recap and a daily debrief collide or reuse each other's job.
+- **P25 — daily "day in options" check removed.** A future day or a day with no trades already yields no source trades
+  through the shared `as_of` model input and is refused with 409 `empty_period`.
+- **W05 — declared `content-length` bound removed.** The header is advisory; the bound on the text actually read (W06,
+  caught) still refuses an oversized body.
+- **W08 — the hook's `settle` abort check removed.** Every `settle` call is preceded by a synchronous abort guard, so the
+  check has no observable effect.
+
+**P08 is no longer a survivor.** In earlier runs it survived and was classed as equivalent; analysis showed it was not —
+the raw Strategy Profile in the model input was covering text the sanitised digest did not, which exposed defect 1. With
+the sanitiser fix, P08 (strategy profile dropped from the weekly model input) is caught by
+`test_weekly_prompt_strategy_profile_is_sanitised`. Strategy Profile changes that alter what the model reads always
+change the key (via both the model input and `ai_input_version`), so they can never reuse a job.
+
+An earlier battery run was stopped mid-mutant when the regressions were found; it left one mutant applied in
+`weekly.py`, which was restored from `HEAD` and verified by blob hash before any further work.
+
+## Verification actually run (at `9979c45`)
+
+- **Python, full suite (clean private extraction, empty local database): 3994 passed / 7 skipped / 7 failed.**
+  **No Phase 10A regressions.** All 7 failures are pre-existing Streamlit boot failures that fail identically on
+  `origin/main` `6c1f161`:
+  - `tests/test_pages_boot.py::test_journal_calendar_view_renders_the_full_calendar`
+  - `::test_journal_detail_view_without_a_selection_explains_itself`
+  - `::test_journal_detail_view_opens_a_selected_trade`
+  - `::test_journal_no_results_state_survives_a_narrow_filter`
+  - `::test_analytics_risk_lens_states_fixed_risk_instead_of_charting_it`
+  - `::test_analytics_single_setup_readout_does_not_claim_a_ranking`
+  - `::test_analytics_category_names_are_escaped_exactly_once`
+
+  (Phase 9 recorded three; the other four also fail on `origin/main` today and look date- or environment-sensitive —
+  cause not established; flagged separately from Phase 10A.)
+- Parity `pytest tests/parity -q`: 3 passed, snapshots unchanged.
+- `ruff check src/ scripts/`: clean. `black --check src/ scripts/ tests/`: only `tests/app_boot_check.py`, identical on
+  `origin/main`.
+- OpenAPI regeneration + `api:types`: no drift.
+- Alembic: single head `h4i5j6k7l8m9`; upgrade → downgrade -1 → upgrade on SQLite passes.
+- Protected paths (`prompts/`, `services/metrics.py`, `tests/parity/snapshots`): no diff against `6c1f161`.
+- Added lines scanned for credentials: none.
+- Web: `vitest run` 108 files / 1994 passed · `tsc --noEmit` clean · `eslint .` 0 errors (pre-existing warning in
+  `web/lib/app/modal-trap.ts`) · `npm run build` succeeds with `/app/reviews`, `/api/reviews/weekly`,
+  `/api/reviews/daily`, `/api/reviews/jobs/[jobId]` dynamic.
+- **Browser smoke: NOT RUN.**
+
+## Honest gaps
+
+- **Authenticated desktop + true 375px browser smoke did NOT run.** Layout verified in jsdom only.
+- **Real PostgreSQL was not available.** SQLite ignores `FOR UPDATE`; locked verification, save-versus-delete ordering
+  and the legacy-save lock are proven by sequencing, not true concurrency. `batch_alter_table` and constraint names are
+  unverified on PostgreSQL; `updated_at` tz-awareness is verified by declaration only on SQLite.
+- **Live Anthropic was not exercised.** DEMO_MODE and mocked provider calls only.
+- The reflection guard is lexical defense-in-depth, not a semantic guarantee; it now also applies to the Streamlit
+  weekly/daily calls, which log usage exactly once including on validation or guard failure.
+
+## Carried forward, unchanged
+
+Phase 10 hard pre-release gates: real PostgreSQL concurrency; authenticated desktop + true 375px browser smoke; Docker
+build/startup/health; live Anthropic adversarial smoke; dependency audit; live R2/browser verification. Phase 9
+non-blocking hardening: CSV formula protection does not normalise leading whitespace or Unicode lookalikes; narrow legacy
+local-file symlink-swap race; R2 deletion cannot be rolled back if the later DB transaction fails — retries must remain
+convergent. The 7 pre-existing Streamlit boot failures above, recorded separately. **Migration numbering:** Phase 10A took
+`h4i5j6k7l8m9`; Phase 10 Group F migrations must be renumbered to follow the actual head when that group starts.
+
+**Phase 10A is not merged. Codex review requested. No Phase 10 flip or irreversible Streamlit removal has been
+performed.**
