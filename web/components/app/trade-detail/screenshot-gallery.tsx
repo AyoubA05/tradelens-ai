@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ImageOff } from "lucide-react";
 
+import { AttachScreenshot } from "@/components/app/trade-detail/attach-screenshot";
 import type { ScreenshotDescriptor } from "@/lib/app/trades";
 
 /**
@@ -59,20 +60,32 @@ function Frame({ shot, asset }: { shot: ScreenshotDescriptor; asset: string }) {
 export function ScreenshotGallery({
   screenshots,
   asset,
+  tradeId,
 }: {
   screenshots: ScreenshotDescriptor[];
   asset: string;
+  /**
+   * Optional on purpose. With an id the gallery also offers the attach
+   * island — the section then has something to say even with no
+   * screenshots yet, so it renders. Without one it is the read-only
+   * gallery it has always been, and an empty gallery renders nothing
+   * rather than an empty frame.
+   */
+  tradeId?: number;
 }) {
-  if (screenshots.length === 0) return null;
+  if (screenshots.length === 0 && tradeId === undefined) return null;
 
   return (
     <section className="mt-8">
       <h2 className="font-display text-sm font-semibold text-text">Screenshots</h2>
-      <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {screenshots.map((shot) => (
-          <Frame key={shot.id} shot={shot} asset={asset} />
-        ))}
-      </div>
+      {screenshots.length > 0 && (
+        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {screenshots.map((shot) => (
+            <Frame key={shot.id} shot={shot} asset={asset} />
+          ))}
+        </div>
+      )}
+      {tradeId !== undefined && <AttachScreenshot tradeId={tradeId} />}
     </section>
   );
 }

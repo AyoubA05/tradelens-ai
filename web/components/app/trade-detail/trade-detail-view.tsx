@@ -85,7 +85,7 @@ export function TradeDetailView({
           <>
             <TradeReadView trade={trade} />
             <AIReviewPanel trade={trade} analysis={analysis} />
-            <ScreenshotGallery screenshots={trade.screenshots} asset={trade.asset} />
+            <ScreenshotGallery screenshots={trade.screenshots} asset={trade.asset} tradeId={trade.id} />
             <TradePartnerPanel
               tradeId={trade.id}
               hasScreenshot={trade.screenshots.length > 0}
