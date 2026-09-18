@@ -87,7 +87,7 @@ jobs:
       - name: Build marketing site (smoke test)
         env:
           SITE_ORIGIN: https://www.tradelensai.io
-          APP_ORIGIN: https://tradelens-app.streamlit.app
+          APP_ORIGIN: https://app.tradelensai.io
           SUPPORT_EMAIL: support@example.com
         run: python -m scripts.build_site
 
@@ -98,7 +98,7 @@ jobs:
         working-directory: web
     env:
       SITE_ORIGIN: https://www.tradelensai.io
-      APP_ORIGIN: https://tradelenai.streamlit.app
+      APP_ORIGIN: https://app.tradelensai.io
       SUPPORT_EMAIL: support@tradelensai.io
       SIGNUP_MODE: closed
 

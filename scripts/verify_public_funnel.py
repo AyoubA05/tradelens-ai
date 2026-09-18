@@ -13,13 +13,18 @@ it is not reported as a failure. What must still hold is that the gate
 *routes back*: the redirect has to carry a destination pointing at this
 app, so signing in returns the visitor to TradeLens. A redirect that
 drops the destination, sends the visitor to a different app, or a host
-that is simply down, is a real failure.
+that is simply down, is a real failure. "Gated" never covers an origin
+that could not be reached at all: an undeployed, DNS-failing or erroring
+origin fails the check.
+
+The app origin is configuration, not a constant: it comes from
+``APP_ORIGIN`` in the environment, and an explicit ``--app`` overrides it.
 
 Standard library only, read-only, no dependencies.
 
     python scripts/verify_public_funnel.py \
         --site https://tradelens-ai-site-git-main-ayouba05s-projects.vercel.app \
-        --app https://tradelenai.streamlit.app
+        --app https://app.tradelensai.io
 
 Exit code 0 only when both checks pass.
 """
@@ -27,6 +32,7 @@ Exit code 0 only when both checks pass.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import urllib.error
 import urllib.parse
@@ -46,6 +52,15 @@ _AUTH_WALL_MARKERS = (
     "vercel.com/login",
 )
 
+# The Streamlit surface is retired (Phase 10). A funnel that still lands a
+# visitor there passes the old contract and fails the product.
+RETIRED_APP_HOST_SUFFIXES = (".streamlit.app",)
+
+RETIRED_APP_HOST_DETAIL = "app destination is the retired Streamlit host"
+
+# An origin that cannot be reached is never "gated"; it is a failed check.
+UNREACHABLE_APP_DETAIL = "app origin is unreachable"
+
 _TIMEOUT_S = 20
 _UA = "TradeLens-funnel-check/1.0"
 
@@ -55,6 +70,28 @@ class CheckResult:
     ok: bool
     url: str
     detail: str = ""
+
+
+def is_retired_app_host(host: str) -> bool:
+    """True when `host` names the retired Streamlit deployment."""
+    host = (host or "").strip().lower().rstrip(".")
+    return any(
+        host == s.lstrip(".") or host.endswith(s) for s in RETIRED_APP_HOST_SUFFIXES
+    )
+
+
+def _host_of(url: str) -> str:
+    return (urllib.parse.urlparse(url).hostname or "").lower()
+
+
+def resolve_app_origin(explicit: str | None) -> str:
+    """`--app` is authoritative; otherwise `APP_ORIGIN` from the environment."""
+    origin = (explicit or os.environ.get("APP_ORIGIN") or "").strip()
+    if not origin:
+        raise ValueError(
+            "no app origin: pass --app or set APP_ORIGIN in the environment"
+        )
+    return origin
 
 
 def _is_auth_wall(url: str) -> bool:
@@ -124,6 +161,15 @@ def classify_app(status: int, final_url: str, *, app_origin: str) -> CheckResult
     A redirect to a provider login is expected behaviour and passes, as
     long as it carries a destination back to this app.
     """
+    if is_retired_app_host(_host_of(app_origin)) or is_retired_app_host(
+        _host_of(final_url)
+    ):
+        return CheckResult(False, final_url, RETIRED_APP_HOST_DETAIL)
+
+    for _key, value in urllib.parse.parse_qsl(urllib.parse.urlparse(final_url).query):
+        if is_retired_app_host(_host_of(urllib.parse.unquote(value))):
+            return CheckResult(False, final_url, RETIRED_APP_HOST_DETAIL)
+
     if _is_auth_wall(final_url):
         if _returns_to(final_url, app_origin):
             return CheckResult(
@@ -190,9 +236,13 @@ def check_marketing(url: str) -> CheckResult:
 
 
 def check_app(url: str, *, app_origin: str) -> CheckResult:
+    if is_retired_app_host(_host_of(app_origin)) or is_retired_app_host(_host_of(url)):
+        return CheckResult(False, url, RETIRED_APP_HOST_DETAIL)
     fetched = _fetch(url, follow=False)
     if isinstance(fetched, CheckResult):
-        return fetched
+        # Unreachable is a failure with a fixed message, never a silent pass
+        # and never mistaken for the expected sign-in gate.
+        return CheckResult(False, url, f"{UNREACHABLE_APP_DETAIL} ({url})")
     status, final_url, _body = fetched
     return classify_app(status, final_url, app_origin=app_origin)
 
@@ -200,12 +250,22 @@ def check_app(url: str, *, app_origin: str) -> CheckResult:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--site", required=True, help="public marketing origin")
-    parser.add_argument("--app", required=True, help="app origin (may require sign-in)")
+    parser.add_argument(
+        "--app",
+        default=None,
+        help="app origin (may require sign-in); defaults to $APP_ORIGIN",
+    )
     args = parser.parse_args(argv)
+
+    try:
+        app_origin = resolve_app_origin(args.app)
+    except ValueError as exc:
+        print(f"FAIL  app: {exc}", file=sys.stderr)
+        return 1
 
     checks = (
         ("marketing", check_marketing(args.site)),
-        ("app", check_app(args.app, app_origin=args.app)),
+        ("app", check_app(app_origin, app_origin=app_origin)),
     )
 
     failed = False
