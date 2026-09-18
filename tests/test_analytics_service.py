@@ -524,3 +524,100 @@ def test_the_timing_lens_does_not_offer_an_hour_breakdown_it_cannot_fill():
     )
     assert "by_hour" not in an.build_timing(df)
     assert "by_hour" not in an.build_timing(pd.DataFrame())
+
+
+def test_setups_lens_reports_average_r_by_pre_trade_emotion():
+    """The emotion panel Streamlit carried, now on the wire.
+
+    Ordered by sample size first so the emotion the trader recorded most
+    leads — an alphabetical order would put a one-trade state above a
+    twenty-trade one and invite it to be read as the stronger signal.
+    """
+    df = pd.DataFrame(
+        [
+            {
+                "emotions_before": "Calm",
+                "rr_realized": 2.0,
+                "pnl": 100.0,
+                "result": "Win",
+            },
+            {
+                "emotions_before": "Calm",
+                "rr_realized": 1.0,
+                "pnl": 50.0,
+                "result": "Win",
+            },
+            {
+                "emotions_before": "FOMO",
+                "rr_realized": -1.0,
+                "pnl": -80.0,
+                "result": "Loss",
+            },
+            {"emotions_before": None, "rr_realized": 3.0, "pnl": 10.0, "result": "Win"},
+        ]
+    )
+    rows = an.build_setups(df)["by_emotion_rr"]
+
+    assert [r["emotion"] for r in rows] == ["Calm", "FOMO"]
+    assert rows[0]["trades"] == 2
+    assert rows[0]["avg_rr_realized"]["value"] == pytest.approx(1.5)
+    assert rows[1]["avg_rr_realized"]["value"] == pytest.approx(-1.0)
+
+
+def test_emotion_rr_is_empty_when_no_emotion_was_recorded():
+    """A blank emotion column is not an emotional state called "none"."""
+    df = pd.DataFrame([{"emotions_before": None, "rr_realized": 1.0, "result": "Win"}])
+    assert an.build_setups(df)["by_emotion_rr"] == []
+
+
+def test_emotion_rr_over_an_empty_sample_is_an_empty_list():
+    assert an.build_setups(pd.DataFrame())["by_emotion_rr"] == []
+
+
+def test_an_emotion_whose_trades_never_recorded_an_r_is_still_counted():
+    """The trade happened, so it counts, even with no R to average.
+
+    NOTE the known limit this pins rather than hides: `metrics._safe_float`
+    flattens the NaN mean to 0.0, and `services/metrics.py` is read-only, so
+    the lens cannot tell that zero apart from a genuinely breakeven average
+    without recomputing the mean here — a second implementation of a
+    parity-pinned figure, which this module exists not to have. The trade
+    count is therefore the honest assertion; the R figure is whatever the
+    pinned metric says.
+    """
+    df = pd.DataFrame(
+        [
+            {
+                "emotions_before": "Rushed",
+                "rr_realized": None,
+                "pnl": -20.0,
+                "result": "Loss",
+            },
+        ]
+    )
+    rows = an.build_setups(df)["by_emotion_rr"]
+
+    assert [r["emotion"] for r in rows] == ["Rushed"]
+    assert rows[0]["trades"] == 1
+
+
+def test_emotions_tied_on_sample_size_are_ordered_alphabetically():
+    df = pd.DataFrame(
+        [
+            {
+                "emotions_before": "Patient",
+                "rr_realized": 1.0,
+                "pnl": 10.0,
+                "result": "Win",
+            },
+            {
+                "emotions_before": "Anxious",
+                "rr_realized": -2.0,
+                "pnl": -10.0,
+                "result": "Loss",
+            },
+        ]
+    )
+    rows = an.build_setups(df)["by_emotion_rr"]
+
+    assert [r["emotion"] for r in rows] == ["Anxious", "Patient"]

@@ -1324,6 +1324,22 @@ export interface components {
             /** Trades */
             trades: number;
         };
+        /**
+         * EmotionRRRow
+         * @description One pre-trade emotional state, its sample size and its average R.
+         *
+         *     Deliberately not a `BreakdownRow`: there is no P&L here. `emotion_vs_rr`
+         *     answers a question about trade quality in R terms, and attaching a money
+         *     column would either duplicate a figure from another panel or leave a
+         *     permanently undefined one beside a real one, which reads as a loss.
+         */
+        EmotionRRRow: {
+            avg_rr_realized: components["schemas"]["MetricValue"];
+            /** Emotion */
+            emotion: string;
+            /** Trades */
+            trades: number;
+        };
         /** EquityPoint */
         EquityPoint: {
             /** Date */
@@ -1896,6 +1912,8 @@ export interface components {
         SetupsLens: {
             by_asset: components["schemas"]["Breakdown"];
             by_confirmation: components["schemas"]["Breakdown"];
+            /** By Emotion Rr */
+            by_emotion_rr: components["schemas"]["EmotionRRRow"][];
             by_setup: components["schemas"]["Breakdown"];
             by_strategy: components["schemas"]["Breakdown"];
             by_timeframe: components["schemas"]["Breakdown"];

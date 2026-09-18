@@ -94,6 +94,7 @@ export function analyticsFixture(): AnalyticsResponse {
       by_timeframe: emptyBreakdown(),
       by_confirmation: emptyBreakdown(),
       mistakes: [{ tag: "Moved stop", count: 2 }],
+      by_emotion_rr: [{ emotion: "Calm", trades: 2, avg_rr_realized: value(1.5) }],
     },
     discipline: {
       rule_adherence: value(0.8),

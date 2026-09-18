@@ -134,6 +134,20 @@ class TimingLens(_Strict):
     by_killzone: Breakdown
 
 
+class EmotionRRRow(_Strict):
+    """One pre-trade emotional state, its sample size and its average R.
+
+    Deliberately not a `BreakdownRow`: there is no P&L here. `emotion_vs_rr`
+    answers a question about trade quality in R terms, and attaching a money
+    column would either duplicate a figure from another panel or leave a
+    permanently undefined one beside a real one, which reads as a loss.
+    """
+
+    emotion: str
+    trades: int
+    avg_rr_realized: MetricValue
+
+
 class SetupsLens(_Strict):
     by_setup: Breakdown
     by_asset: Breakdown
@@ -141,6 +155,7 @@ class SetupsLens(_Strict):
     by_timeframe: Breakdown
     by_confirmation: Breakdown
     mistakes: List[MistakeCount]
+    by_emotion_rr: List[EmotionRRRow]
 
 
 class DisciplineBlock(_Strict):

@@ -18,7 +18,7 @@ import type { MetricValue } from "@/lib/app/analytics";
  * trade — this is a record of what happened, not a prompt to act.
  */
 
-export type MetricKind = "money" | "percent" | "ratio" | "number";
+export type MetricKind = "money" | "percent" | "ratio" | "number" | "r_multiple";
 
 const UNDEFINED_EXPLANATIONS: Record<string, string> = {
   undefined_no_sample: "No trades in this range to measure this.",
@@ -39,6 +39,9 @@ function formatted(value: number, kind: MetricKind): string {
   // A rate crosses the wire as a fraction, matching the Overview KPI row.
   if (kind === "percent") return `${(value * 100).toFixed(1)}%`;
   if (kind === "ratio") return `${value.toFixed(2)}x`;
+  // One decimal, and the sign is never dropped: a -0.8R average that
+  // printed as 0.8R would invert what the record says.
+  if (kind === "r_multiple") return `${value.toFixed(1)}R`;
   return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 

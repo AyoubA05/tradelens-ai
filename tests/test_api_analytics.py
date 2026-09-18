@@ -698,3 +698,38 @@ def test_the_comparison_is_owner_scoped_like_everything_else(client, two_users):
     body = _get(client, handle, SEPT).json()
 
     assert body["comparison"]["net_pnl"]["value"] == pytest.approx(60.0)
+
+
+# ------------------------------------------------------- emotion vs R
+
+
+def test_the_setups_lens_reports_average_r_by_pre_trade_emotion(
+    client, website_session_handle, two_users
+):
+    """The panel Streamlit carried, over the authenticated owner's sample.
+
+    Another trader's emotional record is the most personal thing in this
+    journal; a leak here would read as the owner's own state of mind.
+    """
+    owner, handle = website_session_handle
+    other = next(u for u in two_users if u != owner)
+    _seed(owner, emotions_before="Calm", rr_realized=2.0)
+    _seed(owner, emotions_before="Calm", rr_realized=1.0, trade_date="2026-09-11")
+    _seed(owner, emotions_before="FOMO", rr_realized=-1.0, trade_date="2026-09-12")
+    _seed(other, emotions_before="Euphoric", rr_realized=9.0, trade_date="2026-09-13")
+
+    rows = _get(client, handle, SEPT).json()["setups"]["by_emotion_rr"]
+
+    assert [row["emotion"] for row in rows] == ["Calm", "FOMO"]
+    assert rows[0]["trades"] == 2
+    assert rows[0]["avg_rr_realized"]["value"] == pytest.approx(1.5)
+    assert "Euphoric" not in [row["emotion"] for row in rows]
+
+
+def test_the_emotion_panel_is_absent_rather_than_zeroed_without_emotions(
+    client, website_session_handle
+):
+    _owner, handle = website_session_handle
+    _seed(_owner, rr_realized=2.0)
+
+    assert _get(client, handle, SEPT).json()["setups"]["by_emotion_rr"] == []

@@ -44,6 +44,7 @@ from src.tradelens.services.metrics import (
     confirmation_model_performance,
     consistency_score,
     edge_leak_summary,
+    emotion_vs_rr,
     killzone_performance,
     mistake_frequency,
     period_deltas,
@@ -508,6 +509,7 @@ def build_setups(df: pd.DataFrame) -> Dict[str, Any]:
             "by_timeframe": dict(empty),
             "by_confirmation": dict(empty),
             "mistakes": [],
+            "by_emotion_rr": [],
         }
     return {
         # `setup_performance`, NOT `by_setup_type`. VERIFIED: `by_setup_type`
@@ -546,6 +548,7 @@ def build_setups(df: pd.DataFrame) -> Dict[str, Any]:
             leader=_leader(df, "confirmation_model", complete=complete),
         ),
         "mistakes": _mistakes(mistake_frequency(df)),
+        "by_emotion_rr": _emotion_rr(emotion_vs_rr(df)),
     }
 
 
@@ -591,6 +594,32 @@ def build_discipline(df: pd.DataFrame) -> Dict[str, Any]:
         ),
         "recorded_trades": recorded,
     }
+
+
+def _emotion_rr(built: pd.DataFrame) -> List[Dict[str, Any]]:
+    """Average realized R by the emotional state recorded BEFORE the trade.
+
+    Read straight from `metrics.emotion_vs_rr`, which excludes rows with no
+    recorded emotion and skips NaN R in the mean while still counting the
+    trade. Ordered by sample size descending, then emotion ascending: the
+    metric's own order is by average R, and leading with the best-scoring
+    state would rank a single trade above twenty.
+
+    An R that could not be averaged stays undefined — `pair` turns the
+    metric's `None` into `undefined_no_sample` rather than a 0.0 that would
+    read as "you broke even while feeling that".
+    """
+    if built is None or built.empty:
+        return []
+    ordered = built.sort_values(["trades", "emotions_before"], ascending=[False, True])
+    return [
+        {
+            "emotion": str(row.emotions_before),
+            "trades": int(row.trades),
+            "avg_rr_realized": pair(row.avg_rr_realized),
+        }
+        for row in ordered.itertuples(index=False)
+    ]
 
 
 def _mistakes(built: pd.DataFrame) -> List[Dict[str, Any]]:

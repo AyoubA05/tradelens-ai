@@ -931,6 +931,30 @@
         "title": "EdgeLeak",
         "type": "object"
       },
+      "EmotionRRRow": {
+        "additionalProperties": false,
+        "description": "One pre-trade emotional state, its sample size and its average R.\n\nDeliberately not a `BreakdownRow`: there is no P&L here. `emotion_vs_rr`\nanswers a question about trade quality in R terms, and attaching a money\ncolumn would either duplicate a figure from another panel or leave a\npermanently undefined one beside a real one, which reads as a loss.",
+        "properties": {
+          "avg_rr_realized": {
+            "$ref": "#/components/schemas/MetricValue"
+          },
+          "emotion": {
+            "title": "Emotion",
+            "type": "string"
+          },
+          "trades": {
+            "title": "Trades",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "emotion",
+          "trades",
+          "avg_rr_realized"
+        ],
+        "title": "EmotionRRRow",
+        "type": "object"
+      },
       "EquityPoint": {
         "additionalProperties": false,
         "properties": {
@@ -2514,6 +2538,13 @@
           "by_confirmation": {
             "$ref": "#/components/schemas/Breakdown"
           },
+          "by_emotion_rr": {
+            "items": {
+              "$ref": "#/components/schemas/EmotionRRRow"
+            },
+            "title": "By Emotion Rr",
+            "type": "array"
+          },
           "by_setup": {
             "$ref": "#/components/schemas/Breakdown"
           },
@@ -2537,7 +2568,8 @@
           "by_strategy",
           "by_timeframe",
           "by_confirmation",
-          "mistakes"
+          "mistakes",
+          "by_emotion_rr"
         ],
         "title": "SetupsLens",
         "type": "object"
