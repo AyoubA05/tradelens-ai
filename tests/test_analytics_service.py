@@ -577,13 +577,10 @@ def test_emotion_rr_over_an_empty_sample_is_an_empty_list():
 def test_an_emotion_whose_trades_never_recorded_an_r_is_still_counted():
     """The trade happened, so it counts, even with no R to average.
 
-    NOTE the known limit this pins rather than hides: `metrics._safe_float`
-    flattens the NaN mean to 0.0, and `services/metrics.py` is read-only, so
-    the lens cannot tell that zero apart from a genuinely breakeven average
-    without recomputing the mean here — a second implementation of a
-    parity-pinned figure, which this module exists not to have. The trade
-    count is therefore the honest assertion; the R figure is whatever the
-    pinned metric says.
+    The count is the assertion here; what the R figure becomes is pinned by
+    `test_an_emotion_with_no_recorded_r_is_undefined_not_a_flat_zero` and its
+    breakeven counterpart, which together hold the distinction between an R
+    nobody recorded and an R that measured zero.
     """
     df = pd.DataFrame(
         [
@@ -621,3 +618,69 @@ def test_emotions_tied_on_sample_size_are_ordered_alphabetically():
     rows = an.build_setups(df)["by_emotion_rr"]
 
     assert [r["emotion"] for r in rows] == ["Anxious", "Patient"]
+
+
+def test_an_emotion_with_no_recorded_r_is_undefined_not_a_flat_zero():
+    """An R nobody recorded is not an R of zero.
+
+    `metrics.emotion_vs_rr` flattens the NaN mean to 0.0, and that module is
+    read-only, so the lens counts the rows that actually carry an
+    `rr_realized` and emits the file's own undefined state when there are
+    none. `0.0R` on this row would be a number the trader never recorded,
+    indistinguishable from breaking even.
+    """
+    df = pd.DataFrame(
+        [
+            {
+                "emotions_before": "Rushed",
+                "rr_realized": None,
+                "pnl": -20.0,
+                "result": "Loss",
+            },
+            {
+                "emotions_before": "Rushed",
+                "rr_realized": None,
+                "pnl": 30.0,
+                "result": "Win",
+            },
+        ]
+    )
+    rows = an.build_setups(df)["by_emotion_rr"]
+
+    assert [r["emotion"] for r in rows] == ["Rushed"]
+    # Both trades happened, so both are counted.
+    assert rows[0]["trades"] == 2
+    assert rows[0]["avg_rr_realized"] == {
+        "value": None,
+        "state": "undefined_no_sample",
+    }
+
+
+def test_a_genuinely_breakeven_emotion_keeps_its_real_zero():
+    """The other half of the distinction: a measured 0.0R is a real figure.
+
+    Two recorded R values that cancel average to zero. That zero was earned
+    and must survive — suppressing it would hide a real result to avoid a
+    fake one.
+    """
+    df = pd.DataFrame(
+        [
+            {
+                "emotions_before": "Calm",
+                "rr_realized": 1.5,
+                "pnl": 75.0,
+                "result": "Win",
+            },
+            {
+                "emotions_before": "Calm",
+                "rr_realized": -1.5,
+                "pnl": -75.0,
+                "result": "Loss",
+            },
+        ]
+    )
+    rows = an.build_setups(df)["by_emotion_rr"]
+
+    assert rows[0]["trades"] == 2
+    assert rows[0]["avg_rr_realized"]["value"] == pytest.approx(0.0)
+    assert rows[0]["avg_rr_realized"]["state"] is None

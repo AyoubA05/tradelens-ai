@@ -548,7 +548,7 @@ def build_setups(df: pd.DataFrame) -> Dict[str, Any]:
             leader=_leader(df, "confirmation_model", complete=complete),
         ),
         "mistakes": _mistakes(mistake_frequency(df)),
-        "by_emotion_rr": _emotion_rr(emotion_vs_rr(df)),
+        "by_emotion_rr": _emotion_rr(emotion_vs_rr(df), df),
     }
 
 
@@ -596,7 +596,29 @@ def build_discipline(df: pd.DataFrame) -> Dict[str, Any]:
     }
 
 
-def _emotion_rr(built: pd.DataFrame) -> List[Dict[str, Any]]:
+def _measured_r_counts(df: pd.DataFrame) -> Dict[str, int]:
+    """Per emotion, how many of its trades actually recorded an R.
+
+    `metrics.emotion_vs_rr` counts every trade but reports only the mean, and
+    `metrics._safe_float` flattens the all-NaN mean to 0.0. That module is
+    read-only, so the sample behind the mean is recovered here — counting
+    rows, not re-averaging them, so the pinned figure still has exactly one
+    implementation.
+    """
+    if df is None or df.empty or "emotions_before" not in df.columns:
+        return {}
+    work = df.dropna(subset=["emotions_before"]).copy()
+    if work.empty:
+        return {}
+    if "rr_realized" in work.columns:
+        measured = pd.to_numeric(work["rr_realized"], errors="coerce").notna()
+    else:
+        measured = pd.Series(False, index=work.index)
+    counts = measured.groupby(work["emotions_before"].astype(str)).sum()
+    return {str(key): int(value) for key, value in counts.items()}
+
+
+def _emotion_rr(built: pd.DataFrame, df: pd.DataFrame) -> List[Dict[str, Any]]:
     """Average realized R by the emotional state recorded BEFORE the trade.
 
     Read straight from `metrics.emotion_vs_rr`, which excludes rows with no
@@ -605,18 +627,27 @@ def _emotion_rr(built: pd.DataFrame) -> List[Dict[str, Any]]:
     metric's own order is by average R, and leading with the best-scoring
     state would rank a single trade above twenty.
 
-    An R that could not be averaged stays undefined — `pair` turns the
-    metric's `None` into `undefined_no_sample` rather than a 0.0 that would
-    read as "you broke even while feeling that".
+    An R that could not be averaged stays undefined. When an emotion's trades
+    recorded no `rr_realized` at all the metric's mean arrives as a flat 0.0,
+    so this emits `undefined_no_sample` instead — a 0.0R there is a number
+    the trader never recorded and would read as "you broke even while feeling
+    that", indistinguishable from a genuinely breakeven average. A measured
+    0.0 is left alone. `trades` still counts every trade for the emotion,
+    measured or not: the trade happened.
     """
     if built is None or built.empty:
         return []
+    measured = _measured_r_counts(df)
     ordered = built.sort_values(["trades", "emotions_before"], ascending=[False, True])
     return [
         {
             "emotion": str(row.emotions_before),
             "trades": int(row.trades),
-            "avg_rr_realized": pair(row.avg_rr_realized),
+            "avg_rr_realized": (
+                pair(row.avg_rr_realized)
+                if measured.get(str(row.emotions_before), 0) > 0
+                else undefined("undefined_no_sample")
+            ),
         }
         for row in ordered.itertuples(index=False)
     ]
