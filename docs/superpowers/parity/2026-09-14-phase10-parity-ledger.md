@@ -231,3 +231,15 @@ for, so they are recorded as blockers rather than silently as removals.
 | Settings — API-key guidance | Copy only, if the owner reverses S2 | Trivial |
 | Analytics — by hour of day | Persist a clock column on `Trade` + migration + backfill question + breakdown + panel | **Medium-to-large: its own phase.** A schema change, and no historical data to backfill from |
 | Analytics — trade of the week | A card in Analytics fed by the existing metric | Small, once the owner decides |
+
+## Carried findings (pre-existing, outside Phase 10B's range)
+
+- **An oversized screenshot can orphan its quarantine object.** `web/lib/app/screenshot-upload.ts` rejects a file for
+  size only after the server's `max_bytes` is known, i.e. after a presign has already created a quarantine object —
+  and that rejection path returns without a `pendingKey`, so nothing calls `abandonScreenshotUpload`. The object is
+  never adopted and never abandoned. This predates Phase 10B and affects New Trade today; the trade-detail attach
+  island inherits it unchanged. Found by the Phase 10B independent review (2026-09-18). Not fixed here: it belongs to
+  the upload helper, outside this phase's scope. Live R2 verification (a hard pre-release gate) should confirm whether
+  such objects exist in the bucket, and the fix is a separate scoped change.
+- **Playwright pinned at 1.63.0, not the plan's 1.49.1** (Task R3): Next.js 16 declares `@playwright/test@^1.51.1`,
+  so the older pin could not install without `--force`. Dev-only; excluded from `npm audit --omit=dev`.
