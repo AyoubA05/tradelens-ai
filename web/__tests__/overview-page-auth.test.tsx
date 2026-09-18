@@ -56,7 +56,12 @@ describe("Overview page authorization", () => {
     const user = { userId: 7, appSurface: "nextjs", strategyProfileCompleted: true };
     authenticate.mockResolvedValue(user);
     appRedirect.mockReturnValue(null);
-    fetchOverview.mockResolvedValue({});
+    // The page reads `filters` and `kpi.trades` to decide between the figures
+    // and the empty-scope state, so the stub carries the minimum real shape.
+    fetchOverview.mockResolvedValue({
+      filters: { asset: null, available_assets: [] },
+      kpi: { trades: 3 },
+    });
 
     await OverviewPage({ searchParams: params });
 
@@ -89,7 +94,12 @@ describe("Overview first-run routing", () => {
       strategyProfileCompleted: true,
     });
     appRedirect.mockReturnValue(null);
-    fetchOverview.mockResolvedValue({});
+    // The page reads `filters` and `kpi.trades` to decide between the figures
+    // and the empty-scope state, so the stub carries the minimum real shape.
+    fetchOverview.mockResolvedValue({
+      filters: { asset: null, available_assets: [] },
+      kpi: { trades: 3 },
+    });
 
     await OverviewPage({ searchParams: params });
     expect(redirect).not.toHaveBeenCalled();

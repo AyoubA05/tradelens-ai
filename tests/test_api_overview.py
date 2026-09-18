@@ -96,9 +96,14 @@ def test_browser_supplied_owner_aliases_cannot_change_the_tenant(
 ):
     """Exercise the actual signed request, not merely a service call.
 
-    Common owner aliases are included as independently signed query input. If
-    a future handler begins threading any of them into the service, this test
-    exposes the other tenant's seeded data instead of passing vacuously.
+    Common owner aliases are included as independently signed query input.
+
+    Phase 10B made this stricter rather than weaker: the endpoint now refuses
+    any query parameter outside its allowlist, so an alias is rejected at the
+    boundary instead of being ignored inside the handler. The 422 is asserted
+    here, and the property the test exists for — the other tenant's rows are
+    unreachable however the query is spelled — is re-asserted below over the
+    allowlisted query, so this cannot pass merely because a request 422'd.
     """
     user_id, handle = website_session_handle
     other = next(candidate for candidate in two_users if candidate != user_id)
@@ -109,8 +114,22 @@ def test_browser_supplied_owner_aliases_cannot_change_the_tenant(
     )
 
     response = client.get(f"{PATH}?{query}", headers=_headers(handle, query=query))
-    assert response.status_code == 200
-    assert response.json()["kpi"]["trades"] == 0
+    assert response.status_code == 422
+    assert "user_id" in response.json()["detail"]
+
+    # Positive control: the other owner really does have data, and a fully
+    # valid request from this session still cannot see any of it.
+    from src.tradelens.services.overview import build_overview
+
+    assert (
+        build_overview(user_id=other, start="2026-08-01", end="2026-08-31")["kpi"][
+            "trades"
+        ]
+        == 5
+    )
+    clean = client.get(f"{PATH}?{QUERY}", headers=_headers(handle))
+    assert clean.status_code == 200
+    assert clean.json()["kpi"]["trades"] == 0
 
 
 def test_a_tampered_period_fails_the_signature(client, website_session_handle):
@@ -388,3 +407,83 @@ def test_openapi_marks_nullable_fields_required_and_keeps_unions_narrow():
     next_key = schemas["NextReviewAction"]["properties"]["next_key"]
     member = next(part for part in next_key["anyOf"] if "enum" in part)
     assert member["enum"] == ["strategy", "first_trade", "weekly_review"]
+
+
+# ---------------------------------------------------------------------------
+# The asset filter, over the signed boundary.
+# ---------------------------------------------------------------------------
+
+
+def _trade(owner, day, **fields):
+    """Insert one trade for `owner` on `day` through the normal write path."""
+    from src.tradelens.services import trade_service
+
+    payload = {
+        "trade_date": day,
+        "asset": "NQ",
+        "result": "Win",
+        "pnl": 50.0,
+        "setup_type": "FVG",
+        "followed_rules": 1,
+    }
+    payload.update(fields)
+    return trade_service.create_trade(payload, user_id=owner)
+
+
+def _get(client, query, handle):
+    return client.get(f"{PATH}?{query}", headers=_headers(handle, query=query))
+
+
+def test_overview_asset_filter_is_owner_scoped_and_exact(
+    client, website_session_handle, two_users
+):
+    user_id, handle = website_session_handle
+    other = next(candidate for candidate in two_users if candidate != user_id)
+    _trade(user_id, "2026-09-07", asset="NQ", pnl=100.0, result="Win")
+    _trade(other, "2026-09-07", asset="NQ", pnl=999.0, result="Win")
+    # A near-miss instrument of the requester's own, to pin exact matching at
+    # the boundary rather than only in the service.
+    _trade(user_id, "2026-09-08", asset="MNQ", pnl=7.0, result="Win")
+
+    body = _get(client, "from=2026-09-01&to=2026-09-30&asset=NQ", handle).json()
+    assert body["kpi"]["trades"] == 1
+    assert body["kpi"]["net_pnl"]["value"] == 100.0
+    assert body["filters"] == {"asset": "NQ", "available_assets": ["MNQ", "NQ"]}
+
+
+def test_overview_without_an_asset_reports_an_unscoped_filter_block(
+    client, website_session_handle
+):
+    user_id, handle = website_session_handle
+    seed_golden_dataset(user_id)
+    body = client.get(f"{PATH}?{QUERY}", headers=_headers(handle)).json()
+    assert body["filters"]["asset"] is None
+    assert body["filters"]["available_assets"] == ["ES", "EURUSD", "NQ"]
+
+
+def test_overview_refuses_an_unknown_query_parameter(client, website_session_handle):
+    _, handle = website_session_handle
+    bad = "from=2026-09-01&to=2026-09-30&setup=FVG"
+    response = _get(client, bad, handle)
+    assert response.status_code == 422
+    assert "setup" in response.json()["detail"]
+
+
+def test_overview_asset_with_no_trades_is_200_with_an_empty_scope(
+    client, website_session_handle
+):
+    """An empty scope is a valid view of a real account, not a 404.
+
+    The account is not empty — only this instrument's slice of the period is —
+    so the lifetime activation read must still describe a trader who has logged
+    a trade.
+    """
+    user_id, handle = website_session_handle
+    _trade(user_id, "2026-09-07", asset="NQ")
+    response = _get(client, "from=2026-09-01&to=2026-09-30&asset=ES", handle)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["kpi"]["trades"] == 0
+    assert body["recent_trades"] == []
+    assert body["filters"] == {"asset": "ES", "available_assets": ["NQ"]}
+    assert body["next_review_action"]["next_key"] != "first_trade"

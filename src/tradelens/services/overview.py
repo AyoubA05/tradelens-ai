@@ -160,12 +160,34 @@ def build_overview(
     start: str,
     end: str,
     today: Optional[dt.date] = None,
+    asset: Optional[str] = None,
 ) -> dict:
     """Everything the Overview screen shows, for one owner over one period."""
     owner = require_user_id(user_id)
     now = today or _today_for_owner(owner)
 
     trades = get_trades(user_id=owner, start_date=start, end_date=end)
+
+    # Every instrument this owner traded in the period, for the filter control.
+    # Read BEFORE the filter is applied: building it from the filtered rows
+    # would collapse the control to the one asset already chosen, stranding the
+    # trader inside that scope with no way back to the rest of their period.
+    available_assets = sorted(
+        {
+            str(t.asset).strip()
+            for t in trades
+            if t.asset is not None and str(t.asset).strip()
+        }
+    )
+    if asset is not None:
+        # Exact match, never a substring/`ilike('%..%')` test: MNQ is a
+        # different instrument from NQ and must not fold into an NQ view.
+        # The row list is filtered rather than the frame so `recent_trades`
+        # below is scoped identically to every figure above it — a view that
+        # claims "no trades for ES" while listing NQ trades underneath is a
+        # filter lying about what it narrowed.
+        trades = [t for t in trades if t.asset is not None and str(t.asset) == asset]
+
     df = _frame(trades)
     sample = sample_state(df)
 
@@ -249,6 +271,7 @@ def build_overview(
 
     return {
         "period": {"from": start, "to": end},
+        "filters": {"asset": asset, "available_assets": available_assets},
         "sample": {
             "trades": sample.trades,
             "dated_points": sample.dated_points,

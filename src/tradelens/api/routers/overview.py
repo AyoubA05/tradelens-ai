@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-from typing import Tuple
+from typing import Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from src.tradelens.api.deps import current_user
 from src.tradelens.api.schemas.overview import OverviewResponse
@@ -68,10 +68,31 @@ def _validated_period(start: str, end: str) -> Tuple[str, str]:
     return first.isoformat(), last.isoformat()
 
 
+_KNOWN_QUERY_PARAMS = frozenset({"from", "to", "asset"})
+
+
+def _refuse_unknown_params(request: Request) -> None:
+    """Refuse a query this endpoint does not understand.
+
+    Mirrors the Analytics router's rule. Silently ignoring an unrecognised
+    parameter is how a caller comes to believe a view is scoped when it is
+    not — a misspelled `asset` would render the whole period under a heading
+    that claims one instrument.
+    """
+    unknown = sorted(set(request.query_params) - _KNOWN_QUERY_PARAMS)
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail="unsupported query parameter(s): {}".format(", ".join(unknown)),
+        )
+
+
 @router.get("/overview")
 def get_overview(
+    request: Request,
     from_: str = Query(..., alias="from"),
     to: str = Query(...),
+    asset: Optional[str] = Query(default=None),
     user_id: int = Depends(current_user),
 ) -> OverviewResponse:
     """Everything the Overview screen shows, for the authenticated owner.
@@ -79,7 +100,10 @@ def get_overview(
     The owner is the session row's. Nothing in the query, the headers, or the
     body can name a different account.
     """
+    _refuse_unknown_params(request)
     start, end = _validated_period(from_, to)
-    payload = to_jsonable(build_overview(user_id=user_id, start=start, end=end))
+    payload = to_jsonable(
+        build_overview(user_id=user_id, start=start, end=end, asset=asset)
+    )
     payload["period"] = {"from_": start, "to": end}
     return OverviewResponse.model_validate(payload)

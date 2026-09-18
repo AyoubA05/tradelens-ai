@@ -10,6 +10,7 @@ import type { OverviewResponse } from "@/lib/app/overview";
 // {value, state} pairs, and period uses `from`, not `from_`.
 const data: OverviewResponse = {
   period: { from: "2026-08-01", to: "2026-08-31" },
+  filters: { asset: null, available_assets: ["ES", "NQ"] },
   sample: {
     trades: 5,
     dated_points: 4,

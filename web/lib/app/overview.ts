@@ -21,12 +21,19 @@ export type OverviewResponse = components["schemas"]["OverviewResponse"];
  * Errors are not caught. An Overview of zeros is indistinguishable from a
  * trader who had a flat month, so a failed fetch must reach the route's error
  * boundary rather than be rendered as data.
+ *
+ * `asset` scopes the period figures to one instrument. It is omitted entirely
+ * when absent rather than sent empty: the API refuses a query parameter it does
+ * not understand, and `asset=` is not the same request as no asset at all.
  */
 export async function fetchOverview(
   sessionToken: string,
   period: Period,
+  asset?: string,
 ): Promise<OverviewResponse> {
+  const query = periodToParams(period);
+  if (asset) query.set("asset", asset);
   return callApi<OverviewResponse>("/v1/overview", sessionToken, {
-    query: periodToParams(period).toString(),
+    query: query.toString(),
   });
 }

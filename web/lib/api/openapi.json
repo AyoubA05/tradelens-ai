@@ -1191,11 +1191,44 @@
         "title": "NextReviewAction",
         "type": "object"
       },
+      "OverviewFilters": {
+        "additionalProperties": false,
+        "description": "What the view is scoped to, and what it could be scoped to.\n\n`available_assets` comes from the owner's own trades in the period, never\na static instrument list: a filter that offers instruments the trader never\ntraded invites a scope that can only ever be empty.\n\nThe filter scopes the PERIOD frame only. Activation and today/this-week\nstay lifetime facts, so a scoped view never claims the account is empty.",
+        "properties": {
+          "asset": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset"
+          },
+          "available_assets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Available Assets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "asset",
+          "available_assets"
+        ],
+        "title": "OverviewFilters",
+        "type": "object"
+      },
       "OverviewResponse": {
         "additionalProperties": false,
         "properties": {
           "calendar": {
             "$ref": "#/components/schemas/Calendar"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/OverviewFilters"
           },
           "kpi": {
             "$ref": "#/components/schemas/Kpi"
@@ -1228,6 +1261,7 @@
         },
         "required": [
           "period",
+          "filters",
           "sample",
           "kpi",
           "risk",
@@ -6589,6 +6623,22 @@
             "schema": {
               "title": "To",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "asset",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Asset"
             }
           }
         ],

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -7,8 +8,26 @@ import {
   sessionTokenFromCookieHeader,
 } from "@/lib/auth/session";
 import { fetchOverview } from "@/lib/app/overview";
-import { periodFromParams } from "@/lib/app/period";
+import { periodFromParams, periodToParams } from "@/lib/app/period";
 import { OverviewSections } from "@/components/app/overview/sections";
+import { AssetFilter } from "@/components/app/overview/asset-filter";
+
+/**
+ * A plausible instrument symbol.
+ *
+ * The URL is trader-editable, so the scope is validated before it is forwarded
+ * rather than passed through on length alone. Anything outside this shape could
+ * only ever produce an empty scope, and an empty scope labelled with whatever
+ * the URL happened to contain is a heading the product has to stand behind.
+ */
+const INSTRUMENT_SYMBOL = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,23}$/;
+
+function scopedAsset(params: URLSearchParams): string | undefined {
+  const raw = params.get("asset");
+  if (raw === null) return undefined;
+  const value = raw.trim();
+  return INSTRUMENT_SYMBOL.test(value) ? value : undefined;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -50,13 +69,42 @@ export default async function OverviewPage({
   // and would redirect `/app/strategy` to itself.
   if (!user.strategyProfileCompleted) redirect("/app/strategy");
 
-  const data = await fetchOverview(token, period);
+  const data = await fetchOverview(token, period, scopedAsset(params));
+
+  // An instrument with no trades in this period is a real view of a real
+  // account, not an empty account. Rendering the sections here would draw a
+  // strip of zeros that reads as a flat month, so the page says what is true
+  // and offers the way back out.
+  const emptyScope = data.filters.asset !== null && data.kpi.trades === 0;
+  const unscopedHref = (() => {
+    const params = periodToParams(period);
+    return `/app?${params.toString()}`;
+  })();
 
   return (
     <div className="mx-auto max-w-6xl">
       <h1 className="font-display text-3xl font-bold">Overview</h1>
       <p className="mt-2 text-muted">Where the week stands, and what deserves review next.</p>
-      <OverviewSections data={data} />
+      <AssetFilter asset={data.filters.asset} availableAssets={data.filters.available_assets} />
+      {emptyScope ? (
+        <div className="mt-8 rounded-lg border border-line bg-surface p-6">
+          <p className="font-display text-lg font-semibold text-text">
+            No trades for {data.filters.asset}
+          </p>
+          <p className="mt-2 text-sm text-muted">
+            Nothing was logged for this instrument in the selected period. The rest of the
+            account is unaffected.
+          </p>
+          <Link
+            href={unscopedHref}
+            className="mt-4 inline-flex min-h-[44px] items-center rounded-md border border-line px-4 text-sm text-text transition-colors duration-150 ease-tl hover:border-line-strong"
+          >
+            Show all assets
+          </Link>
+        </div>
+      ) : (
+        <OverviewSections data={data} />
+      )}
     </div>
   );
 }

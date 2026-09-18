@@ -573,3 +573,102 @@ def test_narrow_period_does_not_reset_activation(two_users):
     assert data["kpi"]["trades"] == 0  # the selected period is genuinely empty
     assert data["next_review_action"]["trades_until_review"] == 0
     assert data["next_review_action"]["next_key"] != "first_trade"
+
+
+# ---------------------------------------------------------------------------
+# The asset filter. It scopes the PERIOD frame and nothing else: activation and
+# today/this-week stay lifetime facts, so a scoped view never claims the
+# account is empty, and matching is exact so MNQ never folds into an NQ view.
+# ---------------------------------------------------------------------------
+
+
+def _trade(owner, day, **fields):
+    """Insert one trade for `owner` on `day`.
+
+    Goes through `trade_service.create_trade` rather than a raw insert so the
+    row is canonicalised exactly as a logged trade would be.
+    """
+    from src.tradelens.services import trade_service
+
+    payload = {
+        "trade_date": day,
+        "asset": "NQ",
+        "result": "Win",
+        "pnl": 50.0,
+        "setup_type": "FVG",
+        "followed_rules": 1,
+    }
+    payload.update(fields)
+    return trade_service.create_trade(payload, user_id=owner)
+
+
+def test_asset_filter_scopes_period_figures_but_not_lifetime(two_users):
+    owner, _ = two_users
+    _trade(owner, "2026-09-07", asset="NQ", pnl=100.0, result="Win")
+    _trade(owner, "2026-09-08", asset="ES", pnl=-50.0, result="Loss")
+    everything = overview.build_overview(
+        user_id=owner, start="2026-09-01", end="2026-09-30"
+    )
+    scoped = overview.build_overview(
+        user_id=owner, start="2026-09-01", end="2026-09-30", asset="NQ"
+    )
+    assert everything["kpi"]["trades"] == 2
+    assert scoped["kpi"]["trades"] == 1
+    assert scoped["kpi"]["net_pnl"]["value"] == 100.0
+    # Lifetime concepts are not scoped by a view filter.
+    assert scoped["next_review_action"] == everything["next_review_action"]
+    assert scoped["kpi"]["today_pnl"] == everything["kpi"]["today_pnl"]
+    assert scoped["kpi"]["week_pnl"] == everything["kpi"]["week_pnl"]
+
+
+def test_available_assets_come_from_the_owners_own_history(two_users):
+    owner, other = two_users
+    _trade(owner, "2026-09-07", asset="NQ")
+    _trade(other, "2026-09-07", asset="GC")
+    payload = overview.build_overview(
+        user_id=owner, start="2026-09-01", end="2026-09-30"
+    )
+    assert payload["filters"]["available_assets"] == ["NQ"]
+    assert payload["filters"]["asset"] is None
+
+
+def test_available_assets_survive_the_filter_being_applied(two_users):
+    """The control must still offer every instrument once one is chosen.
+
+    Building the list from the already-filtered frame would collapse it to the
+    single active asset, stranding the trader in the scope they picked.
+    """
+    owner, _ = two_users
+    _trade(owner, "2026-09-07", asset="NQ")
+    _trade(owner, "2026-09-08", asset="ES")
+    scoped = overview.build_overview(
+        user_id=owner, start="2026-09-01", end="2026-09-30", asset="NQ"
+    )
+    assert scoped["filters"] == {"asset": "NQ", "available_assets": ["ES", "NQ"]}
+
+
+def test_an_asset_with_no_trades_in_period_is_an_empty_scope_not_an_empty_account(
+    two_users,
+):
+    owner, _ = two_users
+    _trade(owner, "2026-09-07", asset="NQ")
+    unscoped = overview.build_overview(
+        user_id=owner, start="2026-09-01", end="2026-09-30"
+    )
+    scoped = overview.build_overview(
+        user_id=owner, start="2026-09-01", end="2026-09-30", asset="ES"
+    )
+    assert scoped["kpi"]["trades"] == 0
+    assert scoped["filters"]["asset"] == "ES"
+    # The account is not empty, and the payload must not say it is.
+    assert scoped["next_review_action"] == unscoped["next_review_action"]
+    assert scoped["next_review_action"]["next_key"] != "first_trade"
+
+
+def test_asset_match_is_exact_not_substring(two_users):
+    owner, _ = two_users
+    _trade(owner, "2026-09-07", asset="MNQ")
+    scoped = overview.build_overview(
+        user_id=owner, start="2026-09-01", end="2026-09-30", asset="NQ"
+    )
+    assert scoped["kpi"]["trades"] == 0

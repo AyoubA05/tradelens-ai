@@ -60,6 +60,21 @@ class Period(_Strict):
     model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
 
 
+class OverviewFilters(_Strict):
+    """What the view is scoped to, and what it could be scoped to.
+
+    `available_assets` comes from the owner's own trades in the period, never
+    a static instrument list: a filter that offers instruments the trader never
+    traded invites a scope that can only ever be empty.
+
+    The filter scopes the PERIOD frame only. Activation and today/this-week
+    stay lifetime facts, so a scoped view never claims the account is empty.
+    """
+
+    asset: Optional[str]
+    available_assets: List[str]
+
+
 class SampleFlags(_Strict):
     trades: int
     dated_points: int
@@ -217,6 +232,7 @@ class RecentTrade(_Strict):
 
 class OverviewResponse(_Strict):
     period: Period
+    filters: OverviewFilters
     sample: SampleFlags
     kpi: Kpi
     risk: Risk

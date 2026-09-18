@@ -1416,9 +1416,27 @@ export interface components {
             /** Trades Until Review */
             trades_until_review: number;
         };
+        /**
+         * OverviewFilters
+         * @description What the view is scoped to, and what it could be scoped to.
+         *
+         *     `available_assets` comes from the owner's own trades in the period, never
+         *     a static instrument list: a filter that offers instruments the trader never
+         *     traded invites a scope that can only ever be empty.
+         *
+         *     The filter scopes the PERIOD frame only. Activation and today/this-week
+         *     stay lifetime facts, so a scoped view never claims the account is empty.
+         */
+        OverviewFilters: {
+            /** Asset */
+            asset: string | null;
+            /** Available Assets */
+            available_assets: string[];
+        };
         /** OverviewResponse */
         OverviewResponse: {
             calendar: components["schemas"]["Calendar"];
+            filters: components["schemas"]["OverviewFilters"];
             kpi: components["schemas"]["Kpi"];
             next_review_action: components["schemas"]["NextReviewAction"];
             period: components["schemas"]["Period"];
@@ -2923,6 +2941,7 @@ export interface operations {
             query: {
                 from: string;
                 to: string;
+                asset?: string | null;
             };
             header?: never;
             path?: never;
