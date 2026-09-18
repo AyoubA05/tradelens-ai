@@ -1,10 +1,16 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
 export default defineConfig({
   plugins: [react()],
-  test: { environment: "jsdom", globals: true },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    // Playwright drives a real browser; its specs are run by `npm run e2e`,
+    // never by Vitest.
+    exclude: [...configDefaults.exclude, "e2e/**"],
+  },
   resolve: {
     alias: {
       // "server-only" is a Next build-time marker: importing it from a client

@@ -14,6 +14,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "e2e": "playwright test",
+    "e2e:public": "playwright test e2e/public.spec.ts",
     "api:types": "openapi-typescript lib/api/openapi.json -o lib/api/schema.d.ts"
   },
   "dependencies": {
@@ -32,6 +34,7 @@
     "tailwind-merge": "2.6.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@testing-library/jest-dom": "6.6.3",
     "@testing-library/react": "16.2.0",
     "@types/bcryptjs": "^2.4.6",
