@@ -672,3 +672,47 @@ def test_asset_match_is_exact_not_substring(two_users):
         user_id=owner, start="2026-09-01", end="2026-09-30", asset="NQ"
     )
     assert scoped["kpi"]["trades"] == 0
+
+
+def test_a_padded_stored_asset_is_offered_and_selectable(two_users):
+    """The control must not offer a symbol its own filter then rejects.
+
+    `available_assets` strips, but the filter compared raw, so a legacy or
+    imported row stored as `" NQ "` was offered as `"NQ"` and then matched
+    nothing — the page saying "no trades for NQ" about an instrument it had
+    just listed. Both sides are stripped now.
+    """
+    owner, _ = two_users
+    _trade(owner, "2026-09-07", asset=" NQ ")
+    payload = overview.build_overview(
+        user_id=owner, start="2026-09-01", end="2026-09-30"
+    )
+    assert payload["filters"]["available_assets"] == ["NQ"]
+    scoped = overview.build_overview(
+        user_id=owner, start="2026-09-01", end="2026-09-30", asset="NQ"
+    )
+    assert scoped["kpi"]["trades"] == 1
+
+
+def test_a_padded_filter_value_matches_a_clean_row(two_users):
+    owner, _ = two_users
+    _trade(owner, "2026-09-07", asset="NQ")
+    scoped = overview.build_overview(
+        user_id=owner, start="2026-09-01", end="2026-09-30", asset=" NQ "
+    )
+    assert scoped["kpi"]["trades"] == 1
+
+
+def test_stripping_does_not_weaken_exact_matching(two_users):
+    """Trimming whitespace must not make MNQ or a differently-cased NQ match."""
+    owner, _ = two_users
+    _trade(owner, "2026-09-07", asset=" MNQ ")
+    _trade(owner, "2026-09-08", asset="nq")
+    scoped = overview.build_overview(
+        user_id=owner, start="2026-09-01", end="2026-09-30", asset="NQ"
+    )
+    assert scoped["kpi"]["trades"] == 0
+    lower = overview.build_overview(
+        user_id=owner, start="2026-09-01", end="2026-09-30", asset="nq"
+    )
+    assert lower["kpi"]["trades"] == 1

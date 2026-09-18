@@ -102,6 +102,13 @@ def get_overview(
     """
     _refuse_unknown_params(request)
     start, end = _validated_period(from_, to)
+    # `?asset=` (or an all-whitespace value) names no instrument, so it is an
+    # absent filter rather than a filter on the empty symbol. Taken literally
+    # it matched nothing and returned an empty scope headed by a blank name.
+    # This is a value coercion, not a tolerance for unknown parameters — a
+    # misspelled key is still a 422.
+    if asset is not None and not asset.strip():
+        asset = None
     payload = to_jsonable(
         build_overview(user_id=user_id, start=start, end=end, asset=asset)
     )

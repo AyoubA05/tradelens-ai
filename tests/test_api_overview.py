@@ -487,3 +487,24 @@ def test_overview_asset_with_no_trades_is_200_with_an_empty_scope(
     assert body["recent_trades"] == []
     assert body["filters"] == {"asset": "ES", "available_assets": ["NQ"]}
     assert body["next_review_action"]["next_key"] != "first_trade"
+
+
+def test_overview_treats_an_empty_asset_value_as_unfiltered(
+    client, website_session_handle
+):
+    """`?asset=` is an absent filter, not a filter on the empty symbol.
+
+    Accepted as a literal `""` it matched nothing, so the caller got an empty
+    scope labelled with a blank instrument — a view of nothing, headed by no
+    name. Blank and all-whitespace values coerce to no filter at all.
+    """
+    user_id, handle = website_session_handle
+    _trade(user_id, "2026-09-07", asset="NQ")
+    _trade(user_id, "2026-09-08", asset="ES")
+    for blank in ("", "%20%20"):
+        response = _get(client, f"from=2026-09-01&to=2026-09-30&asset={blank}", handle)
+        assert response.status_code == 200
+        body = response.json()
+        assert body["filters"]["asset"] is None
+        assert body["filters"]["available_assets"] == ["ES", "NQ"]
+        assert body["kpi"]["trades"] == 2

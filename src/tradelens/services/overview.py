@@ -182,11 +182,20 @@ def build_overview(
     if asset is not None:
         # Exact match, never a substring/`ilike('%..%')` test: MNQ is a
         # different instrument from NQ and must not fold into an NQ view.
-        # The row list is filtered rather than the frame so `recent_trades`
-        # below is scoped identically to every figure above it — a view that
-        # claims "no trades for ES" while listing NQ trades underneath is a
-        # filter lying about what it narrowed.
-        trades = [t for t in trades if t.asset is not None and str(t.asset) == asset]
+        # Case is significant too — "nq" and "NQ" stay distinct symbols.
+        # Both sides are stripped because `available_assets` above is built
+        # stripped: a legacy or imported row stored as " NQ " is offered in
+        # the control as "NQ", and comparing raw here would make the page
+        # answer "no trades for NQ" about an instrument its own filter just
+        # offered. Stripping cannot widen a match — MNQ still never folds
+        # into NQ. The row list is filtered rather than the frame so
+        # `recent_trades` below is scoped identically to every figure above
+        # it — a view that claims "no trades for ES" while listing NQ trades
+        # underneath is a filter lying about what it narrowed.
+        wanted = asset.strip()
+        trades = [
+            t for t in trades if t.asset is not None and str(t.asset).strip() == wanted
+        ]
 
     df = _frame(trades)
     sample = sample_state(df)
