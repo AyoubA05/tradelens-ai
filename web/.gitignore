@@ -5,3 +5,7 @@ public
 .env*.local
 *.tsbuildinfo
 next-env.d.ts
+
+# Playwright run output (Task R3)
+test-results/
+playwright-report/
