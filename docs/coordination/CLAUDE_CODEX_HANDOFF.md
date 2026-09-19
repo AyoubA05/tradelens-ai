@@ -8794,3 +8794,134 @@ performed. Keep all established deployment gates open.
 
 **Independent verdict: Phase 10A at `f611248` is cleared for development merge, not production deployment. Stop here;
 do not begin Phase 10 retirement as part of this review.**
+
+---
+
+# Phase 10 readiness + Phase 10B — Gate 1 parity gaps (branch `worktree-phase10-readiness`, NOT merged)
+
+Branched from `origin/main` `65b63d2` (Phase 10A). Plans: `docs/superpowers/plans/2026-09-14-nextjs-migration-phase10-streamlit-retirement.md`
+(readiness tasks R1–R5, decisions T1–T10) and `docs/superpowers/plans/2026-09-18-phase10b-gate1-parity-gaps.md`
+(the three Gate 1 gaps). Ledger: `docs/superpowers/parity/2026-09-14-phase10-parity-ledger.md`.
+**Tip: ``2858367``.** Nothing merged; no account flipped; no Streamlit code, table or deployment touched.
+
+## Commits
+
+- **Readiness (reversible):** `3d531be` R2 configurable app origin, retired-host refusal, unreachable = failure ·
+  `dee0cae` R3 Playwright desktop + true 375px · `e344736` R4 screenshot migration script (dry-run default) ·
+  `d9b1576` ignore Playwright output · `e3b022d` R1 ledger + its test · `28e3ed5` the four owner product decisions.
+- **Phase 10B:** `c15b2ac` Overview asset filter · `fa931f5` attach a screenshot to an existing trade ·
+  `80f095a` emotion vs RR · `cab4259` undefined R rather than a fabricated 0.0R · `834e2b5` ledger flip ·
+  `ed12b58` close mutants B12/B14 · `b602258` review fix (whitespace asymmetry, empty `?asset=`) ·
+  `a507b5f` carried findings · `1ce27b1` ledger reconciliation + corrected oversize finding ·
+  `2858367` analytics parity-guard regression fix.
+
+## The four owner decisions (recorded as removals, never as implemented)
+
+Trade of the Week and by-hour-of-day are deliberate removals with their historical evidence (`a0ef59b` removed the
+Trade of the Week card on 2026-06-25, two months before migration Phase 0; `entry_time` is hash-only so an hour
+breakdown could never be filled and no clock column is to be added). Recovery email keeps S1 display-only; API-key
+guidance keeps S2 managed availability.
+
+## Ledger reconciliation (owner-raised)
+
+**126 rows = 121 implemented + 5 removed + 0 blockers.** Verified programmatically: every §8 item the ledger test
+enumerates appears exactly once, none missing, none extra. History: `e3b022d` 118/7/1 → `28e3ed5` 118/3/5 →
+`834e2b5` 121/0/5. **The file was correct throughout**; a Phase 10B summary quoted the pre-flip implemented count
+(118) beside "0 blockers", which is where the impossible 123 came from. The reported total was wrong, not the ledger.
+
+## Oversized-screenshot cleanup (owner-raised)
+
+The Phase 10B review's Note 2 — "an oversized file orphans its quarantine object" — **was investigated and is
+incorrect**:
+
+- `storage.presign_upload` (`src/tradelens/api/storage.py:219-248`) creates **no server-side state**: no `screenshots`
+  row, no ticket, no object. It returns a signed PUT URL into a non-downloadable quarantine prefix.
+- The size check against the server's `max_bytes` runs **before the PUT** (`web/lib/app/screenshot-upload.ts:279-284`),
+  so at that moment **only an unused signed URL exists** — and that path calls `abandonScreenshotUpload` anyway
+  (present since `ca73016`, Phase 4; not introduced by Phase 10B).
+- `pendingKey` is set only where the PUT already succeeded (`:315`, `:320`), and both callers abandon it
+  (`new-trade-form.tsx:326`, `attach-screenshot.tsx:76`).
+
+No cleanup defect was confirmed in application code, so nothing was "fixed" to make a symptom disappear.
+
+**The real residual risk, pre-existing and by design:** a PUT that succeeds but is never finalized *and* never
+abandoned (browser closed, tab crash, trader walks away after a transient fault) leaves a quarantine object that
+nothing in the database references. `api/routers/trades.py:1415-1420` says so explicitly: such an object "has no
+`screenshots` row, so `delete_trade_objects` cannot see it", and abandon "is the only way to clear one". There is no
+sweeper or bucket lifecycle rule in this repository. **Live R2 verification must inspect the quarantine prefix for
+stranded objects, and a lifecycle/expiry rule should be configured there.** Infrastructure, not application code.
+
+## The eighth full-suite failure (owner-raised) — a real regression, now fixed
+
+Not flaky, and not the test the Phase 10B review named. Established by running the suite at three commits:
+
+| Commit | Full suite | Failures |
+|---|---|---|
+| `d9b1576` (base) | 7 failed / 4021 passed / 7 skipped | the 7 pre-existing Streamlit boot tests |
+| `a507b5f` (Phase 10B tip, pre-fix) | 8 failed / 4042 passed / 7 skipped | those 7 **plus** `tests/test_analytics_parity.py::test_no_projected_figure_is_computed_rather_than_read` |
+| `2858367` (fix) | **7 failed / 4043 passed / 7 skipped** | the same 7 pre-existing boot tests — **matches the baseline exactly** |
+
+`tests/test_analytics_parity.py` is a structural guard: `services/analytics.py` must contain no arithmetic
+constructs, so no metric ever gains a second implementation there. Phase 10B's `_measured_r_counts` counted rows with
+a boolean `.sum()` and tripped it. **It hid because no targeted Phase 10B run included that file** — it surfaces only
+when the whole suite imports it. The guard's own docstring anticipates exactly this case and says to justify the
+arithmetic rather than evade the rule, so the fix expresses counting as counting (`value_counts`) and the guard keeps
+its full strength for money arithmetic. The test was not weakened and no exception was added. Emotion mutants B08,
+B09, B10 and the retargeted B11 are all still CAUGHT after the rewrite.
+
+**Baseline for the 7 pre-existing failures:** 4 Journal and 3 Analytics Streamlit boot tests, identical at base and
+tip, and reproducible 3/3 at file level on both. They fail on unmodified `origin/main` too. Recorded as pre-existing,
+never as Phase 10B's.
+
+## Phase 10B — what shipped
+
+| Gap | Implementation | Behavioural tests |
+|---|---|---|
+| Overview asset filter | `services/overview.py` (period rows filtered; lifetime reads untouched; exact match, whitespace-tolerant on both sides), `api/routers/overview.py` (`asset` param, unknown-param 422, empty value = unfiltered), `web/components/app/overview/asset-filter.tsx` | `test_asset_filter_scopes_period_figures_but_not_lifetime`, `test_asset_match_is_exact_not_substring`, `test_a_padded_stored_asset_is_offered_and_selectable`, `overview-asset-filter.test.tsx` |
+| Screenshot on an existing trade | `web/components/app/trade-detail/attach-screenshot.tsx` over the **existing** owner-scoped relay — no new endpoint | `trade-detail-attach-screenshot.test.tsx` (presign → PUT → finalize order, abandon on failure, one request per double click, no `<img>` for an unattached file) |
+| Emotion vs RR | `services/analytics.py` `_emotion_rr`/`_measured_r_counts` reusing read-only `metrics.emotion_vs_rr`; `setups-lens.tsx` | `test_setups_lens_reports_average_r_by_pre_trade_emotion`, `test_an_emotion_with_no_recorded_r_is_undefined_not_a_flat_zero`, `analytics-emotion-rr.test.tsx` |
+
+## Verification
+
+- **Mutation battery (15 mutants, hardened harness):** 14 CAUGHT, 1 equivalent (B07 — including null emotions in the
+  measured-R count only adds a dictionary key nothing looks up, since the metric already excludes null emotions).
+  Verdict controls correct; every restore sha256-verified; tree clean before and after.
+- **Independent review of Phase 10B:** no blocking findings. Its should-fix (whitespace asymmetry — a padded stored
+  asset was offered in the filter and then matched nothing) is fixed in `b602258` with both symptoms reproduced first;
+  its empty-`?asset=` note is fixed in the same commit. Its Note 2 is refuted above.
+- **Gates at ``2858367``:** full Python suite 7 failed (all pre-existing) / 4043 passed / 7 skipped ·
+  `pytest tests/parity tests/test_parity_ledger.py` 6 passed, snapshots unchanged · `ruff check src/ scripts/` clean ·
+  `black --check src/ scripts/ tests/` flags only the pre-existing `tests/app_boot_check.py` · OpenAPI + `api:types`
+  regenerate with **no drift** · single Alembic head `h4i5j6k7l8m9` · web `vitest` 111 files / 2021 passed ·
+  `tsc --noEmit` clean · `next build` succeeds. **Browser smoke beyond the unauthenticated Playwright run: NOT RUN.**
+
+## Readiness status
+
+- **R1 complete** — ledger above; 0 Gate 1 blockers.
+- **R2 complete** — app origin configurable (`APP_ORIGIN` / `--app`); `*.streamlit.app` refused as an app destination
+  (origin, redirect target, and hosts inside redirect query values); an unreachable origin **fails** and is never
+  reported as gated; CI carries no `streamlit.app` string. **No live funnel run was performed.**
+- **R3 complete, partially unverified** — Playwright projects `desktop` (1440×900) and `mobile-375` (true 375px).
+  Public smoke ran: 8/8 at both viewports against a locally started dev server. **The 14 authenticated section tests
+  have never run** — they skip without credentials and remain UNVERIFIED until owner-executed; record the date, base
+  URL and commit when they do. Pinned `@playwright/test@1.63.0`, not the plan's 1.49.1, because Next.js 16 requires
+  `^1.51.1`; dev-only, excluded from `npm audit --omit=dev`.
+- **R4 complete, never executed live** — `scripts/migrate_screenshots_to_r2.py`: owner-scoped, dry-run by default,
+  verifies the uploaded object (including a size match) **before** rewriting any reference, never deletes the local
+  file, and leaves the legacy reference intact on any failure. PNG only: a legacy JPEG/WebP is reported `skipped`
+  because the serving path and `delete_trade_objects` only recognise the normalised key shape — storing an
+  unreachable key would strand a private image after a deletion. **No live migration has run; it needs owner approval.**
+- **R5 complete** — the Strategy demo-playbook preview is recorded as a deliberate removal (decision T2).
+
+## Carried forward — the six production gates, all still OPEN
+
+Real PostgreSQL concurrency (including **Weekly Recap uniqueness**: `weekly_reviews` has no unique
+`(user_id, week_start)`, so duplicates remain possible there without a data migration) · live Anthropic adversarial
+testing · authenticated desktop + true 375px Playwright · Docker build/startup/health · dependency/security audit ·
+live R2 and screenshot-migration verification (**now also: inspect the quarantine prefix for stranded objects and
+configure a lifecycle rule**). Phase 9's non-blocking hardening items stand unchanged. The 7 pre-existing Streamlit
+boot failures are recorded separately from this work.
+
+**Not merged. Independent Codex review requested — focus: financial filtering, screenshot ownership and cleanup,
+tenant isolation, metric parity, the ledger, Playwright coverage, and the screenshot migration script. No account
+flip, no live migration, no Streamlit removal has been performed.**
