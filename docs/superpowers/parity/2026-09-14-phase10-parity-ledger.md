@@ -234,12 +234,26 @@ for, so they are recorded as blockers rather than silently as removals.
 
 ## Carried findings (pre-existing, outside Phase 10B's range)
 
-- **An oversized screenshot can orphan its quarantine object.** `web/lib/app/screenshot-upload.ts` rejects a file for
-  size only after the server's `max_bytes` is known, i.e. after a presign has already created a quarantine object —
-  and that rejection path returns without a `pendingKey`, so nothing calls `abandonScreenshotUpload`. The object is
-  never adopted and never abandoned. This predates Phase 10B and affects New Trade today; the trade-detail attach
-  island inherits it unchanged. Found by the Phase 10B independent review (2026-09-18). Not fixed here: it belongs to
-  the upload helper, outside this phase's scope. Live R2 verification (a hard pre-release gate) should confirm whether
-  such objects exist in the bucket, and the fix is a separate scoped change.
+- **Reconciled totals (2026-09-19).** 126 rows: **121 implemented + 5 removed + 0 blockers**. Every §8 item the
+  ledger test enumerates appears exactly once, with no extra rows (verified programmatically against
+  `tests/test_parity_ledger.py::SECTION_ITEMS`). History: `e3b022d` 118/7/1 → `28e3ed5` 118/3/5 (four owner decisions
+  recorded as removals) → `834e2b5` 121/0/5 (Phase 10B flipped its three rows). A Phase 10B summary reported
+  "118 implemented" alongside "0 blockers", which is the pre-flip implemented count and does not reconcile; the file
+  itself was correct throughout. **121 + 5 = 126.**
+- **An oversized screenshot does NOT orphan a quarantine object** — the Phase 10B review's Note 2 was investigated on
+  2026-09-19 and is **incorrect**. `storage.presign_upload` (`src/tradelens/api/storage.py:219-248`) creates no
+  server-side state: no `screenshots` row, no ticket, no object. It returns a signed PUT URL only. The size check that
+  uses the server's `max_bytes` runs *before* the PUT (`web/lib/app/screenshot-upload.ts:279-284`), so at that moment
+  **only an unused signed URL exists** — and that path calls `abandonScreenshotUpload` anyway (present since `ca73016`,
+  Phase 4, not introduced by Phase 10B). `pendingKey` is set only on paths where the PUT already succeeded
+  (`:315`, `:320`), and both callers abandon it (`new-trade-form.tsx:326`, `attach-screenshot.tsx:76`). No fix was
+  needed and none was made.
+- **Real residual risk, pre-existing and by design:** a PUT that succeeds but is never finalized *and* never abandoned
+  — the browser closes, the tab crashes, or the trader walks away after a transient fault — leaves a quarantine object
+  that **nothing in the database references**. `api/routers/trades.py:1415-1420` states this explicitly: such an object
+  "has no `screenshots` row, so `delete_trade_objects` cannot see it", and abandon "is the only way to clear one".
+  There is no sweeper or bucket lifecycle rule in this repository. This is infrastructure, not application code:
+  **the live R2 verification gate must check the quarantine prefix for stranded objects and a lifecycle/expiry rule
+  should be configured on it.** Not fixed here; recorded as a gate item.
 - **Playwright pinned at 1.63.0, not the plan's 1.49.1** (Task R3): Next.js 16 declares `@playwright/test@^1.51.1`,
   so the older pin could not install without `--force`. Dev-only; excluded from `npm audit --omit=dev`.
