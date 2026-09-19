@@ -610,11 +610,15 @@ def _measured_r_counts(df: pd.DataFrame) -> Dict[str, int]:
     work = df.dropna(subset=["emotions_before"]).copy()
     if work.empty:
         return {}
-    if "rr_realized" in work.columns:
-        measured = pd.to_numeric(work["rr_realized"], errors="coerce").notna()
-    else:
-        measured = pd.Series(False, index=work.index)
-    counts = measured.groupby(work["emotions_before"].astype(str)).sum()
+    if "rr_realized" not in work.columns:
+        return {}
+    # Counted with `value_counts`, deliberately: `tests/test_analytics_parity`
+    # forbids arithmetic constructs in this module so that no metric ever gets
+    # a second implementation here. Counting rows is legitimate, and writing it
+    # as counting rather than as addition keeps that guard meaningful for the
+    # money arithmetic it exists to catch.
+    measured = work.loc[pd.to_numeric(work["rr_realized"], errors="coerce").notna()]
+    counts = measured["emotions_before"].astype(str).value_counts()
     return {str(key): int(value) for key, value in counts.items()}
 
 
