@@ -1,14 +1,15 @@
 """Move one owner's legacy local screenshots into R2. Owner-run; dry-run by default.
 
 Object first, row second: the row is rewritten to the R2 key only after the
-upload has been read back and its stored size matched against the bytes sent. A
+upload has been confirmed by R2 and its stored size matched against the bytes sent. A
 failure leaves the row naming the local file, so a retry converges and nothing
 is lost. The local file is never deleted by this script.
 
 Only files inside ``screenshot_service.SCREENSHOTS_DIR``, named for their own
-trade (``<trade_id>_*``), belonging to ``--owner``, carrying PNG magic bytes are
-migrated. Remote ``http(s)`` references, path escapes, another trade's file and
-non-images are skipped; missing files are reported, never raised.
+trade (``<trade_id>_*``), belonging to ``--owner``, and passing the same image
+validation/re-encoding boundary as browser uploads are migrated. Remote ``http(s)``
+references, path escapes, another trade's file and invalid images are skipped;
+missing files are reported, never raised.
 
 PNG only, deliberately: ``storage._is_final_key`` accepts exactly the extensions
 ``imaging`` is allowed to emit (``FINAL_KEY_EXTENSIONS``). A key ending ``.jpg``
@@ -30,7 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-from src.tradelens.api import storage
+from src.tradelens.api import imaging, storage
 from src.tradelens.db.models import Screenshot, Trade
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services import screenshot_service
@@ -88,12 +89,32 @@ def _local_file(raw: str, trade_id: int) -> Optional[Path]:
 
 
 def _upload_and_verify(body: bytes, key: str, content_type: str) -> bool:
-    """Put the object, then read it back. True only when the store holds our bytes."""
+    """Put the object, then confirm R2 reports the exact stored byte length."""
     client = storage._client()
     bucket = storage.r2_config()["bucket"]
     client.put_object(Bucket=bucket, Key=key, Body=body, ContentType=content_type)
     head = client.head_object(Bucket=bucket, Key=key)
     return int(head.get("ContentLength", -1)) == len(body)
+
+
+def _discard_uploaded(owner: int, trade_id: int, key: str) -> None:
+    """Best-effort rollback for an object no database row references."""
+    try:
+        storage.delete_owned_object(owner, trade_id, key)
+    except Exception:  # noqa: BLE001 — the failed migration remains visible
+        _log.warning("Unreferenced screenshot object %s could not be removed", key)
+
+
+def _reference_points_to(shot_id: int, key: str) -> Optional[bool]:
+    """Resolve an ambiguous commit: True/False, or None if DB is unavailable."""
+    db = SessionLocal()
+    try:
+        value = db.query(Screenshot.file_path).filter(Screenshot.id == shot_id).scalar()
+        return value == key
+    except Exception:  # noqa: BLE001 — ambiguity must not delete referenced bytes
+        return None
+    finally:
+        db.close()
 
 
 def migrate_owner(owner: int, *, apply: bool) -> MigrationReport:
@@ -122,10 +143,25 @@ def migrate_owner(owner: int, *, apply: bool) -> MigrationReport:
         if not path.exists():
             report.missing.append(shot_id)
             continue
-        body = path.read_bytes()
+        try:
+            if path.stat().st_size > storage.MAX_UPLOAD_BYTES:
+                report.skipped.append(shot_id)
+                continue
+            body = path.read_bytes()
+        except OSError:
+            report.missing.append(shot_id)
+            continue
         kind = _content_type(body[:16])
         if kind not in storage.NORMALISED_CONTENT_TYPES:
             _log.warning("Screenshot %s is not a storable image; skipped", int(shot_id))
+            report.skipped.append(shot_id)
+            continue
+        try:
+            body, kind, width, height = imaging.validate_and_normalise(
+                body, expected_content_type=kind
+            )
+        except imaging.ImageRejected:
+            _log.warning("Screenshot %s is not a valid image; skipped", int(shot_id))
             report.skipped.append(shot_id)
             continue
         if not apply:
@@ -140,19 +176,52 @@ def migrate_owner(owner: int, *, apply: bool) -> MigrationReport:
         if not verified:
             # The row still names the local file, which still exists. Retry converges.
             _log.warning("Screenshot %s did not verify in the store", int(shot_id))
+            _discard_uploaded(owner, trade_id, key)
             report.failed.append(shot_id)
             continue
         db = SessionLocal()
+        write_failed = False
         try:
             updated = (
                 db.query(Screenshot)
-                .filter(Screenshot.id == shot_id, Screenshot.file_path == raw)
-                .update({Screenshot.file_path: key}, synchronize_session=False)
+                .filter(
+                    Screenshot.id == shot_id,
+                    Screenshot.trade_id == trade_id,
+                    Screenshot.file_path == raw,
+                    Screenshot.trade.has(Trade.user_id == owner),
+                )
+                .update(
+                    {
+                        Screenshot.file_path: key,
+                        Screenshot.width: width,
+                        Screenshot.height: height,
+                    },
+                    synchronize_session=False,
+                )
             )
             db.commit()
+        except Exception:  # noqa: BLE001 — report and make a safe recovery decision
+            write_failed = True
+            db.rollback()
+            _log.warning(
+                "Screenshot %s database reference could not be updated", shot_id
+            )
         finally:
             db.close()
-        (report.migrated if updated == 1 else report.failed).append(shot_id)
+        if write_failed:
+            committed = _reference_points_to(shot_id, key)
+            if committed is True:
+                report.migrated.append(shot_id)
+            else:
+                if committed is False:
+                    _discard_uploaded(owner, trade_id, key)
+                report.failed.append(shot_id)
+            continue
+        if updated == 1:
+            report.migrated.append(shot_id)
+        else:
+            _discard_uploaded(owner, trade_id, key)
+            report.failed.append(shot_id)
     return report
 
 
