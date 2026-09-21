@@ -145,73 +145,22 @@ Vitest rows cite `path` plus the test title; pytest rows cite `path::test_name`.
 
 ## Notes
 
-### Analytics — trade of the week
+### Gate 1 disposition
 
-The Streamlit dashboard rendered a "Trade of the Week" card until commit `a0ef59b`
-(2026-06-25, "Session A"), which deleted the card and its `trade_of_week` payload. The
-metric function (`src/tradelens/services/metrics.py:1413 trade_of_the_week`) and its tests
-in `tests/test_dashboard.py` survive with **no caller in either surface**. Phase 6 recorded
-it as deliberately deferred.
-
-It is therefore **not a migration regression** — it is an **unresolved product decision**
-for the owner: implement it in Analytics, or record a deliberate removal. It stays a Gate 1
-blocker until the owner decides. No other feature in this ledger replaces it.
-
-### Why each blocker is a blocker
-
-Five §8 items carry `blocker`, in two distinct shapes.
-
-**Implementation is absent or unreachable from the new surface (four items).**
-
-1. **Overview — filter panel.** The Streamlit dashboard's filter panel scoped every figure
-   by **asset** (`src/tradelens/ui/app.py:472-506`, a `selectbox` plus a "Show all assets"
-   reset) as well as by period. The Next.js Overview accepts only `from`/`to`
-   (`src/tradelens/api/routers/overview.py:70`, `web/lib/app/overview.ts`), so the period
-   lens is the whole of it and no asset filter exists. Needs an owner decision: restore an
-   Overview asset filter (API parameter + control), or record the reduction.
-2. **Journal / Trades — per-trade screenshot upload.** Streamlit's Trades detail offered an
-   "Add screenshot" uploader for an already-logged trade
-   (`src/tradelens/ui/pages/2_Trades.py:718-722`). The per-trade relay and API exist and are
-   tested, but `ScreenshotUpload` is imported **only** by `new-trade-form.tsx`; the trade
-   detail page renders a read-only `screenshot-gallery.tsx`. Attaching a screenshot to a
-   trade already saved is unreachable in the new app. Small, well-shaped fix — the server
-   side is done.
-3. **Analytics — emotion vs RR.** `metrics.emotion_vs_rr` and `charts.emotion_vs_rr_chart`
-   exist, and the Streamlit Analytics page rendered a "P&L by emotional state going in"
-   panel (`4_Analytics.py:835-851`). The analytics API's `SetupsLens`/`TimingLens` carry no
-   emotion breakdown, and no Next.js component renders one. Implemented in the old surface,
-   not the new one.
-4. **Analytics — by hour of day.** Deliberately absent from the new contract, with a written
-   rationale (`src/tradelens/services/analytics.py:449`) and a test pinning the absence:
-   `entry_time` is hash-only and `Trade` stores no clock column, so
-   `metrics.by_hour_of_day` returns zero rows for any real sample — the Streamlit panel
-   could not have been filled either. This is **not** a migration regression, but it has no
-   recorded owner decision, so under T8 it blocks Gate 1 until the owner marks it
-   "implement" (which needs a persisted time column — a schema change) or "removed".
-
-**Behaviour deliberately narrowed by a phase decision with no owner §8 decision (two
-items).** Both were read in code and both are pinned by tests that assert the *absence*:
-
-5. **Settings — recovery email.** Streamlit let a trader save a recovery email
-   (`9_Settings.py:170`). Phase 9 decision S1 made the Next.js profile section
-   display-only, because on the website the email is the sign-in identity. Password
-   recovery itself works (the forgot/reset flow ships and is tested), but there is no
-   recovery-email write path. Owner decision needed.
-6. **Settings — API-key guidance.** Streamlit shipped a "How to configure an API key"
-   expander (`9_Settings.py:274`). Phase 9 decision S2 replaced it with an availability
-   line, and the test asserts no key-configuration text appears. Owner decision needed.
-
-S1 and S2 are phase-level design decisions, not the explicit §8 removal decisions T8 asks
-for, so they are recorded as blockers rather than silently as removals.
+There are **no remaining feature blockers** in this ledger. Phase 10B restored the three
+reachable parity gaps: the Overview asset filter, per-trade screenshot attachment, and
+Analytics emotion-vs-RR. The owner explicitly recorded the other five items as removals:
+Analytics by-hour, Analytics trade-of-the-week, Settings recovery-email editing, Settings
+API-key guidance, and the Strategy demo-playbook preview. The row table above is the
+authoritative evidence for each implementation or decision.
 
 ### Items where the reading differed from the 2026-09-14 keyword sweep
 
 - "trade of the week" and the demo-playbook preview: the sweep's finding (no match under
   `web/`) is **confirmed** by reading.
-- Three further items the sweep did not flag are recorded as blockers here: the Overview
-  filter panel, the trade-detail screenshot upload, and Analytics' emotion-vs-RR panel. All
-  three match a keyword somewhere under `web/` or `src/` but do not perform the §8
-  behaviour where a trader can reach it.
+- Three further items the sweep did not flag became Phase 10B implementation work: the
+  Overview filter panel, trade-detail screenshot upload, and Analytics emotion-vs-RR panel.
+  Each is now reachable and pinned by the evidence in its row above.
 - Two items are `implemented` on a **different surface** from the Streamlit original, and a
   keyword sweep of the matching page would have missed them: "AI analysis" (§8 New Trade)
   ships on the trade-detail page as `ai-review-panel.tsx`, and "session auto-detect" is
@@ -219,18 +168,6 @@ for, so they are recorded as blockers rather than silently as removals.
 - "demo banner" ships as a status **line** (decision S3), not a banner. Recorded as
   implemented: the behaviour — telling the trader the deployment is in demo mode — is
   present and tested.
-
-### Work that would need its own implementation plan
-
-| Item | Shape | Rough size |
-|---|---|---|
-| Analytics — emotion vs RR | API schema field + service breakdown + lens panel + tests | Small-to-medium: ~1 task (the metric exists; the frame already carries `emotions_before`) |
-| Journal — per-trade screenshot upload | Reuse `ScreenshotUpload` on the trade-detail page; wire to the existing relay | Small: ~1 task, server side already done |
-| Overview — asset filter panel | API query parameter, service filter, control, tests | Medium: ~1-2 tasks, touches the overview contract |
-| Settings — recovery email | New column or reuse, write path, verification flow, relay, UI, tests | Medium: a verify-the-new-address flow is its own design question |
-| Settings — API-key guidance | Copy only, if the owner reverses S2 | Trivial |
-| Analytics — by hour of day | Persist a clock column on `Trade` + migration + backfill question + breakdown + panel | **Medium-to-large: its own phase.** A schema change, and no historical data to backfill from |
-| Analytics — trade of the week | A card in Analytics fed by the existing metric | Small, once the owner decides |
 
 ## Carried findings (pre-existing, outside Phase 10B's range)
 
