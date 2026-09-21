@@ -193,6 +193,7 @@ def build_overview(
         # it — a view that claims "no trades for ES" while listing NQ trades
         # underneath is a filter lying about what it narrowed.
         wanted = asset.strip()
+        asset = wanted
         trades = [
             t for t in trades if t.asset is not None and str(t.asset).strip() == wanted
         ]

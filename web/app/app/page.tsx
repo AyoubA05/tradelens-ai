@@ -12,21 +12,14 @@ import { periodFromParams, periodToParams } from "@/lib/app/period";
 import { OverviewSections } from "@/components/app/overview/sections";
 import { AssetFilter } from "@/components/app/overview/asset-filter";
 
-/**
- * A plausible instrument symbol.
- *
- * The URL is trader-editable, so the scope is validated before it is forwarded
- * rather than passed through on length alone. Anything outside this shape could
- * only ever produce an empty scope, and an empty scope labelled with whatever
- * the URL happened to contain is a heading the product has to stand behind.
- */
-const INSTRUMENT_SYMBOL = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,23}$/;
+/** A bounded, display-safe label; the service still performs exact matching. */
+const INSTRUMENT_LABEL = /^[^\u0000-\u001F\u007F<>]{1,128}$/u;
 
 function scopedAsset(params: URLSearchParams): string | undefined {
   const raw = params.get("asset");
   if (raw === null) return undefined;
   const value = raw.trim();
-  return INSTRUMENT_SYMBOL.test(value) ? value : undefined;
+  return INSTRUMENT_LABEL.test(value) ? value : undefined;
 }
 
 export const dynamic = "force-dynamic";

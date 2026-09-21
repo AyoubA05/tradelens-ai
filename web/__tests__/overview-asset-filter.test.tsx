@@ -126,6 +126,14 @@ describe("Overview page under an asset scope", () => {
     expect(fetchOverview.mock.calls[0][2]).toBe("NQ");
   });
 
+  it.each(["BTC:USD", "MES 12-26"])(
+    "forwards the exact stored instrument label %s instead of silently unscoping it",
+    async (asset) => {
+      await OverviewPage({ searchParams: Promise.resolve({ asset }) });
+      expect(fetchOverview.mock.calls[0][2]).toBe(asset);
+    },
+  );
+
   it.each([
     ["absent", {}],
     ["empty", { asset: "" }],

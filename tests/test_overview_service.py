@@ -632,6 +632,20 @@ def test_available_assets_come_from_the_owners_own_history(two_users):
     assert payload["filters"]["asset"] is None
 
 
+def test_overview_uses_the_requested_second_owner_not_a_first_user_default(two_users):
+    first, second = two_users
+    _trade(first, "2026-09-07", asset="NQ", pnl=9999.0)
+    _trade(second, "2026-09-07", asset="ES", pnl=25.0)
+
+    payload = overview.build_overview(
+        user_id=second, start="2026-09-01", end="2026-09-30"
+    )
+
+    assert payload["filters"]["available_assets"] == ["ES"]
+    assert payload["kpi"]["trades"] == 1
+    assert payload["kpi"]["net_pnl"]["value"] == 25.0
+
+
 def test_available_assets_survive_the_filter_being_applied(two_users):
     """The control must still offer every instrument once one is chosen.
 
@@ -701,6 +715,7 @@ def test_a_padded_filter_value_matches_a_clean_row(two_users):
         user_id=owner, start="2026-09-01", end="2026-09-30", asset=" NQ "
     )
     assert scoped["kpi"]["trades"] == 1
+    assert scoped["filters"]["asset"] == "NQ"
 
 
 def test_stripping_does_not_weaken_exact_matching(two_users):
