@@ -122,6 +122,18 @@ def test_auth_redirect_to_a_different_app_fails():
     assert "does not route back" in result.detail
 
 
+def test_auth_redirect_to_a_lookalike_hostname_fails():
+    """A substring match must not bless app.tradelensai.io.attacker.example."""
+    result = classify_app(
+        303,
+        "https://auth.example.com/-/login"
+        "?next=https%3A%2F%2Fapp.tradelensai.io.attacker.example%2Fapp",
+        app_origin=APP,
+    )
+    assert not result.ok
+    assert "does not route back" in result.detail
+
+
 def test_app_server_error_still_fails():
     result = classify_app(500, APP + "/", app_origin=APP)
     assert not result.ok

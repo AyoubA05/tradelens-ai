@@ -124,7 +124,8 @@ def _returns_to(auth_url: str, app_origin: str) -> bool:
         return True
     query = urllib.parse.urlparse(auth_url).query
     for _key, value in urllib.parse.parse_qsl(query):
-        if app_host in urllib.parse.unquote(value).lower():
+        destination_host = _host_of(urllib.parse.unquote(value))
+        if destination_host == app_host:
             return True
     return False
 
