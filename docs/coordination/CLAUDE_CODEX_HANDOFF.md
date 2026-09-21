@@ -8925,3 +8925,85 @@ boot failures are recorded separately from this work.
 **Not merged. Independent Codex review requested — focus: financial filtering, screenshot ownership and cleanup,
 tenant isolation, metric parity, the ledger, Playwright coverage, and the screenshot migration script. No account
 flip, no live migration, no Streamlit removal has been performed.**
+
+---
+
+# Independent Codex review — Phase 10B + reversible readiness (2026-09-21)
+
+Reviewed the complete `origin/main..861b0f4` range independently, then made four scoped fix-forward commits on
+`worktree-phase10-readiness`: `9576966` (Overview scope normalization), `c968f44` (legacy screenshot migration),
+`b264488` (public-funnel return host), and `9b4f245` (parity-ledger narrative). This review did **not** merge the
+branch, flip an account, run the live migration, remove Streamlit, or begin irreversible cutover work.
+
+## Confirmed findings and fixes
+
+1. **Medium — the legacy screenshot migration bypassed the image trust boundary and could strand final objects.**
+   `scripts/migrate_screenshots_to_r2.py` accepted PNG magic bytes as sufficient and copied the original container
+   directly to a final downloadable key. A corrupt PNG and a valid PNG with trailing payload both reproduced the
+   defect. It also left a final object after a size-verification mismatch, an atomic row-update miss, or a DB failure
+   after upload. The row update rechecked only screenshot id/path, so a concurrent move to another owner could attach
+   the first owner's final key to the other owner. Fixed by applying the shared `imaging.validate_and_normalise`
+   pipeline before dry-run eligibility or upload, bounding input bytes, storing only the re-encoded PNG, persisting
+   dimensions, atomically rechecking screenshot id + trade id + old path + current trade owner, deleting an
+   unreferenced object after verification/update failures, and resolving an ambiguous commit before deciding whether
+   cleanup is safe. Regression tests cover corrupt bytes, trailing data, failed verification, DB failure, concurrent
+   trade/screenshot reassignment, path traversal, symlink escape, dry-run and idempotent rerun.
+2. **Medium — valid stored asset labels could silently disable Overview filtering.** `web/app/app/page.tsx` offered
+   values derived from stored trades but accepted a narrower hand-written symbol regex. Selecting `BTC:USD` or
+   `MES 12-26` produced a scoped URL while the Server Component dropped the asset and fetched all-account figures.
+   Fixed with a bounded display-safe label rule that admits those real labels and still rejects control/markup input.
+3. **Low — a padded Overview asset was matched after trimming but echoed untrimmed.**
+   `services/overview.py` returned `filters.asset=" NQ "` beside option `"NQ"`, leaving the select without a matching
+   value and presenting a non-canonical scope label to direct API callers. The service now returns the exact normalized
+   value it used for matching. A second-user service test was added so a `user_id=1` regression is no longer masked by
+   the standard first-user fixture.
+4. **Low — the public funnel accepted lookalike return hosts.** `scripts/verify_public_funnel.py::_returns_to` used a
+   substring test, so `app.tradelensai.io.attacker.example` was reported as a valid post-login destination. It now
+   parses and exactly compares the destination hostname.
+5. **Low/documentation — the ledger table was correct, but its Notes still described resolved rows as blockers.**
+   The authoritative table remains **126 = 121 implemented + 5 explicit removals + 0 blockers**; stale blocker/work
+   prose was replaced with the current Gate 1 disposition. An independent parser confirmed all 126 rows, every
+   implemented location, and every named test/file reference.
+
+No Critical or High finding was confirmed. No tenant leak, cross-trade screenshot attachment, 404/403 distinction
+regression, local financial reimplementation, measured-zero flattening, or screenshot relay status/order defect was
+found in the reviewed paths.
+
+## Independent adversarial and mutation evidence
+
+- Hard-coded the Overview period read to user 1: the new second-owner test failed with the first owner's symbol.
+- Removed the migration's final owner predicate: the concurrent trade-owner-change test failed because the foreign
+  trade received the first owner's key.
+- Disabled migration-root containment: the absolute, `..`, and symlink escape test failed and objects were uploaded.
+- Inverted the attach component's success predicate: six observable UI/relay tests failed, including false refresh,
+  missing abandon, oversize handling and finalize-failure handling.
+- Restored the pre-`2858367` boolean `.sum()`: the unchanged
+  `test_no_projected_figure_is_computed_rather_than_read` failed. This independently confirms `2858367` fixes the
+  real parity regression without weakening or exempting the guard.
+
+## Verification actually run
+
+- Full Python: **4050 passed / 7 skipped / 7 failed** in 824.78s. The seven failures are exactly the established four
+  Journal + three Analytics Streamlit boot assertions; no new/Phase 10B failure appeared.
+- Focused backend/security/storage/analytics/Overview/funnel suites: **424 passed / 4 skipped**.
+- Full web: **111 files / 2023 passed**. Focused Phase 10B UI set: **7 files / 78 passed**.
+- TypeScript clean. ESLint: **0 errors / 2 pre-existing `modal-trap.ts` warnings**.
+- Production Next.js build succeeded with CI-equivalent origins; all `/app` and app relay routes shown by the build are
+  dynamic. OpenAPI and generated TypeScript regenerated with no drift.
+- Ruff `src/ scripts/` clean. Changed Python files pass Black. Whole-tree Black still flags only unchanged
+  `tests/app_boot_check.py`, matching the recorded baseline. `git diff --check` clean.
+- Playwright public smoke ran locally at desktop 1440x900 and true mobile width 375: **8 passed**. The authenticated
+  section command was run without credentials and reported **14 skipped**; it was not treated as coverage.
+
+## Remaining limits and merge verdict
+
+The oversized browser-file path is not an orphan path: size is compared with the server-returned maximum before the
+PUT, so only an unused presigned URL exists. The real residual remains a successful PUT followed by browser death or
+abandon failure before finalize. No DB row can name that quarantine object; repository code cannot sweep it. The live
+R2 gate must inspect the quarantine prefix and verify/configure a lifecycle expiry rule.
+
+**Phase 10B + reversible readiness is cleared for development merge after the four fixes above. It is not cleared for
+production cutover.** Keep all six production gates open: real PostgreSQL concurrency, live Anthropic adversarial
+testing, authenticated desktop + true-375px Playwright, Docker build/startup/health, dependency/security audit, and
+live R2 plus owner-approved screenshot-migration verification. Do not run the migration or begin irreversible
+retirement until those gates and the plan's explicit approvals are satisfied.
