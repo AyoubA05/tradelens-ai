@@ -3,13 +3,12 @@
 # not have to install Streamlit, PyArrow and Plotly — presentation dependencies
 # with no business in a backend, which roughly triple the image.
 -r requirements-base.txt
-streamlit==1.50.0
-# Streamlit 1.50's AppTest dataframe conversion segfaults natively with
-# PyArrow 25 on Python 3.11. Version 21 is verified by the Journal interaction
-# flows and prevents the CI process from exiting with signal 11.
-pyarrow==21.0.0
+streamlit==1.54.0
+# Streamlit 1.50's AppTest dataframe conversion segfaulted natively with
+# PyArrow 25 on Python 3.11 (later Streamlit excludes 25.0.0 outright).
+# 23.0.1 is the first release patching PYSEC-2026-113 and stays off that line.
+pyarrow==23.0.1
 plotly==6.7.0
-# Streamlit 1.50 requires pillow<12, so this surface cannot take the 12.x line
-# the API surface uses. It does not decode untrusted uploads — that path is
-# FastAPI's — so the exposure differs from requirements-api.txt's.
-pillow==11.3.0
+# Streamlit 1.54 accepts pillow<13, so this surface now matches the API
+# surface's patched 12.3.0 (11.x carried 18 advisories).
+pillow==12.3.0

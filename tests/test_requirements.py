@@ -86,12 +86,13 @@ def test_the_api_surface_has_what_it_needs():
 def test_pyarrow_is_pinned_to_ci_verified_version():
     """Keep Streamlit AppTest away from PyArrow 25's native crash.
 
-    PyArrow 25 segfaults while Streamlit 1.50 converts the Journal's pandas
-    frames on Python 3.11.  Version 21 is exercised by the three subprocess
-    Journal interaction flows and by the full CI suite.
+    PyArrow 25 segfaulted while Streamlit 1.50 converted the Journal's pandas
+    frames on Python 3.11.  23.0.1 is the first release patching
+    PYSEC-2026-113, stays off the 25.x line, and is exercised by the three
+    subprocess Journal interaction flows and by the full CI suite.
     """
 
-    assert "pyarrow==21.0.0" in {
+    assert "pyarrow==23.0.1" in {
         line.strip()
         for line in RUNTIME.splitlines()
         if line.strip() and not line.lstrip().startswith("#")
@@ -162,12 +163,12 @@ def test_dev_does_not_include_the_api_requirements_file():
     assert "-r requirements-api.txt" not in includes, includes
 
 
-def test_only_the_api_surface_takes_the_patched_pillow_line():
-    """The container that decodes untrusted uploads gets the patched line.
-
-    Streamlit's ceiling keeps the other two surfaces on 11.3.0; that surface
-    never handles untrusted image bytes, so the exposure differs.
+def test_every_surface_takes_the_patched_pillow_line():
+    """The container that decodes untrusted uploads keeps the patched line,
+    and since Streamlit 1.54 lifted its pillow<12 ceiling the Streamlit
+    surface takes it too: 11.x carries 18 published advisories.
     """
     assert 'pillow==12.3.0; python_version >= "3.10"' in API
-    assert "pillow==12.3.0" not in RUNTIME
-    assert "pillow==12.3.0" not in DEV
+    assert "pillow==12.3.0" in RUNTIME
+    assert "pillow==11" not in RUNTIME
+    assert "pillow==11" not in DEV
