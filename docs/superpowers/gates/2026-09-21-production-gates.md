@@ -10,7 +10,7 @@ removed + 0 feature blockers. No account flipped, no Streamlit code/table/deploy
 | 2 | Live Anthropic adversarial + usage accounting | **NOT RUN** — plan below, awaiting authorization |
 | 3 | Authenticated Playwright, desktop + true 375px | **NOT RUN** — no test account / staging target |
 | 4 | Docker build, startup, health | **NOT RUN** — no Docker on this machine |
-| 5 | Dependency + security audit | **FAIL** (improved; see below) |
+| 5 | Dependency + security audit | **FAIL** — remediation on unmerged `legacy-deps-maintenance`; one regression open |
 | 6 | Live R2 + screenshot migration | **NOT RUN** — plan below, awaiting credentials |
 
 ---
@@ -122,3 +122,38 @@ API token; one test user on the disposable database. Checks:
    disposable database only; report planned / skipped (non-PNG) counts. **No live upload or reference rewrite without
    separate explicit approval.**
 6. **Stranded objects:** list the quarantine prefix of the real bucket (read-only) and report the count.
+
+### Gate 5 update — 2026-09-21
+
+- `security-deps-remediation` (`7560aab`) **merged and pushed**: `main` = remote = `c65f757`. The intermittent vitest
+  failure seen once by the reviewer remains **unidentified**; its cause is not known.
+- Branch `legacy-deps-maintenance` (**not merged** — merging would redeploy the live Streamlit app, which needs separate
+  deployment approval):
+  - `bd6fc06` dev-only npm: lockfile-only in-range patches (vitest 4.1.11, js-yaml 4.3.2, @redocly/openapi-core
+    1.34.20). `npm audit` full **0**, `--omit=dev` **0**; vitest 2023/2023 ×3; tsc 0; lint 0; build 0; no api:types drift.
+  - `1cec5bc` Streamlit surface: streamlit 1.54.0, pillow 12.3.0, pyarrow 23.0.1 (the minimal patched set; 1.54 lifts
+    the `pillow<12` ceiling; 23.0.1 avoids the 25.x segfault line). Python 3.11.15 resolution: `pip check` clean;
+    `pip-audit` on the installed dev set: only **black 25.1.0** (fix 26.3.1) and **pytest 8.4.2** (fix 9.0.3) remain,
+    both dev tooling, not in any deployed surface. Headless Streamlit boot on a scratch SQLite DB, `DEMO_MODE=true`:
+    `/_stcore/health` = ok, `/` = 200.
+- Full Python suite, Python 3.11, same commit, old vs new pins:
+
+| Pins | Result | Failures |
+|---|---|---|
+| old (1.50 / 11.3 / 21) | 8 failed / 4049 passed / 7 skipped | 7 known Streamlit boot tests + `test_openapi_generation` (fails on 3.11 at baseline too; passes on the 3.9 dev venv) |
+| new, before guard update | 11 failed / 4046 passed | the same 8 + 2 pin guards + **`test_analytics_timing_calendar_follows_the_asset_filter`** |
+| new, guards updated | the same 8 + that 1 regression | pin guards 10/10 pass |
+
+- **Open regression (blocks merge):** Streamlit 1.54 silently drops a multiselect session value that is not among the
+  options (1.50 kept it; reproduced with a 3-line AppTest). On Analytics a stale asset filter now clears itself and
+  the page shows all trades instead of "No matching trades". The test was not weakened. Needs a decision: accept the
+  new semantics (and change the test to the realistic flow) or preserve the old contract in the page.
+- Gate 5 stays **FAIL** until the Streamlit branch is resolved and deployed with approval, and black/pytest are
+  upgraded or their risk is explicitly accepted.
+
+### Gates 1–4, 6 — 2026-09-21
+
+All still **NOT RUN**. No authorized credential workflow for PostgreSQL, Anthropic, Playwright or R2 exists in this
+environment, and no Docker is available. Nothing was spent and no credential was used. Anthropic is approved for
+at most 12 calls / $5 (stop at $4), with the plan above, but only once an authorized credential path with usage
+tracking exists. The disposable Neon branch `br-tiny-salad-autsvp0y` is retained.
