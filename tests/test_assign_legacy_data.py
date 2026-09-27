@@ -187,3 +187,44 @@ def test_apply_rolls_back_every_table_when_an_update_fails(assignment_db):
     assert db.get(WeeklyReview, ids["legacy_review"]).user_id is None
     assert db.get(Correction, ids["legacy_correction"]).user_id is None
     db.close()
+
+
+def test_plan_counts_weekly_conflicts_and_apply_refuses_them(assignment_db, capsys):
+    """weekly_reviews is unique per (user_id, week_start) (migration
+    i5j6k7l8m9n0). Assigning an ownerless recap for a week the target already
+    has — or two ownerless recaps for one week — would collide; the dry run
+    says so and --apply refuses instead of half-running into the constraint."""
+    assignment, session_factory, _ = assignment_db
+    ids = _seed_legacy_rows(session_factory)
+    db = session_factory()
+    db.add_all(
+        [
+            WeeklyReview(
+                week_start="2026-07-20", user_id=ids["owner"]
+            ),  # target has it
+            WeeklyReview(week_start="2026-07-27", user_id=None),
+            WeeklyReview(week_start="2026-07-27", user_id=None),  # two ownerless
+            WeeklyReview(week_start="2026-08-03", user_id=None),  # no conflict
+        ]
+    )
+    db.commit()
+    db.close()
+
+    plan = assignment.plan_assignment("alice")
+    assert plan.weekly_conflicts == 2
+
+    assert assignment.main(["--username", "alice", "--apply"]) != 0
+    assert "2 week(s)" in capsys.readouterr().out
+    db = session_factory()
+    try:
+        assert (
+            db.query(WeeklyReview).filter(WeeklyReview.user_id.is_(None)).count() == 4
+        )
+    finally:
+        db.close()
+
+
+def test_plan_without_weekly_conflicts_reports_zero(assignment_db):
+    assignment, session_factory, _ = assignment_db
+    _seed_legacy_rows(session_factory)
+    assert assignment.plan_assignment("alice").weekly_conflicts == 0

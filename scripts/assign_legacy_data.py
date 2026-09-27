@@ -36,6 +36,9 @@ class AssignmentPlan:
     username: str
     user_id: int
     counts: dict[str, int]
+    # Weeks where assigning would give the target two recaps: weekly_reviews
+    # is unique per (user_id, week_start) (migration i5j6k7l8m9n0).
+    weekly_conflicts: int = 0
 
 
 _OWNED_TABLES = (
@@ -58,9 +61,30 @@ def plan_assignment(username: str) -> AssignmentPlan:
             table_name: db.query(model).filter(model.user_id.is_(None)).count()
             for table_name, model in _OWNED_TABLES
         }
-        return AssignmentPlan(username=username, user_id=user.id, counts=counts)
+        return AssignmentPlan(
+            username=username,
+            user_id=user.id,
+            counts=counts,
+            weekly_conflicts=_weekly_conflicts(db, user.id),
+        )
     finally:
         db.close()
+
+
+def _weekly_conflicts(db, user_id: int) -> int:
+    """Weeks whose ownerless recaps plus the target's own would exceed one."""
+    per_week: dict[str, int] = {}
+    for (week,) in db.query(WeeklyReview.week_start).filter(
+        WeeklyReview.user_id.is_(None)
+    ):
+        per_week[week] = per_week.get(week, 0) + 1
+    owned = {
+        week
+        for (week,) in db.query(WeeklyReview.week_start).filter(
+            WeeklyReview.user_id == user_id
+        )
+    }
+    return sum(1 for week, n in per_week.items() if n + (week in owned) > 1)
 
 
 def apply_assignment(plan: AssignmentPlan) -> dict[str, int]:
@@ -90,6 +114,7 @@ def _print_plan(plan: AssignmentPlan) -> None:
     print(f"Target user ID: {plan.user_id}")
     for table_name, count in plan.counts.items():
         print(f"{table_name}: {count}")
+    print(f"weekly_reviews conflicts: {plan.weekly_conflicts} week(s)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -113,6 +138,14 @@ def main(argv: list[str] | None = None) -> int:
     if not args.apply:
         print("Dry run only; no rows were changed. Re-run with --apply after approval.")
         return 0
+
+    if plan.weekly_conflicts:
+        print(
+            f"Refusing to apply: {plan.weekly_conflicts} week(s) would give "
+            f"{plan.username} two weekly recaps. Resolve them deliberately first; "
+            "nothing was changed."
+        )
+        return 1
 
     changed = apply_assignment(plan)
     print("Applied rows:")
