@@ -171,9 +171,12 @@ jobs:
       - name: Production mode refuses an ephemeral SQLite database
         run: |
           if timeout 60 docker run --rm -e TL_ENV=production \
-               -e DATABASE_URL=sqlite:///./x.db -e TL_SERVICE_SECRET "$IMG"; then
+               -e DATABASE_URL=sqlite:///./x.db -e TL_SERVICE_SECRET "$IMG" \
+               > refuse.log 2>&1; then
             echo "API started in production against SQLite"; exit 1
           fi
+          # Refused for the right reason, not merely crashed.
+          grep -q "invalid production configuration: DATABASE_URL" refuse.log
 
       - name: Migrations apply inside the image
         run: |
