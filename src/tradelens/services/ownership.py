@@ -33,7 +33,9 @@ def lock_owner_first(db, owner: int) -> None:
     deletion, whenever the save was quick (production gate 1). Every writer
     that locks trades and then inserts an owner-referencing row calls this
     first, so all of them take one order. `KEY SHARE` blocks only a deletion
-    or key change of that row, never another save. SQLite ignores it.
+    or key change of that row (and briefly queues an owner-row `FOR UPDATE`
+    taker such as the job limiter); savers never wait on each other. SQLite
+    ignores it.
     """
     from src.tradelens.db.models import User
 

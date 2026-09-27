@@ -14,7 +14,7 @@ from typing import Optional
 
 from src.tradelens.db.models import AIAnalysis, Correction, Trade
 from src.tradelens.db.session import SessionLocal
-from src.tradelens.services.ownership import require_user_id
+from src.tradelens.services.ownership import lock_owner_first, require_user_id
 
 # The owner of the current request. `ai_client`'s few-shot injection has no user
 # argument, so this is how it learns whose corrections it may read.
@@ -149,6 +149,10 @@ def record_correction_in_session(
         return None
 
     owner = _resolve_user(user_id)
+    # Before the insert, whose foreign-key checks take KEY SHARE on the trade
+    # and then the owner row: without this the order is the reverse of
+    # account deletion's (owner, then trades) and the two can deadlock.
+    lock_owner_first(db, owner)
     now = datetime.now(timezone.utc).isoformat()
     owned_context = (
         db.query(AIAnalysis.id)

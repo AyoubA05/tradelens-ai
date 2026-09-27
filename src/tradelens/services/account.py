@@ -192,6 +192,10 @@ def delete_account(user_id: int) -> bool:
     """
     db: Session = SessionLocal()
     try:
+        # Owner row first, as delete_account_and_objects does: every saver now
+        # takes this row before its trade locks, so deleting trades first here
+        # would be the one writer with the opposite order.
+        db.query(User.id).filter(User.id == user_id).with_for_update().first()
         stored_paths = _delete_account_rows(db, user_id)
         if stored_paths is None:
             db.rollback()

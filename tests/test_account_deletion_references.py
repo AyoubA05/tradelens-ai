@@ -142,3 +142,22 @@ def test_every_table_with_a_user_id_has_a_deletion_decision():
         table.name for table in Base.metadata.sorted_tables if "user_id" in table.c
     }
     assert with_user_id - decided == set()
+
+
+def test_legacy_delete_account_locks_the_owner_first(two_users, monkeypatch):
+    """Owner row before any row deletion — the order every saver now takes."""
+    from sqlalchemy.orm import Query
+
+    from src.tradelens.db.models import User
+
+    owner = two_users[1]
+    seen = []
+    real = Query.with_for_update
+
+    def _spy_lock(self, *args, **kw):
+        seen.append(self.column_descriptions[0]["entity"])
+        return real(self, *args, **kw)
+
+    monkeypatch.setattr(Query, "with_for_update", _spy_lock)
+    assert account.delete_account(owner) is True
+    assert seen[:1] == [User]

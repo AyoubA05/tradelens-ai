@@ -572,3 +572,25 @@ def test_a_plain_background_thread_fails_closed_without_propagated_context(
         future = pool.submit(count_corrections)
         with pytest.raises(LookupError):
             future.result()
+
+
+def test_record_locks_the_owner_before_inserting(in_memory_db, sample_ids, monkeypatch):
+    """The insert's foreign-key checks take KEY SHARE on the trade and then the
+    owner row; locking the owner first keeps account deletion's order
+    (production gate 1)."""
+    from sqlalchemy.orm import Query
+
+    from src.tradelens.db.models import User
+    from src.tradelens.services.corrections import record_correction
+
+    trade_id, analysis_id = sample_ids
+    seen = []
+    real = Query.with_for_update
+
+    def _spy_lock(self, *args, **kw):
+        seen.append((self.column_descriptions[0]["entity"], kw))
+        return real(self, *args, **kw)
+
+    monkeypatch.setattr(Query, "with_for_update", _spy_lock)
+    record_correction(trade_id, analysis_id, "bias", "bullish", "bearish", user_id=1)
+    assert seen and seen[0] == (User, {"read": True, "key_share": True})
