@@ -15,14 +15,20 @@ zero so one `create` is exactly one billable request. The run refuses to start
 unless the configured model has non-zero rates in the app's cost table
 (`ai_client` silently prices an unknown model at $0).
 
-The API key is never read, printed or logged here: the SDK resolves it from the
-environment of whoever runs this. Nothing touches a real database — the one
-service that needs rows gets a throwaway SQLite file.
+The API key is never read, printed or logged by this script: the app's own
+`ai_client` resolves it (environment, or `.streamlit/secrets.toml`) for
+whoever runs this. Nothing touches a real database — the one service that needs
+rows gets a throwaway SQLite file, removed at exit.
+
+Verification tooling, so it lives in tests/ beside the other operational
+harnesses: nothing outside services/ may reach an AI entry point
+(tests/test_ai_system_message_sweep.py), and this is not an app entry point.
+Not collected by pytest (no ``test_`` prefix).
 
     # zero spend: exercises every step through DEMO_MODE
-    python scripts/gate_anthropic_smoke.py --demo
-    # the live run (the key must already be in the environment)
-    python scripts/gate_anthropic_smoke.py --live --report gate2.json
+    python tests/gate_anthropic_smoke.py --demo
+    # the live run
+    python tests/gate_anthropic_smoke.py --live --report gate2.json
 """
 
 from __future__ import annotations
@@ -79,7 +85,21 @@ class Gate:
                 f"worst case ${worst:.4f} would exceed the ${BUDGET_USD:.2f} cap"
             )
         self.calls += 1
-        resp = real_create(model=model, **kwargs)
+        try:
+            resp = real_create(model=model, **kwargs)
+        except Exception as exc:
+            # A timed-out or dropped request may still be billed: charge its
+            # worst case so the cap holds unconditionally.
+            self.spent += worst
+            self.log.append(
+                {
+                    "request": self.calls,
+                    "error": type(exc).__name__,
+                    "charged_worst_case_usd": round(worst, 6),
+                    "cumulative_usd": round(self.spent, 6),
+                }
+            )
+            raise
         u = resp.usage
         cost = self.ai_client._estimate_cost(
             model,
@@ -376,10 +396,15 @@ def main() -> int:
     # Configure before any src.tradelens import binds settings or the engine.
     os.environ["DEMO_MODE"] = "true" if args.demo else "false"
     os.environ["ANTHROPIC_MAX_RETRIES"] = "0"
+    import shutil
+
     scratch = tempfile.mkdtemp(prefix="gate2-")
     os.environ["DATABASE_URL"] = f"sqlite:///{scratch}/gate2.db"
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    return run(args.report)
+    try:
+        return run(args.report)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 if __name__ == "__main__":

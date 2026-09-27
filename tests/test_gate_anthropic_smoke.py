@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 _spec = importlib.util.spec_from_file_location(
-    "gate2", Path(__file__).resolve().parents[1] / "scripts" / "gate_anthropic_smoke.py"
+    "gate2", Path(__file__).resolve().parent / "gate_anthropic_smoke.py"
 )
 gate2 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gate2)
@@ -69,3 +69,44 @@ def test_provider_reported_usage_is_what_gets_counted():
     gate.create(_create(10_000, 2_000, made), "m", messages=[], max_tokens=4096)
     assert gate.spent == pytest.approx((10_000 * 5 + 2_000 * 25) / 1_000_000)
     assert gate.log[0]["input_tokens"] == 10_000 and gate.calls == 1
+
+
+def test_a_failed_request_is_charged_its_worst_case():
+    gate = gate2.Gate(_fake_ai_client(), RATES)
+
+    def boom(**kwargs):
+        raise TimeoutError("read timed out")
+
+    with pytest.raises(TimeoutError):
+        gate.create(boom, "m", messages=[], max_tokens=8192)
+    assert gate.calls == 1
+    worst = gate.worst_case({"messages": [], "max_tokens": 8192})
+    assert worst >= 8192 * 25 / 1_000_000  # at least the full output allowance
+    assert gate.spent == pytest.approx(worst)
+    assert gate.log[0]["error"] == "TimeoutError"
+
+
+def test_install_routes_every_request_through_the_gate():
+    made = []
+
+    class _Real:
+        class messages:  # noqa: N801 — mirrors the SDK attribute
+            @staticmethod
+            def create(**kwargs):
+                made.append(kwargs)
+                return SimpleNamespace(
+                    usage=SimpleNamespace(input_tokens=10, output_tokens=10),
+                    stop_reason="end_turn",
+                )
+
+    fake_ai = _fake_ai_client()
+    fake_ai._get_client = lambda: _Real()
+    gate = gate2.Gate(fake_ai, RATES)
+    gate.install()
+    for _ in range(3):
+        fake_ai._get_client().messages.create(model="m", messages=[], max_tokens=64)
+    assert gate.calls == 3 and len(made) == 3
+    gate.spent = gate2.STOP_AT_USD
+    with pytest.raises(gate2.BudgetStop):
+        fake_ai._get_client().messages.create(model="m", messages=[], max_tokens=64)
+    assert len(made) == 3  # the refused request never reached the provider
