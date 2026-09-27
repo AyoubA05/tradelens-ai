@@ -60,7 +60,29 @@ jobs:
           alembic upgrade head
 
       - name: Run pytest
-        run: pytest tests/ -v --tb=short
+        run: pytest tests/ -v --tb=short --junitxml=pytest-report.xml
+
+      - name: Publish failing test IDs as annotations
+        # Job logs need authentication to read; annotations are public, so a
+        # red build always says which tests failed.
+        if: failure()
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          try:
+              root = ET.parse("pytest-report.xml").getroot()
+          except (FileNotFoundError, ET.ParseError):
+              print("::error::pytest produced no report")
+              raise SystemExit(0)
+          bad = [
+              f"{case.get('classname')}::{case.get('name')}"
+              for case in root.iter("testcase")
+              if case.find("failure") is not None or case.find("error") is not None
+          ]
+          for test_id in bad[:50]:
+              print(f"::error title=pytest failure::{test_id}")
+          print(f"::notice::{len(bad)} failing test(s)")
+          PY
 
       - name: Set up Node (for API schema/type drift check)
         uses: actions/setup-node@v4
