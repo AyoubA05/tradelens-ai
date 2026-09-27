@@ -21,6 +21,13 @@ DEST = pathlib.Path("web/lib/api/openapi.json")
 
 
 def main() -> None:
+    if sys.version_info < (3, 10):
+        # A version marker gives 3.9 an older FastAPI whose built-in schemas
+        # differ; regenerating there would silently revert the contract that
+        # production (python:3.11) actually serves.
+        raise SystemExit(
+            "generate_openapi.py must run on Python >= 3.10 (production runs 3.11)"
+        )
     parser = argparse.ArgumentParser()
     parser.add_argument("--stdout", action="store_true")
     args = parser.parse_args()

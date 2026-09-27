@@ -3,7 +3,14 @@ import pathlib
 import subprocess
 import sys
 
+import pytest
 
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 10),
+    reason="the contract is generated on the production runtime (3.11); "
+    "3.9 installs an older FastAPI with different built-in schemas",
+)
 def test_the_committed_schema_matches_the_application():
     """Drift here means the TypeScript types describe an API that no longer
     exists — and the compiler would keep saying everything is fine."""
