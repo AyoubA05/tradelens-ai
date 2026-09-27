@@ -19,7 +19,15 @@ pytestmark = pytest.mark.skipif(
 
 
 def _fresh_engine():
+    import sys
+    from pathlib import Path
+
     from sqlalchemy import text
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from pg_guard import require_disposable_database
+
+    require_disposable_database(PG_URL)  # before drop_all
 
     from src.tradelens.db import models  # noqa: F401 — register tables
     from src.tradelens.db.session import Base, build_engine
@@ -39,7 +47,7 @@ def test_create_all_and_reconcile_on_postgres():
     from src.tradelens.db.session import Base
 
     eng = _fresh_engine()
-    init_db(engine=eng)  # create_all + reconcile
+    init_db(engine=eng, allow_unmanaged_remote=True)  # deliberate fresh bootstrap
     tables = set(inspect(eng).get_table_names())
     assert "trades" in tables
     cols = {c["name"] for c in inspect(eng).get_columns("trades")}
@@ -55,7 +63,7 @@ def test_trade_round_trip_on_postgres():
     from src.tradelens.db.session import Base
 
     eng = _fresh_engine()
-    init_db(engine=eng)
+    init_db(engine=eng, allow_unmanaged_remote=True)
     Session = sessionmaker(bind=eng)
     with Session() as s:
         s.add(Trade(trade_date="2026-07-16", asset="NQ", direction="Long"))

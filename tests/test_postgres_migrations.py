@@ -37,6 +37,10 @@ def _run_alembic(args: list[str], database_url: str) -> None:
 
 @pytest.fixture
 def disposable_public_schema():
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from pg_guard import require_disposable_database
+
+    require_disposable_database(PG_URL)  # before anything is dropped
     engine = create_engine(PG_URL)
     try:
         with engine.begin() as connection:
