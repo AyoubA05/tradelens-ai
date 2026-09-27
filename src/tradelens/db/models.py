@@ -361,6 +361,12 @@ class PerformanceMetrics(Base):
 
 class WeeklyReview(Base):
     __tablename__ = "weekly_reviews"
+    # One recap per owner and week (production gate 1). The save paths also
+    # serialise on the week's trades; this is the database's own guarantee.
+    # Ownerless legacy rows are unaffected: NULLs never collide.
+    __table_args__ = (
+        UniqueConstraint("user_id", "week_start", name="uq_weekly_reviews_user_week"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     # Owning user (multi-user, Session D). NULL = legacy single-user reviews.

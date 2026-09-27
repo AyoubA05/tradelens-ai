@@ -322,6 +322,36 @@ def source_lock_blocks_writers() -> dict:
     return observed
 
 
+def weekly_constraint() -> dict:
+    """The database refuses a second recap for one (owner, week) even when a
+    writer skips the save paths' locks; ownerless legacy rows still coexist."""
+    from sqlalchemy.exc import IntegrityError
+
+    uid, _ = _make_owner()
+    db = SessionLocal()
+    observed = {}
+    try:
+        db.add(WeeklyReview(user_id=uid, week_start=WEEK))
+        db.commit()
+        db.add(WeeklyReview(user_id=uid, week_start=WEEK))
+        try:
+            db.commit()
+            observed["duplicate"] = "accepted"
+        except IntegrityError:
+            db.rollback()
+            observed["duplicate"] = "refused"
+        db.add_all([WeeklyReview(user_id=None, week_start=WEEK) for _ in range(2)])
+        db.commit()
+        observed["ownerless_rows"] = (
+            db.query(WeeklyReview)
+            .filter(WeeklyReview.user_id.is_(None), WeeklyReview.week_start == WEEK)
+            .count()
+        )
+    finally:
+        db.close()
+    return observed
+
+
 SCENARIOS = {
     fn.__name__: fn
     for fn in (
@@ -332,6 +362,7 @@ SCENARIOS = {
         delete_during_fast_trade_summary_save,
         save_after_delete,
         source_lock_blocks_writers,
+        weekly_constraint,
     )
 }
 

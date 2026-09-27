@@ -778,3 +778,83 @@ def test_daily_debriefs_and_weekly_provenance_round_trip(tmp_path):
     engine.dispose()
 
     assert _run_alembic(["upgrade", "head"], database_url).returncode == 0
+
+
+def _weekly_rows(database_url, *rows):
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        for user_id, week in rows:
+            conn.execute(
+                text(
+                    "INSERT INTO weekly_reviews (user_id, week_start) VALUES (:u, :w)"
+                ),
+                {"u": user_id, "w": week},
+            )
+    engine.dispose()
+
+
+def test_weekly_reviews_unique_per_owner_and_week_round_trip(tmp_path):
+    """Gate 1: the database, not only the save paths' locks, holds one recap
+    per (owner, week). Ownerless legacy rows stay valid — NULLs never collide."""
+    database_url = f"sqlite:///{tmp_path / 'weekly-unique.db'}"
+    assert _run_alembic(["upgrade", "h4i5j6k7l8m9"], database_url).returncode == 0
+    _weekly_rows(database_url, (7, "2026-09-07"), (None, "2026-09-07"))
+
+    upgraded = _run_alembic(["upgrade", "head"], database_url)
+    assert upgraded.returncode == 0, upgraded.stderr
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        uniques = inspect(conn).get_unique_constraints("weekly_reviews")
+        assert any(u["column_names"] == ["user_id", "week_start"] for u in uniques)
+    engine.dispose()
+
+    _weekly_rows(database_url, (None, "2026-09-07"))  # a second ownerless row
+    with pytest.raises(Exception, match="(?i)unique"):
+        _weekly_rows(database_url, (7, "2026-09-07"))
+
+    downgraded = _run_alembic(["downgrade", "h4i5j6k7l8m9"], database_url)
+    assert downgraded.returncode == 0, downgraded.stderr
+    _weekly_rows(database_url, (7, "2026-09-07"))  # the constraint is gone
+    engine = create_engine(database_url)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "DELETE FROM weekly_reviews WHERE id = "
+                "(SELECT MAX(id) FROM weekly_reviews WHERE user_id = 7)"
+            )
+        )
+    engine.dispose()
+    assert _run_alembic(["upgrade", "head"], database_url).returncode == 0
+
+
+def test_weekly_unique_migration_refuses_existing_duplicates(tmp_path):
+    """Duplicates are the trader's data: the migration reports them and stops,
+    leaving every row and the schema exactly as they were. It never picks a
+    survivor on its own."""
+    database_url = f"sqlite:///{tmp_path / 'weekly-dupes.db'}"
+    assert _run_alembic(["upgrade", "h4i5j6k7l8m9"], database_url).returncode == 0
+    _weekly_rows(database_url, (7, "2026-09-07"), (7, "2026-09-07"), (8, "2026-09-07"))
+
+    refused = _run_alembic(["upgrade", "head"], database_url)
+    assert refused.returncode != 0
+    assert "1 (user_id, week_start) pair" in refused.stderr
+
+    engine = create_engine(database_url)
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM weekly_reviews")).scalar() == 3
+        assert (
+            conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
+            == "h4i5j6k7l8m9"
+        )
+    engine.dispose()
+
+
+def test_weekly_review_model_declares_the_same_uniqueness():
+    from src.tradelens.db.models import WeeklyReview
+
+    names = {
+        tuple(c.name for c in constraint.columns)
+        for constraint in WeeklyReview.__table__.constraints
+        if constraint.__class__.__name__ == "UniqueConstraint"
+    }
+    assert ("user_id", "week_start") in names

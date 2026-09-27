@@ -149,3 +149,10 @@ def test_locked_sources_make_a_trade_edit_wait(migrated_database):
     """Proves `FOR UPDATE` is real here: the holder sleeps 2s with the lock."""
     observed = _scenario("source_lock_blocks_writers")
     assert observed["writer_waited_seconds"] >= 1.5, observed
+
+
+def test_the_database_itself_refuses_a_second_recap_for_one_week(migrated_database):
+    """Defence in depth under the locks: migration i5j6k7l8m9n0."""
+    observed = _scenario("weekly_constraint")
+    assert observed["duplicate"] == "refused", observed
+    assert observed["ownerless_rows"] >= 2, observed
