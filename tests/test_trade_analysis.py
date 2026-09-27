@@ -133,7 +133,12 @@ def test_an_effort_change_produces_a_different_key(monkeypatch, frozen_input_ver
 def test_demo_mode_never_shares_a_job_with_a_live_request(
     monkeypatch, frozen_input_version
 ):
-    """DEMO_MODE replaces the output wholesale, in both directions."""
+    """DEMO_MODE replaces the output wholesale, in both directions.
+
+    The live baseline is set explicitly: CI exports DEMO_MODE=true for the
+    whole job, so relying on the process default compared demo with demo.
+    """
+    monkeypatch.setattr(ta.settings, "demo_mode", False)
     live = analysis_key(U, 7, 12, "t")
     monkeypatch.setattr(ta.settings, "demo_mode", True)
     assert analysis_key(U, 7, 12, "t") != live
