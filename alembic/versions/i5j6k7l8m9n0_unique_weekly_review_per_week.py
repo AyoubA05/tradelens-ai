@@ -28,19 +28,20 @@ _NAME = "uq_weekly_reviews_user_week"
 
 
 def upgrade() -> None:
-    duplicates = (
-        op.get_bind()
-        .execute(
-            sa.text(
-                "SELECT COUNT(*) FROM ("
-                " SELECT user_id, week_start FROM weekly_reviews"
-                " WHERE user_id IS NOT NULL"
-                " GROUP BY user_id, week_start HAVING COUNT(*) > 1"
-                ") AS dup"
-            )
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        # Hold writers off between the count and ADD CONSTRAINT (released at
+        # commit), so a duplicate cannot slip in and surface as a raw error.
+        bind.execute(sa.text("LOCK TABLE weekly_reviews IN SHARE MODE"))
+    duplicates = bind.execute(
+        sa.text(
+            "SELECT COUNT(*) FROM ("
+            " SELECT user_id, week_start FROM weekly_reviews"
+            " WHERE user_id IS NOT NULL"
+            " GROUP BY user_id, week_start HAVING COUNT(*) > 1"
+            ") AS dup"
         )
-        .scalar()
-    )
+    ).scalar()
     if duplicates:
         raise RuntimeError(
             f"weekly_reviews has {duplicates} (user_id, week_start) pair(s) with "
