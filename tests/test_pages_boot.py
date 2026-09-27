@@ -300,18 +300,19 @@ def test_analytics_category_names_are_escaped_exactly_once(tmp_path):
 def test_analytics_stale_asset_filter_clears_and_shows_unfiltered_trades(tmp_path):
     """Pinned Streamlit 1.54 behaviour, accepted by the owner (2026-09-27).
 
-    A remembered asset that is no longer among the options for the current
-    range is dropped by the multiselect itself, so the page answers the
-    unfiltered question: the readout counts the whole 60-trade demo sample,
-    exactly as it does with no filter at all. Streamlit 1.50 kept the stale
-    value and showed "No matching trades"; no page logic emulates that.
+    A remembered asset that is no longer among the options is dropped by the
+    multiselect itself, so the page answers the unfiltered question: both
+    seeded trades (NQ and ES) are counted, `n=2`, exactly as with no filter.
+    Streamlit 1.50 kept the stale value and showed "No matching trades"; no
+    page logic emulates that. Demo mode is off so only the seed is counted.
     """
     _boot(
         _ANALYTICS,
         tmp_path / "a-stale-asset.db",
         "1",
-        'tl-evidence-sample">n=60 ',
+        'tl-evidence-sample">n=2 ',
         json.dumps({"analytics_lens": "Timing", "an_asset": ["NOT_A_REAL_ASSET"]}),
+        demo_mode=False,
         expect=json.dumps(
             {"widgets": {"an_asset": []}, "absent": ["No matching trades"]}
         ),
@@ -320,18 +321,16 @@ def test_analytics_stale_asset_filter_clears_and_shows_unfiltered_trades(tmp_pat
 
 def test_analytics_real_asset_filter_still_scopes_the_timing_lens(tmp_path):
     """The control for the test above: a valid asset survives the widget and
-    still narrows the sample, so the readout must not report all 60 trades."""
+    narrows the sample to the one NQ trade."""
     _boot(
         _ANALYTICS,
         tmp_path / "a-real-asset.db",
         "1",
-        'tl-evidence-sample">n=',
+        'tl-evidence-sample">n=1 ',
         json.dumps({"analytics_lens": "Timing", "an_asset": ["NQ"]}),
+        demo_mode=False,
         expect=json.dumps(
-            {
-                "widgets": {"an_asset": ["NQ"]},
-                "absent": ['tl-evidence-sample">n=60 ', "No matching trades"],
-            }
+            {"widgets": {"an_asset": ["NQ"]}, "absent": ["No matching trades"]}
         ),
     )
 

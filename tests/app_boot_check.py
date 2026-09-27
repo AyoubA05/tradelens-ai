@@ -34,6 +34,22 @@ import sys
 DEFAULT_SEED_UID = 1
 
 
+def _week_of(weeks_back: int, weekday: int) -> str:
+    """An ISO date `weeks_back` whole weeks before this week, on `weekday` (0=Mon).
+
+    Seeds are dated relative to today. The Journal and Analytics pages default
+    to the last 90 days, so seeds pinned to fixed calendar dates silently fell
+    out of range as time passed and seven boot tests failed with no product
+    change (diagnosed 2026-09-27). `weeks_back >= 1` keeps every date in the
+    past; each seed keeps its weekday shape.
+    """
+    import datetime as _dt
+
+    today = _dt.date.today()
+    monday = today - _dt.timedelta(days=today.weekday(), weeks=weeks_back)
+    return (monday + _dt.timedelta(days=weekday)).isoformat()
+
+
 def main() -> int:
     root, app_path, marker, seed = sys.argv[1:5]
     # Optional 5th arg: JSON session state, applied before the first run.
@@ -97,7 +113,7 @@ def main() -> int:
         session.add_all(
             [
                 Trade(
-                    trade_date=f"2026-06-{day:02d}",
+                    trade_date=_week_of(2, weekday),
                     asset="NQ",
                     direction="Long",
                     result="Win" if pnl > 0 else "Loss",
@@ -109,12 +125,12 @@ def main() -> int:
                     session="New York",
                     user_id=seed_uid,
                 )
-                for day, pnl in (
-                    (15, 250.0),
-                    (16, -125.0),
-                    (17, 375.0),
-                    (18, -125.0),
-                    (19, 125.0),
+                for weekday, pnl in (
+                    (0, 250.0),
+                    (1, -125.0),
+                    (2, 375.0),
+                    (3, -125.0),
+                    (4, 125.0),
                 )
             ]
         )
@@ -129,7 +145,7 @@ def main() -> int:
         s = SessionLocal()
         s.add(
             Trade(
-                trade_date="2026-06-15",
+                trade_date=_week_of(2, 0),
                 asset="NQ",
                 direction="Long",
                 result="Loss",
@@ -165,12 +181,12 @@ def main() -> int:
                     user_id=seed_uid,
                 )
                 for day, pnl in (
-                    ("2026-06-01", 200.0),
-                    ("2026-06-08", -100.0),
-                    ("2026-06-15", 300.0),
-                    ("2026-06-22", -100.0),
-                    ("2026-06-29", 150.0),
-                    ("2026-07-06", 250.0),
+                    (_week_of(6, 0), 200.0),
+                    (_week_of(5, 0), -100.0),
+                    (_week_of(4, 0), 300.0),
+                    (_week_of(3, 0), -100.0),
+                    (_week_of(2, 0), 150.0),
+                    (_week_of(1, 0), 250.0),
                 )
             ]
         )
@@ -203,7 +219,7 @@ def main() -> int:
         s.add_all(
             [
                 Trade(
-                    trade_date="2026-06-15",
+                    trade_date=_week_of(2, 0),
                     asset="NQ",
                     direction="Long",
                     result="Win",
@@ -213,7 +229,7 @@ def main() -> int:
                     user_id=seed_uid,
                 ),
                 Trade(
-                    trade_date="2026-06-16",
+                    trade_date=_week_of(2, 1),
                     asset="ES",
                     direction="Short",
                     result="Loss",
