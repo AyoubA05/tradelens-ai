@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from src.tradelens.db.models import Trade, TradeSummaryResult
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services.ai_client import AIUnavailable, Usage, chat, load_prompt
-from src.tradelens.services.ownership import require_user_id
+from src.tradelens.services.ownership import lock_owner_first, require_user_id
 from src.tradelens.services.reflection_guard import reject_forward_looking
 
 MIN_SUMMARY_TRADES = 2
@@ -217,6 +217,7 @@ def save_trade_summary_result(
         raise TradeSummarySourceGone("trade summary source is gone")
     db = SessionLocal()
     try:
+        lock_owner_first(db, owner)  # the order account deletion uses
         present = {
             trade_id
             for (trade_id,) in db.query(Trade.id)

@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from src.tradelens.db.models import DailyDebrief, Trade
 from src.tradelens.db.session import SessionLocal
-from src.tradelens.services.ownership import require_user_id
+from src.tradelens.services.ownership import lock_owner_first, require_user_id
 
 Verifier = Callable[[Session], bool]
 
@@ -47,6 +47,7 @@ def lock_and_verify_sources(
     ids = {int(i) for i in source_trade_ids}
     if not ids:
         raise ReviewSourceGone("review source is gone")
+    lock_owner_first(db, owner)
     present = {
         tid
         for (tid,) in db.query(Trade.id)

@@ -26,7 +26,7 @@ from src.tradelens.services.metrics import (
     compute_profit_factor_raw,
     total_edge_leak,
 )
-from src.tradelens.services.ownership import require_user_id
+from src.tradelens.services.ownership import lock_owner_first, require_user_id
 from src.tradelens.services.patterns import compute_candidates
 from src.tradelens.services.reflection_guard import reject_forward_looking
 from src.tradelens.services.review_periods import financial_status
@@ -374,6 +374,7 @@ def save_weekly_review(review: dict, user_id: int, overwrite: bool = False) -> d
     now = now_dt.isoformat()
     db = SessionLocal()
     try:
+        lock_owner_first(db, owner)  # the order account deletion uses
         week_trades = (
             db.query(Trade.id)
             .filter(

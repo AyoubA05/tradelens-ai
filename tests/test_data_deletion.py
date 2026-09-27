@@ -410,6 +410,35 @@ def test_a_worker_cannot_restore_a_summary_after_its_source_trades_are_deleted(
     assert _count(TradeSummaryResult, user_id=owner) == 0
 
 
+def test_trade_summary_save_locks_the_owner_before_the_source_trades(
+    two_users, monkeypatch
+):
+    """Owner row first — the order account deletion takes. Trades-first
+    deadlocked a concurrent account deletion on PostgreSQL (production gate 1)."""
+    from sqlalchemy.orm import Query
+
+    from src.tradelens.services.trade_summary import save_trade_summary_result
+
+    owner = two_users[1]
+    source_ids = [_trade(owner)]
+    seen = []
+    real = Query.with_for_update
+
+    def _spy_lock(self, *args, **kw):
+        seen.append(self.column_descriptions[0]["entity"])
+        return real(self, *args, **kw)
+
+    monkeypatch.setattr(Query, "with_for_update", _spy_lock)
+    save_trade_summary_result(
+        user_id=owner,
+        summary_key="lock-order",
+        filters={},
+        result={"content_md": "summary", "reviewed_trades": 1},
+        source_trade_ids=source_ids,
+    )
+    assert seen[:2] == [User, Trade]
+
+
 # ── account deletion ──────────────────────────────────────────────────────
 
 # ── S8, as tightened by the Group A review ────────────────────────────────

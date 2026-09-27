@@ -2,7 +2,7 @@ import datetime as dt
 
 import pytest
 
-from src.tradelens.db.models import DailyDebrief, Trade, WeeklyReview
+from src.tradelens.db.models import DailyDebrief, Trade, User, WeeklyReview
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services import daily_debriefs, weekly
 
@@ -369,9 +369,33 @@ def test_legacy_weekly_save_locks_the_weeks_trades_before_reading(
     monkeypatch.setattr(Query, "with_for_update", _spy_lock)
     monkeypatch.setattr(Query, "first", _spy_first)
     weekly.save_weekly_review(_review(), a)
-    assert seen[0] == ("lock", Trade)
+    # Owner row first — the order account deletion takes — then the week's
+    # trades, then the read. Trades-before-owner deadlocked a concurrent
+    # deletion on PostgreSQL (production gate 1).
+    assert seen[0] == ("lock", User)
     assert ("read", WeeklyReview) in seen
     assert seen.index(("lock", Trade)) < seen.index(("read", WeeklyReview))
+
+
+def test_job_path_locks_the_owner_before_the_source_trades(two_users, monkeypatch):
+    from sqlalchemy.orm import Query
+
+    a, _ = two_users
+    trade_id = _trade(a)
+    seen = []
+    real = Query.with_for_update
+
+    def _spy_lock(self, *args, **kw):
+        seen.append(self.column_descriptions[0]["entity"])
+        return real(self, *args, **kw)
+
+    monkeypatch.setattr(Query, "with_for_update", _spy_lock)
+    db = SessionLocal()
+    try:
+        daily_debriefs.lock_and_verify_sources(db, a, [trade_id], lambda _db: True)
+    finally:
+        db.close()
+    assert seen[:2] == [User, Trade]
 
 
 def test_legacy_weekly_save_refuses_a_week_with_no_trades(two_users):
