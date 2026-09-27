@@ -6,10 +6,10 @@ removed + 0 feature blockers. No account flipped, no Streamlit code/table/deploy
 
 | # | Gate | Status |
 |---|---|---|
-| 1 | PostgreSQL migrations + concurrency | **NOT RUN** — connection blocked |
+| 1 | PostgreSQL migrations + concurrency | **NOT RUN** on Neon — harness ready; a real deadlock found and fixed on `pg-gate-harness` (unmerged) |
 | 2 | Live Anthropic adversarial + usage accounting | **NOT RUN** — plan below, awaiting authorization |
 | 3 | Authenticated Playwright, desktop + true 375px | **NOT RUN** — no test account / staging target |
-| 4 | Docker build, startup, health | **NOT RUN** — CI job `docker-api` added 2026-09-27; result pending |
+| 4 | Docker build, startup, health | **PASS** (2026-09-27, CI run 36314736023) |
 | 5 | Dependency + security audit | **PASS** (2026-09-27) — see Gate 5 final |
 | 6 | Live R2 + screenshot migration | **NOT RUN** — plan below, awaiting credentials |
 
@@ -188,3 +188,66 @@ once the updated test, full suite and smoke pass; take the smallest patched blac
 formatting), so **CI had not been running pytest**; on `09909e5` the web job failed its npm audit (since fixed). With
 the tree now black-clean, CI's pytest step runs again and is expected to fail on the 7 pre-existing Streamlit boot
 tests and the 3.11-only OpenAPI test until those are resolved.
+
+### Gate 4 — PASS (2026-09-27)
+
+GitHub Actions job `docker-api`, run `36314736023` on `97a540f`, every step green: `Dockerfile.api` builds; the image
+contains no `streamlit`/`pyarrow`/`plotly` and runs as uid 10001; `TL_ENV=production` with a SQLite URL refuses to
+start; `alembic upgrade head` applies against a disposable CI Postgres 16 service container and leaves one head; the API
+answers `/health` → `{"status":"ok"}` and `/docs` → 404; the worker starts, logs "worker started" and is still running
+after 15 s. The CI Postgres is not the Neon database and is not gate-1 evidence. Branch `pg-gate-harness` tightens the
+refuse-SQLite step to require the specific message `invalid production configuration: DATABASE_URL` (verified locally
+by the reviewer: exit 1, message present, no SQLite file created) and prints the log if absent.
+
+CI note: with the tree black-clean, CI's Python job now reaches pytest and fails there. Job logs need authentication,
+so **which tests fail in CI is unverified**; locally only the 8 known failures occur.
+
+### Gate 1 — harness built; defect found and fixed; still NOT RUN on Neon (2026-09-27)
+
+Branch `pg-gate-harness` (**not merged**): `ed135a8`, `f4cb288`, `2ec1223`, `825172a`, `f1af7dc`.
+
+- **Identity guard** `tests/pg_guard.py`, run before anything is dropped in all three live-Postgres files: URL host must
+  equal `TRADELENS_PG_EXPECT_HOST`; `current_database()` must equal the (mandatory) `TRADELENS_PG_EXPECT_DATABASE`; any
+  libpq parameter that could redirect the connection (`host`, `hostaddr`, `port`, `dbname`, `service`, …) is refused.
+  Hermetic tests prove it refuses before connecting and never echoes the URL.
+- **Scenarios** (`tests/test_postgres_concurrency.py`, child processes): Weekly Recap uniqueness (12 concurrent saves
+  across both paths × 10 fresh owners), rolling enqueue limit (20 keys vs limit 5; 10 copies of one key), account
+  deletion racing a slow recap save, a fast recap save and a fast trade-summary save (contention asserted),
+  save-after-delete, and proof that `FOR UPDATE` blocks a trade edit.
+- **Harness validation, NOT gate evidence:** run against a throwaway local PostgreSQL 16.2 (`pgserver`, 127.0.0.1).
+- **Defect found — account deletion deadlocked with in-flight saves.** Deletion locked the owner row, then trades;
+  the Weekly Recap (job and legacy), Daily Debrief, trade-summary and correction writers locked trades (or FK-locked a
+  trade) first, then needed `KEY SHARE` on the owner row for their insert's foreign key. PostgreSQL logged
+  `deadlock detected` and, when the save was quick, **aborted the deletion** (recap race 6/6, trade-summary race 3/3):
+  the account survived and the saved row remained. Fix: every such writer first calls `ownership.lock_owner_first`
+  (`FOR KEY SHARE` on the owner row; ignored on SQLite); the test-only `account.delete_account` now also locks the owner
+  first. After the fix: all deletion races complete with no error on either side (fast recap race 10/10).
+- **Weekly Recap uniqueness depends on the trade `FOR UPDATE`** (there is no unique constraint): with those locks
+  removed, 5/5 runs of the 10-round scenario produced duplicates (up to 6 rows for one week); with them, 10/10 rounds
+  leave exactly one row.
+- **Pre-existing, found by running:** `test_postgres_integration.py` had gone stale behind `init_db`'s
+  unmanaged-remote safeguard while always skipped; it now opts in.
+- **Local results at `f1af7dc`:** live-Postgres 10/10 passed. Hermetic full suite 8 failed / 4063 passed / 14 skipped
+  (the 8 known failures; the 7 new live tests skip without credentials). Mutants: removing `lock_owner_first` from each of
+  the five call sites is killed by the hermetic suite; restores byte-verified.
+- **Independent review:** APPROVE WITH NOTES; every note addressed in `825172a` and `f1af7dc`.
+- Also recorded: `tests/test_weekly.py` fails 9/18 when run on its own (needs `user_settings` created by another test);
+  passes in full-suite runs. Pre-existing isolation issue, not changed here.
+
+**To run gate 1 for real** (disposable Neon branch `br-tiny-salad-autsvp0y` only), with the credential supplied through
+an authorized path:
+
+    TRADELENS_PG_TEST_URL=<disposable branch URL> TRADELENS_PG_TEST_ALLOW_DROP=1 \
+    TRADELENS_PG_EXPECT_HOST=<its endpoint host> TRADELENS_PG_EXPECT_DATABASE=neondb \
+      pytest -s tests/test_postgres_concurrency.py tests/test_postgres_migrations.py tests/test_postgres_integration.py
+
+### Gate 2 — Anthropic: NOT RUN
+
+Approved: at most 12 calls, $5 total, stop at $4. Budget basis verified: the app's cost table
+(`ai_client._COST_PER_M`, $5 / $25 per million input/output tokens for `claude-opus-5`, cache write 1.25×, read 0.1×)
+matches the current published rates. Note the client silently prices an unknown model at $0, so the smoke runner must
+refuse to start unless the configured model's rates are non-zero. Not run: no authorized credential workflow exists here.
+
+### Gates 3, 6 — NOT RUN
+
+Playwright: no staging account/URL supplied. R2: no scoped test credentials supplied. Plans unchanged above.
