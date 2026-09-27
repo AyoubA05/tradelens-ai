@@ -72,7 +72,7 @@ jobs:
           try:
               root = ET.parse("pytest-report.xml").getroot()
           except (FileNotFoundError, ET.ParseError):
-              print("::error::pytest produced no report")
+              print("::error::pytest produced no report (did an earlier step fail?)")
               raise SystemExit(0)
           bad = [
               f"{case.get('classname')}::{case.get('name')}"
