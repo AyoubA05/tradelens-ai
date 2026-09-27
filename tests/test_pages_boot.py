@@ -48,6 +48,7 @@ def _boot(
     state: str = "{}",
     *,
     demo_mode: bool = True,
+    expect: str = "{}",
 ):
     env = dict(os.environ)
     env["DATABASE_URL"] = f"sqlite:///{db_path}"
@@ -61,6 +62,7 @@ def _boot(
             marker,
             seed,
             state,
+            expect,
         ],
         env=env,
         capture_output=True,
@@ -295,16 +297,42 @@ def test_analytics_category_names_are_escaped_exactly_once(tmp_path):
     )
 
 
-def test_analytics_timing_calendar_follows_the_asset_filter(tmp_path):
-    """The calendar answers the same filtered question as the strip and the
-    heatmap above it. Filtering to an asset that is not in range empties the
-    lens rather than leaving a full-month calendar behind."""
+def test_analytics_stale_asset_filter_clears_and_shows_unfiltered_trades(tmp_path):
+    """Pinned Streamlit 1.54 behaviour, accepted by the owner (2026-09-27).
+
+    A remembered asset that is no longer among the options for the current
+    range is dropped by the multiselect itself, so the page answers the
+    unfiltered question: the readout counts the whole 60-trade demo sample,
+    exactly as it does with no filter at all. Streamlit 1.50 kept the stale
+    value and showed "No matching trades"; no page logic emulates that.
+    """
     _boot(
         _ANALYTICS,
-        tmp_path / "a-calfilter.db",
+        tmp_path / "a-stale-asset.db",
         "1",
-        "No matching trades",
+        "tl-evidence-sample\">n=60 ",
         json.dumps({"analytics_lens": "Timing", "an_asset": ["NOT_A_REAL_ASSET"]}),
+        expect=json.dumps(
+            {"widgets": {"an_asset": []}, "absent": ["No matching trades"]}
+        ),
+    )
+
+
+def test_analytics_real_asset_filter_still_scopes_the_timing_lens(tmp_path):
+    """The control for the test above: a valid asset survives the widget and
+    still narrows the sample, so the readout must not report all 60 trades."""
+    _boot(
+        _ANALYTICS,
+        tmp_path / "a-real-asset.db",
+        "1",
+        "tl-evidence-sample\">n=",
+        json.dumps({"analytics_lens": "Timing", "an_asset": ["NQ"]}),
+        expect=json.dumps(
+            {
+                "widgets": {"an_asset": ["NQ"]},
+                "absent": ["tl-evidence-sample\">n=60 ", "No matching trades"],
+            }
+        ),
     )
 
 

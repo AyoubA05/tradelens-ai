@@ -41,6 +41,10 @@ def main() -> int:
     # selected trade) without the runner knowing anything about that page.
     preset = sys.argv[5] if len(sys.argv) > 5 else "{}"
     preset_state = _json.loads(preset)
+    # Optional 6th arg: JSON post-run expectations the marker cannot express.
+    #   {"widgets": {"<key>": <value>}}  a widget's value after the run
+    #   {"absent": ["<text>"]}           copy that must NOT be rendered
+    expect = _json.loads(sys.argv[6]) if len(sys.argv) > 6 else {}
     # Resolve the seed owner BEFORE any Trade rows are inserted below, so
     # seeded data is owned by whichever session the AppTest will actually run
     # as. An explicit (including null) "current_user_id" in the preset wins;
@@ -76,9 +80,7 @@ def main() -> int:
         from src.tradelens.db.session import SessionLocal
 
         session = SessionLocal()
-        session.add(
-            User(id=seed_uid, username=f"booter-{seed_uid}", password_hash="x")
-        )
+        session.add(User(id=seed_uid, username=f"booter-{seed_uid}", password_hash="x"))
         session.commit()
         session.close()
 
@@ -181,6 +183,7 @@ def main() -> int:
         # rejects a None user id, so the row and the account both have to
         # exist — and the caller must preset current_user_id in state.
         from src.tradelens.services.strategy import upsert_strategy_profile
+
         upsert_strategy_profile(
             seed_uid,
             name="ICT Continuation",
@@ -255,6 +258,18 @@ def main() -> int:
         if not any(marker in v for v in rendered):
             print(f"marker not found: {marker}", file=sys.stderr)
             return 3
+
+    if expect:
+        rendered = [m.value for m in at.markdown] + [c.value for c in at.caption]
+        for text_ in expect.get("absent", []):
+            if any(text_ in v for v in rendered):
+                print(f"unexpectedly rendered: {text_}", file=sys.stderr)
+                return 5
+        for key, want in expect.get("widgets", {}).items():
+            got = at.session_state[key] if key in at.session_state else None
+            if got != want:
+                print(f"widget {key}: expected {want!r}, got {got!r}", file=sys.stderr)
+                return 6
 
     if assert_no_charts:
         charts = at.get("plotly_chart")
