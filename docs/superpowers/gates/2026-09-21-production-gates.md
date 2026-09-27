@@ -6,12 +6,12 @@ removed + 0 feature blockers. No account flipped, no Streamlit code/table/deploy
 
 | # | Gate | Status |
 |---|---|---|
-| 1 | PostgreSQL migrations + concurrency | **NOT RUN** on Neon — harness ready; a real deadlock found and fixed on `pg-gate-harness` (unmerged) |
-| 2 | Live Anthropic adversarial + usage accounting | **NOT RUN** — plan below, awaiting authorization |
+| 1 | PostgreSQL migrations + concurrency | **NOT RUN** on Neon — deadlock fix merged (`f5596ea`); uniqueness constraint + harness ready |
+| 2 | Live Anthropic adversarial + usage accounting | **NOT RUN** — bounded runner `tests/gate_anthropic_smoke.py` ready (demo: 0 requests, $0) |
 | 3 | Authenticated Playwright, desktop + true 375px | **NOT RUN** — no test account / staging target |
 | 4 | Docker build, startup, health | **PASS** (2026-09-27, CI run 36314736023) |
 | 5 | Dependency + security audit | **PASS** (2026-09-27) — see Gate 5 final |
-| 6 | Live R2 + screenshot migration | **NOT RUN** — plan below, awaiting credentials |
+| 6 | Live R2 + screenshot migration | **NOT RUN** — `scripts/gate_r2_verify.py` written and self-tested; no credentials |
 
 ---
 
@@ -251,3 +251,93 @@ refuse to start unless the configured model's rates are non-zero. Not run: no au
 ### Gates 3, 6 — NOT RUN
 
 Playwright: no staging account/URL supplied. R2: no scoped test credentials supplied. Plans unchanged above.
+
+## 2026-09-27 — CI resolved on `weekly-recap-unique`; Weekly Recap uniqueness; gate runners
+
+### Why Python CI was red — every failure root-caused
+
+Job logs need authentication, so the failures were reproduced in a fresh clone with CI's exact environment (Python
+3.11.15, `requirements-dev.txt`, `DEMO_MODE=true`, placeholder key). 10 failures, none a product defect:
+
+| Failure | Root cause | Fix |
+|---|---|---|
+| 7 Streamlit page-boot tests (long labelled "pre-existing") | `tests/app_boot_check.py` seeded fixed June–July 2026 dates; Journal/Analytics default to the last 90 days, so from early September the seeds fell out of range and each page correctly showed its no-data state. Proven: widening the window via session state made all 7 pass on unchanged code | `0ae6fc8` seeds relative to today (`_week_of`), weekday shapes kept |
+| `test_trade_analysis::test_demo_mode_never_shares_a_job_with_a_live_request` | assumed demo mode starts off; CI exports `DEMO_MODE=true`, so it compared demo with demo | `fc6e9b5` sets the live baseline explicitly; still kills a mutant dropping demo mode from the key |
+| `test_openapi_generation::test_the_committed_schema_matches_the_application` | committed contract generated on the 3.9 dev venv (FastAPI 0.120.4); production and CI run FastAPI 0.141.1, whose `ValidationError` schema adds optional `input`/`ctx` | `afefcbd` regenerated on 3.11; `b08d88b` generator refuses < 3.10, drift test skips there with the reason |
+| `test_capture_cleanup::test_the_whole_temp_directory_is_refused` | macOS-only artifact of the local repro (`/tmp` is a symlink when `TMPDIR` is cleared); passes with `TMPDIR`, and Ubuntu's `/tmp` is a real directory | none needed |
+
+`d3e4a0f`/`828d319`: CI now publishes failing pytest IDs as public annotations.
+
+### Verification at `828d319` (fresh clone, CI-identical environment)
+
+Commands in `scratchpad/ci_checks.sh` / `ci_tests.sh`, each mirroring `.github/workflows/ci.yml`:
+
+| Step | Command | Result |
+|---|---|---|
+| Runtime audit | `pip-audit -r requirements-api.txt` | No known vulnerabilities (rc 0) |
+| Lint | `ruff check src/ scripts/` | clean (rc 0) |
+| Format | `black --check src/ scripts/ tests/` | 350+ files unchanged (rc 0) |
+| Migrations | `alembic heads` = 1 (`i5j6k7l8m9n0`); `upgrade head; downgrade -1; downgrade -1; upgrade head` | rc 0 |
+| Schema/type drift | the three generators + `npm ci` + `npm run api:types` + `git diff --exit-code -- web/lib/api web/__tests__/fixtures` | no drift (rc 0) |
+| Marketing site | `python -m scripts.build_site` (CI env) | rc 0 |
+| Full suite | `pytest tests/` | **4092 passed, 0 failed, 15 skipped** (rc 0; +18 tests since the 4074 run, all new in this branch; skips = live-Postgres without credentials) |
+| Coverage gate | `pytest --cov=src/tradelens/services --cov-fail-under=80` | **92.70%** (required 80%; rc 0) |
+| Web job | `npm test`, `lint`, `typecheck`, `build`, `npm audit --omit=dev --audit-level=high` | 2023/2023; clean; clean; built; 0 vulnerabilities |
+
+### Weekly Recap uniqueness (gate 1 prerequisite)
+
+- `0fa1052` migration `i5j6k7l8m9n0`: unique `(user_id, week_start)` on `weekly_reviews` (`uq_weekly_reviews_user_week`),
+  matching model constraint; ownerless legacy rows unaffected (NULLs never collide). Preflight inside the upgrade: if
+  duplicate non-null groups exist it raises with the count only and changes nothing; `5387090` takes `LOCK TABLE …
+  IN SHARE MODE` first on PostgreSQL (an insert was shown to wait 1.5 s while held). Verified on SQLite and
+  PostgreSQL 16: round trip, refusal with rows and version intact, success after resolution, raw duplicate refused.
+- The owner-first and trade `FOR UPDATE` locking stays. **Both are load-bearing**: with the trade locks removed and the
+  constraint kept, every round still ends with one row but concurrent saves fail with `IntegrityError`; with the
+  constraint removed, a writer that skips the locks creates duplicates.
+- `8b4e546` `scripts/assign_legacy_data.py` now counts weekly conflicts in the dry run and `--apply` refuses while any
+  exist (the constraint would otherwise fail it atomically at apply time).
+- **Production preflight required before this migration deploys** — `1824e09` `scripts/preflight_weekly_unique.py`:
+  read-only (on PostgreSQL inside a `READ ONLY` transaction; the server refused a write in that mode:
+  `ReadOnlySqlTransaction`), reports each duplicate group (owner id, week, row count — never content), exit 0 = may
+  deploy, **3 = STOP**, 2 = could not run. **Not run against production** (no access; never production from here).
+  If it reports duplicates: stop the deployment and report them; do not delete or auto-merge trader data.
+
+### Mutation battery at `828d319` — 11/11 CAUGHT
+
+Controls pass unmutated; every restore sha256-verified; tree clean before and after. W1 model constraint removed ·
+W2 migration adds no constraint (hermetic + live PG) · W3 duplicate preflight disabled · W4 preflight counts ownerless
+rows · W5 legacy-save trade lock removed, constraint kept · W6 job-path trade lock removed, constraint kept · W7
+`lock_owner_first` removed, constraint kept · W8 legacy assignment ignores conflicts · W9 R2 gate stops flagging
+expiry rules that reach final screenshots · W10 R2 gate accepts any PUT status for the Content-Type check · W11
+preflight exits 0 on duplicates. (W4 first reported NOT-APPLIED after an indentation change; retargeted and CAUGHT.)
+
+### Independent review — APPROVE WITH NOTES, all actionable notes addressed
+
+Medium: 3.9 venv would silently revert the regenerated contract → `b08d88b`. Low: migration count/constraint race →
+`5387090`; failed requests not charged → `c4cc014`; `Gate.install()` untested → `c4cc014`; legacy assignment conflicts
+→ `8b4e546`; docstring/cleanup/annotation wording → `c4cc014`, `828d319`. Not changed: offline `alembic --sql` cannot
+render this migration (`get_bind()`), consistent with 19 existing migrations; nothing uses offline mode.
+
+The full CI-identical run also caught a regression introduced mid-branch: the architectural guard
+`test_no_ai_entry_point_is_reachable_outside_services` flagged the Anthropic runner in `scripts/`. The guard was left
+intact; the runner moved to `tests/` (`c4cc014`), where operational harnesses live.
+
+### Gate runners prepared (not gate evidence)
+
+- **Gate 2** `tests/gate_anthropic_smoke.py`: 9 adversarial steps through the real services; every provider request
+  gated on the app's own client (≤ 12 requests, stop at $4, refuse any call whose worst case passes $5, failed requests
+  charged their worst case, retries 0, refuses if the model prices at $0). `--demo`: 9/9 steps, 0 requests, $0.
+  Live: `python tests/gate_anthropic_smoke.py --live --report gate2.json` with the key available to the app.
+- **Gate 6** `scripts/gate_r2_verify.py`: dedicated test bucket only (`TRADELENS_R2_GATE_ALLOW=1`, bucket named twice,
+  production bucket refused, prefixes must start empty); 11 checks — quarantine lifecycle (and no rule reaching final
+  screenshots), CORS config + live preflight, JPEG → PNG normalisation, owner-only download, cross-owner
+  finalize/abandon refused, abandon, non-image rejection, signed Content-Type, owner-scoped deletion, cleanup — plus a
+  two-step expiry probe. Self-tested against a fake R2 that proves each check passes when correct and fails when broken.
+  Never runs the legacy screenshot migration.
+
+### Gate status after this branch
+
+Gates 1, 2, 3, 6 remain **NOT RUN** until exercised in their real environments (disposable Neon branch; live
+`--live` run within 12 calls / $5; authenticated desktop + 375px Playwright against staging; live R2 with scoped
+credentials). Gates 4 and 5 remain PASS. CI: the Python job is expected green once this branch lands; confirm on the
+first `main` run's annotations.
