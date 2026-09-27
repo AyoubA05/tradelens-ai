@@ -9,8 +9,8 @@ removed + 0 feature blockers. No account flipped, no Streamlit code/table/deploy
 | 1 | PostgreSQL migrations + concurrency | **NOT RUN** — connection blocked |
 | 2 | Live Anthropic adversarial + usage accounting | **NOT RUN** — plan below, awaiting authorization |
 | 3 | Authenticated Playwright, desktop + true 375px | **NOT RUN** — no test account / staging target |
-| 4 | Docker build, startup, health | **NOT RUN** — no Docker on this machine |
-| 5 | Dependency + security audit | **FAIL** — remediation on unmerged `legacy-deps-maintenance`; one regression open |
+| 4 | Docker build, startup, health | **NOT RUN** — CI job `docker-api` added 2026-09-27; result pending |
+| 5 | Dependency + security audit | **PASS** (2026-09-27) — see Gate 5 final |
 | 6 | Live R2 + screenshot migration | **NOT RUN** — plan below, awaiting credentials |
 
 ---
@@ -157,3 +157,34 @@ All still **NOT RUN**. No authorized credential workflow for PostgreSQL, Anthrop
 environment, and no Docker is available. Nothing was spent and no credential was used. Anthropic is approved for
 at most 12 calls / $5 (stop at $4), with the plan above, but only once an authorized credential path with usage
 tracking exists. The disposable Neon branch `br-tiny-salad-autsvp0y` is retained.
+
+### Gate 5 final — PASS (2026-09-27)
+
+Owner decisions (2026-09-27): accept Streamlit 1.54's stale-multiselect behaviour and pin it; deploy the legacy set
+once the updated test, full suite and smoke pass; take the smallest patched black/pytest.
+
+- `a7598c1` pins the behaviour: stale `an_asset` → widget value `[]`, readout counts the full demo sample (`n=60`),
+  no "No matching trades"; control: `["NQ"]` survives and narrows the sample. The boot harness gained an optional
+  expectations argument (widget values, absent copy). Discrimination checked: the stale test **fails under
+  Streamlit 1.50** (rc=3) and passes under 1.54; a wrong widget expectation is rejected (rc=6).
+- `f7c4ca4` black 26.3.1 + pytest 9.0.3 (smallest patched). Black 26 reformats 26 files, formatting only
+  (+24/−62). No risk acceptance was needed.
+- **Audits (fresh Python 3.11.15 resolutions incl. transitive deps, pip-audit):** `requirements.txt`,
+  `requirements-api.txt`, `requirements-dev.txt` — **no known vulnerabilities**. **npm:** `audit` full **0**,
+  `--omit=dev` **0**.
+- **Full legacy suite, Python 3.11, final pins:** 8 failed / 4050 passed / 7 skipped — exactly the baseline set
+  (7 pre-existing Streamlit boot tests + `test_openapi_generation`, which fails on 3.11 at baseline). No new failures.
+- **Local smoke:** headless Streamlit 1.54 on scratch SQLite, `DEMO_MODE=true`: health ok; `/`, `/Analytics`,
+  `/Trades` 200; no tracebacks.
+- **Deployed:** `legacy-deps-maintenance` fast-forwarded into `main`, pushed; remote = `f7c4ca4`. Streamlit
+  Community Cloud builds from `main`; the app was asleep and was woken to rebuild.
+- **Post-deploy:** the live app at `tradelenai.streamlit.app` serves entry bundle `index.Drusyo5m.js`, which is
+  Streamlit **1.54.0**'s (1.50.0's is `index.6xX1278W.js`). `/`, `/Analytics`, `/Trades`, `/Insights` render the
+  sign-in gate with 0 exceptions (signed-in pages not exercised live — no credentials used). Page suite rerun at
+  `f7c4ca4`: 74 passed, 7 failed = the pre-existing set.
+- Still open, non-security: the intermittent vitest failure seen once remains **unidentified**, cause unknown.
+
+**CI finding:** on `c65f757` the Python CI job stopped at `black --check` (pre-existing `tests/app_boot_check.py`
+formatting), so **CI had not been running pytest**; on `09909e5` the web job failed its npm audit (since fixed). With
+the tree now black-clean, CI's pytest step runs again and is expected to fail on the 7 pre-existing Streamlit boot
+tests and the 3.11-only OpenAPI test until those are resolved.

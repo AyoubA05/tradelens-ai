@@ -130,3 +130,78 @@ jobs:
 
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
+
+  docker-api:
+    # Production gate 4: the API/worker image builds, starts in production
+    # mode, and answers /health. The Postgres here is a disposable service
+    # container that lives only for this job; it is not the Neon database and
+    # proves nothing about Postgres concurrency (that is gate 1).
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci-only-disposable
+          POSTGRES_DB: tradelens_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d tradelens_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      IMG: tradelens-api:ci
+      CI_DB: postgresql://ci:ci-only-disposable@localhost:5432/tradelens_ci
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build the API image
+        run: docker build -f Dockerfile.api -t "$IMG" .
+
+      - name: Image carries no Streamlit-surface packages and runs as non-root
+        run: |
+          docker run --rm "$IMG" python -c "import importlib.util as u; bad=[m for m in ('streamlit','pyarrow','plotly') if u.find_spec(m)]; assert not bad, bad"
+          test "$(docker run --rm "$IMG" id -u)" = "10001"
+
+      - name: Generate a throwaway service secret
+        run: echo "TL_SERVICE_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
+      - name: Production mode refuses an ephemeral SQLite database
+        run: |
+          if timeout 60 docker run --rm -e TL_ENV=production \
+               -e DATABASE_URL=sqlite:///./x.db -e TL_SERVICE_SECRET "$IMG"; then
+            echo "API started in production against SQLite"; exit 1
+          fi
+
+      - name: Migrations apply inside the image
+        run: |
+          docker run --rm --network host -e DATABASE_URL="$CI_DB" "$IMG" alembic upgrade head
+          test "$(docker run --rm --network host -e DATABASE_URL="$CI_DB" "$IMG" alembic heads | wc -l)" = "1"
+
+      - name: API starts and answers /health
+        run: |
+          docker run -d --name api --network host -e TL_ENV=production \
+            -e DATABASE_URL="$CI_DB" -e TL_SERVICE_SECRET "$IMG"
+          for i in $(seq 1 60); do
+            body="$(curl -fsS http://localhost:8000/health || true)"
+            [ "$body" = '{"status":"ok"}' ] && break
+            sleep 1
+          done
+          test "$body" = '{"status":"ok"}'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/docs)" = "404"
+
+      - name: Worker starts and stays up
+        run: |
+          docker run -d --name worker --network host -e TL_ENV=production \
+            -e DATABASE_URL="$CI_DB" "$IMG" python -m src.tradelens.api.worker
+          sleep 15
+          test "$(docker inspect -f '{{.State.Running}}' worker)" = "true"
+          docker logs worker 2>&1 | grep -q "worker started"
+
+      - name: Container logs
+        if: always()
+        run: |
+          docker logs api 2>&1 | tail -50 || true
+          docker logs worker 2>&1 | tail -50 || true
