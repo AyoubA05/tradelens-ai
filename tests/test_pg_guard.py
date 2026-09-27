@@ -27,14 +27,35 @@ def test_refuses_without_an_expected_host(monkeypatch, no_connect):
         require_disposable_database(URL)
 
 
-def test_refuses_a_different_host(monkeypatch, no_connect):
+@pytest.fixture
+def expected(monkeypatch):
     monkeypatch.setenv("TRADELENS_PG_EXPECT_HOST", "ep-disposable.example.test")
+    monkeypatch.setenv("TRADELENS_PG_EXPECT_DATABASE", "neondb")
+
+
+def test_refuses_without_an_expected_database(monkeypatch, no_connect):
+    monkeypatch.setenv("TRADELENS_PG_EXPECT_HOST", "ep-disposable.example.test")
+    monkeypatch.delenv("TRADELENS_PG_EXPECT_DATABASE", raising=False)
+    with pytest.raises(NotTheDisposableDatabase):
+        require_disposable_database(URL)
+
+
+@pytest.mark.parametrize(
+    "param", ["host=prod.example.com", "hostaddr=10.0.0.9", "service=prod", "HOST=x"]
+)
+def test_refuses_a_query_parameter_that_redirects_the_connection(
+    param, expected, no_connect
+):
+    with pytest.raises(NotTheDisposableDatabase):
+        require_disposable_database(URL + "&" + param)
+
+
+def test_refuses_a_different_host(expected, no_connect):
     with pytest.raises(NotTheDisposableDatabase):
         require_disposable_database(URL.replace("ep-disposable", "ep-production"))
 
 
-def test_refuses_a_host_that_merely_contains_the_expected_one(monkeypatch, no_connect):
-    monkeypatch.setenv("TRADELENS_PG_EXPECT_HOST", "ep-disposable.example.test")
+def test_refuses_a_host_that_merely_contains_the_expected_one(expected, no_connect):
     with pytest.raises(NotTheDisposableDatabase):
         require_disposable_database(
             URL.replace(
@@ -45,6 +66,7 @@ def test_refuses_a_host_that_merely_contains_the_expected_one(monkeypatch, no_co
 
 def test_the_refusal_never_echoes_the_url(monkeypatch, no_connect):
     monkeypatch.setenv("TRADELENS_PG_EXPECT_HOST", "elsewhere")
+    monkeypatch.setenv("TRADELENS_PG_EXPECT_DATABASE", "neondb")
     with pytest.raises(NotTheDisposableDatabase) as caught:
         require_disposable_database(URL)
     assert "u:p@" not in str(caught.value) and "ep-disposable" not in str(caught.value)

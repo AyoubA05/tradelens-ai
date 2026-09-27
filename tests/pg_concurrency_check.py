@@ -85,31 +85,45 @@ def _run_all(targets):
     return results, errors
 
 
-def weekly_unique() -> dict:
-    """Twelve concurrent recap saves for one (owner, week), both save paths."""
+def weekly_unique(rounds: int = 10) -> dict:
+    """Twelve concurrent recap saves for one (owner, week), both save paths,
+    repeated over fresh owners: one round can miss a missing lock by luck
+    (the independent review measured 3 detections in 8 single rounds)."""
     from src.tradelens.services import weekly
 
-    uid, ids = _make_owner()
-    review = {"week_start": WEEK, "content_md": "recap", "stats": {}, "cost_usd": 0.0}
+    rows_per_round, errors = [], []
+    for _ in range(rounds):
+        uid, ids = _make_owner()
+        review = {
+            "week_start": WEEK,
+            "content_md": "recap",
+            "stats": {},
+            "cost_usd": 0.0,
+        }
 
-    def legacy():
-        return weekly.save_weekly_review(review, uid, overwrite=True)["id"]
+        def legacy(uid=uid, review=review):
+            return weekly.save_weekly_review(review, uid, overwrite=True)["id"]
 
-    def job():
-        return weekly.save_weekly_review_from_sources(
-            user_id=uid,
-            review=review,
-            source_trade_ids=ids,
-            input_fingerprint="f" * 64,
-            job_id=None,
-            verify=lambda db: True,
+        def job(uid=uid, ids=ids, review=review):
+            return weekly.save_weekly_review_from_sources(
+                user_id=uid,
+                review=review,
+                source_trade_ids=ids,
+                input_fingerprint="f" * 64,
+                job_id=None,
+                verify=lambda db: True,
+            )
+
+        _, round_errors = _run_all([legacy, job] * 6)
+        errors.extend(round_errors)
+        rows_per_round.append(
+            _count(
+                WeeklyReview,
+                WeeklyReview.user_id == uid,
+                WeeklyReview.week_start == WEEK,
+            )
         )
-
-    _, errors = _run_all([legacy, job] * 6)
-    rows = _count(
-        WeeklyReview, WeeklyReview.user_id == uid, WeeklyReview.week_start == WEEK
-    )
-    return {"rows": rows, "errors": errors}
+    return {"rows_per_round": rows_per_round, "errors": errors}
 
 
 def enqueue_limit() -> dict:
@@ -190,7 +204,7 @@ def _delete_race(save_first: bool, hold: float = 3.0) -> dict:
     if save_first:
         s = threading.Thread(target=save)
         s.start()
-        locked.wait(30)
+        outcome["save_held_lock"] = locked.wait(30)
         d = threading.Thread(target=delete)
         d.start()
         s.join(120)
@@ -241,14 +255,16 @@ def delete_during_fast_trade_summary_save() -> dict:
             outcome["save_error"] = type(exc).__name__
 
     def delete():
+        start = time.monotonic()
         try:
             data_deletion.delete_account_and_objects(uid)
         except Exception as exc:  # noqa: BLE001
             outcome["delete_error"] = type(exc).__name__
+        outcome["delete_seconds"] = round(time.monotonic() - start, 2)
 
     s_thread = threading.Thread(target=save)
     s_thread.start()
-    locked.wait(30)
+    outcome["save_held_lock"] = locked.wait(30)
     d_thread = threading.Thread(target=delete)
     d_thread.start()
     s_thread.join(120)

@@ -176,7 +176,8 @@ jobs:
             echo "API started in production against SQLite"; exit 1
           fi
           # Refused for the right reason, not merely crashed.
-          grep -q "invalid production configuration: DATABASE_URL" refuse.log
+          grep -q "invalid production configuration: DATABASE_URL" refuse.log \
+            || { cat refuse.log; exit 1; }
 
       - name: Migrations apply inside the image
         run: |

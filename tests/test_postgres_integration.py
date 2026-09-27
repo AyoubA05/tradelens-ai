@@ -13,8 +13,13 @@ import os
 import pytest
 
 PG_URL = os.getenv("TRADELENS_PG_TEST_URL")
+PG_ALLOW_DROP = os.getenv("TRADELENS_PG_TEST_ALLOW_DROP") == "1"
 pytestmark = pytest.mark.skipif(
-    not PG_URL, reason="set TRADELENS_PG_TEST_URL to run Postgres integration tests"
+    not PG_URL or not PG_ALLOW_DROP,
+    reason=(
+        "set TRADELENS_PG_TEST_URL and TRADELENS_PG_TEST_ALLOW_DROP=1 to run "
+        "Postgres integration tests (they drop the app schema)"
+    ),
 )
 
 

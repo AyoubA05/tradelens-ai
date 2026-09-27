@@ -22,8 +22,9 @@ PG_ALLOW_DROP = os.getenv("TRADELENS_PG_TEST_ALLOW_DROP") == "1"
 pytestmark = pytest.mark.skipif(
     not PG_URL or not PG_ALLOW_DROP,
     reason=(
-        "set TRADELENS_PG_TEST_URL, TRADELENS_PG_TEST_ALLOW_DROP=1 and "
-        "TRADELENS_PG_EXPECT_HOST to run against the disposable database"
+        "set TRADELENS_PG_TEST_URL, TRADELENS_PG_TEST_ALLOW_DROP=1, "
+        "TRADELENS_PG_EXPECT_HOST and TRADELENS_PG_EXPECT_DATABASE to run "
+        "against the disposable database"
     ),
 )
 
@@ -87,7 +88,7 @@ def test_concurrent_recap_saves_leave_exactly_one_row(migrated_database):
     saves across both paths must still leave one row, because both lock the
     week's trades first."""
     observed = _scenario("weekly_unique")
-    assert observed == {"rows": 1, "errors": []}
+    assert observed == {"rows_per_round": [1] * 10, "errors": []}
 
 
 def test_the_rolling_limit_holds_under_parallel_enqueues(migrated_database):
@@ -103,6 +104,8 @@ def test_the_rolling_limit_holds_under_parallel_enqueues(migrated_database):
 
 def test_deleting_an_account_during_a_save_resurrects_nothing(migrated_database):
     observed = _scenario("delete_while_saving")
+    assert observed["save_held_lock"] is True, observed
+    assert observed["delete_seconds"] >= 2.0, observed
     assert observed["delete_error"] is None, observed
     assert observed["save_error"] is None, observed  # no deadlock either way
     assert observed["user_rows"] == 0 and observed["review_rows"] == 0, observed
@@ -116,6 +119,10 @@ def test_deleting_an_account_during_a_fast_save_neither_fails_nor_resurrects(
     save locked the trades then needed the owner row for its foreign key, so
     Postgres aborted the deletion. Both now take the owner row first."""
     observed = _scenario("delete_during_fast_save")
+    # Real contention, not a lucky ordering: deletion started while the save
+    # held its locks and had to wait out most of the 0.3s hold.
+    assert observed["save_held_lock"] is True, observed
+    assert observed["delete_seconds"] >= 0.2, observed
     assert observed["delete_error"] is None, observed
     assert observed["save_error"] is None, observed
     assert observed["user_rows"] == 0 and observed["review_rows"] == 0, observed
@@ -125,6 +132,8 @@ def test_deleting_an_account_during_a_trade_summary_save_neither_fails_nor_resur
     migrated_database,
 ):
     observed = _scenario("delete_during_fast_trade_summary_save")
+    assert observed["save_held_lock"] is True, observed
+    assert observed["delete_seconds"] >= 0.2, observed
     assert observed["delete_error"] is None, observed
     assert observed["save_error"] is None, observed
     assert observed["user_rows"] == 0 and observed["summary_rows"] == 0, observed
