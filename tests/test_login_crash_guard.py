@@ -62,9 +62,7 @@ import sys
 sys.path.insert(0, %r)
 import src.tradelens.ui.components.auth as auth
 auth.require_auth()
-""" % str(
-        __import__("pathlib").Path(__file__).resolve().parents[1]
-    )
+""" % str(__import__("pathlib").Path(__file__).resolve().parents[1])
 
     at = AppTest.from_string(script, default_timeout=30).run()
     at.text_input(key="login_username").set_value("x")

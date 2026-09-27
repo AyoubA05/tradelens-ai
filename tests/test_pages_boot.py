@@ -310,7 +310,7 @@ def test_analytics_stale_asset_filter_clears_and_shows_unfiltered_trades(tmp_pat
         _ANALYTICS,
         tmp_path / "a-stale-asset.db",
         "1",
-        "tl-evidence-sample\">n=60 ",
+        'tl-evidence-sample">n=60 ',
         json.dumps({"analytics_lens": "Timing", "an_asset": ["NOT_A_REAL_ASSET"]}),
         expect=json.dumps(
             {"widgets": {"an_asset": []}, "absent": ["No matching trades"]}
@@ -325,12 +325,12 @@ def test_analytics_real_asset_filter_still_scopes_the_timing_lens(tmp_path):
         _ANALYTICS,
         tmp_path / "a-real-asset.db",
         "1",
-        "tl-evidence-sample\">n=",
+        'tl-evidence-sample">n=',
         json.dumps({"analytics_lens": "Timing", "an_asset": ["NQ"]}),
         expect=json.dumps(
             {
                 "widgets": {"an_asset": ["NQ"]},
-                "absent": ["tl-evidence-sample\">n=60 ", "No matching trades"],
+                "absent": ['tl-evidence-sample">n=60 ', "No matching trades"],
             }
         ),
     )

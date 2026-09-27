@@ -5,6 +5,7 @@ The security properties are the point: the owner comes from the session row,
 the period is validated server-side even though the HMAC already covers it,
 and a second trader's data is unreachable.
 """
+
 import time
 
 import pytest

@@ -19,7 +19,6 @@ from scripts.capture_app_screenshots import (
     validate_page_state,
 )
 
-
 EXPECTED_AUDIT = {
     "overview-desktop": ("/", 1440, 1000, False, False),
     "new-trade-desktop": ("/NewTrade", 1440, 1000, False, False),

@@ -8,7 +8,6 @@ from sqlalchemy.orm import sessionmaker
 
 from src.tradelens.db.models import Base, Strategy, User
 
-
 # ---------------------------------------------------------------------------
 # Fixture
 # ---------------------------------------------------------------------------

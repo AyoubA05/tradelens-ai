@@ -573,7 +573,7 @@ def test_demo_mode_returns_the_canned_reply_and_bills_nothing(
     )
     result = _global(owner)
     assert result.assistant_turn.text == partner._DEMO_PARTNER_REPLY
-    (_feature, usage, _owner) = usage_log[0]
+    _feature, usage, _owner = usage_log[0]
     assert usage.estimated_cost_usd == 0.0
 
 

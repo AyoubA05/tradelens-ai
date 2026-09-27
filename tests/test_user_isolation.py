@@ -219,9 +219,7 @@ def test_bulk_delete_rolls_back_all_rows_after_dependent_delete_failure(
     )
 
     db = trade_service.SessionLocal()
-    db.execute(
-        text(
-            """
+    db.execute(text("""
             CREATE TRIGGER fail_analysis_delete
             BEFORE DELETE ON aianalysis
             WHEN NOT EXISTS (
@@ -232,9 +230,7 @@ def test_bulk_delete_rolls_back_all_rows_after_dependent_delete_failure(
             BEGIN
                 SELECT RAISE(FAIL, 'injected failure after correction delete');
             END
-            """
-        )
-    )
+            """))
     db.commit()
     db.close()
 

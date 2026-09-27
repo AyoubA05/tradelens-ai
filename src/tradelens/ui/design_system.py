@@ -185,16 +185,13 @@ TL_EASE_DRAWER = "cubic-bezier(0.32, 0.72, 0, 1)"
 # names are generated rather than written out four times so the keyframes
 # cannot drift apart from each other.
 _LENS_NAMES = ("performance", "risk", "timing", "setups")
-_LENS_MOTION_CSS = "\n".join(
-    f"""  .st-key-tl_lens_{name} {{
+_LENS_MOTION_CSS = "\n".join(f"""  .st-key-tl_lens_{name} {{
     animation: tl-lens-in-{name} 170ms var(--tl-ease-out) both;
   }}
   @keyframes tl-lens-in-{name} {{
     from {{ opacity: 0; transform: translateY(4px); }}
     to {{ opacity: 1; transform: none; }}
-  }}"""
-    for name in _LENS_NAMES
-)
+  }}""" for name in _LENS_NAMES)
 
 _FONT_IMPORT = (
     "https://fonts.googleapis.com/css2?"

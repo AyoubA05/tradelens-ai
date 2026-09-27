@@ -19,7 +19,6 @@ from src.tradelens.services.journal import (
 )
 from src.tradelens.services.ai_client import Usage
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

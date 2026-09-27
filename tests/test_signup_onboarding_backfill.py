@@ -21,7 +21,6 @@ import sys
 
 from sqlalchemy import create_engine, text
 
-
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _PREVIOUS_REVISION = "w3x4y5z6a7b8"
 
@@ -44,9 +43,7 @@ def test_complete_site_signup_profiles_skip_redundant_personal_onboarding(tmp_pa
 
     engine = create_engine(url)
     with engine.begin() as connection:
-        connection.execute(
-            text(
-                """
+        connection.execute(text("""
                 INSERT INTO users
                     (id, username, password_hash, email, is_active,
                      full_name, birthday, referral_source,
@@ -62,9 +59,7 @@ def test_complete_site_signup_profiles_skip_redundant_personal_onboarding(tmp_pa
                     (4, 'u_fedcba9876543210', 'partial-hash', 'partial@example.com', 1,
                      'Partial Tester', '1994-02-17', NULL,
                      false, false, true)
-                """
-            )
-        )
+                """))
 
     upgraded = _alembic("upgrade", "head", url=url)
     assert upgraded.returncode == 0, upgraded.stderr
@@ -88,9 +83,7 @@ def test_complete_site_signup_profiles_skip_redundant_personal_onboarding(tmp_pa
 def _seed(engine) -> None:
     """One row per case in the approved matrix, plus the exact-case legacy pair."""
     with engine.begin() as connection:
-        connection.execute(
-            text(
-                """
+        connection.execute(text("""
                 INSERT INTO users
                     (id, username, password_hash, email, is_active,
                      full_name, birthday, referral_source,
@@ -140,9 +133,7 @@ def _seed(engine) -> None:
                     (11, 'u_beefbeefbeefbeef', 'h', 'h@example.invalid', 1,
                      'Verified Tester', '1994-02-17', 'Friend',
                      false, false, false, '2026-08-02 00:00:00')
-                """
-            )
-        )
+                """))
 
 
 def _states(engine) -> dict:

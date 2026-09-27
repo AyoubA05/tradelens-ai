@@ -12,7 +12,6 @@ from sqlalchemy.orm import sessionmaker
 from src.tradelens.db.models import AIAnalysis, Base, Trade
 from src.tradelens.services.ai_client import Usage
 
-
 # ---------------------------------------------------------------------------
 # In-memory DB fixture — mirrors pattern from test_trade_service.py
 # ---------------------------------------------------------------------------

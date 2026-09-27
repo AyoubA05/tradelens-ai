@@ -676,18 +676,13 @@ async def _wait_until(tab: _Tab, expression: str, *, failure: str) -> None:
 
 
 async def _partner_presentations(tab: _Tab) -> int:
-    return int(
-        await tab.js(
-            """
+    return int(await tab.js("""
 (() => ['.st-key-tl_partner_drawer', '.st-key-tl_partner_page']
   .map(selector => document.querySelector(selector))
   .filter(element => element && getComputedStyle(element).display !== 'none'
     && element.getBoundingClientRect().width > 0
     && element.getBoundingClientRect().height > 0).length)()
-"""
-        )
-        or 0
-    )
+""") or 0)
 
 
 async def _capture_one(capture: CaptureSpec, token: str) -> Path:

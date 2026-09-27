@@ -12,7 +12,6 @@ import pytest
 
 from src.tradelens.services.ai_client import AIUnavailable, Usage
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------

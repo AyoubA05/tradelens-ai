@@ -17,7 +17,6 @@ from src.tradelens.db.models import (
     WeeklyReview,
 )
 
-
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "assign_legacy_data.py"
 
 

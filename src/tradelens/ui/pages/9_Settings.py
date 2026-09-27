@@ -272,8 +272,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 with st.expander("How to configure an API key"):
-    st.markdown(
-        """
+    st.markdown("""
 1. Get an API key from **Anthropic** (console.anthropic.com).
 2. In **Streamlit Cloud**: **App Settings → Secrets**, then add:
    ```
@@ -281,8 +280,7 @@ with st.expander("How to configure an API key"):
    ```
 3. **Locally**: add the key to `.streamlit/secrets.toml` or `.env`.
 4. Restart the app.
-"""
-    )
+""")
 
 # ══════════════════════════════════════════════════════════════════
 # Data — what you can take out, put in, and what the AI has cost

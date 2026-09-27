@@ -6,6 +6,7 @@ Usage:
     python scripts/recompute_metrics.py
     python scripts/recompute_metrics.py --user-id 1
 """
+
 import argparse
 import math
 import sys

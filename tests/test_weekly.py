@@ -16,7 +16,6 @@ from sqlalchemy.orm import sessionmaker
 from src.tradelens.db.models import Base
 from src.tradelens.services.ai_client import AIUnavailable, Usage
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------

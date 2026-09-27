@@ -31,8 +31,7 @@ def main() -> int:
     try:
         rows = (
             db.execute(
-                text(
-                    """
+                text("""
                 SELECT id, username, email, is_active, onboarding_completed,
                        strategy_profile_completed, email_verification_required,
                        email_verified_at, password_hash, full_name, birthday,
@@ -40,8 +39,7 @@ def main() -> int:
                   FROM users
                  WHERE (:needle IS NULL OR email LIKE :like)
                  ORDER BY id
-                """
-                ),
+                """),
                 {"needle": needle, "like": f"%{needle}%" if needle else "%"},
             )
             .mappings()

@@ -21,7 +21,6 @@ from src.tradelens.db.models import TradeDraft
 from src.tradelens.db.session import SessionLocal
 from src.tradelens.services.ownership import require_user_id
 
-
 # Draft keys the AI autofill worker owns. The browser's autosave body is
 # built by `toDraftPayload`, which deliberately never sets them, so "the
 # incoming payload does not mention this key" reliably means "an autosave,

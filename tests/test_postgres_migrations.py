@@ -8,7 +8,6 @@ import sys
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PG_URL = os.getenv("TRADELENS_PG_TEST_URL")
 PG_ALLOW_DROP = os.getenv("TRADELENS_PG_TEST_ALLOW_DROP") == "1"
