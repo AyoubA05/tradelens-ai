@@ -2,7 +2,8 @@ name: Production gates (manual)
 
 # Owner-triggered verification against real environments. Nothing here runs on
 # push or pull_request: each gate is opted into explicitly, reads only its own
-# repository secrets (never printed; GitHub masks them), and publishes results
+# secrets from the protected `production-gates` Environment (never printed;
+# GitHub masks them; a required reviewer releases them per run), and publishes results
 # as annotations, which are public, so the evidence is readable from the API.
 # No job touches production, flips accounts, removes Streamlit, or runs the
 # legacy screenshot migration.
@@ -11,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       gate1:
-        description: "Gate 1 — PostgreSQL on the disposable Neon branch (secret GATE1_PG_URL)"
+        description: "Gate 1 — PostgreSQL on the disposable Neon branch (Environment secret GATE1_PG_URL)"
         type: boolean
         default: false
       pg_expect_host:
@@ -19,9 +20,9 @@ on:
         type: string
         default: "ep-wispy-lab-aulvo72w.c-10.us-east-1.aws.neon.tech"
       pg_expect_database:
-        description: "Gate 1 identity guard: database name"
+        description: "Gate 1 identity guard: database name (the test-only database on the disposable branch)"
         type: string
-        default: "neondb"
+        default: "gate1"
       gate2:
         description: "Gate 2 — live Anthropic run, <= 12 requests / $4 stop / $5 cap (secret GATE2_ANTHROPIC_API_KEY)"
         type: boolean
@@ -66,6 +67,9 @@ jobs:
   gate1-postgres:
     if: ${{ inputs.gate1 }}
     runs-on: ubuntu-latest
+    # Secrets live in the protected Environment, not repository-wide; its
+    # required reviewer approves each run before any secret is released.
+    environment: production-gates
     env:
       TRADELENS_PG_TEST_URL: ${{ secrets.GATE1_PG_URL }}
       TRADELENS_PG_TEST_ALLOW_DROP: "1"
@@ -111,6 +115,9 @@ jobs:
   gate2-anthropic:
     if: ${{ inputs.gate2 }}
     runs-on: ubuntu-latest
+    # Secrets live in the protected Environment, not repository-wide; its
+    # required reviewer approves each run before any secret is released.
+    environment: production-gates
     env:
       ANTHROPIC_API_KEY: ${{ secrets.GATE2_ANTHROPIC_API_KEY }}
     steps:
@@ -150,6 +157,9 @@ jobs:
   gate3-playwright:
     if: ${{ inputs.gate3 }}
     runs-on: ubuntu-latest
+    # Secrets live in the protected Environment, not repository-wide; its
+    # required reviewer approves each run before any secret is released.
+    environment: production-gates
     defaults:
       run:
         working-directory: web
@@ -207,6 +217,9 @@ jobs:
   gate6-r2:
     if: ${{ inputs.gate6 }}
     runs-on: ubuntu-latest
+    # Secrets live in the protected Environment, not repository-wide; its
+    # required reviewer approves each run before any secret is released.
+    environment: production-gates
     env:
       R2_ACCOUNT_ID: ${{ secrets.GATE6_R2_ACCOUNT_ID }}
       R2_ACCESS_KEY_ID: ${{ secrets.GATE6_R2_ACCESS_KEY_ID }}

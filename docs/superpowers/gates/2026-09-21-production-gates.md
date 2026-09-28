@@ -13,7 +13,8 @@ have not yet run in their real environments, so cutover Gate 1 approval is not r
 | 4 | Docker build, startup, health | **PASS** (CI runs `36314736023`, `36333731981`) |
 | 5 | Dependency + security audit | **PASS** (2026-09-27) — see Gate 5 final |
 | 6 | Live R2 | **NOT RUN** — no scoped test-bucket credentials supplied; runnable via the workflow |
-| — | Production duplicate preflight for migration `i5j6k7l8m9n0` | **PASS** (2026-09-28): 0 duplicate groups (2 rows, 2 distinct owner-weeks) |
+| — | Production duplicate preflight for migration `i5j6k7l8m9n0` | **PASS** (2026-09-28): 0 duplicate groups (2 rows, 2 distinct owner-weeks) — recorded separately from the gates |
+| — | **Exposed production DB credential** | **OPEN — owner must rotate** (see 2026-09-28 credential incident) |
 | — | CI (`main`) | **green** at `29289d2` |
 
 ---
@@ -394,3 +395,47 @@ published as public annotations (Gate 2's full report also as an artifact). No j
 Gate 3 fails on any skip and requires all **14 authenticated runs** (7 section tests × desktop and 375px) plus the 8
 public runs to pass; the parser was checked against a synthetic report (22/22 passes; one skip fails, 13/14).
 Gate 1 fails on any skipped test. Gate 6's expiry check is two runs: `plant`, then `check` after the lifecycle days.
+
+## 2026-09-28 — credential incident and the owner runbook
+
+### What was exposed
+
+The `neondb_owner` connection string for the disposable branch was fetched through the Neon MCP and appeared in the
+session transcript. A local boolean comparison (no value printed) confirmed **its password is identical to the
+production `neondb_owner` password** in `.env.local` (`DATABASE_URL` and `DATABASE_URL_UNPOOLED`, endpoint
+`ep-lingering-resonance-aukzi0ki`). Neon branches copy role passwords from their parent at creation, so the same
+password is expected on `dev-auth-migration` and `gate1-pg-verify-2026-09-21`. Treat it as compromised everywhere.
+
+It was **not rotated from the session**, deliberately: rotating through the MCP prints the new production password
+into the transcript (a fresh exposure), and every service connecting as `neondb_owner` fails until its
+`DATABASE_URL` is updated — dashboards the session cannot reach. The local scratch copy was deleted.
+
+### Owner runbook (in this order)
+
+**1. Rotate production (one short window).** Neon console → project `round-poetry-98534743` → branch `production` →
+Roles → `neondb_owner` → Reset password. Immediately update `DATABASE_URL` (and any unpooled variant) in: Streamlit
+Cloud app secrets (then Reboot app), Vercel project env (redeploy), Render `tradelens-api` and `tradelens-worker`
+env, and local `.env.local`. Verify: Streamlit app loads past sign-in, web `/login` renders, API `/health` 200.
+Also reset `neondb_owner` on `dev-auth-migration` (update `web/.env.local`). Never reuse the old value.
+
+**2. Fresh test-only credential for Gate 1 (disposable branch only).** Branch `gate1-pg-verify-2026-09-21`
+(`br-tiny-salad-autsvp0y`) → Roles → create `gate1_tester`; Databases → create `gate1` owned by `gate1_tester`.
+Copy the **direct** (non-pooler) connection string for `gate1_tester` / `gate1` — endpoint
+`ep-wispy-lab-aulvo72w.c-10.us-east-1.aws.neon.tech`. Owning `gate1` lets the role drop and recreate its `public`
+schema, as the tests do; it has no access to production. (Also reset `neondb_owner` on this branch.)
+
+**3. Protected Environment.** GitHub → Settings → Environments → New environment `production-gates` → Required
+reviewers: yourself; Deployment branches: `main` only. Add **environment** secrets (not repository secrets):
+`GATE1_PG_URL` (step 2), `GATE2_ANTHROPIC_API_KEY` (a newly issued, dedicated test key with a low spend limit set
+in the Anthropic console), `GATE3_E2E_EMAIL` / `GATE3_E2E_PASSWORD` (a dedicated staging account), and
+`GATE6_R2_ACCOUNT_ID`, `GATE6_R2_ACCESS_KEY_ID`, `GATE6_R2_SECRET_ACCESS_KEY`, `GATE6_R2_BUCKET` (an R2 API token
+scoped to Object Read & Write on the **test bucket only**). The R2 test bucket needs a lifecycle rule expiring
+`quarantine/` (e.g. 1 day) and CORS allowing `PUT` from the staging origin — Gate 6 checks both.
+
+**4. Run.** Actions → "Production gates (manual)" → Run workflow on `main`. Tick gates 1, 2, 3, 6; set
+`staging_url`, `r2_expect_bucket` (the test bucket's name again), `r2_production_bucket` (so it is refused); leave
+`pg_expect_host` / `pg_expect_database` (`gate1`) at their defaults. Approve the Environment when prompted. Results are
+public annotations; the session reads them from the Actions API and records PASS / FAIL here. For expiry, a later run
+with `r2_expiry_probe=plant`, then `check` after the lifecycle period.
+
+Gates 1, 2, 3 and 6 stay **NOT RUN** until that run exists. Cutover approval is not requested.
