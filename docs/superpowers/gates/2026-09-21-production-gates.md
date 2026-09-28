@@ -1,17 +1,20 @@
-# Phase 10 production gates — evidence (started 2026-09-21)
+# Phase 10 production gates — evidence (started 2026-09-21; summary updated 2026-09-28)
 
-Base: `main` @ `09909e5` (Phase 10B merged, remote verified). Parity ledger unchanged: 126 = 121 implemented + 5
-removed + 0 feature blockers. No account flipped, no Streamlit code/table/deployment touched. Gate 1 approval is
-**not** requested: no gate has passed.
+Current `main`: `29289d2` — CI green on all three jobs (Python tests + coverage, web, Docker; run `36333731981`).
+Parity ledger unchanged: 126 = 121 implemented + 5 removed + 0 feature blockers. No account flipped, no Streamlit
+code/table/deployment removed, no legacy screenshot migration run. **Gates 4 and 5 have passed; Gates 1, 2, 3 and 6
+have not yet run in their real environments, so cutover Gate 1 approval is not requested.**
 
 | # | Gate | Status |
 |---|---|---|
-| 1 | PostgreSQL migrations + concurrency | **NOT RUN** on Neon — deadlock fix merged (`f5596ea`); uniqueness constraint + harness ready |
-| 2 | Live Anthropic adversarial + usage accounting | **NOT RUN** — bounded runner `tests/gate_anthropic_smoke.py` ready (demo: 0 requests, $0) |
-| 3 | Authenticated Playwright, desktop + true 375px | **NOT RUN** — no test account / staging target |
-| 4 | Docker build, startup, health | **PASS** (2026-09-27, CI run 36314736023) |
+| 1 | PostgreSQL migrations + concurrency | **NOT RUN** — this machine cannot reach Neon over the Postgres protocol (see 2026-09-28); runnable via the manual `production-gates` workflow |
+| 2 | Live Anthropic adversarial + usage accounting | **NOT RUN** — the locally configured key is invalid (401 on every request; $0 actual spend); runnable via the workflow with a valid key |
+| 3 | Authenticated Playwright, desktop + true 375px | **NOT RUN** — no staging URL / dedicated account supplied; runnable via the workflow |
+| 4 | Docker build, startup, health | **PASS** (CI runs `36314736023`, `36333731981`) |
 | 5 | Dependency + security audit | **PASS** (2026-09-27) — see Gate 5 final |
-| 6 | Live R2 + screenshot migration | **NOT RUN** — `scripts/gate_r2_verify.py` written and self-tested; no credentials |
+| 6 | Live R2 | **NOT RUN** — no scoped test-bucket credentials supplied; runnable via the workflow |
+| — | Production duplicate preflight for migration `i5j6k7l8m9n0` | **PASS** (2026-09-28): 0 duplicate groups (2 rows, 2 distinct owner-weeks) |
+| — | CI (`main`) | **green** at `29289d2` |
 
 ---
 
@@ -341,3 +344,53 @@ Gates 1, 2, 3, 6 remain **NOT RUN** until exercised in their real environments (
 `--live` run within 12 calls / $5; authenticated desktop + 375px Playwright against staging; live R2 with scoped
 credentials). Gates 4 and 5 remain PASS. CI: the Python job is expected green once this branch lands; confirm on the
 first `main` run's annotations.
+
+## 2026-09-28 — environment-backed gates
+
+### Production duplicate preflight (migration `i5j6k7l8m9n0`) — PASS
+
+Run read-only against the production branch (`production`, `br-soft-morning-auxx44gz`, primary/default; database
+`neondb`) through the Neon MCP over HTTPS — a single `SELECT`, the preflight script's exact query:
+`SELECT user_id, week_start, COUNT(*) … WHERE user_id IS NOT NULL GROUP BY user_id, week_start HAVING COUNT(*) > 1`
+→ **no rows**. Corroborating read: `weekly_reviews` total 2 rows, 0 ownerless, 2 distinct owned (user_id, week_start)
+pairs. Equivalent to the script's exit 0: the migration may deploy as far as duplicates are concerned. Nothing was
+written, deleted or merged.
+
+**Deployment finding:** production's `alembic_version` is `x4y5z6a7b8c9`, several revisions behind `main`'s head
+`i5j6k7l8m9n0` (pending include the app-surface, `ai_jobs`, daily-debrief and uniqueness migrations). Applying them is
+a cutover deployment step and has not been done.
+
+### Gate 1 — NOT RUN: Postgres protocol blocked from this machine
+
+Disposable branch confirmed (`gate1-pg-verify-2026-09-21`, `br-tiny-salad-autsvp0y`, endpoint
+`ep-wispy-lab-aulvo72w.c-10.us-east-1.aws.neon.tech`, idle, not primary). The identity guard ran first and could not
+connect: `could not receive data from server: Operation timed out`. Diagnosis (sandbox disabled): TCP 5432 to the
+endpoint opens; a hand-built Postgres `SSLRequest` gets **no reply in 25 s** (twice); TLS on 443 to the same host
+succeeds; closed ports elsewhere are correctly refused (no blanket local interceptor). The path from this machine
+admits the connection and drops Postgres traffic. Both venvs carry libpq 16, so it is not a client-version issue. No
+destructive statement was sent. Last week's failures were the same symptom.
+
+### Gate 2 — NOT RUN: invalid key
+
+`python tests/gate_anthropic_smoke.py --live` from the main checkout, with `ANTHROPIC_BASE_URL` removed so the SDK used
+its default endpoint. The app resolved its key from `.streamlit/secrets.toml`; **every request returned
+`401 authentication_error: API key is invalid`**. 9 requests attempted (the gate allowed them: under 12 and within
+budget); the gate charged each failed request its worst case ($1.6230 recorded) as designed, but authentication
+failures are not billed — **actual spend $0**. No output was produced, so no expectation was exercised. The live
+Streamlit Cloud app holds its own key in the Cloud dashboard; this conclusion is about the local key only.
+
+### The authorized secret path: `.github/workflows/production-gates.yml`
+
+Manual (`workflow_dispatch`) only; each gate is a checkbox; each job reads only its own repository secrets; results are
+published as public annotations (Gate 2's full report also as an artifact). No job touches production.
+
+| Gate | Secrets to add (Settings → Secrets and variables → Actions) | Inputs |
+|---|---|---|
+| 1 | `GATE1_PG_URL` — the **disposable** branch's direct (non-pooler) URL | `pg_expect_host` (defaults to the disposable endpoint), `pg_expect_database` (`neondb`) |
+| 2 | `GATE2_ANTHROPIC_API_KEY` — a valid key | — |
+| 3 | `GATE3_E2E_EMAIL`, `GATE3_E2E_PASSWORD` — the dedicated staging account | `staging_url` |
+| 6 | `GATE6_R2_ACCOUNT_ID`, `GATE6_R2_ACCESS_KEY_ID`, `GATE6_R2_SECRET_ACCESS_KEY`, `GATE6_R2_BUCKET` — least-privilege, test bucket | `r2_expect_bucket`, `r2_production_bucket`, `staging_url`, `r2_expiry_probe` / `r2_probe_key` |
+
+Gate 3 fails on any skip and requires all **14 authenticated runs** (7 section tests × desktop and 375px) plus the 8
+public runs to pass; the parser was checked against a synthetic report (22/22 passes; one skip fails, 13/14).
+Gate 1 fails on any skipped test. Gate 6's expiry check is two runs: `plant`, then `check` after the lifecycle days.

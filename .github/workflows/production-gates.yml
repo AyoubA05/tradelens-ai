@@ -1,0 +1,247 @@
+name: Production gates (manual)
+
+# Owner-triggered verification against real environments. Nothing here runs on
+# push or pull_request: each gate is opted into explicitly, reads only its own
+# repository secrets (never printed; GitHub masks them), and publishes results
+# as annotations, which are public, so the evidence is readable from the API.
+# No job touches production, flips accounts, removes Streamlit, or runs the
+# legacy screenshot migration.
+
+on:
+  workflow_dispatch:
+    inputs:
+      gate1:
+        description: "Gate 1 — PostgreSQL on the disposable Neon branch (secret GATE1_PG_URL)"
+        type: boolean
+        default: false
+      pg_expect_host:
+        description: "Gate 1 identity guard: exact endpoint host of the disposable branch"
+        type: string
+        default: "ep-wispy-lab-aulvo72w.c-10.us-east-1.aws.neon.tech"
+      pg_expect_database:
+        description: "Gate 1 identity guard: database name"
+        type: string
+        default: "neondb"
+      gate2:
+        description: "Gate 2 — live Anthropic run, <= 12 requests / $4 stop / $5 cap (secret GATE2_ANTHROPIC_API_KEY)"
+        type: boolean
+        default: false
+      gate3:
+        description: "Gate 3 — authenticated Playwright, desktop + 375px (secrets GATE3_E2E_EMAIL, GATE3_E2E_PASSWORD)"
+        type: boolean
+        default: false
+      staging_url:
+        description: "Gate 3 / Gate 6: staging origin, e.g. https://staging.example.com (never production)"
+        type: string
+        default: ""
+      gate6:
+        description: "Gate 6 — live R2 checks on a dedicated test bucket (secrets GATE6_R2_*)"
+        type: boolean
+        default: false
+      r2_expect_bucket:
+        description: "Gate 6: the test bucket's name, stated again (must equal secret GATE6_R2_BUCKET)"
+        type: string
+        default: ""
+      r2_production_bucket:
+        description: "Gate 6: the production bucket's name, so it can be refused"
+        type: string
+        default: ""
+      r2_expiry_probe:
+        description: "Gate 6 expiry probe: none | plant | check"
+        type: choice
+        options: [none, plant, check]
+        default: none
+      r2_probe_key:
+        description: "Gate 6: key printed by an earlier 'plant' run (for 'check')"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  gate1-postgres:
+    if: ${{ inputs.gate1 }}
+    runs-on: ubuntu-latest
+    env:
+      TRADELENS_PG_TEST_URL: ${{ secrets.GATE1_PG_URL }}
+      TRADELENS_PG_TEST_ALLOW_DROP: "1"
+      TRADELENS_PG_EXPECT_HOST: ${{ inputs.pg_expect_host }}
+      TRADELENS_PG_EXPECT_DATABASE: ${{ inputs.pg_expect_database }}
+      DEMO_MODE: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements-dev.txt
+      - name: Require the secret
+        run: test -n "$TRADELENS_PG_TEST_URL" || { echo "::error::secret GATE1_PG_URL is not set"; exit 1; }
+      - name: Live PostgreSQL suites (identity checked before anything is dropped)
+        run: |
+          pytest -s -rA --junitxml=gate1.xml \
+            tests/test_postgres_concurrency.py \
+            tests/test_postgres_migrations.py \
+            tests/test_postgres_integration.py | tee gate1.log
+      - name: Publish Gate 1 evidence
+        if: always()
+        run: |
+          python - <<'PY'
+          import re, xml.etree.ElementTree as ET
+          log = open("gate1.log").read() if __import__("os").path.exists("gate1.log") else ""
+          for line in log.splitlines():
+              if line.startswith(("gate-1 target:", )) or re.match(r"^[a-z_]+: \{", line):
+                  print(f"::notice title=gate1::{line[:900]}")
+          try:
+              root = ET.parse("gate1.xml").getroot()
+          except (FileNotFoundError, ET.ParseError):
+              print("::error title=gate1::no report"); raise SystemExit(1)
+          cases = list(root.iter("testcase"))
+          bad = [c for c in cases if c.find("failure") is not None or c.find("error") is not None]
+          skipped = [c for c in cases if c.find("skipped") is not None]
+          print(f"::notice title=gate1::{len(cases)} tests, {len(bad)} failed, {len(skipped)} skipped")
+          for c in bad + skipped:
+              print(f"::error title=gate1::{c.get('name')} {'skipped' if c in skipped else 'failed'}")
+          raise SystemExit(1 if bad or skipped or not cases else 0)
+          PY
+
+  gate2-anthropic:
+    if: ${{ inputs.gate2 }}
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.GATE2_ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements-dev.txt
+      - name: Require the secret
+        run: test -n "$ANTHROPIC_API_KEY" || { echo "::error::secret GATE2_ANTHROPIC_API_KEY is not set"; exit 1; }
+      - name: Bounded live adversarial run
+        run: python tests/gate_anthropic_smoke.py --live --report gate2.json
+      - name: Publish Gate 2 evidence
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          try:
+              d = json.load(open("gate2.json"))
+          except FileNotFoundError:
+              print("::error title=gate2::no report"); raise SystemExit(1)
+          print(f"::notice title=gate2::mode={d['mode']} model={d['model']} requests={d['requests']} "
+                f"spent_usd={d['spent_usd']} limits={d['limits']}")
+          for s in d["steps"]:
+              print(f"::notice title=gate2 step::{s['step']} | expect: {s['expectation']} | "
+                    f"{s['outcome'][:200]} | guard={s.get('guard')}")
+          for r in d["request_log"]:
+              print(f"::notice title=gate2 request::{json.dumps(r)}")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gate2-report
+          path: gate2.json
+          if-no-files-found: ignore
+
+  gate3-playwright:
+    if: ${{ inputs.gate3 }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      E2E_BASE_URL: ${{ inputs.staging_url }}
+      E2E_EMAIL: ${{ secrets.GATE3_E2E_EMAIL }}
+      E2E_PASSWORD: ${{ secrets.GATE3_E2E_PASSWORD }}
+      PLAYWRIGHT_JSON_OUTPUT_NAME: gate3.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Require the inputs and secrets
+        run: |
+          test -n "$E2E_BASE_URL" || { echo "::error::input staging_url is empty"; exit 1; }
+          test -n "$E2E_EMAIL" && test -n "$E2E_PASSWORD" || { echo "::error::GATE3_E2E_* secrets are not set"; exit 1; }
+      - name: Desktop and true-375px, public and authenticated
+        run: npx playwright test --project=desktop --project=mobile-375 --reporter=list,json
+      - name: Publish Gate 3 evidence (skips count as failures)
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          try:
+              d = json.load(open("gate3.json"))
+          except FileNotFoundError:
+              print("::error title=gate3::no report"); raise SystemExit(1)
+          rows = []
+          def walk(suite, path):
+              for spec in suite.get("specs", []):
+                  for t in spec.get("tests", []):
+                      status = (t.get("results") or [{}])[-1].get("status", "skipped")
+                      rows.append((path or suite.get("file", ""), t.get("projectName"), spec["title"], status))
+              for child in suite.get("suites", []):
+                  walk(child, path or child.get("file", ""))
+          for s in d.get("suites", []):
+              walk(s, s.get("file", ""))
+          auth = [r for r in rows if "sections" in r[0]]
+          counts = {}
+          for r in rows:
+              counts[r[3]] = counts.get(r[3], 0) + 1
+          print(f"::notice title=gate3::{len(rows)} runs {counts}; authenticated executed={sum(1 for r in auth if r[3] != 'skipped')}/14")
+          for r in rows:
+              level = "notice" if r[3] == "passed" else "error"
+              print(f"::{level} title=gate3::[{r[1]}] {r[2]} -> {r[3]}")
+          ok = rows and all(r[3] == "passed" for r in rows) and len(auth) == 14
+          raise SystemExit(0 if ok else 1)
+          PY
+
+  gate6-r2:
+    if: ${{ inputs.gate6 }}
+    runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.GATE6_R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.GATE6_R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.GATE6_R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.GATE6_R2_BUCKET }}
+      TRADELENS_R2_EXPECT_BUCKET: ${{ inputs.r2_expect_bucket }}
+      TRADELENS_R2_PRODUCTION_BUCKET: ${{ inputs.r2_production_bucket }}
+      TRADELENS_R2_GATE_ALLOW: "1"
+      SITE_ORIGIN: ${{ inputs.staging_url }}
+      PROBE: ${{ inputs.r2_expiry_probe }}
+      PROBE_KEY: ${{ inputs.r2_probe_key }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements-dev.txt
+      - name: Live R2 checks
+        run: |
+          case "$PROBE" in
+            plant) python scripts/gate_r2_verify.py --plant-expiry-probe | tee gate6.log ;;
+            check) python scripts/gate_r2_verify.py --check-expiry-probe "$PROBE_KEY" | tee gate6.log ;;
+            *)     python scripts/gate_r2_verify.py --report gate6.json | tee gate6.log ;;
+          esac
+          exit "${PIPESTATUS[0]}"
+      - name: Publish Gate 6 evidence
+        if: always()
+        run: |
+          python - <<'PY'
+          import os
+          if not os.path.exists("gate6.log"):
+              print("::error title=gate6::no output"); raise SystemExit(1)
+          for line in open("gate6.log"):
+              line = line.rstrip()
+              if line.startswith(("PASS", "FAIL", "REFUSED", "planted")) or "checks passed" in line:
+                  level = "error" if line.startswith(("FAIL", "REFUSED")) else "notice"
+                  print(f"::{level} title=gate6::{line[:900]}")
+          PY
