@@ -415,6 +415,19 @@ def main() -> int:
     except Refused as refusal:
         print(f"REFUSED: {refusal}")
         return 2
+    try:
+        return _run(args, bucket)
+    except Exception as exc:  # noqa: BLE001
+        # Type only: botocore messages embed the endpoint URL, which carries
+        # the R2 account id (canary audit 2026-09-29), and a signed URL can
+        # carry the access key id. Nothing from the exception is printed.
+        print(
+            f"ERROR: {type(exc).__name__} (details suppressed so no endpoint or credential is logged)"
+        )
+        return 1
+
+
+def _run(args, bucket) -> int:
     from src.tradelens.api import storage
 
     client = storage._client()

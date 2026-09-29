@@ -84,9 +84,25 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - name: Require the secret
         run: test -n "$TRADELENS_PG_TEST_URL" || { echo "::error::secret GATE1_PG_URL is not set"; exit 1; }
-      - name: Live PostgreSQL suites (identity checked before anything is dropped)
+      - name: Mask every form of the credential
+        # GitHub masks the secret's exact value only. The URL's password can
+        # also surface decoded or re-encoded (a driver DSN, a traceback), so
+        # register those forms too before anything runs.
         run: |
-          pytest -s -rA --junitxml=gate1.xml \
+          python - <<'PY'
+          import os, urllib.parse
+          parts = urllib.parse.urlsplit(os.environ["TRADELENS_PG_TEST_URL"])
+          raw = parts.password or ""
+          forms = {raw, urllib.parse.unquote(raw), urllib.parse.quote(urllib.parse.unquote(raw), safe="")}
+          for form in sorted(f for f in forms if f):
+              print(f"::add-mask::{form}")
+          PY
+      - name: Live PostgreSQL suites (identity checked before anything is dropped)
+        # --tb=short: pytest's default long tracebacks print every frame's
+        # arguments, which put the decoded password (psycopg2.connect dsn) and
+        # the URL in the log in the canary audit of 2026-09-29.
+        run: |
+          pytest -s -rA --tb=short --junitxml=gate1.xml \
             tests/test_postgres_concurrency.py \
             tests/test_postgres_migrations.py \
             tests/test_postgres_integration.py | tee gate1.log
@@ -182,7 +198,15 @@ jobs:
           test -n "$E2E_BASE_URL" || { echo "::error::input staging_url is empty"; exit 1; }
           test -n "$E2E_EMAIL" && test -n "$E2E_PASSWORD" || { echo "::error::GATE3_E2E_* secrets are not set"; exit 1; }
       - name: Desktop and true-375px, public and authenticated
-        run: npx playwright test --project=desktop --project=mobile-375 --reporter=list,json
+        # --trace=off: a retained trace records every fill() value, so a
+        # failure would write the password to disk (canary audit 2026-09-29).
+        run: npx playwright test --project=desktop --project=mobile-375 --reporter=list,json --trace=off
+      - name: Delete test-results before anything else runs
+        # On a failure Playwright writes error-context.md, a page snapshot that
+        # includes the password field's value (canary audit 2026-09-29). It is
+        # never printed or uploaded; deleting it makes sure nothing can be.
+        if: always()
+        run: rm -rf test-results playwright-report
       - name: Publish Gate 3 evidence (skips count as failures)
         if: always()
         run: |

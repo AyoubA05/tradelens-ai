@@ -439,3 +439,21 @@ public annotations; the session reads them from the Actions API and records PASS
 with `r2_expiry_probe=plant`, then `check` after the lifecycle period.
 
 Gates 1, 2, 3 and 6 stay **NOT RUN** until that run exists. Cutover approval is not requested.
+
+## 2026-09-29 — secret-emission audit of every gate job (before any run)
+
+Method: each job's actual command run locally with **canary** credentials, in success and forced-failure conditions;
+all stdout/stderr, junit/JSON reports and on-disk outputs scanned for each canary in raw, URL-encoded, form-encoded
+and base64 forms. (Gate 2 used a local stub API so no key, even a fake one, left the machine.)
+
+| Gate | Cases | Before fix | Fix (branch `gate-output-redaction`) | After fix |
+|---|---|---|---|---|
+| 1 | full success on local PG 16; closed port; malformed URL; wrong host | **LEAK**: pytest's default long tracebacks print frame arguments — `psycopg2.connect(dsn=…password=<decoded>)` and `require_disposable_database(url=<full URL>)`. The decoded password is not the secret's exact value, so GitHub would **not** mask it | `pytest --tb=short`; a first step registers `::add-mask::` for the password's raw, decoded and re-encoded forms | 0 hits in all 4 cases (log + junit) |
+| 2 | stub API returning 401, 500, dropped connection | clean | — | 0 hits (log + report artifact) |
+| 3 | 14 authenticated runs failing at sign-in against a stub login page | log + JSON clean; **on disk**: retained traces (14) and `error-context.md` snapshots (14) contain the typed password; never printed or uploaded | `--trace=off`; `rm -rf test-results playwright-report` in an `always()` step straight after the tests | log + JSON 0 hits; 0 traces written; results directory deleted before the publish step |
+| 6 | real script, unreachable endpoint (list, plant probe, check probe); fake R2 in all variants with presigned URLs in play | **LEAK**: botocore errors print the endpoint URL, which embeds the R2 account id (masked by GitHub only as an exact value) | the script prints only the exception type on any error | 0 hits for account id, access key id, secret key or signed URL |
+
+Annotations: every publisher prints only whitelisted fields (identity host/db/user, scenario counts, check names and
+PASS/FAIL, request token counts and cost, step outcome and guard verdict). Workflow inputs reach shell steps only
+through `env:`. The only uploaded artifact is Gate 2's report (audited clean). **Not merged until the owner confirms
+credential rotation; merged immediately before the run.**
