@@ -18,7 +18,7 @@ import { SmtpTransport } from "@/lib/mail/transport";
  * only the error class name.
  */
 
-type Mode = "ok" | "reject-rcpt" | "auth-fail";
+type Mode = "ok" | "reject-rcpt" | "auth-fail" | "drop";
 
 type FakeServer = {
   port: number;
@@ -34,6 +34,10 @@ async function fakeSmtp(mode: Mode): Promise<FakeServer> {
   const server = net.createServer((socket) => {
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
+    if (mode === "drop") {
+      socket.destroy();
+      return;
+    }
     let inData = false;
     let data = "";
     let buffer = "";
@@ -121,6 +125,7 @@ const RESET_URL = "https://www.tradelensai.io/reset-password?token=CANARYTOKENre
 let saved: Record<string, string | undefined> = {};
 let logged: string[] = [];
 let server: FakeServer | null = null;
+let onWarning: ((warning: Error) => void) | null = null;
 
 function configure(host: string, port: number, withAuth = false) {
   process.env.TRADELENS_SMTP_HOST = host;
@@ -159,15 +164,40 @@ beforeEach(() => {
     delete process.env[key];
   }
   logged = [];
-  for (const channel of ["log", "info", "warn", "error", "debug"] as const) {
-    vi.spyOn(console, channel).mockImplementation((...args: unknown[]) => {
-      logged.push(args.map((a) => (a instanceof Error ? `${a.name}: ${a.message}` : String(a))).join(" "));
-    });
+  const record = (...args: unknown[]) => {
+    logged.push(
+      args
+        .map((a) =>
+          a instanceof Error ? `${a.name}: ${a.message}` : typeof a === "string" ? a : String(a),
+        )
+        .join(" "),
+    );
+  };
+  for (const channel of ["log", "info", "warn", "error", "debug", "dir", "trace", "table"] as const) {
+    vi.spyOn(console, channel).mockImplementation(record);
   }
+  // Below console: raw stream writes and process warnings are output too.
+  for (const stream of [process.stdout, process.stderr]) {
+    vi.spyOn(stream, "write").mockImplementation(((chunk: unknown) => {
+      record(typeof chunk === "string" ? chunk : Buffer.from(chunk as Uint8Array).toString("utf8"));
+      return true;
+    }) as typeof stream.write);
+  }
+  // emitWarning dispatches its 'warning' event on a later tick, after the
+  // assertions; capture the call itself, synchronously, as well.
+  vi.spyOn(process, "emitWarning").mockImplementation(((warning: string | Error) => {
+    record(warning);
+  }) as typeof process.emitWarning);
+  onWarning = (warning: Error) => record(warning);
+  process.on("warning", onWarning);
 });
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  if (onWarning) process.off("warning", onWarning);
+  onWarning = null;
+  // process.emitWarning dispatches on the next tick; let it land first.
+  await new Promise((resolve) => setImmediate(resolve));
   for (const key of SMTP_KEYS) {
     if (saved[key] === undefined) delete process.env[key];
     else process.env[key] = saved[key];
@@ -204,6 +234,7 @@ describe("SmtpTransport over a real SMTP exchange", () => {
     const outcome = await new SmtpTransport().send(message);
 
     expect(outcome).toEqual({ status: "failed" });
+    expect(server.commands).toContain("RCPT"); // the refusal really happened
     expect(server.received).toHaveLength(0);
     expect(logged.join("\n")).toMatch(/^mail: delivery failed \(\w+\)$/m);
     expectNothingSensitiveLogged(message);
@@ -222,11 +253,10 @@ describe("SmtpTransport over a real SMTP exchange", () => {
     expectNothingSensitiveLogged(message);
   });
 
-  it("reports a connection that cannot open as failed", async () => {
-    const closed = await fakeSmtp("ok");
-    const port = closed.port;
-    await closed.close();
-    configure("127.0.0.1", port);
+  it("reports a connection dropped before the greeting as failed", async () => {
+    // Deterministic, unlike reusing a just-closed port another listener could take.
+    server = await fakeSmtp("drop");
+    configure("127.0.0.1", server.port);
     const message = verificationMessage(RECIPIENT, VERIFY_URL);
 
     const outcome = await new SmtpTransport().send(message);
@@ -246,6 +276,9 @@ describe("SmtpTransport over a real SMTP exchange", () => {
     const outcome = await new SmtpTransport().send(message);
 
     expect(outcome).toEqual({ status: "failed" });
+    // It reached the server and asked for TLS, then stopped: not a connection
+    // that merely failed to open.
+    expect(server.commands.slice(0, 2)).toEqual(["EHLO", "STARTTLS"]);
     expect(server.commands).not.toContain("DATA");
     expect(server.commands).not.toContain("AUTH");
     expect(server.received).toHaveLength(0);
