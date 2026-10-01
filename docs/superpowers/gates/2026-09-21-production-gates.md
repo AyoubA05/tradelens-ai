@@ -11,7 +11,7 @@ have not yet run in their real environments, so cutover Gate 1 approval is not r
 | 2 | Live Anthropic adversarial + usage accounting | **NOT RUN** — the locally configured key is invalid (401 on every request; $0 actual spend); runnable via the workflow with a valid key |
 | 3 | Authenticated Playwright, desktop + true 375px | **NOT RUN** — no staging URL / dedicated account supplied; runnable via the workflow |
 | 4 | Docker build, startup, health | **PASS** (CI runs `36314736023`, `36333731981`) |
-| 5 | Dependency + security audit | **PASS** (2026-09-27) — see Gate 5 final |
+| 5 | Dependency + security audit | **PASS** (re-established 2026-10-01 at `53792d1`, CI run `36912749492`) — FAIL 2026-09-29 → 10-01 on new advisories; see Gate 5 regression |
 | 6 | Live R2 | **NOT RUN** — no scoped test-bucket credentials supplied; runnable via the workflow |
 | — | Production duplicate preflight for migration `i5j6k7l8m9n0` | **PASS** (2026-09-28): 0 duplicate groups (2 rows, 2 distinct owner-weeks) — recorded separately from the gates |
 | — | **Exposed production DB credential** | **OPEN — owner must rotate** (see 2026-09-28 credential incident) |
@@ -457,3 +457,35 @@ Annotations: every publisher prints only whitelisted fields (identity host/db/us
 PASS/FAIL, request token counts and cost, step outcome and guard verdict). Workflow inputs reach shell steps only
 through `env:`. The only uploaded artifact is Gate 2's report (audited clean). **Not merged until the owner confirms
 credential rotation; merged immediately before the run.**
+
+## 2026-10-01 — Gate 5 regression and remediation
+
+CI on `7f8de49` (2026-09-29) failed `npm audit --omit=dev`: new advisories published after the 2026-09-27 PASS —
+**next 16.3.5** GHSA-vcvr-r3jv-pc5j (critical, RCE in `next/og` ImageResponse; `next/og` is not used by the app) and
+**nodemailer 9.1.1** GHSA-6vj9-mwq6-2f5v, -8vvx-rff5-p5rq, -g57g-f23g-4646, -v53p-9fqp-m79j, -prgh-xp8r-p3m5 (high).
+Gate 5 was FAIL from then until the remediation below merged.
+
+Branch `security-runtime-remediation` (merged at `53792d1`), scope limited to those two packages:
+
+- **next 16.3.5 → 16.3.6**, the smallest patched release (npm first resolved `^16.3.6` to 16.3.8; pinned to 16.3.6).
+- **nodemailer 9.1.1 → 10.0.13.** 10.0.9 already clears the listed advisories, but 10.0.9–10.0.10 carry the
+  CommonJS-entry and bundled-type breaks fixed in 10.0.11, and 10.0.13's fixes correspond to GHSA-4ffr-jq9g-5ffx and
+  GHSA-g73g-hqqh-jr95 (not yet in the npm advisory DB). 10.0.0's only breaking change is Node ≥ 20; the web app
+  already requires ≥ 20.9. 10.0.12's "honour requireTLS" concerns `requireTLS` combined with
+  `ignoreTLS`/`opportunisticTLS`, which the app never sets. 11 lockfile entries changed, all within the two packages.
+- **One call site** (`web/lib/mail/transport.ts`, `SmtpTransport`). Existing mail tests mock nodemailer, so a new
+  real-wire suite (`web/__tests__/mail-smtp.test.ts`) runs the real library against an in-process fake SMTP server:
+  verification and reset messages delivered with links intact; rejected recipient, refused credentials and a
+  connection dropped before the greeting all reported `failed`; a non-loopback host with no STARTTLS refused after
+  EHLO/STARTTLS, before AUTH or DATA. No recipient, subject, body, link, token or credential (raw or base64) reaches
+  console (all methods), raw stdout/stderr or process warnings. Mutants caught: requireTLS disabled; leaking the
+  error message via stderr, stdout, emitWarning, console.dir, console.trace. Passes on nodemailer 9.1.1 and
+  10.0.9–10.0.13; stable 5/5.
+- **Independent review: APPROVE WITH NOTES.** Confirmed scope, versions, integrity hashes, the compiled `.next`
+  transport against a fake SMTP server (delivers; fails cleanly; refuses plaintext; logs only
+  `mail: delivery failed (Error)`), and that v10 error names cannot carry sensitive text. Its two LOW test-strength
+  notes were fixed (`53792d1`).
+- **Results:** web 112 files / 2029 tests; tsc 0; lint 0 errors (2 pre-existing warnings); build on Next 16.3.6;
+  `npm audit --omit=dev` **0**. GitHub CI run `36912749492` on `53792d1`: all jobs **success**.
+- Outside scope, recorded only: full `npm audit` shows `brace-expansion` (high, transitive, **dev-only**);
+  `@types/nodemailer` 8.0.1 is now unused (nodemailer 10 bundles its own declarations).
