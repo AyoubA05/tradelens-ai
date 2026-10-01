@@ -163,6 +163,26 @@ jobs:
           for r in d["request_log"]:
               print(f"::notice title=gate2 request::{json.dumps(r)}")
           PY
+      - name: Refuse to upload a report that contains the key
+        # The audit found the report clean; this keeps it that way. Any form of
+        # the key (raw, URL-encoded, base64) deletes the report and fails.
+        if: always()
+        run: |
+          python - <<'PY'
+          import base64, os, urllib.parse
+          key = os.environ.get("ANTHROPIC_API_KEY", "")
+          if not key or not os.path.exists("gate2.json"):
+              raise SystemExit(0)
+          text = open("gate2.json", errors="replace").read()
+          # Scanning the URL-decoded text as well catches any percent-encoding.
+          haystacks = (text, urllib.parse.unquote(text))
+          forms = {key, base64.b64encode(key.encode()).decode().rstrip("=")}
+          if any(f and f in h for f in forms for h in haystacks):
+              os.remove("gate2.json")
+              print("::error title=gate2::report contained the API key; deleted, not uploaded")
+              raise SystemExit(1)
+          print("gate2 report: no key material found")
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:

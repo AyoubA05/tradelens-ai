@@ -35,3 +35,7 @@ ruff==0.15.16
 
 # FastAPI TestClient transport.
 httpx==0.28.1
+
+# tests/test_production_gates_workflow.py parses the gate workflow. Pinned
+# directly rather than relying on uvicorn[standard] pulling it in.
+pyyaml==6.0.3
