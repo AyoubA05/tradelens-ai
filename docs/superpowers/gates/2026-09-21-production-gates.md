@@ -11,7 +11,7 @@ have not yet run in their real environments, so cutover Gate 1 approval is not r
 | 2 | Live Anthropic adversarial + usage accounting | **NOT RUN** — the locally configured key is invalid (401 on every request; $0 actual spend); runnable via the workflow with a valid key |
 | 3 | Authenticated Playwright, desktop + true 375px | **NOT RUN** — no staging URL / dedicated account supplied; runnable via the workflow |
 | 4 | Docker build, startup, health | **PASS** (CI runs `36314736023`, `36333731981`) |
-| 5 | Dependency + security audit | **PASS** (re-established 2026-10-01 at `53792d1`, CI run `36912749492`) — FAIL 2026-09-29 → 10-01 on new advisories; see Gate 5 regression |
+| 5 | Dependency + security audit | **PASS** — production audit 0; one dev-only exception (`braces`) under an owner-accepted, time-bounded risk acceptance expiring at final cutover or **2026-11-03**, whichever is first (see 2026-10-04 risk acceptance) |
 | 6 | Live R2 | **NOT RUN** — no scoped test-bucket credentials supplied; runnable via the workflow |
 | — | Production duplicate preflight for migration `i5j6k7l8m9n0` | **PASS** (2026-09-28): 0 duplicate groups (2 rows, 2 distinct owner-weeks) — recorded separately from the gates |
 | — | **Exposed production DB credential** | **STILL OPEN (2026-10-04): the leaked password still authenticates on production** — gates 1/6/3/2 not run |
@@ -543,9 +543,37 @@ session does not have). Cutover approval not requested.
 - **`braces` ≤ 3.0.3, GHSA-vfj7-8cjw-p6xm — NEW, no patch exists** (3.0.3 is the latest release and is affected). npm
   reports it 7 times through its dependents (`micromatch`, `fast-glob`, `chokidar`, `tailwindcss` 3.4.17,
   `eslint-config-next`, `@next/eslint-plugin-next`); the only "fix" is a major migration (Tailwind 3 → 4).
-  **Proposed risk acceptance — awaiting the owner's explicit decision:** dev/build tooling only (`npm ls braces
+  **Risk acceptance — ACCEPTED by the owner on 2026-10-04 (see the record below); originally proposed as:** dev/build tooling only (`npm ls braces
   --omit=dev` is empty; the lockfile marks every node `dev: true`); no application code imports it; the issue is a
   stack-exhaustion DoS from deeply nested brace patterns, and the only patterns it ever receives are the two fixed
   globs in `tailwind.config` and ESLint's own config — never request or user input. Worst case is a failed local or CI
   build. Revisit when `braces` ≥ 3.0.4 is published or at the Tailwind 4 migration, and re-check monthly.
-  Until accepted, **Gate 5 is PASS for the production runtime and not yet permanently closed.**
+  Accepted 2026-10-04: **Gate 5 remains PASS** for as long as the acceptance below is in force.
+
+## 2026-10-04 — risk acceptance: dev-only `braces` advisory (owner decision)
+
+| Field | Record |
+|---|---|
+| Advisory | `braces` ≤ 3.0.3 — GHSA-vfj7-8cjw-p6xm (stack-exhaustion denial of service from deeply nested brace patterns). npm reports it 7 times through its dependents: `micromatch`, `fast-glob`, `chokidar`, `tailwindcss` 3.4.17, `eslint-config-next`, `@next/eslint-plugin-next` |
+| Decision | **Accepted temporarily** by the owner, 2026-10-04 |
+| Scope | Dev/build tooling only |
+| Basis 1 | **Dev-only**: every affected node in `web/package-lock.json` is `dev: true` |
+| Basis 2 | **Absent from the production dependency tree**: `npm ls braces micromatch fast-glob chokidar --omit=dev` is empty; `npm audit --omit=dev` reports 0 |
+| Basis 3 | **Not imported by application code**: no import or require of `braces`, `micromatch`, `fast-glob` or `chokidar` under `web/app`, `web/lib`, `web/components`, `web/scripts` |
+| Basis 4 | **Only processes fixed, repository-controlled glob patterns**: the two `content` globs in `web/tailwind.config` (`./app/**/*.{ts,tsx}`, `./components/**/*.{ts,tsx}`) and ESLint's own configuration — never request or user input |
+| Basis 5 | **No patched release exists**: 3.0.3 is the latest `braces` and is affected; the only fix is a Tailwind 3 → 4 migration |
+| Worst case | A local or CI build that fails; no production runtime exposure |
+| **Expiry** | **Streamlit retirement / final cutover, or 2026-11-03 (30 days), whichever comes first** |
+| At expiry | Revisit as a separate piece of work: adopt `braces` ≥ 3.0.4 if published, otherwise plan the Tailwind 4 migration. **No Tailwind 4 migration is to be started as part of cutover.** |
+| Re-check triggers | A patched `braces` release; any change that puts these packages in the production tree (`npm audit --omit=dev` ≠ 0); any code that passes non-repository input to a glob |
+
+Gate 5 status: **PASS** while this acceptance is in force. This does not cover any other advisory: a new finding, dev
+or production, is assessed on its own.
+
+**Standing order (owner, 2026-10-04):** Gates 1, 2, 3 and 6 are **not to be run** until the owner confirms the
+compromised production `neondb_owner` password has been rotated and every consumer updated. After that, in order:
+(1) verify the old leaked password is rejected on production, `dev-auth-migration` and the disposable branch;
+(2) verify Streamlit, web, API and worker health — the API and worker hosting URLs/processes must be identified first;
+(3) confirm `gate1_tester` / `gate1` exist **only** on the disposable branch (`neondb_owner` is not to be reused);
+(4) run Gate 1 → Gate 6 → Gate 3 → Gate 2. No legacy migration, account flip, table drop, Streamlit removal or cutover
+approval before all four pass.
