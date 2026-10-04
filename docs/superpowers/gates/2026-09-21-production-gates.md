@@ -14,7 +14,7 @@ have not yet run in their real environments, so cutover Gate 1 approval is not r
 | 5 | Dependency + security audit | **PASS** (re-established 2026-10-01 at `53792d1`, CI run `36912749492`) — FAIL 2026-09-29 → 10-01 on new advisories; see Gate 5 regression |
 | 6 | Live R2 | **NOT RUN** — no scoped test-bucket credentials supplied; runnable via the workflow |
 | — | Production duplicate preflight for migration `i5j6k7l8m9n0` | **PASS** (2026-09-28): 0 duplicate groups (2 rows, 2 distinct owner-weeks) — recorded separately from the gates |
-| — | **Exposed production DB credential** | **OPEN — owner must rotate** (see 2026-09-28 credential incident) |
+| — | **Exposed production DB credential** | **STILL OPEN (2026-10-04): the leaked password still authenticates on production** — gates 1/6/3/2 not run |
 | — | CI (`main`) | **green** at `29289d2` |
 
 ---
@@ -489,3 +489,63 @@ Branch `security-runtime-remediation` (merged at `53792d1`), scope limited to th
   `npm audit --omit=dev` **0**. GitHub CI run `36912749492` on `53792d1`: all jobs **success**.
 - Outside scope, recorded only: full `npm audit` shows `brace-expansion` (high, transitive, **dev-only**);
   `@types/nodemailer` 8.0.1 is now unused (nodemailer 10 bundles its own declarations).
+
+## 2026-10-04 — rotation verification FAILED; gates not run
+
+The owner reported `neondb_owner` rotated and all consumers updated. Verified before running any gate; **the first
+condition failed, so Gates 1, 6, 3 and 2 were not run.** No new credential was read, requested or echoed.
+
+**The leaked credential still authenticates on production.** Port 5432 is blocked from this machine, so the check used
+Neon's SQL-over-HTTPS endpoint with only the old, already-leaked password and `SELECT 1` / `current_user`:
+
+| Target | Old leaked password | Control (deliberately wrong password) |
+|---|---|---|
+| production, direct (`ep-lingering-resonance-aukzi0ki`) | HTTP 200, `current_user = neondb_owner`, db `neondb` (3 attempts over 30 s) | HTTP 400 `password authentication failed for user 'neondb_owner'` |
+| production, pooler | HTTP 200 | — |
+| disposable branch (`ep-wispy-lab-aulvo72w`) | HTTP 200 | — |
+
+Corroboration from the Neon project itself (read-only, no credential involved):
+- One project exists (`tradelens-prod`, `round-poetry-98534743`); there is no other project the reset could be in.
+- `neondb_owner` `updated_at` is `2026-07-18T12:10:00Z` (its creation time) on `production`, `dev-auth-migration`
+  **and** the disposable branch — a password reset updates it.
+- The operations log contains **no** password/role operation; the only operations since 2026-09-28 are the two
+  `start_compute` events at 14:06:55–56Z that this check itself caused.
+- No `gate1_tester` role and no `gate1` database exist on the disposable branch.
+- Local `.env.local` (file last modified 2026-07-18) still holds the leaked password on both production URLs.
+
+**Service health (as far as it can be seen from outside):**
+- Streamlit (`tradelenai.streamlit.app`): was asleep; woke and booted cleanly — sign-in gate, 0 exceptions, Streamlit
+  1.54 bundle. The sign-in gate opened no database connection, so its DB credential was not exercised.
+- Web (Vercel, `www.tradelensai.io`): `/`, `/login`, `/signup` → 200. Anonymous page loads opened no database
+  connection, so its DB credential was not exercised either. `app.tradelensai.io` has **no DNS record**.
+- API `/health`: **not verifiable** — `api.tradelensai.io` has no DNS record and the repository documents no deployed
+  API URL.
+- Worker: **not running against this database.** `pg_stat_activity` on production showed only this check's two
+  connections, and the production compute had been **suspended from 2026-09-28 12:44Z until this check woke it** — a
+  polling worker would have kept it awake. For six days no consumer connected to production at all, so nothing has
+  connected with any new credential.
+
+**Redaction protections on `main` (`8528745`): present.** `tests/test_production_gates_workflow.py` 8/8 passed;
+`--tb=short`, `::add-mask::`, `--trace=off`, the `test-results` cleanup, the Gate 2 pre-upload scan, the protected
+Environment on all four jobs and Gate 6's type-only error output are all in place.
+
+**Gates:** 1, 6, 3, 2 — **NOT RUN** (blocked on the rotation; also 0 runs of the workflow exist, the
+`gate1_tester`/`gate1` target does not exist yet, and triggering `workflow_dispatch` needs GitHub authentication this
+session does not have). Cutover approval not requested.
+
+### Dev-only advisories (Gate 5 follow-up)
+
+- **`brace-expansion` — resolved with a compatible patch** (`dev-deps-brace-expansion`): `npm update brace-expansion`,
+  lockfile only, exactly 6 entries, all `dev: true` — 1.1.18→1.1.21 (×4, under eslint), 2.1.4→2.1.7 (under
+  `@redocly/openapi-core`), 5.0.9→5.0.12. Clears GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7, GHSA-q2hr-2g5m-vwhr.
+  (`npm audit fix` was rejected: it also moved `eslint-config-next` 16.3.1→16.3.8.) Web: 2029/2029 tests, tsc 0, lint
+  0 errors, build OK, `api:types` no drift. `npm audit --omit=dev`: **0**.
+- **`braces` ≤ 3.0.3, GHSA-vfj7-8cjw-p6xm — NEW, no patch exists** (3.0.3 is the latest release and is affected). npm
+  reports it 7 times through its dependents (`micromatch`, `fast-glob`, `chokidar`, `tailwindcss` 3.4.17,
+  `eslint-config-next`, `@next/eslint-plugin-next`); the only "fix" is a major migration (Tailwind 3 → 4).
+  **Proposed risk acceptance — awaiting the owner's explicit decision:** dev/build tooling only (`npm ls braces
+  --omit=dev` is empty; the lockfile marks every node `dev: true`); no application code imports it; the issue is a
+  stack-exhaustion DoS from deeply nested brace patterns, and the only patterns it ever receives are the two fixed
+  globs in `tailwind.config` and ESLint's own config — never request or user input. Worst case is a failed local or CI
+  build. Revisit when `braces` ≥ 3.0.4 is published or at the Tailwind 4 migration, and re-check monthly.
+  Until accepted, **Gate 5 is PASS for the production runtime and not yet permanently closed.**
